@@ -1,6 +1,6 @@
 // FILE: app/build.gradle.kts
 //
-// GraphiXR — the standalone multi-layer image editor (sketching & photo editing). It hosts the
+// GraffiXR — the standalone multi-layer image editor (sketching & photo editing). It hosts the
 // shared :feature:editor and its core modules, which are ALSO consumed by GraffitiXR (the AR mural
 // app) so the editor stays a single source of truth. No AR, SLAM session, or co-op here.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -16,11 +16,11 @@ plugins {
 }
 
 android {
-    namespace = "com.hereliesaz.graphixr"
+    namespace = "com.hereliesaz.graffixr"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.hereliesaz.graphixr"
+        applicationId = "com.hereliesaz.graffixr"
         minSdk = 26
         targetSdk = 37
         versionCode = 1

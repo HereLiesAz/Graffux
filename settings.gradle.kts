@@ -10,7 +10,7 @@ dependencyResolutionManagement {
         maven { url = uri("https://jitpack.io") }
     }
 }
-rootProject.name = "GraphiXR"
+rootProject.name = "GraffiXR"
 include(":app")
 include(":core:common", ":core:domain", ":core:data", ":core:nativebridge", ":core:design")
 include(":feature:editor")

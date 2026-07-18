@@ -4,5 +4,5 @@
         The UI is fully Compose-driven (MaterialTheme supplies colors/typography), so a bare platform
         NoActionBar theme is enough and needs no extra XML-theme dependency for this app shell.
     -->
-    <style name="Theme.GraphiXR" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.GraffiXR" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

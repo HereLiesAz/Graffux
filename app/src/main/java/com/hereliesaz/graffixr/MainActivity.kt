@@ -1,4 +1,4 @@
-package com.hereliesaz.graphixr
+package com.hereliesaz.graffixr
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -20,11 +20,11 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
- * GraphiXR entry point.
+ * GraffiXR entry point.
  *
  * This first migration milestone hosts the shared [EditorViewModel] so the whole editor stack
  * (feature:editor + the core modules + native bridge) and its Hilt graph are proven to build and
- * resolve inside GraphiXR. The full editor screen — layer render + canvas + tool rail + panels,
+ * resolve inside GraffiXR. The full editor screen — layer render + canvas + tool rail + panels,
  * extracted from GraffitiXR's MainActivity into :feature:editor — is wired in the next increment.
  */
 @AndroidEntryPoint
@@ -33,20 +33,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                GraphixrEditorHost()
+                GraffixrEditorHost()
             }
         }
     }
 }
 
 @Composable
-private fun GraphixrEditorHost() {
+private fun GraffixrEditorHost() {
     val vm: EditorViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(
-                text = "GraphiXR editor — ${uiState.layers.size} layer(s)",
+                text = "GraffiXR editor — ${uiState.layers.size} layer(s)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )
