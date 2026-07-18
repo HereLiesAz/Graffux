@@ -19,7 +19,12 @@ jobs:
       # OpenCV SDK is NOT committed (it's ~1 GB); fetch it before building. On a fresh checkout the
       # target dir is absent, so setup_libs.sh downloads non-interactively.
       - name: Fetch OpenCV SDK
-        run: chmod +x setup_libs.sh && ./setup_libs.sh
+        run: |
+          chmod +x setup_libs.sh && ./setup_libs.sh
+          # OpenCV's SDK bundles sample Gradle projects that ship their own gradle-wrapper.jar,
+          # which trips gradle/actions wrapper-validation. They aren't needed to build — remove them.
+          rm -rf core/nativebridge/libs/opencv/samples || true
+          find core/nativebridge/libs/opencv -name 'gradle-wrapper.jar' -delete || true
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
