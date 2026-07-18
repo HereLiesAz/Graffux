@@ -73,6 +73,7 @@ gha-creds-*.json
 /.claude/
 strangerdanger-494206-082913abfaab.json
 
-# OpenCV SDK is fetched via setup_libs.sh, never committed in GraphiXR. Other native support libs
-# (glm headers) ARE committed — only the giant fetched OpenCV tree is excluded.
+# OpenCV is a Maven Central dependency (org.opencv:opencv, Java + native via Prefab) — never
+# vendored. Keep this belt-and-suspenders ignore so a stray local SDK checkout can't get committed.
+# Other native support libs (glm headers) ARE committed under libs/glm.
 core/nativebridge/libs/opencv/
