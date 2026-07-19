@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Photo import for editing. No camera/AR/location — GraffiXR is a 2D sketch & photo editor. -->
+    <!-- Photo import for editing. GraffiXR is a 2D sketch & photo editor today; ARCore is pulled in
+         (transitively, for the SLAM/XR groundwork) but declared optional below, so the 2D editor runs
+         on any device and the XR path is gated at runtime. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -14,6 +16,20 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.GraffiXR">
+
+        <!--
+            ARCore is optional. GraffiXR ships as a 2D editor, but the ARCore AAR is a
+            transitive dependency (SlamManager, isArCoreAvailable, and the XR groundwork
+            that will eventually serve XR users). The AAR injects
+            com.google.ar.core.min_apk_version, and ARCore requires a matching
+            com.google.ar.core dependency-type tag or it throws at runtime. "optional"
+            means Google Play does not filter the listing to ARCore-eligible devices and
+            does not auto-install the ARCore APK; XR features are gated at runtime via
+            ArCoreApk.checkAvailability().
+        -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="optional" />
 
         <activity
             android:name=".MainActivity"
