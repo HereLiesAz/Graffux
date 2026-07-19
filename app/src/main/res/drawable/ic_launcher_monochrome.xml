@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon (Android 13+) monochrome layer: the X + drip silhouette; the system tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M37.44,37.44 L70.56,70.56"
+        android:strokeColor="#000000"
+        android:strokeWidth="19.44"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M70.56,37.44 L37.44,70.56"
+        android:strokeColor="#000000"
+        android:strokeWidth="19.44"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M68.04,41.04 C69.48,49.68 69.70,55.44 69.70,59.76 C69.70,66.24 65.52,67.68 65.52,72.72 A5.04,5.04 0 1 0 75.60,72.72 C75.60,67.68 71.42,66.24 71.42,59.76 C71.42,55.44 71.64,49.68 73.08,41.04 Z"
+        android:fillColor="#000000" />
+</vector>
