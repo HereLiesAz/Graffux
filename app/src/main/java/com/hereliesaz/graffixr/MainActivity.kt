@@ -23,8 +23,8 @@ import dagger.hilt.android.AndroidEntryPoint
  * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
  * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.
  *
- * Interop: when launched via `ACTION_SEND image/*` (e.g. a wall photo shared from GraffitiXR), the
- * shared image is opened as a new editor layer. GraffiXR is otherwise fully standalone.
+ * Interop: when launched via an ACTION_SEND image share (e.g. a wall photo shared from GraffitiXR),
+ * the shared image is opened as a new editor layer. GraffiXR is otherwise fully standalone.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
