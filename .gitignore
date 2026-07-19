@@ -1,34 +1,79 @@
-# Gradle files
+# Gradle
 .gradle/
 build/
 
-# Local configuration file (sdk path, etc)
+# C/C++
+.cxx/
+
+# Local configuration
 local.properties
 
-# Log/OS Files
-*.log
-
-# Android Studio generated files and folders
-captures/
-.externalNativeBuild/
-.cxx/
-*.aab
-*.apk
-output-metadata.json
-
-# IntelliJ
-*.iml
+# IDE files
 .idea/
-misc.xml
-deploymentTargetDropDown.xml
-render.experimental.xml
+*.iml
+*.ipr
+*.iws
+.DS_Store
 
 # Keystore files
 *.jks
 *.keystore
 
-# Google Services (e.g. APIs or Firebase)
+# APK files
+*.apk
+*.aab
+
+# Python bytecode cache (e.g. from py_compile on .github/scripts/)
+__pycache__/
+*.pyc
+
+# Log files
+*.log
+
+# Profiler
+*.hprof
+*.heapdump
+captures/
+
+# Outputs
+/app/build
+/app/release/
+/app/debug/
+/.kotlin/sessions/
+
+project_backup_*
 google-services.json
 
-# Android Profiling
-*.hprof
+# Transient dependencies (stored in root libs/)
+*/libs/opencv/
+*/libs/glm/
+*/libs/litert/
+*/libs/mlkit-subject-segmentation/
+*/libs/*.aar
+*/libs/litert_npu_runtime_libraries/
+
+# Legacy/Other
+/app/src/main/cpp/include/glm/*
+
+build_log*.txt
+/gradle/gradle-daemon-jvm.properties
+project_backup_full_*
+refactor*.sh
+*/build/*
+*/.cxx/*
+
+build_output*.txt
+/changes.diff
+
+.gemini/
+gha-creds-*.json
+/project_source_*.txt
+.worktrees/
+/.agent/
+/.claude/
+strangerdanger-494206-082913abfaab.json
+
+# OpenCV is a Maven Central dependency (org.opencv:opencv, Java + native via Prefab) — never
+# vendored. Keep this belt-and-suspenders ignore so a stray local SDK checkout can't get committed.
+# Other native support libs (glm headers) ARE committed under libs/glm.
+core/nativebridge/libs/opencv/

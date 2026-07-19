@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider paths for interop share-out. The editor writes the composited PNG to
+     cacheDir/shared/ (see EditorViewModel.exportForShare); this exposes exactly that subdir. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>
