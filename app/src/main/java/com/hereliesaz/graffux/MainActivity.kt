@@ -303,8 +303,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     TextEditDialog(
                         initialText = params.text,
                         initialSizeDp = params.fontSizeDp,
+                        initialColorArgb = params.colorArgb,
+                        initialBold = params.isBold,
+                        initialItalic = params.isItalic,
                         onTextChange = { vm.onTextContentChanged(editTextId, it) },
                         onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                        onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                        onStyleChange = { b, i ->
+                            vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
+                        },
                         onDismiss = {
                             vm.consumeAutoEditTextLayer()
                             manualEditTextId = null
