@@ -86,6 +86,10 @@ internal object EditorReducer {
         is EditorIntent.SetStencilButtonPosition -> state.copy(stencilButtonPosition = intent.position)
 
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
+        is EditorIntent.SetDocumentSize -> state.copy(
+            documentWidth = intent.width.coerceIn(1, 8192),
+            documentHeight = intent.height.coerceIn(1, 8192),
+        )
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)

@@ -150,6 +150,9 @@ data class EditorUiState(
     // Incremented after each stroke segment so Compose re-reads the modified pixels.
     val liveStrokeVersion: Int = 0,
     val canvasBackground: Color = Color.Black,
+    // Artboard / document dimensions in pixels (the fixed design/output size).
+    val documentWidth: Int = 1080,
+    val documentHeight: Int = 1080,
     val isSegmenting: Boolean = false,
     val segmentationInfluence: Float = 0.5f,
     val segmentationPreview: Bitmap? = null,

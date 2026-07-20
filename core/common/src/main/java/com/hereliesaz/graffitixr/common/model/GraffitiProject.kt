@@ -144,5 +144,11 @@ data class GraffitiProject(
     // user left it on reopen. Defaulted for back-compat. Populated via onRailHostExpansionChanged once
     // AzNavRail exposes a per-host expansion-change callback (onExpandedChange, expected 10.11); until
     // then it stays empty and the reactive initiallyExpanded/expandWhen rules drive the rail.
-    val railExpansion: Map<String, Boolean> = emptyMap()
+    val railExpansion: Map<String, Boolean> = emptyMap(),
+
+    // Artboard / document dimensions in pixels — the fixed output size the design targets (social
+    // preset, print, or custom). Defaulted to a 1080² square for back-compat with projects saved
+    // before the document model existed.
+    val documentWidth: Int = 1080,
+    val documentHeight: Int = 1080
 )

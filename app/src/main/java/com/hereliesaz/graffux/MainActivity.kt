@@ -15,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,6 +34,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -89,9 +92,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
 
-    // Graffux is a pure 2D editor: force DESIGN mode (EditorViewModel defaults to AR) so the layer
+    // Graffux is a pure 2D editor: keep DESIGN mode (the EditorViewModel default) so the layer
     // render and Design-mode transform gestures apply. Runs once.
     LaunchedEffect(Unit) { vm.setEditorMode(EditorMode.DESIGN) }
+
+    // Artboard size picker visibility (opened from the rail's "Size" item).
+    var showDocDialog by remember { mutableStateOf(false) }
 
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
@@ -132,6 +138,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
+            onDocumentSize = { showDocDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -173,11 +180,22 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             }
         }
 
-        // Foreground layer. GraffitiXR always pairs the rail with an `onscreen` block (its routed
-        // AzNavHost + AR overlays live here); Graffux is a single self-contained screen whose
-        // interactive UI already sits in `background`, so this stays empty — it just satisfies the
-        // host's expected background/onscreen layering.
-        onscreen(alignment = Alignment.Center) {}
+        // Foreground layer. GraffitiXR pairs the rail with an `onscreen` block (its routed AzNavHost
+        // + AR overlays); Graffux's interactive editor sits in `background`, so this hosts only
+        // transient overlays like the artboard size picker.
+        onscreen(alignment = Alignment.Center) {
+            if (showDocDialog) {
+                DocumentSizeDialog(
+                    currentWidth = uiState.documentWidth,
+                    currentHeight = uiState.documentHeight,
+                    onConfirm = { w, h ->
+                        vm.setDocumentSize(w, h)
+                        showDocDialog = false
+                    },
+                    onDismiss = { showDocDialog = false },
+                )
+            }
+        }
     }
 }
 
@@ -195,6 +213,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     navItemColor: Color,
     onOpenImage: () -> Unit,
     onShare: () -> Unit,
+    onDocumentSize: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -291,7 +310,7 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     azDivider()
 
-    // 2. PROJECT FOLDER — save / export / share.
+    // 2. PROJECT FOLDER — size / save / export / share.
     azRailHostItem(
         id = "host.project",
         text = navStrings.project,
@@ -299,6 +318,15 @@ private fun AzNavHostScope.ConfigureRailItems(
         initiallyExpanded = railExpansion["host.project"] ?: false,
         onExpandedChange = { vm.onRailHostExpansionChanged("host.project", it) },
     )
+    azRailSubItem(
+        id = "proj.size",
+        hostId = "host.project",
+        text = "${uiState.documentWidth}×${uiState.documentHeight}",
+        color = navItemColor,
+        shape = AzButtonShape.NONE,
+    ) {
+        onDocumentSize()
+    }
     azRailSubItem(id = "proj.save", hostId = "host.project", text = navStrings.save, color = navItemColor, shape = AzButtonShape.NONE) {
         vm.saveProject()
     }

@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -14,12 +15,16 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -128,6 +133,15 @@ fun EditorScreen(
             }
         }
 
+        // 1b. Artboard frame — the document bounds. A non-interactive overlay: dims the workspace
+        // outside the centered, aspect-fit document rect and outlines it, so the fixed output size is
+        // always visible. Purely visual (no pointer input) — gestures/drawing below are unaffected.
+        ArtboardFrame(
+            documentWidth = uiState.documentWidth,
+            documentHeight = uiState.documentHeight,
+            modifier = Modifier.fillMaxSize(),
+        )
+
         // 2. Transform / tap gestures — only when no brush tool is active.
         if (uiState.activeTool == Tool.NONE) {
             Box(
@@ -188,5 +202,43 @@ fun EditorScreen(
                 CircularProgressIndicator()
             }
         }
+    }
+}
+
+/**
+ * Draws the artboard: the centered, aspect-fit rectangle matching the document's [documentWidth] :
+ * [documentHeight] ratio, with the surrounding workspace dimmed and the bounds outlined. Non-
+ * interactive (a plain [Canvas] with no pointer input), so gestures and drawing below are untouched.
+ */
+@Composable
+private fun ArtboardFrame(
+    documentWidth: Int,
+    documentHeight: Int,
+    modifier: Modifier = Modifier,
+) {
+    if (documentWidth <= 0 || documentHeight <= 0) return
+    val scrim = Color.Black.copy(alpha = 0.5f)
+    val border = Color.White.copy(alpha = 0.7f)
+    Canvas(modifier) {
+        val docAspect = documentWidth.toFloat() / documentHeight.toFloat()
+        val canvasAspect = size.width / size.height
+        val rectW: Float
+        val rectH: Float
+        if (docAspect > canvasAspect) {
+            rectW = size.width
+            rectH = size.width / docAspect
+        } else {
+            rectH = size.height
+            rectW = size.height * docAspect
+        }
+        val left = (size.width - rectW) / 2f
+        val top = (size.height - rectH) / 2f
+        // Scrim bands around the artboard (top / bottom / left / right).
+        if (top > 0f) drawRect(scrim, Offset(0f, 0f), Size(size.width, top))
+        if (top + rectH < size.height) drawRect(scrim, Offset(0f, top + rectH), Size(size.width, size.height - top - rectH))
+        if (left > 0f) drawRect(scrim, Offset(0f, top), Size(left, rectH))
+        if (left + rectW < size.width) drawRect(scrim, Offset(left + rectW, top), Size(size.width - left - rectW, rectH))
+        // Document outline.
+        drawRect(color = border, topLeft = Offset(left, top), size = Size(rectW, rectH), style = Stroke(width = 2f))
     }
 }

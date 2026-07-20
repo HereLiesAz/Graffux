@@ -213,6 +213,7 @@ class EditorViewModel @Inject constructor(
                         }
 
                         dispatch(EditorIntent.LoadedProject(project.id, layers))
+                        dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -584,6 +585,8 @@ class EditorViewModel @Inject constructor(
                     layers = updatedLayers,
                     mapPath = mapPath,
                     cloudPointsPath = cloudPointsPath,
+                    documentWidth = _uiState.value.documentWidth,
+                    documentHeight = _uiState.value.documentHeight,
                 )
                 projectRepository.createProject(manifestToSave)
             } else {
@@ -597,6 +600,8 @@ class EditorViewModel @Inject constructor(
                         lastModified = System.currentTimeMillis(),
                         mapPath = mapPath,
                         cloudPointsPath = cloudPointsPath,
+                        documentWidth = _uiState.value.documentWidth,
+                        documentHeight = _uiState.value.documentHeight,
                     )
                 }
                 // Export the merged result the repository just persisted (includes any AR wall map).
@@ -788,6 +793,12 @@ class EditorViewModel @Inject constructor(
     fun toggleHandedness() = dispatch(EditorIntent.ToggleHandedness)
     fun toggleDiagOverlay() = dispatch(EditorIntent.ToggleDiagOverlay)
     fun setActiveTool(tool: Tool) = dispatch(EditorIntent.SetActiveTool(tool))
+
+    /** Sets the artboard / document size and persists it to the current project. */
+    fun setDocumentSize(width: Int, height: Int) {
+        dispatch(EditorIntent.SetDocumentSize(width, height))
+        saveProject()
+    }
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
