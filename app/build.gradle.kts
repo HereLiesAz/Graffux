@@ -1,6 +1,6 @@
 // FILE: app/build.gradle.kts
 //
-// GraffiXR — the standalone multi-layer image editor (sketching & photo editing). It hosts the
+// Graffux — the standalone multi-layer image editor (sketching & photo editing). It hosts the
 // shared :feature:editor and its core modules, which are ALSO consumed by GraffitiXR (the AR mural
 // app) so the editor stays a single source of truth. No AR, SLAM session, or co-op here.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -16,11 +16,11 @@ plugins {
 }
 
 android {
-    namespace = "com.hereliesaz.graffixr"
+    namespace = "com.hereliesaz.graffux"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.hereliesaz.graffixr"
+        applicationId = "com.hereliesaz.graffux"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
@@ -97,6 +97,11 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
+
+    // The AzNavRail host (AzHostActivityLayout + the rail DSL) that MainActivity wraps the editor in.
+    // Reaches us transitively via :core:common's api(az-nav-rail), but :app now calls the DSL directly.
+    implementation(libs.az.nav.rail)
+    implementation(libs.navigation.compose)
 
     implementation(libs.timber)
     implementation(libs.coil.compose)

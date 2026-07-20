@@ -1,4 +1,4 @@
-package com.hereliesaz.graffixr
+package com.hereliesaz.graffux
 
 import android.app.Application
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
@@ -6,12 +6,12 @@ import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 
 /**
- * GraffiXR's Application. Triggers Hilt code generation and loads the native libraries the shared
+ * Graffux's Application. Triggers Hilt code generation and loads the native libraries the shared
  * editor relies on (OpenCV + the graffitixr native bridge — the editor's Liquify tool bakes through
  * SlamManager). Deliberately lean: no AR/SLAM session bring-up, no co-op, no crash-upload worker.
  */
 @HiltAndroidApp
-class GraffixrApplication : Application() {
+class GraffuxApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
