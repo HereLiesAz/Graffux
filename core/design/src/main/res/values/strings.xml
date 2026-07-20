@@ -253,6 +253,12 @@
     <string name="nav_size">Size</string>
     <!-- Action label for color selection. -->
     <string name="nav_color">Color</string>
+    <!-- Rail label: select the move/transform tool (no active brush). -->
+    <string name="nav_move">Move</string>
+    <!-- Rail label: select the brush/paint tool. -->
+    <string name="nav_brush">Brush</string>
+    <!-- Rail label: share/export the composed design to another app. -->
+    <string name="nav_share">Share</string>
     <!-- Action label for text kerning. -->
     <string name="nav_kern">Kern</string>
     <!-- Action label for bold text toggle. -->
