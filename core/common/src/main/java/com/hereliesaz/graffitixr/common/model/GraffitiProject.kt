@@ -125,9 +125,6 @@ data class GraffitiProject(
     val cloudPointsPath: String? = null,
     val targetFingerprint: String? = null,
     val isRightHanded: Boolean = true,
-    // Per-mode whole-design adjustments, keyed by EditorMode.name. Defaulted for back-compat with
-    // projects saved before this field existed.
-    val modeAdjustments: Map<String, ModeAdjustment> = emptyMap(),
 
     // Camera intrinsics (fx,fy,cx,cy) and the anchor pose (column-major 4x4, 16 floats) captured
     // alongside a metric fingerprint. Persisted so relocalization on reload replays the TRUE capture

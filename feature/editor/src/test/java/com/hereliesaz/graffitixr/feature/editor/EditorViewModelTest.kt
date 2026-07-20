@@ -524,21 +524,6 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `onOpacityChanged in a Mode updates the mode adjustment, not the layer`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setEditorMode(EditorMode.OVERLAY)
-        viewModel.setLayers(listOf(lyr("a")))
-        viewModel.onLayerActivated("a")
-        testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.onOpacityChanged(0.4f)
-        testDispatcher.scheduler.advanceUntilIdle()
-        val st = viewModel.uiState.value
-        // Whole-design mode opacity is updated; the active layer's own opacity is untouched.
-        assertEquals(0.4f, st.modeAdjustments[EditorMode.OVERLAY]?.opacity)
-        assertEquals(1.0f, st.layers.first { it.id == "a" }.opacity)
-    }
-
-    @Test
     fun `characterize onCycleBlendMode changes the active layer blend mode`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a")))

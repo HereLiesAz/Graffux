@@ -116,40 +116,7 @@ enum class RotationAxis {
 }
 
 /**
- * Whole-design adjustment applied per [EditorMode]. Lets the user position and tone the entire
- * mural as a single unit for one mode (e.g. line it up on a wall in MOCKUP) without altering the
- * underlying Design layers. Identity = no change. Persisted per mode; Design edits stay global.
- */
-@Serializable
-data class ModeAdjustment(
-    val offsetX: Float = 0f,
-    val offsetY: Float = 0f,
-    val scale: Float = 1f,
-    // rotation = rotation about the layer's normal (Z). rotationX/rotationY tilt the layer about its
-    // own width (X) / height (Y) axes — used in AR so a double-tap can switch the active rotation axis
-    // and the artwork tilts in 3D about its own axes (not just spin in-plane). Default 0 keeps old
-    // projects identity on deserialize.
-    val rotation: Float = 0f,
-    val rotationX: Float = 0f,
-    val rotationY: Float = 0f,
-    val brightness: Float = 0f,
-    val contrast: Float = 1f,
-    val saturation: Float = 1f,
-    val opacity: Float = 1f,
-    val isInverted: Boolean = false,
-    // When true, pan/zoom/rotate gestures for this mode are ignored — the user has positioned the
-    // whole-design layer and locked it in place (e.g. a Trace reference that must not drift while
-    // tracing). Tone/opacity edits and the lightbox touch-lock are independent of this.
-    val isTransformLocked: Boolean = false,
-) {
-    val isIdentity: Boolean
-        get() = offsetX == 0f && offsetY == 0f && scale == 1f &&
-            rotation == 0f && rotationX == 0f && rotationY == 0f &&
-            brightness == 0f && contrast == 1f && saturation == 1f && opacity == 1f && !isInverted
-}
-
-/**
- * The global state for the Editor UI, including AR and Gesture feedback flags.
+ * The global state for the Editor UI.
  */
 data class EditorUiState(
     val projectId: String? = null,
@@ -157,7 +124,7 @@ data class EditorUiState(
     val backgroundBitmap: Bitmap? = null,
     val activeLayerId: String? = null,
     val activePanel: EditorPanel = EditorPanel.NONE,
-    val editorMode: EditorMode = EditorMode.AR,
+    val editorMode: EditorMode = EditorMode.DESIGN,
     // FIX: Default to NONE so transform gestures are always the baseline
     val activeTool: Tool = Tool.NONE,
     val hideUiForCapture: Boolean = false,
@@ -175,13 +142,6 @@ data class EditorUiState(
     val activeColor: Color = Color.White,
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,
-    // In-world perception layers, each independently toggleable from Settings (default on).
-    // Distinct from showDiagOverlay, which governs the text telemetry HUD.
-    val showFeaturePoints: Boolean = true,  // ARCore sparse feature dots (tracker landmarks)
-    val showPlaneGrids: Boolean = true,     // detected planes as metric grids
-    val showVoxels: Boolean = true,         // SLAM voxel splats (confidence-tinted)
-    val showPoints: Boolean = true,         // accumulated sparse point cloud
-    val showMesh: Boolean = true,           // persistent surface mesh
 
     // Real-time stroke rendering: the mutable bitmap being actively drawn into.
     // Non-null only while a brush stroke is in progress (non-Liquify tools).
@@ -199,7 +159,4 @@ data class EditorUiState(
     // One-shot: set to a freshly-created text layer's id so the UI can immediately open its
     // edit-text box. Cleared once consumed.
     val autoEditTextLayerId: String? = null,
-    // Per-mode whole-design adjustments (transform + tone). Applied to the composited design in
-    // that mode only; Design-mode layer edits stay global across all modes.
-    val modeAdjustments: Map<EditorMode, ModeAdjustment> = emptyMap(),
 )

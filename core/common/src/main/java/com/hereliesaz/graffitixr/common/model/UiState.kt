@@ -9,7 +9,7 @@ enum class Tool {
 }
 
 enum class ArScanMode {
-    /** User-facing "Canvas": ARCore's built-in feature-point cloud (no depth API required). */
+    /** User-facing "Canvas": built-in feature-point cloud (no depth API required). */
     CLOUD_POINTS,
     /** User-facing "Mural": the engine is picked by [MuralMethod]. */
     MURAL
