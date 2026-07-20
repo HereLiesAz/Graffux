@@ -295,18 +295,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    fun setEditorMode(mode: EditorMode) {
-        // A mode switch is a view change, not a container change — but any interaction in flight
-        // (a stroke not yet lifted, a segmentation not yet confirmed) must not survive it, or its
-        // callbacks would commit to the previous view's layer. Mirror the reducer's no-op guard.
-        if (_uiState.value.editorMode != mode) {
-            clearTransientStrokeState()
-            pendingStencilSourceLayerId = null
-            pendingStencilProjectId = null
-        }
-        dispatch(EditorIntent.SetEditorMode(mode))
-    }
-
     private fun pushHistory() {
         history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null) })
         updateHistoryCounts()
@@ -782,7 +770,6 @@ class EditorViewModel @Inject constructor(
                 } else {
                     val metrics = context.resources.displayMetrics
                     val bgBmp = backgroundBitmap
-                        ?: if (_uiState.value.editorMode == EditorMode.MOCKUP) _uiState.value.backgroundBitmap else null
                     // Trace previously baked canvasBackground colour into the export. Spec is
                     // "overlay layers only, no background", so use TRANSPARENT unconditionally —
                     // the PNG writer (saveBitmapToGallery uses CompressFormat.PNG) preserves alpha.

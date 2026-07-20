@@ -10,7 +10,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
@@ -148,15 +147,8 @@ class EditorViewModelTest {
     @Test
     fun `initial state is correct`() {
         val state = viewModel.uiState.value
-        assertEquals(EditorMode.DESIGN, state.editorMode)
         assertTrue(state.layers.isEmpty())
         assertNull(state.activeLayerId)
-    }
-
-    @Test
-    fun `setEditorMode updates state`() {
-        viewModel.setEditorMode(EditorMode.MOCKUP)
-        assertEquals(EditorMode.MOCKUP, viewModel.uiState.value.editorMode)
     }
 
     @Test
@@ -512,7 +504,6 @@ class EditorViewModelTest {
     @Test
     fun `onOpacityChanged in Design updates only the active layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setEditorMode(EditorMode.DESIGN)
         viewModel.setLayers(listOf(lyr("a"), lyr("b")))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
@@ -550,17 +541,4 @@ class EditorViewModelTest {
         assertEquals(dup.id, viewModel.uiState.value.activeLayerId)
     }
 
-    @Test
-    fun `characterize setEditorMode preserves layers but clears transient overlay state`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a"), lyr("b")))
-        viewModel.setEditorMode(EditorMode.MOCKUP)
-        testDispatcher.scheduler.advanceUntilIdle()
-        val st = viewModel.uiState.value
-        assertEquals(EditorMode.MOCKUP, st.editorMode)
-        assertEquals(listOf("a", "b"), st.layers.map { it.id })
-        assertNull(st.segmentationPreview)
-        assertNull(st.liveStrokeBitmap)
-        assertFalse(st.isSegmenting)
-    }
 }
