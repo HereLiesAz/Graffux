@@ -1,7 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.geometry.Offset
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -107,26 +106,6 @@ class EditorReducerTest {
         val opened = reduce(none, EditorIntent.ToggleAdjustPanel)
         assertEquals(EditorPanel.ADJUST, opened.activePanel)
         assertEquals(EditorPanel.NONE, reduce(opened, EditorIntent.ToggleAdjustPanel).activePanel)
-    }
-
-    @Test
-    fun `SetEditorMode keeps layers but clears transient overlay state`() {
-        val s = state(lyr("a"), lyr("b")).copy(
-            editorMode = EditorMode.AR,
-            isSegmenting = true,
-            liveStrokeLayerId = "a",
-        )
-        val out = reduce(s, EditorIntent.SetEditorMode(EditorMode.MOCKUP))
-        assertEquals(EditorMode.MOCKUP, out.editorMode)
-        assertEquals(listOf("a", "b"), out.layers.map { it.id })
-        assertFalse(out.isSegmenting)
-        assertNull(out.liveStrokeLayerId)
-    }
-
-    @Test
-    fun `SetEditorMode to the current mode is a no-op`() {
-        val s = state(lyr("a")).copy(editorMode = EditorMode.MOCKUP, isSegmenting = true)
-        assertSame(s, reduce(s, EditorIntent.SetEditorMode(EditorMode.MOCKUP)))
     }
 
     @Test

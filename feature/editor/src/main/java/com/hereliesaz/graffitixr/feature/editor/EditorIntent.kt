@@ -3,7 +3,6 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerProps
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
@@ -51,13 +50,12 @@ internal sealed interface EditorIntent {
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */
     data class ReplaceLayers(val layers: List<Layer>, val activeId: String?) : EditorIntent
 
-    // ── Tool / panel / mode / gesture ─────────────────────────────────────────
+    // ── Tool / panel / gesture ────────────────────────────────────────────────
     data class SetActiveTool(val tool: Tool) : EditorIntent
     data object ToggleAdjustPanel : EditorIntent
     data object ToggleTransformPanel : EditorIntent
     data object ToggleLayersPanel : EditorIntent
     data object DismissPanel : EditorIntent
-    data class SetEditorMode(val mode: EditorMode) : EditorIntent
     data class SetGestureInProgress(val inProgress: Boolean) : EditorIntent
 
     // ── Effect-result / transient flags (dispatched by the VM around async work) ───

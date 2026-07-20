@@ -1,6 +1,5 @@
 package com.hereliesaz.graffitixr.feature.editor
 
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -75,7 +74,6 @@ internal object EditorReducer {
             state.copy(activePanel = if (state.activePanel == EditorPanel.LAYERS) EditorPanel.NONE else EditorPanel.LAYERS)
         EditorIntent.DismissPanel -> state.copy(activePanel = EditorPanel.NONE)
         is EditorIntent.SetGestureInProgress -> state.copy(gestureInProgress = intent.inProgress)
-        is EditorIntent.SetEditorMode -> reduceEditorMode(state, intent.mode)
 
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
@@ -146,23 +144,6 @@ internal object EditorReducer {
         })
         is EditorIntent.LoadedProject -> state.copy(projectId = intent.projectId, layers = intent.layers, activeTool = Tool.NONE)
         EditorIntent.ClearProject -> state.copy(projectId = null, layers = emptyList(), backgroundBitmap = null, activeTool = Tool.NONE)
-    }
-
-    /**
-     * Mode is a view, not a container: layers (the document) persist and stay editable, but
-     * transient mode-specific overlay state — an in-flight brush stroke, a live segmentation
-     * preview — must not bleed into the next mode.
-     */
-    private fun reduceEditorMode(state: EditorUiState, mode: EditorMode): EditorUiState {
-        if (state.editorMode == mode) return state
-        return state.copy(
-            editorMode = mode,
-            liveStrokeLayerId = null,
-            liveStrokeBitmap = null,
-            liveStrokeVersion = 0,
-            isSegmenting = false,
-            segmentationPreview = null,
-        )
     }
 
     /** Applies [transform] to the active layer (no-op when there is no active layer). */
