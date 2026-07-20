@@ -87,17 +87,6 @@ data class BrushStroke(
 )
 
 /**
- * Available operational modes for the GraffitiXR environment.
- */
-enum class EditorMode {
-    TRACE,
-    MOCKUP,
-    OVERLAY,
-    AR,
-    DESIGN
-}
-
-/**
  * UI panels available for interaction within the editor interface.
  */
 enum class EditorPanel {
@@ -127,7 +116,6 @@ data class EditorUiState(
     val backgroundBitmap: Bitmap? = null,
     val activeLayerId: String? = null,
     val activePanel: EditorPanel = EditorPanel.NONE,
-    val editorMode: EditorMode = EditorMode.DESIGN,
     // FIX: Default to NONE so transform gestures are always the baseline
     val activeTool: Tool = Tool.NONE,
     val hideUiForCapture: Boolean = false,

@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -53,9 +52,8 @@ import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
  * The tool rail is NOT drawn here: GraffiXR wraps this screen in the app's [AzNavRail] host
  * (`AzHostActivityLayout`, in MainActivity), which renders this canvas as its full-screen `background`
  * and puts the design tools on the rail — the same arrangement GraffitiXR uses. Everything
- * AR/SLAM/co-op/camera in GraffitiXR's MainScreen is intentionally left out; GraffiXR forces
- * [EditorMode.DESIGN], so the per-mode whole-design adjustment is always identity and the layer
- * render simplifies to the plain 2D path.
+ * AR/SLAM/co-op/camera in GraffitiXR's MainScreen is intentionally left out; Graffux is a pure 2D
+ * design editor, so the layer render is always the plain 2D path.
  */
 @Composable
 fun EditorScreen(
@@ -64,10 +62,6 @@ fun EditorScreen(
 ) {
     val uiState by vm.uiState.collectAsState()
     val strings = rememberAppStrings()
-
-    // GraffiXR is a pure 2D editor: force DESIGN mode (EditorViewModel defaults to AR) so the layer
-    // render and Design-mode transform gestures apply. Runs once.
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.setEditorMode(EditorMode.DESIGN) }
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true

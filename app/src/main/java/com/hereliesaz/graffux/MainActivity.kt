@@ -28,7 +28,6 @@ import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.BlendMode
-import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -99,10 +98,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
-
-    // Graffux is a pure 2D editor: keep DESIGN mode (the EditorViewModel default) so the layer
-    // render and Design-mode transform gestures apply. Runs once.
-    LaunchedEffect(Unit) { vm.setEditorMode(EditorMode.DESIGN) }
 
     // Artboard size picker visibility (opened from the rail's "Size" item).
     var showDocDialog by remember { mutableStateOf(false) }
