@@ -202,6 +202,28 @@ class ExportManager @Inject constructor() {
                     canvas.drawLine(cx - w / 2f, cy, cx + w / 2f, cy, paint)
                 }
             }
+            ShapeKind.POLYGON -> {
+                val n = shape.sides.coerceAtLeast(3)
+                val rx = w / 2f
+                val ry = h / 2f
+                val path = android.graphics.Path().apply {
+                    for (i in 0 until n) {
+                        val a = -Math.PI / 2 + i * 2 * Math.PI / n
+                        val px = cx + rx * Math.cos(a).toFloat()
+                        val py = cy + ry * Math.sin(a).toFloat()
+                        if (i == 0) moveTo(px, py) else lineTo(px, py)
+                    }
+                    close()
+                }
+                if (shape.hasFill) {
+                    paint.style = Paint.Style.FILL; paint.color = shape.fillArgb.toInt()
+                    canvas.drawPath(path, paint)
+                }
+                if (shape.hasStroke) {
+                    paint.style = Paint.Style.STROKE; paint.strokeWidth = shape.strokeWidth; paint.color = shape.strokeArgb.toInt()
+                    canvas.drawPath(path, paint)
+                }
+            }
         }
     }
 

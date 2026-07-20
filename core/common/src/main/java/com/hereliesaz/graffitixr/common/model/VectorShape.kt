@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 /** The primitive shapes a vector layer can hold. */
 @Serializable
-enum class ShapeKind { RECTANGLE, ELLIPSE, LINE }
+enum class ShapeKind { RECTANGLE, ELLIPSE, LINE, POLYGON }
 
 /**
  * A single vector primitive living on a vector [Layer]. Geometry is defined in the layer's local
@@ -15,6 +15,9 @@ enum class ShapeKind { RECTANGLE, ELLIPSE, LINE }
  *
  * For [ShapeKind.LINE], [width] is the length of a horizontal line centered on the origin and
  * [height] is ignored; the line is drawn with the stroke colour/width.
+ *
+ * For [ShapeKind.POLYGON], a regular [sides]-gon is inscribed in the [width]×[height] box (so it
+ * resizes with the shape), with a vertex pointing up.
  */
 @Serializable
 data class VectorShape(
@@ -26,6 +29,8 @@ data class VectorShape(
     val fillArgb: Long = 0xFF888888L,
     val strokeArgb: Long = 0xFFFFFFFFL,
     val strokeWidth: Float = 0f,
+    /** Vertex count for [ShapeKind.POLYGON] (3 = triangle, 6 = hexagon…); ignored otherwise. */
+    val sides: Int = 6,
 ) {
     val hasFill: Boolean get() = (fillArgb ushr 24) != 0L && kind != ShapeKind.LINE
     val hasStroke: Boolean get() = strokeWidth > 0f && (strokeArgb ushr 24) != 0L

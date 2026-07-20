@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -308,5 +309,30 @@ private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) 
                 )
             }
         }
+        ShapeKind.POLYGON -> {
+            val path = polygonPath(cx, cy, w, h, shape.sides)
+            if (shape.hasFill) drawPath(path, Color(shape.fillArgb.toInt()))
+            if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
+        }
+    }
+}
+
+/**
+ * A regular [sides]-gon centered at ([cx], [cy]) inscribed in a [w]×[h] box, first vertex pointing
+ * up. [sides] is floored at 3. Shared shape math; the export path builds the same figure with an
+ * android.graphics.Path.
+ */
+private fun polygonPath(cx: Float, cy: Float, w: Float, h: Float, sides: Int): Path {
+    val n = sides.coerceAtLeast(3)
+    val rx = w / 2f
+    val ry = h / 2f
+    return Path().apply {
+        for (i in 0 until n) {
+            val a = -Math.PI / 2 + i * 2 * Math.PI / n
+            val px = cx + rx * kotlin.math.cos(a).toFloat()
+            val py = cy + ry * kotlin.math.sin(a).toFloat()
+            if (i == 0) moveTo(px, py) else lineTo(px, py)
+        }
+        close()
     }
 }

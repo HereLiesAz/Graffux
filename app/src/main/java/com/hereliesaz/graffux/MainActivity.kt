@@ -323,6 +323,15 @@ private fun AzNavHostScope.ConfigureRailItems(
     azRailSubItem(id = "shape.line", hostId = "design.shapes", text = "Line", color = navItemColor, shape = AzButtonShape.NONE) {
         vm.onAddShapeLayer(ShapeKind.LINE)
     }
+    azRailSubItem(id = "shape.triangle", hostId = "design.shapes", text = "Triangle", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.onAddPolygonLayer(3)
+    }
+    azRailSubItem(id = "shape.pentagon", hostId = "design.shapes", text = "Pentagon", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.onAddPolygonLayer(5)
+    }
+    azRailSubItem(id = "shape.hexagon", hostId = "design.shapes", text = "Hexagon", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.onAddPolygonLayer(6)
+    }
     azRailSubItem(
         id = "design.layers",
         hostId = "host.design",

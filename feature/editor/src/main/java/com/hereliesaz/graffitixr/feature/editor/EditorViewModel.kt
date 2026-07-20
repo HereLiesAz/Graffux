@@ -537,6 +537,7 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE -> "Rectangle"
             com.hereliesaz.graffitixr.common.model.ShapeKind.ELLIPSE -> "Ellipse"
             com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> "Line"
+            com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON -> "Polygon"
         }
         val count = _uiState.value.layers.count { it.shapes.isNotEmpty() }
         val shape = when (kind) {
@@ -548,6 +549,31 @@ class EditorViewModel @Inject constructor(
         val newLayer = Layer(
             id = UUID.randomUUID().toString(),
             name = "$name ${count + 1}",
+            shapes = listOf(shape),
+        )
+        dispatch(EditorIntent.AddLayer(newLayer))
+        opEmitter.emit(Op.LayerAdd(newLayer))
+        saveProject()
+    }
+
+    /**
+     * Adds a new vector layer holding a single regular polygon with [sides] vertices (floored at 3)
+     * — the [ShapeKind.POLYGON] counterpart to [onAddShapeLayer]. Filled grey by default; resize /
+     * fill / stroke controls all apply, as they key off the layer being a vector layer.
+     */
+    fun onAddPolygonLayer(sides: Int) {
+        pushHistory()
+        val n = sides.coerceAtLeast(3)
+        val count = _uiState.value.layers.count { it.shapes.isNotEmpty() }
+        val shape = com.hereliesaz.graffitixr.common.model.VectorShape(
+            kind = com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON,
+            fillArgb = 0xFF888888L,
+            strokeWidth = 0f,
+            sides = n,
+        )
+        val newLayer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "Polygon ${count + 1}",
             shapes = listOf(shape),
         )
         dispatch(EditorIntent.AddLayer(newLayer))
