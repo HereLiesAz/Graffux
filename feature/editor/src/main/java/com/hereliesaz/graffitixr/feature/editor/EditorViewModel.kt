@@ -1424,6 +1424,16 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Changes the vertex count of every [ShapeKind.POLYGON] shape on the active vector layer
+     * (floored at 3). Non-polygon shapes are left untouched. No-op on non-vector layers.
+     */
+    fun setPolygonSides(sides: Int) {
+        val st = _uiState.value
+        val active = st.layers.find { it.id == st.activeLayerId } ?: return
+        if (active.shapes.isEmpty()) return
+        val n = sides.coerceAtLeast(3)
+        val updated = active.shapes.map { s ->
+            if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON) s.copy(sides = n) else s
      * Toggles fill on/off for the active vector layer's rectangle/ellipse shapes by flipping the
      * fill alpha (off = 0, on = fully opaque) while preserving the RGB, so a shape's colour is
      * remembered across toggles. Enables outline-only shapes when paired with a stroke. Line shapes
