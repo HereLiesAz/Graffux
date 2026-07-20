@@ -1,12 +1,16 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorUi.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -15,12 +19,18 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.design.components.AdjustmentsPanel
@@ -77,6 +87,7 @@ fun EditorUi(
                         onToggleVisibility = actions::onToggleVisibility,
                         onDuplicate = actions::onLayerDuplicated,
                         onDelete = actions::onLayerRemoved,
+                        onRename = actions::onLayerRenamed,
                         onClose = { actions.onDismissPanel() },
                         strings = strings
                     )
@@ -151,6 +162,7 @@ fun EditorUi(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LayersPanel(
     layers: List<Layer>,
@@ -159,9 +171,13 @@ fun LayersPanel(
     onToggleVisibility: (String) -> Unit,
     onDuplicate: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onRename: (String, String) -> Unit,
     onClose: () -> Unit,
     strings: AppStrings
 ) {
+    // Which row is in inline-rename mode (long-press a name to start), and its edit buffer.
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -191,14 +207,36 @@ fun LayersPanel(
                             tint = if (layer.isVisible) Color.White else Color.Gray,
                         )
                     }
-                    Text(
-                        layer.name,
-                        color = Color.White,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onSelectLayer(layer.id) }
-                            .padding(vertical = 12.dp)
-                    )
+                    if (editingId == layer.id) {
+                        OutlinedTextField(
+                            value = editingName,
+                            onValueChange = { editingName = it },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(vertical = 4.dp, horizontal = 4.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = {
+                                onRename(layer.id, editingName.trim().ifBlank { layer.name })
+                                editingId = null
+                            }),
+                        )
+                    } else {
+                        Text(
+                            layer.name,
+                            color = Color.White,
+                            modifier = Modifier
+                                .weight(1f)
+                                .combinedClickable(
+                                    onClick = { onSelectLayer(layer.id) },
+                                    onLongClick = {
+                                        editingId = layer.id
+                                        editingName = layer.name
+                                    },
+                                )
+                                .padding(vertical = 12.dp)
+                        )
+                    }
                     IconButton(onClick = { onDuplicate(layer.id) }) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = strings.editor.duplicate, tint = Color.White)
                     }
