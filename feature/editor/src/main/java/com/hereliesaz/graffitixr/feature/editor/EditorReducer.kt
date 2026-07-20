@@ -1,11 +1,9 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.model.EditorMode
-import com.hereliesaz.graffitixr.common.model.MuralMethod
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.ModeAdjustment
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -77,36 +75,6 @@ internal object EditorReducer {
         is EditorIntent.SetGestureInProgress -> state.copy(gestureInProgress = intent.inProgress)
         is EditorIntent.SetEditorMode -> reduceEditorMode(state, intent.mode)
 
-        is EditorIntent.SetModeAdjustment ->
-            state.copy(modeAdjustments = state.modeAdjustments + (intent.mode to intent.adjustment))
-        is EditorIntent.SetAllModeAdjustments -> state.copy(modeAdjustments = intent.adjustments)
-        is EditorIntent.ApplyModeTransformGesture -> {
-            val cur = state.modeAdjustments[intent.mode] ?: ModeAdjustment()
-            // Locked: the user pinned this mode's whole-design position, so ignore transform gestures.
-            if (cur.isTransformLocked) state
-            else {
-                // Rotation goes to the axis selected by the double-tap cycle (activeRotationAxis): X/Y
-                // tilt the whole design about its width/height, Z spins it in-plane. All four
-                // non-Design modes render these identically: Overlay/Mockup/Trace via Compose's
-                // graphicsLayer, AR via a 2D perspective content-rotation matrix in the shader.
-                val rotated = when (state.activeRotationAxis) {
-                    RotationAxis.X -> cur.copy(rotationX = cur.rotationX + intent.rotation)
-                    RotationAxis.Y -> cur.copy(rotationY = cur.rotationY + intent.rotation)
-                    RotationAxis.Z -> cur.copy(rotation = cur.rotation + intent.rotation)
-                }
-                val updated = rotated.copy(
-                    offsetX = rotated.offsetX + intent.pan.x,
-                    offsetY = rotated.offsetY + intent.pan.y,
-                    scale = (rotated.scale * intent.zoom).coerceIn(0.1f, 10f),
-                )
-                state.copy(modeAdjustments = state.modeAdjustments + (intent.mode to updated))
-            }
-        }
-        is EditorIntent.ToggleModeTransformLocked -> {
-            val cur = state.modeAdjustments[intent.mode] ?: ModeAdjustment()
-            state.copy(modeAdjustments = state.modeAdjustments + (intent.mode to cur.copy(isTransformLocked = !cur.isTransformLocked)))
-        }
-
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
         EditorIntent.BeginSegmentation -> state.copy(isSegmenting = true, segmentationInfluence = 0.5f)
@@ -120,16 +88,6 @@ internal object EditorReducer {
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
-        EditorIntent.ToggleFeaturePoints -> state.copy(showFeaturePoints = !state.showFeaturePoints)
-        EditorIntent.TogglePlaneGrids -> state.copy(showPlaneGrids = !state.showPlaneGrids)
-        EditorIntent.ToggleVoxels -> state.copy(showVoxels = !state.showVoxels)
-        EditorIntent.TogglePoints -> state.copy(showPoints = !state.showPoints)
-        EditorIntent.ToggleMesh -> state.copy(showMesh = !state.showMesh)
-        is EditorIntent.ApplyMethodLayerDefaults -> state.copy(
-            showVoxels = intent.activeMethod == MuralMethod.VOXEL_HASH,
-            showMesh = intent.activeMethod == MuralMethod.SURFACE_MESH,
-            showPoints = intent.activeMethod == MuralMethod.CLOUD_OFFSET
-        )
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
         is EditorIntent.SetSketchThickness -> state.copy(sketchThickness = intent.value.coerceIn(1, 20))
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))

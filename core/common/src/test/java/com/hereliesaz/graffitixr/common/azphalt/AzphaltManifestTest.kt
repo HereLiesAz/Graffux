@@ -129,6 +129,68 @@ class AzphaltManifestTest {
     }
 
     @Test
+    fun `parses the app and mcp kinds and tolerates an unknown one`() {
+        val app = parseManifest(
+            """
+            { "azphalt":"0.1","id":"com.x.app","name":"App","version":"1.0.0","kind":"app",
+              "license":"MIT","compat":">=0.1","app":{"platforms":{"android":{"packageId":"com.x"}}},"files":{} }
+            """.trimIndent(),
+        )
+        assertEquals(ExtensionKind.APP, app.kind)
+        val mcp = parseManifest(
+            """
+            { "azphalt":"0.1","id":"com.x.mcp","name":"MCP","version":"1.0.0","kind":"mcp",
+              "license":"MIT","compat":">=0.1","mcp":{"remote":"https://x.example/sse"},"files":{} }
+            """.trimIndent(),
+        )
+        assertEquals(ExtensionKind.MCP, mcp.kind)
+        // A kind newer than this build maps to UNKNOWN instead of throwing (parses, then the installer
+        // refuses it) — matching AssetType/Capability's forward-compat behaviour.
+        val future = parseManifest(
+            """
+            { "azphalt":"0.1","id":"com.x.future","name":"Future","version":"1.0.0","kind":"theme",
+              "license":"MIT","compat":">=0.1","files":{} }
+            """.trimIndent(),
+        )
+        assertEquals(ExtensionKind.UNKNOWN, future.kind)
+    }
+
+    @Test
+    fun `parses the time and audio capabilities and tolerates an unknown one`() {
+        val m = parseManifest(
+            """
+            { "azphalt":"0.1","id":"com.x.code","name":"N","version":"1.0.0","kind":"code","license":"MIT",
+              "compat":">=0.1","entry":"code/main.js","runtime":"js",
+              "capabilities":["audio","time","telepathy"],"files":{} }
+            """.trimIndent(),
+        )
+        // Named 0.1 capabilities resolve; a capability newer than this build maps to UNKNOWN, not a throw.
+        assertEquals(listOf(Capability.AUDIO, Capability.TIME, Capability.UNKNOWN), m.capabilities)
+    }
+
+    @Test
+    fun `parses template and overlay asset types and a preview`() {
+        val m = parseManifest(
+            """
+            {
+              "azphalt":"0.1","id":"com.x.tpl","name":"Templates","version":"1.0.0",
+              "kind":"asset","license":"MIT","compat":">=0.1",
+              "preview": { "image": "preview/card.png", "clip": "https://cdn.example/x.mp4" },
+              "assets":[
+                { "type":"template", "path":"assets/story.json" },
+                { "type":"overlay",  "path":"assets/frame.png" }
+              ],
+              "files":{}
+            }
+            """.trimIndent(),
+        )
+        assertEquals(AssetType.TEMPLATE, m.assets[0].type)
+        assertEquals(AssetType.OVERLAY, m.assets[1].type)
+        assertEquals("preview/card.png", m.preview?.image)
+        assertEquals("https://cdn.example/x.mp4", m.preview?.clip)
+    }
+
+    @Test
     fun `compat is validated per the single-comparator 0_1 grammar`() {
         // Host implements 0.1; comparator defaults to >=.
         assertTrue(isCompatibleSpec(">=0.1"))

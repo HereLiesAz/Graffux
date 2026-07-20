@@ -214,11 +214,6 @@ class EditorViewModel @Inject constructor(
 
                         dispatch(EditorIntent.LoadedProject(project.id, layers))
 
-                        val loadedModeAdjustments = project.modeAdjustments.mapNotNull { (key, value) ->
-                            runCatching { EditorMode.valueOf(key) }.getOrNull()?.let { it to value }
-                        }.toMap()
-                        dispatch(EditorIntent.SetAllModeAdjustments(loadedModeAdjustments))
-
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
                             viewModelScope.launch(dispatchers.io) {
@@ -574,7 +569,6 @@ class EditorViewModel @Inject constructor(
             try {
             val currentProject = projectRepository.currentProject.value
             val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
-            val modeAdjustments = _uiState.value.modeAdjustments.mapKeys { it.key.name }
 
             // Paths derive from the (immutable) project id. Persist the SLAM world first so they're valid.
             val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
@@ -588,7 +582,6 @@ class EditorViewModel @Inject constructor(
                     id = projectId,
                     name = name ?: "New Project",
                     layers = updatedLayers,
-                    modeAdjustments = modeAdjustments,
                     mapPath = mapPath,
                     cloudPointsPath = cloudPointsPath,
                 )
@@ -601,7 +594,6 @@ class EditorViewModel @Inject constructor(
                     current.copy(
                         name = name ?: current.name,
                         layers = updatedLayers,
-                        modeAdjustments = modeAdjustments,
                         lastModified = System.currentTimeMillis(),
                         mapPath = mapPath,
                         cloudPointsPath = cloudPointsPath,
@@ -795,13 +787,6 @@ class EditorViewModel @Inject constructor(
 
     fun toggleHandedness() = dispatch(EditorIntent.ToggleHandedness)
     fun toggleDiagOverlay() = dispatch(EditorIntent.ToggleDiagOverlay)
-    fun toggleFeaturePoints() = dispatch(EditorIntent.ToggleFeaturePoints)
-    fun togglePlaneGrids() = dispatch(EditorIntent.TogglePlaneGrids)
-    fun toggleVoxels() = dispatch(EditorIntent.ToggleVoxels)
-    fun togglePoints() = dispatch(EditorIntent.TogglePoints)
-    fun toggleMesh() = dispatch(EditorIntent.ToggleMesh)
-    fun applyMethodLayerDefaults(method: com.hereliesaz.graffitixr.common.model.MuralMethod) =
-        dispatch(EditorIntent.ApplyMethodLayerDefaults(method))
     fun setActiveTool(tool: Tool) = dispatch(EditorIntent.SetActiveTool(tool))
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
@@ -1146,18 +1131,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── Per-mode whole-design adjustments ─────────────────────────────────────
-
-    fun onModeTransformGesture(mode: EditorMode, pan: Offset, zoom: Float, rotationDelta: Float) {
-        dispatch(EditorIntent.ApplyModeTransformGesture(mode, pan, zoom, rotationDelta))
-    }
-
-    /** Toggle the per-mode transform lock — pins/unpins the whole-design position for [mode]. */
-    fun onToggleModeTransformLocked(mode: EditorMode) {
-        dispatch(EditorIntent.ToggleModeTransformLocked(mode))
-        saveProject()
-    }
-
     override fun onGestureEnd() {
         saveProject()
         dispatch(EditorIntent.SetGestureInProgress(false))
@@ -1191,31 +1164,11 @@ class EditorViewModel @Inject constructor(
         saveProject()
         emitActiveLayerProps()
     }
-    /**
-     * Opacity / brightness / contrast / saturation knobs. In Design they adjust the active layer; in
-     * a Mode (AR/Overlay/Mockup/Trace) they adjust the whole-design [ModeAdjustment] for that mode,
-     * which always exists — so the knob works even when no layer is selected and tones the entire
-     * projected design (what the user expects in a Mode). Returns true when handled as a mode adjust.
-     */
-    private fun dispatchModeAdjustIfInMode(field: (ModeAdjustment) -> ModeAdjustment): Boolean {
-        val st = _uiState.value
-        if (st.editorMode == EditorMode.DESIGN) return false
-        val cur = st.modeAdjustments[st.editorMode] ?: ModeAdjustment()
-        dispatch(EditorIntent.SetModeAdjustment(st.editorMode, field(cur)))
-        return true
-    }
-    override fun onOpacityChanged(v: Float) {
-        if (!dispatchModeAdjustIfInMode { it.copy(opacity = v) }) dispatch(EditorIntent.SetOpacity(v))
-    }
-    override fun onBrightnessChanged(v: Float) {
-        if (!dispatchModeAdjustIfInMode { it.copy(brightness = v) }) dispatch(EditorIntent.SetBrightness(v))
-    }
-    override fun onContrastChanged(v: Float) {
-        if (!dispatchModeAdjustIfInMode { it.copy(contrast = v) }) dispatch(EditorIntent.SetContrast(v))
-    }
-    override fun onSaturationChanged(v: Float) {
-        if (!dispatchModeAdjustIfInMode { it.copy(saturation = v) }) dispatch(EditorIntent.SetSaturation(v))
-    }
+    /** Opacity / brightness / contrast / saturation knobs adjust the active layer. */
+    override fun onOpacityChanged(v: Float) = dispatch(EditorIntent.SetOpacity(v))
+    override fun onBrightnessChanged(v: Float) = dispatch(EditorIntent.SetBrightness(v))
+    override fun onContrastChanged(v: Float) = dispatch(EditorIntent.SetContrast(v))
+    override fun onSaturationChanged(v: Float) = dispatch(EditorIntent.SetSaturation(v))
     override fun onColorBalanceRChanged(v: Float) = dispatch(EditorIntent.SetColorBalanceR(v))
     override fun onColorBalanceGChanged(v: Float) = dispatch(EditorIntent.SetColorBalanceG(v))
     override fun onColorBalanceBChanged(v: Float) = dispatch(EditorIntent.SetColorBalanceB(v))

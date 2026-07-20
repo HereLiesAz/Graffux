@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -22,6 +23,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** Upper bound on a registry catalog JSON response — a guard against a hostile/oversized reply. */
+private const val MAX_REGISTRY_RESPONSE_BYTES: Long = 16L * 1024 * 1024
 
 /**
  * The GraffitiXR side of the azphalt marketplace: browse the catalog, install `.azp` packages, track
@@ -57,15 +61,24 @@ class ExtensionRepository @Inject constructor(
         ioScope.launch { _installed.value = scanInstalled() }
     }
 
-    /** The offline catalog to browse. Bundled seed; use [catalogFromRegistry] for a live registry. */
-    fun catalog(): List<MarketplaceEntry> = SEED_MARKETPLACE
+    /** Client for the official azphalt store (https://azphalt.store). GET-only; browse/install use it. */
+    private val storeRegistry = RepositoryClient(AzphaltStore.REGISTRY_BASE_URL, ::httpGetString)
 
     /**
-     * Browse a live azphalt registry (spec/repository-api.md) instead of the bundled seed. Fetches one
-     * search page and maps each package to a catalog card whose [MarketplaceEntry.source] is its
-     * resolved `.azp` download URL — so the existing [install] path works unchanged. Blocking IO; call
-     * from a background dispatcher. [catalog] stays the offline default, so a registry outage never
-     * breaks browsing the bundled extensions.
+     * Browse the official azphalt store (https://azphalt.store) — the live catalog, not a bundled seed.
+     * Fetches the store's package list and maps each to a catalog card whose [MarketplaceEntry.source]
+     * is its resolved `.azp` download URL, so the existing [install] path works unchanged once the store
+     * serves downloads. Blocking IO — call from a background dispatcher.
+     */
+    fun browseStore(query: String? = null): List<MarketplaceEntry> =
+        storeRegistry.listPackages(query).map { pkg ->
+            pkg.toMarketplaceEntry(storeRegistry.downloadUrl(pkg.id, pkg.version))
+        }
+
+    /**
+     * Browse an arbitrary azphalt registry that implements the paginated repository-api.md envelope
+     * (`{packages,total,page,pages}`), rather than the official store's flat list. Blocking IO; call
+     * from a background dispatcher.
      */
     fun catalogFromRegistry(
         client: RepositoryClient,
@@ -149,6 +162,25 @@ class ExtensionRepository @Inject constructor(
         source.startsWith("http://") ->
             throw AzpInstaller.InstallException("Refusing cleartext http source (https required): $source")
         else -> throw AzpInstaller.InstallException("Unsupported source: $source")
+    }
+
+    /**
+     * Blocking https GET returning the response body — the transport behind [storeRegistry]. https-only
+     * with finite timeouts (a cleartext or hung registry must not be trusted or stall the UI), and the
+     * body is bounded so a hostile/huge catalog response can't OOM the app.
+     */
+    private fun httpGetString(url: String, headers: Map<String, String>): String {
+        if (!url.startsWith("https://")) throw AzpInstaller.InstallException("Registry requires https: $url")
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            requestMethod = "GET"
+            setRequestProperty("Accept", "application/json")
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+        }
+        val out = ByteArrayOutputStream()
+        conn.inputStream.use { input -> copyBounded(input, out, MAX_REGISTRY_RESPONSE_BYTES) }
+        return out.toByteArray().decodeToString()
     }
 
     private fun scanInstalled(): List<InstalledExtension> {
