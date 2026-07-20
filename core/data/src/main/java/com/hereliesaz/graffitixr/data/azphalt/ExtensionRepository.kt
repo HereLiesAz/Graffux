@@ -4,11 +4,15 @@ import android.content.Context
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.common.azphalt.AzpSignatures
 import com.hereliesaz.graffitixr.common.azphalt.CubeLut
+import com.hereliesaz.graffitixr.common.azphalt.LutInputTransfer
 import com.hereliesaz.graffitixr.common.azphalt.TrustStore
 import com.hereliesaz.graffitixr.common.azphalt.parseCubeLut
 import com.hereliesaz.graffitixr.common.azphalt.parseManifest
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,18 +138,33 @@ class ExtensionRepository @Inject constructor(
         _installed.value = scanInstalled()
     }
 
-    /** Installed LUT asset extensions, paired with their loadable [CubeLut] (parsed lazily on use). */
+    /**
+     * Installed LUT asset extensions with a *usable* LUT. Only assets an asset host may use are counted:
+     * `standalone != false` (a code-dependent asset in a mixed package is skipped, per spec § Mixed-package
+     * asset independence) and locally present (a not-bundled `remoteUrl` LUT has a blank path).
+     */
     fun installedLuts(): List<InstalledExtension> =
-        _installed.value.filter { ext -> ext.manifest.assets.any { it.type == AssetType.LUT } }
+        _installed.value.filter { ext -> ext.manifest.assets.any(::isUsableLut) }
 
-    /** Load the first LUT of an installed extension, or null if it has none / fails to parse. */
+    /**
+     * Load the first usable LUT of an installed extension, honouring the asset's `params.inputTransfer`
+     * and `params.strength` (spec § LUT application), or null if it has none / fails to parse.
+     */
     fun loadLut(id: String): CubeLut? {
         val ext = _installed.value.find { it.id == id } ?: return null
-        val lutAsset = ext.manifest.assets.firstOrNull { it.type == AssetType.LUT } ?: return null
+        val lutAsset = ext.manifest.assets.firstOrNull(::isUsableLut) ?: return null
         val file = File(ext.filePath(lutAsset.path))
         if (!file.exists()) return null
-        return runCatching { parseCubeLut(file.readText()) }.getOrNull()
+        val lut = runCatching { parseCubeLut(file.readText()) }.getOrNull() ?: return null
+        val params = lutAsset.params
+        val transfer = LutInputTransfer.fromWire((params?.get("inputTransfer") as? JsonPrimitive)?.contentOrNull)
+        val strength = (params?.get("strength") as? JsonPrimitive)?.floatOrNull ?: 1f
+        return lut.withInputTransfer(transfer).withStrength(strength)
     }
+
+    /** A LUT asset this host can actually apply: standalone (not code-dependent) and bundled (has a path). */
+    private fun isUsableLut(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
+        asset.type == AssetType.LUT && asset.standalone && asset.path.isNotBlank()
 
     private fun openSource(source: String): InputStream = when {
         source.startsWith("asset:") -> context.assets.open(source.removePrefix("asset:"))

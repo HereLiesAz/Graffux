@@ -319,6 +319,80 @@ class AzpInstallerTest {
         assertEquals(SignatureStatus.UNSIGNED, installed.signature)
     }
 
+    // ── publisher continuity (spec § Publisher continuity) ───────────────────────────────────────
+
+    /** An unsigned `.azp` for the given id (lut asset + LICENSE), for the continuity tests. */
+    private fun unsignedPackage(id: String): ByteArray {
+        val payload = mapOf("assets/grade.cube" to lutBytes, "LICENSE" to license)
+        return zip(payload + ("manifest.json" to manifest(id, payload)))
+    }
+
+    @Test
+    fun `update by the same pinned signer is accepted`() {
+        val (priv, pub) = keyPair()
+        val root = tmp.newFolder("extensions")
+        val installer = AzpInstaller(root)
+        installer.install(ByteArrayInputStream(signedPackage(pub, priv)), nowMs = 1L)
+        // Same id, same key → clean update (no throw).
+        val again = installer.install(ByteArrayInputStream(signedPackage(pub, priv)), nowMs = 2L)
+        assertEquals(2L, again.installedAt)
+    }
+
+    @Test
+    fun `update signed by a different key is refused as a publisher change`() {
+        val (privA, pubA) = keyPair()
+        val (privB, pubB) = keyPair()
+        val installer = AzpInstaller(tmp.newFolder("extensions"))
+        installer.install(ByteArrayInputStream(signedPackage(pubA, privA)), nowMs = 1L)
+        try {
+            installer.install(ByteArrayInputStream(signedPackage(pubB, privB)), nowMs = 2L)
+            fail("Expected InstallException for a publisher change")
+        } catch (e: AzpInstaller.InstallException) {
+            assertTrue(e.message!!.contains("Publisher change"))
+        }
+    }
+
+    @Test
+    fun `signed then unsigned regression is refused`() {
+        val (priv, pub) = keyPair()
+        val installer = AzpInstaller(tmp.newFolder("extensions"))
+        installer.install(ByteArrayInputStream(signedPackage(pub, priv)), nowMs = 1L)
+        try {
+            installer.install(ByteArrayInputStream(unsignedPackage("com.test.signed")), nowMs = 2L)
+            fail("Expected InstallException for a signed→unsigned regression")
+        } catch (e: AzpInstaller.InstallException) {
+            assertTrue(e.message!!.contains("Publisher change"))
+        }
+    }
+
+    @Test
+    fun `unsigned first install pins nothing so any update is allowed`() {
+        val (privB, pubB) = keyPair()
+        val installer = AzpInstaller(tmp.newFolder("extensions"))
+        installer.install(ByteArrayInputStream(unsignedPackage("com.test.signed")), nowMs = 1L)
+        // A later signed install of the same id is allowed (nothing was pinned).
+        val updated = installer.install(ByteArrayInputStream(signedPackage(pubB, privB)), nowMs = 2L)
+        assertEquals(SignatureStatus.SIGNED_UNTRUSTED, updated.signature)
+    }
+
+    @Test
+    fun `an approved publisher change is allowed and re-pins`() {
+        val (privA, pubA) = keyPair()
+        val (privB, pubB) = keyPair()
+        val installer = AzpInstaller(tmp.newFolder("extensions"))
+        installer.install(ByteArrayInputStream(signedPackage(pubA, privA)), nowMs = 1L)
+        // Explicit user approval bypasses the refusal and re-pins to key B…
+        installer.install(ByteArrayInputStream(signedPackage(pubB, privB)), nowMs = 2L, allowPublisherChange = true)
+        // …after which key B is the pinned key: a further update by B is accepted, but A is now refused.
+        installer.install(ByteArrayInputStream(signedPackage(pubB, privB)), nowMs = 3L)
+        try {
+            installer.install(ByteArrayInputStream(signedPackage(pubA, privA)), nowMs = 4L)
+            fail("Expected the re-pinned key to now refuse the original signer")
+        } catch (e: AzpInstaller.InstallException) {
+            assertTrue(e.message!!.contains("Publisher change"))
+        }
+    }
+
     // ── Ed25519 signing helpers (BouncyCastle) ───────────────────────────────────────────────────
 
     /** Fixed 12-byte Ed25519 SPKI DER header; the raw 32-byte key follows (RFC 8410). */

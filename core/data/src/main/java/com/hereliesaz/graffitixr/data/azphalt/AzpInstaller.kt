@@ -44,7 +44,7 @@ class AzpInstaller(
      * Overwrites any prior install of the same id. Throws [InstallException] on any safety/integrity
      * failure, leaving no partial install for that id.
      */
-    fun install(input: InputStream, nowMs: Long): InstalledExtension {
+    fun install(input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false): InstalledExtension {
         // Read the whole archive into memory (we must parse the manifest to know the digests before we
         // trust any file). The source can be an attacker-controlled URL, so bound the CUMULATIVE
         // decompressed size while streaming and abort a zip bomb before it can OOM the app — never
@@ -125,6 +125,14 @@ class AzpInstaller(
             throw InstallException("Package '${manifest.id}' has an invalid signature (tampered or corrupt)")
         }
 
+        // Publisher continuity (spec/package-format.md § Publisher continuity). Overwriting an existing
+        // install of this id IS an update, so this host MUST enforce that the update comes from the same
+        // signer pinned on first install (trust-on-first-use) — otherwise a third party could replace an
+        // installed extension via a same-id package. A different signer key, or a signed→unsigned
+        // regression, is refused as a *publisher change* unless the caller passed [allowPublisherChange]
+        // (an explicit user-approved key rotation, after which the overwrite re-pins to the new key).
+        enforcePublisherContinuity(manifest.id, signatureJson, allowPublisherChange)
+
         // Unpack into a dot-prefixed staging dir first, then atomically swap it into place — so an
         // IOException mid-unpack (or a path-escape) can never leave a partial <id>/ install, honouring
         // the "no partial install" contract. The staging name starts with '.' so a concurrent rescan
@@ -163,6 +171,34 @@ class AzpInstaller(
             installedAt = nowMs,
             signature = signatureStatus,
         )
+    }
+
+    /**
+     * Enforce publisher continuity for a same-id reinstall/update (spec/package-format.md). The signer
+     * pinned on the prior install is re-derived from its retained `signature.json`. Rules:
+     *  - no prior install, or a prior install that pinned nothing (was unsigned) → nothing to enforce;
+     *  - otherwise the new package's signer key MUST equal the pinned key. A missing signature
+     *    (signed→unsigned regression) or a different key is a publisher change and is refused, unless
+     *    [allow] (an explicit user-approved rotation) is set — the overwrite then re-pins to the new key.
+     */
+    private fun enforcePublisherContinuity(id: String, newSignatureJson: String?, allow: Boolean) {
+        val dir = File(extensionsRoot, safeId(id))
+        if (!dir.isDirectory) return // first install of this id — nothing pinned yet
+        val priorSig = File(dir, "signature.json")
+        val pinnedKey = if (priorSig.exists()) AzpSignatures.parse(priorSig.readText())?.publicKey else null
+        if (pinnedKey == null) return // prior install pinned nothing (unsigned) — spec allows the update
+        if (allow) return // user approved a publisher change (key rotation); the overwrite re-pins
+        val newKey = AzpSignatures.parse(newSignatureJson)?.publicKey
+        if (newKey == null) {
+            throw InstallException(
+                "Publisher change refused for '$id': the installed version is signed, but this update is unsigned"
+            )
+        }
+        if (newKey != pinnedKey) {
+            throw InstallException(
+                "Publisher change refused for '$id': signed by a different key than the installed version"
+            )
+        }
     }
 
     private fun isUnsafePath(name: String): Boolean {
