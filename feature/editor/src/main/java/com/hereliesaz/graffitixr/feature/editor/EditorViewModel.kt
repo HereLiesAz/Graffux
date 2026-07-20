@@ -1434,6 +1434,23 @@ class EditorViewModel @Inject constructor(
         val n = sides.coerceAtLeast(3)
         val updated = active.shapes.map { s ->
             if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON) s.copy(sides = n) else s
+     * Toggles fill on/off for the active vector layer's rectangle/ellipse shapes by flipping the
+     * fill alpha (off = 0, on = fully opaque) while preserving the RGB, so a shape's colour is
+     * remembered across toggles. Enables outline-only shapes when paired with a stroke. Line shapes
+     * (which have no fill) are untouched; no-op on non-vector layers.
+     */
+    fun toggleVectorFill() {
+        val st = _uiState.value
+        val active = st.layers.find { it.id == st.activeLayerId } ?: return
+        if (active.shapes.isEmpty()) return
+        val anyFilled = active.shapes.any { it.hasFill }
+        val updated = active.shapes.map { s ->
+            if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.LINE) {
+                s
+            } else {
+                val rgb = s.fillArgb and 0x00FFFFFFL
+                s.copy(fillArgb = if (anyFilled) rgb else (0xFF000000L or rgb))
+            }
         }
         pushHistory()
         dispatch(EditorIntent.SetLayerShapes(active.id, updated))

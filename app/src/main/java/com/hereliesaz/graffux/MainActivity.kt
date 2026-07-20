@@ -441,6 +441,16 @@ private fun AzNavHostScope.ConfigureRailItems(
         if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
             azRailSubItem(id = "design.sides", hostId = "host.design", text = "Sides", color = navItemColor, shape = AzButtonShape.NONE) {
                 onPolygonSides()
+        // Rect/ellipse-only: fill on/off (enables outline-only shapes). Cyan while filled.
+        if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
+            azRailSubItem(
+                id = "design.fill",
+                hostId = "host.design",
+                text = "Fill",
+                color = if (overlay.shapes.any { it.hasFill }) Cyan else navItemColor,
+                shape = AzButtonShape.NONE,
+            ) {
+                vm.toggleVectorFill()
             }
         }
     }
