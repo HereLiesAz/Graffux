@@ -100,6 +100,40 @@ internal object CanvasHitTest {
     }
 
     /**
+     * The screen position of the rotation handle: out beyond the top edge's midpoint ([corners] TL,
+     * TR), along the outward normal, by [distancePx]. Null if [corners] is degenerate. The handle
+     * follows the box's rotation because it is derived from the (already-rotated) corners.
+     */
+    fun rotationHandlePos(corners: List<Offset>, distancePx: Float): Offset? {
+        if (corners.size < 4) return null
+        val topMid = (corners[0] + corners[1]) / 2f
+        val boxCenter = (corners[0] + corners[1] + corners[2] + corners[3]) / 4f
+        val dir = topMid - boxCenter
+        val len = dir.getDistance()
+        if (len < 0.001f) return null
+        return topMid + (dir / len) * distancePx
+    }
+
+    /**
+     * The signed angle (degrees, normalised to (-180, 180]) swept from [from] to [to] as seen from
+     * [center] — the per-frame rotation delta for a rotation-handle drag. Positive follows the
+     * screen's clockwise sense (y-down), matching `graphicsLayer.rotationZ`.
+     */
+    fun angleDeltaDegrees(center: Offset, from: Offset, to: Offset): Float {
+        val a0 = Math.atan2((from.y - center.y).toDouble(), (from.x - center.x).toDouble())
+        val a1 = Math.atan2((to.y - center.y).toDouble(), (to.x - center.x).toDouble())
+        var d = Math.toDegrees(a1 - a0)
+        while (d <= -180.0) d += 360.0
+        while (d > 180.0) d -= 360.0
+        return d.toFloat()
+    }
+
+    /** The visual centre of the box (average of its four [corners]); the pivot a rotate/resize
+     *  drag turns about. */
+    fun boxCenter(corners: List<Offset>): Offset =
+        (corners[0] + corners[1] + corners[2] + corners[3]) / 4f
+
+    /**
      * The layer's content half-extents in its own local (pre-transform) pixel space, centred on the
      * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
      * of the bitmap in the canvas. Returns null when the layer has no measurable content.

@@ -129,4 +129,25 @@ class CanvasHitTestTest {
         val corners = CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!
         assertNull(CanvasHitTest.nearestCornerIndex(Offset(500f, 500f), corners, 30f)) // centre, far
     }
+
+    @Test
+    fun `box centre is the average of the corners`() {
+        val bc = CanvasHitTest.boxCenter(CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!)
+        assertEquals(500f, bc.x, 0.01f)
+        assertEquals(500f, bc.y, 0.01f)
+    }
+
+    @Test
+    fun `rotation handle sits out beyond the top edge`() {
+        val rot = CanvasHitTest.rotationHandlePos(CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!, 50f)!!
+        assertEquals(500f, rot.x, 0.01f) // above the top-edge midpoint (500, 300)
+        assertEquals(250f, rot.y, 0.01f) // 50 px further up
+    }
+
+    @Test
+    fun `angle delta measures signed rotation about the centre`() {
+        val c = Offset(500f, 500f)
+        assertEquals(-90f, CanvasHitTest.angleDeltaDegrees(c, Offset(600f, 500f), Offset(500f, 400f)), 0.01f)
+        assertEquals(90f, CanvasHitTest.angleDeltaDegrees(c, Offset(600f, 500f), Offset(500f, 600f)), 0.01f)
+    }
 }
