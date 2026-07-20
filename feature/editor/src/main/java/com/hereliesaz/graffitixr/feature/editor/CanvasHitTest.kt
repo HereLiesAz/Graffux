@@ -55,6 +55,34 @@ internal object CanvasHitTest {
     }
 
     /**
+     * The four screen-space corners of [layer]'s content bounding box, in local TL, TR, BR, BL
+     * order (connect them cyclically to draw the outline). This is the forward of [topHit]'s
+     * inverse: local corners at (±halfW, ±halfH) are scaled and Z-rotated about the canvas centre,
+     * then translated by the layer offset. Returns null when the layer has no measurable content or
+     * the canvas is empty. Used to render the selection outline.
+     */
+    fun layerScreenCorners(layer: Layer, canvasWidth: Float, canvasHeight: Float): List<Offset>? {
+        if (canvasWidth <= 0f || canvasHeight <= 0f) return null
+        val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: return null
+        val cx = canvasWidth / 2f
+        val cy = canvasHeight / 2f
+        val rad = Math.toRadians(layer.rotationZ.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        val locals = listOf(
+            -halfW to -halfH, // TL
+            halfW to -halfH,  // TR
+            halfW to halfH,   // BR
+            -halfW to halfH,  // BL
+        )
+        return locals.map { (lx, ly) ->
+            val sx = cx + layer.offset.x + (layer.scale * (lx * c - ly * s)).toFloat()
+            val sy = cy + layer.offset.y + (layer.scale * (lx * s + ly * c)).toFloat()
+            Offset(sx, sy)
+        }
+    }
+
+    /**
      * The layer's content half-extents in its own local (pre-transform) pixel space, centred on the
      * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
      * of the bitmap in the canvas. Returns null when the layer has no measurable content.

@@ -97,4 +97,22 @@ class CanvasHitTestTest {
     fun `zero-size canvas misses`() {
         assertNull(CanvasHitTest.topHit(listOf(vlayer("a")), Offset(0f, 0f), 0f, 0f))
     }
+
+    @Test
+    fun `screen corners of a centred unrotated box`() {
+        val corners = CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!
+        assertEquals(4, corners.size)
+        assertEquals(300f, corners[0].x, 0.01f) // TL
+        assertEquals(300f, corners[0].y, 0.01f)
+        assertEquals(700f, corners[2].x, 0.01f) // BR
+        assertEquals(700f, corners[2].y, 0.01f)
+    }
+
+    @Test
+    fun `screen corners rotate about the centre`() {
+        // TL local (-200,-200) maps to (700, 300) at +90°.
+        val corners = CanvasHitTest.layerScreenCorners(vlayer("a", rotationZ = 90f), W, H)!!
+        assertEquals(700f, corners[0].x, 0.01f)
+        assertEquals(300f, corners[0].y, 0.01f)
+    }
 }

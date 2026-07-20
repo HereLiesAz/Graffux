@@ -31,6 +31,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -178,6 +180,12 @@ fun EditorScreen(
             )
         }
 
+        // 2b. Selection outline — the active layer's transformed bounding box, so the picked shape is
+        // visible. Purely visual (no pointer input); only while a transform tool is active.
+        if (uiState.activeTool == Tool.NONE) {
+            SelectionOverlay(activeLayer = activeLayer, modifier = Modifier.fillMaxSize())
+        }
+
         // 3. Brush touch layer — full-screen, in true screen coordinates (no graphicsLayer here; the
         // layer render already applies the transform, and EditorViewModel.onStrokePoint maps screen
         // space back to bitmap pixels). Active only when a tool is selected on an unlocked layer.
@@ -209,6 +217,24 @@ fun EditorScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        }
+    }
+}
+
+/**
+ * Draws the selection outline: the active layer's transformed content bounding box (four corners
+ * from [CanvasHitTest.layerScreenCorners] connected cyclically), so the user can see which layer a
+ * canvas tap selected. Non-interactive; nothing is drawn when there is no active layer.
+ */
+@Composable
+private fun SelectionOverlay(activeLayer: Layer?, modifier: Modifier = Modifier) {
+    if (activeLayer == null) return
+    Canvas(modifier) {
+        val corners = CanvasHitTest.layerScreenCorners(activeLayer, size.width, size.height) ?: return@Canvas
+        val stroke = 2.dp.toPx()
+        val color = Color(0xFF00E5FF) // cyan, matches the rail accent
+        for (i in corners.indices) {
+            drawLine(color, corners[i], corners[(i + 1) % corners.size], strokeWidth = stroke)
         }
     }
 }
