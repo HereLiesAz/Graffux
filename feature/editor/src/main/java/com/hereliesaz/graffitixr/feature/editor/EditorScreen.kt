@@ -4,6 +4,8 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorMode
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -191,6 +194,20 @@ fun EditorScreen(
             SelectionOverlay(activeLayer = activeLayer, modifier = Modifier.fillMaxSize())
         }
 
+        // 2c. Resize handles — dragging a corner scales the active layer about its centre (a
+        // single-finger "pinch", reusing onTransformGesture). Sits ABOVE the pan-gesture box so a
+        // drag that starts on a handle is claimed here; a drag elsewhere isn't consumed, so panning
+        // still works. Only when a layer is active and no brush tool is selected.
+        if (uiState.activeTool == Tool.NONE && activeLayer != null && !activeLayerLocked) {
+            SelectionHandles(
+                activeLayer = activeLayer,
+                onResizeStart = { vm.onGestureStart() },
+                onResize = { zoom -> vm.onTransformGesture(Offset.Zero, zoom, 0f) },
+                onResizeEnd = { vm.onGestureEnd() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         // 3. Brush touch layer — full-screen, in true screen coordinates (no graphicsLayer here; the
         // layer render already applies the transform, and EditorViewModel.onStrokePoint maps screen
         // space back to bitmap pixels). Active only when a tool is selected on an unlocked layer.
@@ -241,6 +258,60 @@ private fun SelectionOverlay(activeLayer: Layer?, modifier: Modifier = Modifier)
         for (i in corners.indices) {
             drawLine(color, corners[i], corners[(i + 1) % corners.size], strokeWidth = stroke)
         }
+    }
+}
+
+/**
+ * Interactive resize handles: draws a dot at each corner of the active layer's bounding box, and a
+ * drag that begins on a corner scales the layer about its centre. The scale is applied as an
+ * incremental "zoom" through the existing [EditorViewModel.onTransformGesture] path (single-finger
+ * pinch), so it reuses the proven transform + linked-group + history/persistence lifecycle
+ * ([onResizeStart]/[onResizeEnd] wrap it). A drag that does NOT start on a handle is left
+ * unconsumed, so the pan-gesture layer below still handles it.
+ *
+ * Device-tuning note: the handle touch radius and the render-transform pivot basis (shared with
+ * [CanvasHitTest]) are derived, not yet verified on a device.
+ */
+@Composable
+private fun SelectionHandles(
+    activeLayer: Layer,
+    onResizeStart: () -> Unit,
+    onResize: (zoom: Float) -> Unit,
+    onResizeEnd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val handleRadiusPx = with(LocalDensity.current) { 22.dp.toPx() }
+    Canvas(
+        modifier = modifier.pointerInput(activeLayer.id) {
+            awaitEachGesture {
+                val corners = CanvasHitTest.layerScreenCorners(
+                    activeLayer, size.width.toFloat(), size.height.toFloat(),
+                ) ?: return@awaitEachGesture
+                val down = awaitFirstDown(requireUnconsumed = true)
+                // Only claim the gesture when it starts on a corner handle; otherwise leave it for
+                // the pan layer below (do not consume).
+                CanvasHitTest.nearestCornerIndex(down.position, corners, handleRadiusPx)
+                    ?: return@awaitEachGesture
+                down.consume()
+                val center = Offset(size.width / 2f, size.height / 2f)
+                var prevDist = (down.position - center).getDistance().coerceAtLeast(1f)
+                onResizeStart()
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull() ?: break
+                    if (!change.pressed) break
+                    val curDist = (change.position - center).getDistance().coerceAtLeast(1f)
+                    onResize(curDist / prevDist)
+                    prevDist = curDist
+                    change.consume()
+                }
+                onResizeEnd()
+            }
+        },
+    ) {
+        val corners = CanvasHitTest.layerScreenCorners(activeLayer, size.width, size.height) ?: return@Canvas
+        val r = 6.dp.toPx()
+        corners.forEach { drawCircle(Color(0xFF00E5FF), radius = r, center = it) }
     }
 }
 

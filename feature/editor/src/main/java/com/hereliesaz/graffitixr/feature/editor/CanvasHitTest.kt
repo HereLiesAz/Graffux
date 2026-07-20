@@ -83,6 +83,23 @@ internal object CanvasHitTest {
     }
 
     /**
+     * Index of the corner in [corners] nearest to [point] and within [radius] px, or null if none
+     * is close enough. Used to decide whether a drag started on a selection resize handle.
+     */
+    fun nearestCornerIndex(point: Offset, corners: List<Offset>, radius: Float): Int? {
+        var best = -1
+        var bestDist = radius
+        corners.forEachIndexed { i, c ->
+            val d = (point - c).getDistance()
+            if (d <= bestDist) {
+                bestDist = d
+                best = i
+            }
+        }
+        return if (best >= 0) best else null
+    }
+
+    /**
      * The layer's content half-extents in its own local (pre-transform) pixel space, centred on the
      * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
      * of the bitmap in the canvas. Returns null when the layer has no measurable content.
