@@ -83,12 +83,16 @@ class AzpInstaller(
             throw InstallException("Invalid manifest.json: ${t.message}")
         }
 
-        // Asset-host policy (spec/ADOPTION_ASSET_HOST.md). GraffitiXR runs no extension code, so:
-        //  - reject `kind: "code"` outright;
-        //  - a `mixed` package installs, but only its assets are ever used (its entry/runtime are
-        //    ignored downstream — the repository only reads `manifest.assets`).
-        if (manifest.kind == ExtensionKind.CODE) {
-            throw InstallException("This host installs asset extensions only; '${manifest.id}' is kind=code")
+        // Asset-host policy (spec/ADOPTION_ASSET_HOST.md). GraffitiXR runs no extension code, no
+        // companion app, and no MCP server, so only the data-bearing kinds are installable:
+        //  - `asset` installs;
+        //  - `mixed` installs, but only its assets are ever used (its entry/runtime are ignored
+        //    downstream — the repository only reads `manifest.assets`);
+        //  - `code`, `app`, and `mcp` are refused outright.
+        if (manifest.kind != ExtensionKind.ASSET && manifest.kind != ExtensionKind.MIXED) {
+            throw InstallException(
+                "This host installs asset extensions only; '${manifest.id}' is kind=${manifest.kind.name.lowercase()}"
+            )
         }
 
         // Conformance: validate the declared spec compatibility against what this host implements.

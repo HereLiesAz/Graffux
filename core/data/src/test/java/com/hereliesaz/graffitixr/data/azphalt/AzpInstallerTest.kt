@@ -202,6 +202,23 @@ class AzpInstallerTest {
     }
 
     @Test
+    fun `app mcp and unknown host-integration kinds are rejected by the asset-only host`() {
+        // A future/unrecognised kind parses as ExtensionKind.UNKNOWN (wire "unknown") and is refused too.
+        for (kind in listOf("app", "mcp", "future_kind")) {
+            val expectedKind = if (kind == "future_kind") "unknown" else kind
+            val payload = mapOf("LICENSE" to license)
+            val bytes = zip(payload + ("manifest.json" to manifest("com.test.$kind", payload, kind = kind)))
+            val installer = AzpInstaller(tmp.newFolder("extensions-$kind"))
+            try {
+                installer.install(ByteArrayInputStream(bytes), nowMs = 0L)
+                fail("Expected InstallException for kind=$kind")
+            } catch (e: AzpInstaller.InstallException) {
+                assertTrue(e.message!!.contains("kind=$expectedKind"))
+            }
+        }
+    }
+
+    @Test
     fun `incompatible compat is rejected`() {
         val payload = mapOf("LICENSE" to license)
         // Needs a newer spec than this host implements (0.1).

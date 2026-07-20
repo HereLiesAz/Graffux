@@ -1,81 +1,50 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.PanTool
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorMode
-import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.detectSmartOverlayGestures
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
-import kotlinx.coroutines.launch
 
 /**
  * The full standalone 2D editor screen — the single source of truth hosted by GraffiXR and (later)
- * consumed by GraffitiXR. It composes the four already-migrated pieces of the editor into one
- * self-contained surface:
+ * consumed by GraffitiXR. It composes the migrated pieces of the editor into one self-contained
+ * surface:
  *
  *  1. the visible **layer stack** (each [com.hereliesaz.graffitixr.common.model.Layer] drawn with
  *     its transform, tone [ColorFilter], blend mode, and live-stroke swap),
  *  2. **transform/tap gestures** when no brush tool is active,
  *  3. the [DrawingCanvas] brush touch layer when a tool is active, and
- *  4. the [EditorUi] bottom panels (layers / adjustments / color picker),
+ *  4. the [EditorUi] bottom panels (layers / adjustments / color picker).
  *
- * plus a compact icon **tool rail**. Everything AR/SLAM/co-op/camera in GraffitiXR's MainScreen is
- * intentionally left out; GraffiXR forces [EditorMode.DESIGN], so the per-mode whole-design
- * adjustment is always identity and the layer render simplifies to the plain 2D path.
+ * The tool rail is NOT drawn here: GraffiXR wraps this screen in the app's [AzNavRail] host
+ * (`AzHostActivityLayout`, in MainActivity), which renders this canvas as its full-screen `background`
+ * and puts the design tools on the rail — the same arrangement GraffitiXR uses. Everything
+ * AR/SLAM/co-op/camera in GraffitiXR's MainScreen is intentionally left out; GraffiXR forces
+ * [EditorMode.DESIGN], so the per-mode whole-design adjustment is always identity and the layer
+ * render simplifies to the plain 2D path.
  */
 @Composable
 fun EditorScreen(
@@ -84,8 +53,6 @@ fun EditorScreen(
 ) {
     val uiState by vm.uiState.collectAsState()
     val strings = rememberAppStrings()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     // GraffiXR is a pure 2D editor: force DESIGN mode (EditorViewModel defaults to AR) so the layer
     // render and Design-mode transform gestures apply. Runs once.
@@ -93,10 +60,6 @@ fun EditorScreen(
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
-
-    val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { vm.onAddLayer(it) } }
 
     Box(
         modifier = modifier
@@ -219,111 +182,11 @@ fun EditorScreen(
             isCapturingTarget = false
         )
 
-        // 5. Tool rail — on the handedness-preferred side.
-        EditorToolRail(
-            activeTool = uiState.activeTool,
-            activePanel = uiState.activePanel,
-            canUndo = uiState.undoCount > 0,
-            canRedo = uiState.redoCount > 0,
-            onPickImage = {
-                photoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            },
-            onAddBlankLayer = { vm.onAddBlankLayer() },
-            onToggleLayers = { vm.onLayersClicked() },
-            onSelectTool = { vm.setActiveTool(it) },
-            onColor = { vm.onColorClicked() },
-            onAdjust = { vm.onAdjustClicked() },
-            onUndo = { vm.onUndoClicked() },
-            onRedo = { vm.onRedoClicked() },
-            onSave = { vm.saveProject() },
-            onExport = { vm.exportImage() },
-            onShare = {
-                // Interop hand-off: composite the design to a content:// Uri and offer it to any app
-                // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
-                scope.launch {
-                    val uri = vm.exportForShare() ?: return@launch
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "image/png"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(send, null))
-                }
-            },
-            modifier = Modifier
-                .align(if (uiState.isRightHanded) Alignment.CenterEnd else Alignment.CenterStart)
-                .padding(8.dp)
-        )
-
-        // 6. Loading indicator.
+        // 5. Loading indicator.
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         }
-    }
-}
-
-@Composable
-private fun EditorToolRail(
-    activeTool: Tool,
-    activePanel: EditorPanel,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onPickImage: () -> Unit,
-    onAddBlankLayer: () -> Unit,
-    onToggleLayers: () -> Unit,
-    onSelectTool: (Tool) -> Unit,
-    onColor: () -> Unit,
-    onAdjust: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onSave: () -> Unit,
-    onExport: () -> Unit,
-    onShare: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp, horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        RailButton(Icons.Filled.Image, "Add image", onClick = onPickImage)
-        RailButton(Icons.Filled.Add, "Add blank layer", onClick = onAddBlankLayer)
-        RailButton(Icons.Filled.Layers, "Layers", selected = activePanel == EditorPanel.LAYERS, onClick = onToggleLayers)
-        RailButton(Icons.Filled.PanTool, "Move", selected = activeTool == Tool.NONE, onClick = { onSelectTool(Tool.NONE) })
-        RailButton(Icons.Filled.Brush, "Brush", selected = activeTool == Tool.BRUSH, onClick = { onSelectTool(Tool.BRUSH) })
-        RailButton(Icons.Filled.Palette, "Colour", selected = activePanel == EditorPanel.COLOR, onClick = onColor)
-        RailButton(Icons.Filled.Tune, "Adjust", selected = activePanel == EditorPanel.ADJUST, onClick = onAdjust)
-        RailButton(Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo, onClick = onUndo)
-        RailButton(Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo, onClick = onRedo)
-        RailButton(Icons.Filled.Save, "Save", onClick = onSave)
-        RailButton(Icons.Filled.FileDownload, "Export", onClick = onExport)
-        RailButton(Icons.Filled.Share, "Share", onClick = onShare)
-    }
-}
-
-@Composable
-private fun RailButton(
-    icon: ImageVector,
-    contentDescription: String,
-    selected: Boolean = false,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        colors = IconButtonDefaults.iconButtonColors(
-            contentColor = if (selected) MaterialTheme.colorScheme.primary else Color.White,
-            disabledContentColor = Color.White.copy(alpha = 0.3f),
-        ),
-    ) {
-        Icon(imageVector = icon, contentDescription = contentDescription)
     }
 }

@@ -59,7 +59,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(project(":core:common"))
     implementation(project(":core:domain"))
-    implementation(libs.arcore.client)
     // OpenCV from Maven Central. Its Prefab part exposes the native C++ world to CMake
     // (find_package(OpenCV) → OpenCV::opencv_java5) and auto-packages libopencv_java5.so.
     implementation(libs.opencv)
