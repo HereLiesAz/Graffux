@@ -75,6 +75,19 @@ fun EditorScreen(
             .fillMaxSize()
             .background(uiState.canvasBackground)
     ) {
+        // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
+        // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = uiState.viewportZoom
+                    scaleY = uiState.viewportZoom
+                    translationX = uiState.viewportOffset.x
+                    translationY = uiState.viewportOffset.y
+                    transformOrigin = TransformOrigin(0f, 0f)
+                }
+        ) {
         // 1. Layer stack render.
         uiState.layers.filter { it.isVisible }.forEach { layer ->
             key(layer.id) {
@@ -150,6 +163,7 @@ fun EditorScreen(
             documentHeight = uiState.documentHeight,
             modifier = Modifier.fillMaxSize(),
         )
+        } // end infinite-canvas camera container
 
         // 2. Transform / tap gestures — only when no brush tool is active.
         if (uiState.activeTool == Tool.NONE) {
@@ -185,7 +199,12 @@ fun EditorScreen(
         // 2b. Selection outline — the active layer's transformed bounding box, so the picked shape is
         // visible. Purely visual (no pointer input); only while a transform tool is active.
         if (uiState.activeTool == Tool.NONE) {
-            SelectionOverlay(activeLayer = activeLayer, modifier = Modifier.fillMaxSize())
+            SelectionOverlay(
+                activeLayer = activeLayer,
+                viewportOffset = uiState.viewportOffset,
+                viewportZoom = uiState.viewportZoom,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // 2c. Resize handles — dragging a corner scales the active layer about its centre (a
@@ -195,6 +214,8 @@ fun EditorScreen(
         if (uiState.activeTool == Tool.NONE && activeLayer != null && !activeLayerLocked) {
             SelectionHandles(
                 activeLayer = activeLayer,
+                viewportOffset = uiState.viewportOffset,
+                viewportZoom = uiState.viewportZoom,
                 onGestureStart = { vm.onGestureStart() },
                 onResize = { zoom -> vm.onTransformGesture(Offset.Zero, zoom, 0f) },
                 onRotate = { deg -> vm.onTransformGesture(Offset.Zero, 1f, deg) },
@@ -244,10 +265,17 @@ fun EditorScreen(
  * canvas tap selected. Non-interactive; nothing is drawn when there is no active layer.
  */
 @Composable
-private fun SelectionOverlay(activeLayer: Layer?, modifier: Modifier = Modifier) {
+private fun SelectionOverlay(
+    activeLayer: Layer?,
+    viewportOffset: Offset,
+    viewportZoom: Float,
+    modifier: Modifier = Modifier,
+) {
     if (activeLayer == null) return
     Canvas(modifier) {
-        val corners = CanvasHitTest.layerScreenCorners(activeLayer, size.width, size.height) ?: return@Canvas
+        val corners = CanvasHitTest.layerScreenCorners(
+            activeLayer, size.width, size.height, viewportOffset, viewportZoom,
+        ) ?: return@Canvas
         val stroke = 2.dp.toPx()
         val color = Color(0xFF00E5FF) // cyan, matches the rail accent
         for (i in corners.indices) {
@@ -270,6 +298,8 @@ private fun SelectionOverlay(activeLayer: Layer?, modifier: Modifier = Modifier)
 @Composable
 private fun SelectionHandles(
     activeLayer: Layer,
+    viewportOffset: Offset,
+    viewportZoom: Float,
     onGestureStart: () -> Unit,
     onResize: (zoom: Float) -> Unit,
     onRotate: (degrees: Float) -> Unit,
@@ -280,10 +310,10 @@ private fun SelectionHandles(
     val handleRadiusPx = with(density) { 22.dp.toPx() }
     val rotationArmPx = with(density) { 36.dp.toPx() }
     Canvas(
-        modifier = modifier.pointerInput(activeLayer.id) {
+        modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom) {
             awaitEachGesture {
                 val corners = CanvasHitTest.layerScreenCorners(
-                    activeLayer, size.width.toFloat(), size.height.toFloat(),
+                    activeLayer, size.width.toFloat(), size.height.toFloat(), viewportOffset, viewportZoom,
                 ) ?: return@awaitEachGesture
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val pivot = CanvasHitTest.boxCenter(corners)
@@ -318,7 +348,9 @@ private fun SelectionHandles(
             }
         },
     ) {
-        val corners = CanvasHitTest.layerScreenCorners(activeLayer, size.width, size.height) ?: return@Canvas
+        val corners = CanvasHitTest.layerScreenCorners(
+            activeLayer, size.width, size.height, viewportOffset, viewportZoom,
+        ) ?: return@Canvas
         val accent = Color(0xFF00E5FF)
         val r = 6.dp.toPx()
         corners.forEach { drawCircle(accent, radius = r, center = it) }

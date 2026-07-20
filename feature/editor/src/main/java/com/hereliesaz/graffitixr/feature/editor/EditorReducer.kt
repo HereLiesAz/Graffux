@@ -90,6 +90,10 @@ internal object EditorReducer {
             documentWidth = intent.width.coerceIn(1, 8192),
             documentHeight = intent.height.coerceIn(1, 8192),
         )
+        is EditorIntent.SetViewport -> state.copy(
+            viewportOffset = intent.offset,
+            viewportZoom = intent.zoom.coerceIn(0.1f, 10f),
+        )
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)

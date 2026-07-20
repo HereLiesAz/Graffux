@@ -29,8 +29,17 @@ internal object CanvasHitTest {
      * (canvas pixels), or null if the tap misses every layer. Layers are tested front-to-back so
      * the visually topmost one wins.
      */
-    fun topHit(layers: List<Layer>, tap: Offset, canvasWidth: Float, canvasHeight: Float): String? {
-        if (canvasWidth <= 0f || canvasHeight <= 0f) return null
+    fun topHit(
+        layers: List<Layer>,
+        tap: Offset,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+    ): String? {
+        if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return null
+        // Undo the camera first: screen → world (container) space, where the per-layer math lives.
+        val worldTap = (tap - viewportOffset) / viewportZoom
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
@@ -40,8 +49,8 @@ internal object CanvasHitTest {
             if (halfW <= 0f || halfH <= 0f) continue
 
             // Invert the render transform: undo translation + centre, then rotation, then scale.
-            val dx = tap.x - layer.offset.x - cx
-            val dy = tap.y - layer.offset.y - cy
+            val dx = worldTap.x - layer.offset.x - cx
+            val dy = worldTap.y - layer.offset.y - cy
             val rad = Math.toRadians(layer.rotationZ.toDouble())
             val c = cos(rad)
             val s = sin(rad)
@@ -61,7 +70,13 @@ internal object CanvasHitTest {
      * then translated by the layer offset. Returns null when the layer has no measurable content or
      * the canvas is empty. Used to render the selection outline.
      */
-    fun layerScreenCorners(layer: Layer, canvasWidth: Float, canvasHeight: Float): List<Offset>? {
+    fun layerScreenCorners(
+        layer: Layer,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+    ): List<Offset>? {
         if (canvasWidth <= 0f || canvasHeight <= 0f) return null
         val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: return null
         val cx = canvasWidth / 2f
@@ -76,9 +91,10 @@ internal object CanvasHitTest {
             -halfW to halfH,  // BL
         )
         return locals.map { (lx, ly) ->
-            val sx = cx + layer.offset.x + (layer.scale * (lx * c - ly * s)).toFloat()
-            val sy = cy + layer.offset.y + (layer.scale * (lx * s + ly * c)).toFloat()
-            Offset(sx, sy)
+            // World (container) position, then apply the camera: screen = viewportOffset + world*zoom.
+            val wx = cx + layer.offset.x + (layer.scale * (lx * c - ly * s)).toFloat()
+            val wy = cy + layer.offset.y + (layer.scale * (lx * s + ly * c)).toFloat()
+            Offset(viewportOffset.x + wx * viewportZoom, viewportOffset.y + wy * viewportZoom)
         }
     }
 

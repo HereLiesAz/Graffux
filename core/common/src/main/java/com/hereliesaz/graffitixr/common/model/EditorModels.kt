@@ -153,4 +153,10 @@ data class EditorUiState(
     // One-shot: set to a freshly-created text layer's id so the UI can immediately open its
     // edit-text box. Cleared once consumed.
     val autoEditTextLayerId: String? = null,
+
+    // Infinite-canvas camera: maps the layer "world" (the screen-sized document space each layer's
+    // offset/scale is expressed in) onto the physical screen. screen = viewportOffset + world *
+    // viewportZoom (top-left origin). Identity (Zero / 1f) reproduces the pre-camera behaviour.
+    val viewportOffset: Offset = Offset.Zero,
+    val viewportZoom: Float = 1f,
 )

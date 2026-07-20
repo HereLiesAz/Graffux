@@ -1186,7 +1186,10 @@ class EditorViewModel @Inject constructor(
      * are the canvas size the tap was measured in. Hit-test geometry lives in [CanvasHitTest].
      */
     fun onCanvasTap(tap: Offset, canvasWidth: Float, canvasHeight: Float) {
-        val hitId = CanvasHitTest.topHit(_uiState.value.layers, tap, canvasWidth, canvasHeight)
+        val st = _uiState.value
+        val hitId = CanvasHitTest.topHit(
+            st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom,
+        )
         if (hitId != null) {
             if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
         } else {
@@ -1204,6 +1207,29 @@ class EditorViewModel @Inject constructor(
             layer.copy(scale = layer.scale * zoom, offset = layer.offset + pan, rotationX = rx, rotationY = ry, rotationZ = rz)
         }
     }
+
+    /**
+     * Pans/zooms the infinite-canvas camera (the whole workspace), leaving individual layers alone.
+     * [panDelta] is a screen-pixel pan; [zoomFactor] multiplies the current zoom about [focus] (a
+     * screen point, e.g. the pinch centroid) so that point stays put under the fingers. The
+     * screen↔world mapping is `screen = viewportOffset + world * viewportZoom`, so holding [focus]
+     * fixed means `newOffset = focus - (focus - oldOffset) * (newZoom/oldZoom) + panDelta`.
+     */
+    fun onViewportPanZoom(panDelta: Offset, zoomFactor: Float, focus: Offset) {
+        val st = _uiState.value
+        val oldZoom = st.viewportZoom
+        val newZoom = (oldZoom * zoomFactor).coerceIn(0.1f, 10f)
+        val k = newZoom / oldZoom
+        val old = st.viewportOffset
+        val newOffset = Offset(
+            focus.x - (focus.x - old.x) * k + panDelta.x,
+            focus.y - (focus.y - old.y) * k + panDelta.y,
+        )
+        dispatch(EditorIntent.SetViewport(newOffset, newZoom))
+    }
+
+    /** Resets the camera to identity (100%, centred). */
+    fun resetViewport() = dispatch(EditorIntent.SetViewport(Offset.Zero, 1f))
 
     override fun onGestureEnd() {
         saveProject()
