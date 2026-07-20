@@ -72,6 +72,8 @@ internal sealed interface EditorIntent {
 
     // ── Settings / tool / brush / color ───────────────────────────────────────
     data class SetCanvasBackground(val color: Color) : EditorIntent
+    /** Sets the artboard / document pixel dimensions. */
+    data class SetDocumentSize(val width: Int, val height: Int) : EditorIntent
     data object ToggleHandedness : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
