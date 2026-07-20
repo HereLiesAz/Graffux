@@ -35,6 +35,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
@@ -122,6 +123,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // automatically via uiState.autoEditTextLayerId; this covers re-editing an existing one.
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
 
+    // Canvas background-colour picker visibility (opened from the Project folder's "Background" item).
+    var showBgDialog by remember { mutableStateOf(false) }
+
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -168,6 +172,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             onShapeSize = { showShapeSizeDialog = true },
             onPolygonSides = { showSidesDialog = true },
             onEditText = { id -> manualEditTextId = id },
+            onBackground = { showBgDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -319,6 +324,14 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
             }
+
+            if (showBgDialog) {
+                BackgroundColorDialog(
+                    current = uiState.canvasBackground,
+                    onSelect = { vm.setCanvasBackground(it) },
+                    onDismiss = { showBgDialog = false },
+                )
+            }
         }
     }
 }
@@ -344,6 +357,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onShapeSize: () -> Unit,
     onPolygonSides: () -> Unit,
     onEditText: (String) -> Unit,
+    onBackground: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -531,6 +545,9 @@ private fun AzNavHostScope.ConfigureRailItems(
         shape = AzButtonShape.NONE,
     ) {
         onDocumentSize()
+    }
+    azRailSubItem(id = "proj.background", hostId = "host.project", text = "Background", color = navItemColor, shape = AzButtonShape.NONE) {
+        onBackground()
     }
     azRailSubItem(id = "proj.save", hostId = "host.project", text = navStrings.save, color = navItemColor, shape = AzButtonShape.NONE) {
         vm.saveProject()
