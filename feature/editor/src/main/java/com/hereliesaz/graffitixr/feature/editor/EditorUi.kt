@@ -7,6 +7,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,6 +75,8 @@ fun EditorUi(
                         activeLayerId = uiState.activeLayerId,
                         onSelectLayer = actions::onLayerActivated,
                         onToggleVisibility = actions::onToggleVisibility,
+                        onDuplicate = actions::onLayerDuplicated,
+                        onDelete = actions::onLayerRemoved,
                         onClose = { actions.onDismissPanel() },
                         strings = strings
                     )
@@ -148,6 +157,8 @@ fun LayersPanel(
     activeLayerId: String?,
     onSelectLayer: (String) -> Unit,
     onToggleVisibility: (String) -> Unit,
+    onDuplicate: (String) -> Unit,
+    onDelete: (String) -> Unit,
     onClose: () -> Unit,
     strings: AppStrings
 ) {
@@ -164,16 +175,36 @@ fun LayersPanel(
                 modifier = Modifier.clickable { onClose() }.padding(8.dp)
             )
         }
+        // Top layer first (layers render bottom-to-top, so reverse for the panel).
         LazyColumn(Modifier.fillMaxWidth()) {
             items(layers.reversed()) { layer ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelectLayer(layer.id) }
-                        .background(if (layer.id == activeLayerId) Color.Gray.copy(alpha = 0.3f) else Color.Transparent)
-                        .padding(8.dp)
+                        .background(if (layer.id == activeLayerId) Color.Gray.copy(alpha = 0.3f) else Color.Transparent),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(layer.name, color = Color.White)
+                    IconButton(onClick = { onToggleVisibility(layer.id) }) {
+                        Icon(
+                            imageVector = if (layer.isVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer,
+                            tint = if (layer.isVisible) Color.White else Color.Gray,
+                        )
+                    }
+                    Text(
+                        layer.name,
+                        color = Color.White,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onSelectLayer(layer.id) }
+                            .padding(vertical = 12.dp)
+                    )
+                    IconButton(onClick = { onDuplicate(layer.id) }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = strings.editor.duplicate, tint = Color.White)
+                    }
+                    IconButton(onClick = { onDelete(layer.id) }) {
+                        Icon(Icons.Filled.Delete, contentDescription = strings.editor.delete, tint = Color.White)
+                    }
                 }
             }
         }
