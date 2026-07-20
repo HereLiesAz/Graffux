@@ -40,6 +40,7 @@ import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -106,6 +107,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Blend-mode picker visibility (opened from the Design folder's "Blend" item).
     var showBlendDialog by remember { mutableStateOf(false) }
 
+    // Vector stroke-width picker visibility (opened from the Design folder's "Stroke" item).
+    var showStrokeDialog by remember { mutableStateOf(false) }
+
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -147,6 +151,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             },
             onDocumentSize = { showDocDialog = true },
             onBlendMode = { showBlendDialog = true },
+            onStrokeWidth = { showStrokeDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -215,6 +220,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onDismiss = { showBlendDialog = false },
                 )
             }
+
+            if (showStrokeDialog) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                VectorStrokeDialog(
+                    currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
+                    onApply = { w ->
+                        vm.setVectorStrokeWidth(w)
+                        showStrokeDialog = false
+                    },
+                    onDismiss = { showStrokeDialog = false },
+                )
+            }
         }
     }
 }
@@ -235,6 +252,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onShare: () -> Unit,
     onDocumentSize: () -> Unit,
     onBlendMode: () -> Unit,
+    onStrokeWidth: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -331,6 +349,12 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
         azRailSubItem(id = "design.blend", hostId = "host.design", text = "Blend", color = navItemColor, shape = AzButtonShape.NONE) {
             onBlendMode()
+        }
+        // Vector-only: outline width for the active shape layer.
+        if (overlay.shapes.isNotEmpty()) {
+            azRailSubItem(id = "design.stroke", hostId = "host.design", text = "Stroke", color = navItemColor, shape = AzButtonShape.NONE) {
+                onStrokeWidth()
+            }
         }
     }
     azRailSubItem(

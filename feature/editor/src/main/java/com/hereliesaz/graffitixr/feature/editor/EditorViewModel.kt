@@ -1335,6 +1335,27 @@ class EditorViewModel @Inject constructor(
         emitActiveLayerProps()
     }
 
+    /**
+     * Sets the stroke (outline) width on every shape of the active vector layer. A width of 0
+     * removes the outline (fill-only). When a shape had no stroke yet, its stroke colour is seeded
+     * from the current active colour so the outline is immediately visible; an existing stroke
+     * colour is preserved. No-op if the active layer isn't a vector layer.
+     */
+    fun setVectorStrokeWidth(width: Float) {
+        val st = _uiState.value
+        val active = st.layers.find { it.id == st.activeLayerId } ?: return
+        if (active.shapes.isEmpty()) return
+        val w = width.coerceIn(0f, 100f)
+        val seedArgb = st.activeColor.toArgb().toLong() and 0xFFFFFFFFL
+        val updated = active.shapes.map { s ->
+            val argb = if (s.strokeWidth > 0f) s.strokeArgb else seedArgb
+            s.copy(strokeWidth = w, strokeArgb = argb)
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetLayerShapes(active.id, updated))
+        saveProject()
+    }
+
     override fun onLayerDuplicated(id: String) {
         val layer = _uiState.value.layers.find { it.id == id } ?: return
         val projectId = _uiState.value.projectId ?: return
