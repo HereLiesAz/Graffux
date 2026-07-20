@@ -41,6 +41,7 @@ import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import dagger.hilt.android.AndroidEntryPoint
@@ -114,6 +115,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Vector corner-radius picker visibility (opened from the Design folder's "Corners" item).
     var showCornerDialog by remember { mutableStateOf(false) }
 
+    // Vector shape-size picker visibility (opened from the Design folder's "Size" item).
+    var showShapeSizeDialog by remember { mutableStateOf(false) }
+
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -157,6 +161,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             onBlendMode = { showBlendDialog = true },
             onStrokeWidth = { showStrokeDialog = true },
             onCornerRadius = { showCornerDialog = true },
+            onShapeSize = { showShapeSizeDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -250,6 +255,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onDismiss = { showCornerDialog = false },
                 )
             }
+
+            if (showShapeSizeDialog) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                val shape = activeLayer?.shapes?.firstOrNull()
+                if (shape != null) {
+                    ShapeSizeDialog(
+                        currentWidth = shape.width,
+                        currentHeight = shape.height,
+                        isLine = shape.kind == ShapeKind.LINE,
+                        onConfirm = { w, h ->
+                            vm.setVectorSize(w, h)
+                            showShapeSizeDialog = false
+                        },
+                        onDismiss = { showShapeSizeDialog = false },
+                    )
+                }
+            }
         }
     }
 }
@@ -272,6 +294,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onBlendMode: () -> Unit,
     onStrokeWidth: () -> Unit,
     onCornerRadius: () -> Unit,
+    onShapeSize: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -369,8 +392,11 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailSubItem(id = "design.blend", hostId = "host.design", text = "Blend", color = navItemColor, shape = AzButtonShape.NONE) {
             onBlendMode()
         }
-        // Vector-only: outline width for the active shape layer.
+        // Vector-only: numeric size + outline width for the active shape layer.
         if (overlay.shapes.isNotEmpty()) {
+            azRailSubItem(id = "design.shapesize", hostId = "host.design", text = "Size", color = navItemColor, shape = AzButtonShape.NONE) {
+                onShapeSize()
+            }
             azRailSubItem(id = "design.stroke", hostId = "host.design", text = "Stroke", color = navItemColor, shape = AzButtonShape.NONE) {
                 onStrokeWidth()
             }

@@ -1376,6 +1376,27 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    /**
+     * Resizes every shape on the active vector layer to [width]×[height] px. For a
+     * [ShapeKind.LINE], height is ignored (it draws as a horizontal line of length [width]). Any
+     * rectangle corner radius is re-clamped so it never exceeds half the new shorter side. No-op on
+     * non-vector layers. This is the numeric alternative to on-canvas resize handles.
+     */
+    fun setVectorSize(width: Float, height: Float) {
+        val st = _uiState.value
+        val active = st.layers.find { it.id == st.activeLayerId } ?: return
+        if (active.shapes.isEmpty()) return
+        val w = width.coerceIn(1f, 8192f)
+        val h = height.coerceIn(1f, 8192f)
+        val updated = active.shapes.map { s ->
+            val maxR = minOf(w, h) / 2f
+            s.copy(width = w, height = h, cornerRadius = s.cornerRadius.coerceIn(0f, maxR))
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetLayerShapes(active.id, updated))
+        saveProject()
+    }
+
     override fun onLayerDuplicated(id: String) {
         val layer = _uiState.value.layers.find { it.id == id } ?: return
         val projectId = _uiState.value.projectId ?: return
