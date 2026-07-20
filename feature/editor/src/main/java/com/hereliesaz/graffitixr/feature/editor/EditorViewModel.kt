@@ -841,6 +841,12 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    /** Sets the canvas/artboard background colour (behind all layers). Persisted with the project. */
+    fun setCanvasBackground(color: androidx.compose.ui.graphics.Color) {
+        dispatch(EditorIntent.SetCanvasBackground(color))
+        saveProject()
+    }
+
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
     override fun onLayerRemoved(id: String) {
