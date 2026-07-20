@@ -1423,6 +1423,23 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    /**
+     * Changes the vertex count of every [ShapeKind.POLYGON] shape on the active vector layer
+     * (floored at 3). Non-polygon shapes are left untouched. No-op on non-vector layers.
+     */
+    fun setPolygonSides(sides: Int) {
+        val st = _uiState.value
+        val active = st.layers.find { it.id == st.activeLayerId } ?: return
+        if (active.shapes.isEmpty()) return
+        val n = sides.coerceAtLeast(3)
+        val updated = active.shapes.map { s ->
+            if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON) s.copy(sides = n) else s
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetLayerShapes(active.id, updated))
+        saveProject()
+    }
+
     override fun onLayerDuplicated(id: String) {
         val layer = _uiState.value.layers.find { it.id == id } ?: return
         val projectId = _uiState.value.projectId ?: return

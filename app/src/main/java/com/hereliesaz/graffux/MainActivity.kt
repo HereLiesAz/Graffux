@@ -41,6 +41,7 @@ import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
@@ -118,6 +119,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Vector shape-size picker visibility (opened from the Design folder's "Size" item).
     var showShapeSizeDialog by remember { mutableStateOf(false) }
 
+    // Polygon sides picker visibility (opened from the Design folder's "Sides" item).
+    var showSidesDialog by remember { mutableStateOf(false) }
+
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -162,6 +166,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             onStrokeWidth = { showStrokeDialog = true },
             onCornerRadius = { showCornerDialog = true },
             onShapeSize = { showShapeSizeDialog = true },
+            onPolygonSides = { showSidesDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -272,6 +277,21 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
             }
+
+            if (showSidesDialog) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
+                if (polygon != null) {
+                    PolygonSidesDialog(
+                        currentSides = polygon.sides,
+                        onApply = { n ->
+                            vm.setPolygonSides(n)
+                            showSidesDialog = false
+                        },
+                        onDismiss = { showSidesDialog = false },
+                    )
+                }
+            }
         }
     }
 }
@@ -295,6 +315,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onStrokeWidth: () -> Unit,
     onCornerRadius: () -> Unit,
     onShapeSize: () -> Unit,
+    onPolygonSides: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -414,6 +435,12 @@ private fun AzNavHostScope.ConfigureRailItems(
         if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
             azRailSubItem(id = "design.corners", hostId = "host.design", text = "Corners", color = navItemColor, shape = AzButtonShape.NONE) {
                 onCornerRadius()
+            }
+        }
+        // Polygon-only: vertex count.
+        if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
+            azRailSubItem(id = "design.sides", hostId = "host.design", text = "Sides", color = navItemColor, shape = AzButtonShape.NONE) {
+                onPolygonSides()
             }
         }
     }
