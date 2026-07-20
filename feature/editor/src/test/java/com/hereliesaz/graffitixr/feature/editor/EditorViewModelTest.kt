@@ -148,7 +148,7 @@ class EditorViewModelTest {
     @Test
     fun `initial state is correct`() {
         val state = viewModel.uiState.value
-        assertEquals(EditorMode.AR, state.editorMode)
+        assertEquals(EditorMode.DESIGN, state.editorMode)
         assertTrue(state.layers.isEmpty())
         assertNull(state.activeLayerId)
     }
