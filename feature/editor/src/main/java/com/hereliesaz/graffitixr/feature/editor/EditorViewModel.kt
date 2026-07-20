@@ -1173,6 +1173,21 @@ class EditorViewModel @Inject constructor(
     fun onLayersClicked() = dispatch(EditorIntent.ToggleLayersPanel)
     override fun onDismissPanel() = dispatch(EditorIntent.DismissPanel)
 
+    /**
+     * A tap on the canvas at [tap] (canvas pixels): selects the topmost layer under the point so a
+     * shape can be picked directly on the canvas instead of via the Layers panel. A tap that misses
+     * every layer dismisses any open panel (the prior tap behaviour). [canvasWidth]/[canvasHeight]
+     * are the canvas size the tap was measured in. Hit-test geometry lives in [CanvasHitTest].
+     */
+    fun onCanvasTap(tap: Offset, canvasWidth: Float, canvasHeight: Float) {
+        val hitId = CanvasHitTest.topHit(_uiState.value.layers, tap, canvasWidth, canvasHeight)
+        if (hitId != null) {
+            if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
+        } else {
+            dispatch(EditorIntent.DismissPanel)
+        }
+    }
+
     fun onTransformGesture(pan: Offset, zoom: Float, rotationDelta: Float) {
         val activeId = _uiState.value.activeLayerId ?: return
         val axis = _uiState.value.activeRotationAxis

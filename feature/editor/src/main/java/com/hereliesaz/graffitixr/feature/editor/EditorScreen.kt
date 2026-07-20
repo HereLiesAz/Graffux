@@ -155,7 +155,10 @@ fun EditorScreen(
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
                         detectTapGestures(
                             onDoubleTap = { vm.onCycleRotationAxis() },
-                            onTap = { vm.onDismissPanel() }
+                            // Tap selects the layer under the finger (or dismisses panels on a miss).
+                            onTap = { offset ->
+                                vm.onCanvasTap(offset, size.width.toFloat(), size.height.toFloat())
+                            }
                         )
                     }
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
