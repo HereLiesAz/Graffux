@@ -93,18 +93,12 @@ fun EditorUi(
                 )
             }
 
-            // Modes (anything but the Design screen) show the finished design with off-rail adjustment
-            // knobs; undo/redo sit beneath those knobs here too, so every mode keeps history controls.
-            val inMode = uiState.editorMode != EditorMode.DESIGN
-            // In a Mode the adjust knobs drive the whole-design mode adjustment (which always exists),
-            // not the active layer — so they work without a selected layer and tone the whole design.
-            val modeAdj = if (inMode) uiState.modeAdjustments[uiState.editorMode] ?: ModeAdjustment() else null
+            // The adjust knobs act on the active layer; they're rail-triggered via the Adjust panel.
             AdjustmentsPanel(
                 state = AdjustmentsState(
                     hideUiForCapture = uiState.hideUiForCapture,
                     isTouchLocked = isTouchLocked,
                     hasImage = uiState.layers.isNotEmpty(),
-                    isArMode = uiState.editorMode == EditorMode.AR,
                     hasHistory = uiState.undoCount > 0 || uiState.redoCount > 0,
                     undoCount = uiState.undoCount,
                     redoCount = uiState.redoCount,
@@ -113,11 +107,7 @@ fun EditorUi(
                     activeLayer = overlayLayer,
                     showUndoRedo = true
                 ),
-                // In a Mode the adjust knobs are the off-rail tools (opacity/saturation/…); in Design
-                // they're rail-triggered via the Adjust panel. Hidden while capturing a target so they
-                // don't overlap the target-creation dialog.
-                showKnobs = !isCapturingTarget &&
-                    (uiState.activePanel == EditorPanel.ADJUST || (inMode && uiState.layers.isNotEmpty())),
+                showKnobs = !isCapturingTarget && uiState.activePanel == EditorPanel.ADJUST,
                 showColorBalance = uiState.activePanel == EditorPanel.COLOR,
                 isLandscape = isLandscape,
                 screenHeight = screenHeight,
@@ -138,10 +128,6 @@ fun EditorUi(
                 onSegmentationInfluenceChange = { actions.setSegmentationInfluence(it) },
                 onSegmentationDismiss = { actions.onConfirmSegmentation() },
                 onSegmentationCancel = { actions.onCancelSegmentation() },
-                modeOpacity = modeAdj?.opacity,
-                modeBrightness = modeAdj?.brightness,
-                modeContrast = modeAdj?.contrast,
-                modeSaturation = modeAdj?.saturation,
             )
         }
     }
