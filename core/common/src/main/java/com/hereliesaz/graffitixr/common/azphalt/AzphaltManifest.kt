@@ -38,9 +38,60 @@ data class AzphaltManifest(
      * a host can render a browse grid without downloading or executing the package.
      */
     val preview: Preview? = null,
+    /** Present only on a `kind: "pack"` manifest (spec/pack.md): the member packages it references. */
+    val pack: PackManifest? = null,
     /** Payload path → `sha256-…` digest. A host MUST verify every file before use. */
     val files: Map<String, String> = emptyMap(),
 )
+
+/**
+ * The `pack` block on a `kind: "pack"` manifest (spec/pack.md). A pack **references** other packages by
+ * id — it carries no payload — so a host resolves [entries] from a repository and installs each through
+ * the normal path, honouring each member's own free/paid gate.
+ */
+@Serializable
+data class PackManifest(
+    val entries: List<PackEntry> = emptyList(),
+)
+
+/**
+ * One member of a [PackManifest] (spec/pack.md § `pack` block fields).
+ * - [id] (required): the member package's reverse-DNS id (may belong to a different author).
+ * - [version] (optional): an exact pin; **absent = resolve the member's latest** at install time.
+ * - [required]: `true` ⇒ part of the base set (installed by default); `false`/absent ⇒ recommended.
+ * - [note]: a short human string shown beside the member.
+ */
+@Serializable
+data class PackEntry(
+    val id: String,
+    val version: String? = null,
+    val required: Boolean = false,
+    val note: String? = null,
+)
+
+/**
+ * Verifies a `kind: "pack"` manifest against spec/pack.md § Verification (the rules `@azphalt/azp`'s
+ * `validatePackManifest` folds into `verifyAzp`). Returns null if valid, or a human message for the
+ * first violation. Container-integrity and signature checks are applied separately, as for any package.
+ */
+fun validatePackManifest(m: AzphaltManifest): String? {
+    if (m.kind != ExtensionKind.PACK) return "not a pack (kind=${m.kind.wire})"
+    val pack = m.pack ?: return "pack manifest has no `pack` block"
+    // Header-only: no code entry/runtime, capabilities, or assets (app/mcp blocks aren't modelled here).
+    if (m.entry != null || m.runtime != null) return "a pack must not declare code (entry/runtime)"
+    if (m.capabilities.isNotEmpty()) return "a pack must not declare capabilities"
+    if (m.assets.isNotEmpty()) return "a pack must not declare assets"
+    if (pack.entries.isEmpty()) return "pack.entries must have at least one entry"
+    val seen = HashSet<String>()
+    for (e in pack.entries) {
+        if (e.id.isBlank()) return "a pack entry has a blank id"
+        if (e.version != null && e.version.isBlank()) return "pack entry ${e.id} has a blank version"
+        if (e.id == m.id) return "a pack must not reference itself (${e.id})"
+        // No two entries may be the same id + version.
+        if (!seen.add(e.id + "@" + (e.version ?: ""))) return "duplicate pack entry ${e.id}@${e.version ?: "*"}"
+    }
+    return null
+}
 
 /**
  * A package's `kind` (spec/extension-manifest.md § kind). `0.1` names five: `asset`/`code`/`mixed`
@@ -56,6 +107,9 @@ enum class ExtensionKind(val wire: String) {
     MIXED("mixed"),
     APP("app"),
     MCP("mcp"),
+
+    /** A curated set that references other packages by id (spec/pack.md). Header-only: no payload. */
+    PACK("pack"),
 
     /** A kind this host build does not recognise; never installable. */
     UNKNOWN("");
