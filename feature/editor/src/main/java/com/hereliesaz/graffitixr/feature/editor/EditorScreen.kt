@@ -492,6 +492,29 @@ private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) 
             if (shape.hasFill) drawPath(path, Color(shape.fillArgb.toInt()))
             if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
         }
+        ShapeKind.PATH -> {
+            val path = pointsPath(shape.points, cx, cy, shape.closed) ?: return
+            if (shape.hasFill) drawPath(path, Color(shape.fillArgb.toInt()))
+            if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
+        }
+    }
+}
+
+/**
+ * A [Path] through the interleaved local [points] (`[x0,y0,…]`, centered on origin), offset to
+ * ([cx], [cy]). [close]s the figure when asked. Null when there are fewer than two points. The
+ * export path builds the identical figure with an android.graphics.Path.
+ */
+private fun pointsPath(points: List<Float>, cx: Float, cy: Float, close: Boolean): Path? {
+    if (points.size < 4) return null
+    return Path().apply {
+        moveTo(cx + points[0], cy + points[1])
+        var i = 2
+        while (i + 1 < points.size) {
+            lineTo(cx + points[i], cy + points[i + 1])
+            i += 2
+        }
+        if (close) close()
     }
 }
 

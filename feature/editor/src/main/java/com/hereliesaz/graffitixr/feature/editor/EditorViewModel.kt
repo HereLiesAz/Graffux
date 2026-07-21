@@ -722,6 +722,7 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.ShapeKind.ELLIPSE -> "Ellipse"
             com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> "Line"
             com.hereliesaz.graffitixr.common.model.ShapeKind.POLYGON -> "Polygon"
+            com.hereliesaz.graffitixr.common.model.ShapeKind.PATH -> "Path"
         }
         val count = _uiState.value.layers.count { it.shapes.isNotEmpty() }
         val shape = when (kind) {

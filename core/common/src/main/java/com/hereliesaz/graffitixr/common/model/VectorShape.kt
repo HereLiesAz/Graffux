@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 /** The primitive shapes a vector layer can hold. */
 @Serializable
-enum class ShapeKind { RECTANGLE, ELLIPSE, LINE, POLYGON }
+enum class ShapeKind { RECTANGLE, ELLIPSE, LINE, POLYGON, PATH }
 
 /**
  * A single vector primitive living on a vector [Layer]. Geometry is defined in the layer's local
@@ -18,6 +18,12 @@ enum class ShapeKind { RECTANGLE, ELLIPSE, LINE, POLYGON }
  *
  * For [ShapeKind.POLYGON], a regular [sides]-gon is inscribed in the [width]×[height] box (so it
  * resizes with the shape), with a vertex pointing up.
+ *
+ * For [ShapeKind.PATH], the geometry is an arbitrary poly-line given by [points] — interleaved
+ * `[x0, y0, x1, y1, …]` in the shape's local pixel space, centered on the origin like every other
+ * kind. [width]/[height] are the point cloud's bounding-box size (used for hit-testing and resize).
+ * A [closed] path joins its last point back to the first and can be filled; an open one is stroked
+ * only. This backs both the pen tool and imported vector paths (PSD vector masks, Illustrator art).
  */
 @Serializable
 data class VectorShape(
@@ -31,7 +37,13 @@ data class VectorShape(
     val strokeWidth: Float = 0f,
     /** Vertex count for [ShapeKind.POLYGON] (3 = triangle, 6 = hexagon…); ignored otherwise. */
     val sides: Int = 6,
+    /** Interleaved `[x0,y0,x1,y1,…]` local points for [ShapeKind.PATH]; ignored otherwise. */
+    val points: List<Float> = emptyList(),
+    /** Whether a [ShapeKind.PATH] is closed (joins end→start, fillable); ignored otherwise. */
+    val closed: Boolean = false,
 ) {
-    val hasFill: Boolean get() = (fillArgb ushr 24) != 0L && kind != ShapeKind.LINE
+    val hasFill: Boolean
+        get() = (fillArgb ushr 24) != 0L && kind != ShapeKind.LINE &&
+            (kind != ShapeKind.PATH || closed)
     val hasStroke: Boolean get() = strokeWidth > 0f && (strokeArgb ushr 24) != 0L
 }

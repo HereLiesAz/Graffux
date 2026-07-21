@@ -224,6 +224,25 @@ class ExportManager @Inject constructor() {
                     canvas.drawPath(path, paint)
                 }
             }
+            ShapeKind.PATH -> {
+                val pts = shape.points
+                if (pts.size >= 4) {
+                    val path = android.graphics.Path().apply {
+                        moveTo(cx + pts[0], cy + pts[1])
+                        var i = 2
+                        while (i + 1 < pts.size) { lineTo(cx + pts[i], cy + pts[i + 1]); i += 2 }
+                        if (shape.closed) close()
+                    }
+                    if (shape.hasFill) {
+                        paint.style = Paint.Style.FILL; paint.color = shape.fillArgb.toInt()
+                        canvas.drawPath(path, paint)
+                    }
+                    if (shape.hasStroke) {
+                        paint.style = Paint.Style.STROKE; paint.strokeWidth = shape.strokeWidth; paint.color = shape.strokeArgb.toInt()
+                        canvas.drawPath(path, paint)
+                    }
+                }
+            }
         }
     }
 
