@@ -102,6 +102,8 @@ internal object EditorReducer {
         is EditorIntent.SetSketchThickness -> state.copy(sketchThickness = intent.value.coerceIn(1, 20))
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
+        is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
+        is EditorIntent.SetActiveBrush -> state.copy(activeBrushName = intent.name)
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)
         is EditorIntent.SetActiveColor -> state.copy(activeColor = intent.color, showColorPicker = false)

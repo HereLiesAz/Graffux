@@ -71,7 +71,12 @@ data class StrokeCommand(
     val feathering: Float = 0f,
     val layerScale: Float = 1f,
     val layerOffset: Offset = Offset.Zero,
-    val layerRotationZ: Float = 0f
+    val layerRotationZ: Float = 0f,
+    // Azphalt stamp-brush stroke (null = the built-in round brush). [flow] is per-dab build-up and
+    // [seed] fixes the dab jitter so a replayed stroke re-composites to identical pixels.
+    val stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
+    val flow: Float = 1f,
+    val seed: Long = 0L,
 )
 
 sealed class EditCommand {
@@ -193,6 +198,10 @@ class EditorViewModel @Inject constructor(
     // Liquify live-preview state — valid only between onStrokeStart and onStrokeEnd for LIQUIFY.
     private var liquifyJob: kotlinx.coroutines.Job? = null
     private var liquifyOriginalBitmap: Bitmap? = null
+
+    // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
+    // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
+    private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
 
     init {
         viewModelScope.launch(dispatchers.main) {
@@ -2011,6 +2020,13 @@ class EditorViewModel @Inject constructor(
             return
         }
 
+        if (activeStampBrush != null && state.activeTool == Tool.BRUSH) {
+            // Azphalt stamp brush: no live incremental preview (yet) — the transform is captured above
+            // and onStrokePoint keeps collecting points; onStrokeEnd rasterizes the whole stroke via
+            // StampBrushRenderer. Skip the round-brush working-bitmap setup entirely.
+            return
+        }
+
         val tool = state.activeTool
         val argb = state.activeColor.toArgb()
         val brushSize = state.brushSize
@@ -2152,6 +2168,16 @@ class EditorViewModel @Inject constructor(
         val capturedScale = strokeLayerScale
         val capturedOffset = strokeLayerOffset
         val capturedRotationZ = strokeLayerRotationZ
+
+        val stampBrush = activeStampBrush
+        if (stampBrush != null && state.activeTool == Tool.BRUSH) {
+            commitStampStroke(
+                state, layer, layerId, points, canvasW, canvasH,
+                capturedScale, capturedOffset, capturedRotationZ, stampBrush,
+            )
+            clearTransientStrokeState()
+            return
+        }
 
         if (state.activeTool == Tool.BLUR) {
             // BLUR samples-and-blurs the pixels under the stroke, which a Paint can't do — so it has
@@ -2343,6 +2369,69 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Commit an azphalt stamp-brush stroke: record a replayable [StrokeCommand] (carrying the brush,
+     * flow and a content-derived seed so undo/redo re-composites identically), then rasterize the whole
+     * stroke onto a fresh copy of the layer bitmap via [StampBrushRenderer] off the main thread and
+     * publish it. The seed is derived from the stroke's points so the same stroke always jitters the
+     * same way — [DrawingEngine] uses it on replay.
+     */
+    private fun commitStampStroke(
+        state: EditorUiState,
+        layer: Layer,
+        layerId: String,
+        points: List<Offset>,
+        canvasW: Int,
+        canvasH: Int,
+        scale: Float,
+        offset: Offset,
+        rotationZ: Float,
+        brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+    ) {
+        val base = layer.bitmap ?: return
+        if (points.isEmpty()) return
+        val color = state.activeColor.toArgb()
+        val brushSize = state.brushSize
+        val flow = state.brushFlow
+        val command = StrokeCommand(
+            path = points,
+            canvasSize = IntSize(canvasW, canvasH),
+            tool = Tool.BRUSH,
+            brushSize = brushSize,
+            brushColor = color,
+            intensity = 0.5f,
+            feathering = state.brushFeathering,
+            layerScale = scale,
+            layerOffset = offset,
+            layerRotationZ = rotationZ,
+            stampBrush = brush,
+            flow = flow,
+            seed = points.hashCode().toLong(),
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+
+        viewModelScope.launch(dispatchers.default) {
+            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val mapped = ImageProcessor.mapScreenToBitmap(
+                points, canvasW, canvasH, target.width, target.height, scale, offset, rotationZ
+            )
+            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
+            val pts = ArrayList<Float>(mapped.size * 2)
+            mapped.forEach { pts.add(it.x); pts.add(it.y) }
+            StampBrushRenderer.paintStroke(
+                Canvas(target), pts, brush, color, brushSize * brushScale, flow, command.seed
+            )
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+        }
+    }
+
+    /**
      * Resets the imperative, in-flight stroke/liquify scratch state. These live as ViewModel fields
      * (not in [EditorUiState]), so the pure reducer can't clear them — any caller that abandons an
      * in-progress stroke (stroke end, mode switch, project load) must invoke this so a later
@@ -2412,6 +2501,41 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushFeathering(amount: Float) {
         dispatch(EditorIntent.SetBrushFeathering(amount))
+    }
+
+    /** Flow (0..1) for the active azphalt stamp brush — per-dab build-up. No-op for the round brush. */
+    fun setBrushFlow(amount: Float) {
+        dispatch(EditorIntent.SetBrushFlow(amount))
+    }
+
+    /** Installed azphalt brush extensions available to paint with (id + display name). */
+    fun installedBrushes(): List<Pair<String, String>> =
+        extensionRepository.installedBrushes().map { it.id to it.manifest.name }
+
+    /**
+     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
+     * round brush. Loads the brush's declarative definition to confirm it parses (rendering wiring is a
+     * follow-up); the active-brush name drives the UI and switches the size control's second axis to flow.
+     */
+    fun selectBrushExtension(id: String?) {
+        if (id == null) {
+            activeStampBrush = null
+            dispatch(EditorIntent.SetActiveBrush(null))
+            return
+        }
+        // loadBrush reads the unpacked manifest/asset from disk — do it off the main thread.
+        viewModelScope.launch(dispatchers.io) {
+            val brush = extensionRepository.loadBrush(id)
+            withContext(dispatchers.main) {
+                if (brush == null) {
+                    Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
+                } else {
+                    activeStampBrush = brush
+                    dispatch(EditorIntent.SetActiveBrush(brush.name))
+                    setActiveTool(Tool.BRUSH)
+                }
+            }
+        }
     }
 
     override fun setActiveColor(color: Color) {

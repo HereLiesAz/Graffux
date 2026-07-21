@@ -185,6 +185,19 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `SetBrushFlow coerces into 0_1 and SetActiveBrush sets or clears the name`() {
+        assertEquals(1f, reduce(state(lyr("a")), EditorIntent.SetBrushFlow(9f)).brushFlow)
+        assertEquals(0f, reduce(state(lyr("a")), EditorIntent.SetBrushFlow(-1f)).brushFlow)
+        assertEquals(0.4f, reduce(state(lyr("a")), EditorIntent.SetBrushFlow(0.4f)).brushFlow)
+        assertEquals("Inker", reduce(state(lyr("a")), EditorIntent.SetActiveBrush("Inker")).activeBrushName)
+        val cleared = reduce(
+            state(lyr("a")).copy(activeBrushName = "Inker"),
+            EditorIntent.SetActiveBrush(null),
+        )
+        assertNull(cleared.activeBrushName)
+    }
+
+    @Test
     fun `SetActiveColor sets the color and closes the picker`() {
         val s = state(lyr("a")).copy(showColorPicker = true)
         val out = reduce(s, EditorIntent.SetActiveColor(androidx.compose.ui.graphics.Color.Red))

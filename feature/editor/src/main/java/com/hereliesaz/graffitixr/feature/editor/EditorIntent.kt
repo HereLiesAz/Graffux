@@ -83,6 +83,9 @@ internal sealed interface EditorIntent {
     data class SetSketchThickness(val value: Int) : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent
+    data class SetBrushFlow(val value: Float) : EditorIntent
+    /** Selects an azphalt stamp brush by name, or clears back to the built-in round brush (null). */
+    data class SetActiveBrush(val name: String?) : EditorIntent
     data object ShowColorPicker : EditorIntent
     data object DismissColorPicker : EditorIntent
     /** Sets the active brush color and closes the color picker. */

@@ -11,9 +11,20 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
@@ -41,11 +52,18 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.sin
 
 /**
  * The full standalone 2D editor screen — the single source of truth hosted by GraffiXR and (later)
@@ -102,6 +120,15 @@ fun EditorScreen(
             documentWidth = uiState.documentWidth,
             documentHeight = uiState.documentHeight,
             color = uiState.canvasBackground,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // 0b. Infinite reference grid — thin, always visible over the page/workspace on any background,
+        // panning/zooming/rotating with the canvas. Above the page fill, below the layers, so an empty
+        // document shows the grid but painting covers it.
+        InfiniteGrid(
+            zoom = uiState.viewportZoom,
+            offset = uiState.viewportOffset,
+            rotationDeg = uiState.viewportRotation,
             modifier = Modifier.fillMaxSize(),
         )
         // 1. Layer stack render.
@@ -340,6 +367,25 @@ fun EditorScreen(
             }
         }
 
+        // 4b2. Rulers — persistent thin bars along the top and left edges whose tick marks track the
+        // world grid (so they follow the canvas as it pans, zooms, and rotates). Screen-space overlay;
+        // purely visual (a Canvas consumes no touches).
+        Rulers(
+            zoom = uiState.viewportZoom,
+            offset = uiState.viewportOffset,
+            rotationDeg = uiState.viewportRotation,
+        )
+
+        // 4c. Viewport controls — floating canvas controls in the bottom corners (out of the rail, the
+        // way GraffitiXR anchors them): fit/reset the view on the left, undo/redo on the right. Each
+        // button shows only when it can act, so a clean canvas stays uncluttered.
+        ViewportControls(
+            uiState = uiState,
+            onReset = { vm.resetViewport() },
+            onUndo = { vm.onUndoClicked() },
+            onRedo = { vm.onRedoClicked() },
+        )
+
         // 5. Loading indicator.
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -517,6 +563,147 @@ private fun SnapGuides(guidesX: List<Float>, guidesY: List<Float>, modifier: Mod
     }
 }
 
+/**
+ * Floating canvas controls anchored in the bottom corners (out of the nav rail, the way GraffitiXR
+ * places them): fit/reset the infinite-canvas view on the bottom-left, undo and redo on the bottom-
+ * right. Each button appears only when it can do something — reset only off the identity view, undo/
+ * redo only with history — so a fresh, un-panned canvas shows nothing. Placed directly in the editor's
+ * root [Box] so only the buttons themselves capture touches; the rest of the canvas keeps its gestures.
+ */
+@Composable
+private fun BoxScope.ViewportControls(
+    uiState: EditorUiState,
+    onReset: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+) {
+    val chip = Color.Black.copy(alpha = 0.35f)
+    val viewMoved = uiState.viewportZoom != 1f ||
+        uiState.viewportOffset != Offset.Zero ||
+        uiState.viewportRotation != 0f
+    if (viewMoved) {
+        IconButton(
+            onClick = onReset,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp)
+                .background(chip, CircleShape),
+        ) {
+            Icon(Icons.Filled.FitScreen, contentDescription = "Fit view to screen", tint = Color.White)
+        }
+    }
+    Row(
+        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (uiState.undoCount > 0) {
+            IconButton(onClick = onUndo, modifier = Modifier.background(chip, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
+            }
+        }
+        if (uiState.redoCount > 0) {
+            IconButton(onClick = onRedo, modifier = Modifier.background(chip, CircleShape)) {
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = Color.White)
+            }
+        }
+    }
+}
+
+/**
+ * A thin, always-visible reference grid across the whole infinite canvas. Rendered inside the camera
+ * container in world space, so it pans, zooms, and rotates with the artwork. The visible world region
+ * is recovered by inverse-mapping the four screen corners (`local = R(-θ)·((screen − offset)/zoom)`),
+ * so only on-screen lines are drawn — it's genuinely infinite, not a giant fixed mesh. A mid-grey at
+ * low alpha reads on any page or workspace colour; the stroke is `1/zoom` so it stays hairline-thin
+ * on screen at any zoom.
+ */
+@Composable
+private fun InfiniteGrid(
+    zoom: Float,
+    offset: Offset,
+    rotationDeg: Float,
+    modifier: Modifier = Modifier,
+    spacing: Float = 48f,
+    color: Color = Color(0x33808080),
+) {
+    Canvas(modifier) {
+        if (spacing <= 0f) return@Canvas   // guard the tick loops against a non-positive step
+        val z = zoom.coerceAtLeast(1e-4f)
+        val rad = (-rotationDeg * PI / 180f).toFloat()
+        val cs = cos(rad); val sn = sin(rad)
+        fun toLocal(sx: Float, sy: Float): Offset {
+            val px = (sx - offset.x) / z
+            val py = (sy - offset.y) / z
+            return Offset(px * cs - py * sn, px * sn + py * cs)
+        }
+        val corners = listOf(
+            toLocal(0f, 0f), toLocal(size.width, 0f),
+            toLocal(0f, size.height), toLocal(size.width, size.height),
+        )
+        val minX = corners.minOf { it.x }; val maxX = corners.maxOf { it.x }
+        val minY = corners.minOf { it.y }; val maxY = corners.maxOf { it.y }
+        // Bail if zoomed so far out the grid would be a dense smear (also a loop-count guard).
+        if ((maxX - minX) / spacing > 2000f || (maxY - minY) / spacing > 2000f) return@Canvas
+        val stroke = 1f / z
+        var x = floor(minX / spacing) * spacing
+        while (x <= maxX) { drawLine(color, Offset(x, minY), Offset(x, maxY), strokeWidth = stroke); x += spacing }
+        var y = floor(minY / spacing) * spacing
+        while (y <= maxY) { drawLine(color, Offset(minX, y), Offset(maxX, y), strokeWidth = stroke); y += spacing }
+    }
+}
+
+/**
+ * Persistent rulers along the top and left edges whose ticks track the world grid. The camera map is
+ * `screen = offset + zoom·R(θ)·world`, so along the top edge (`y = 0`) the world-x coordinate is an
+ * affine function of screen-x — `worldX = A·x + B`, `A = cosθ/zoom` — and a tick for each grid line
+ * `worldX = k·spacing` lands at `x = (k·spacing − B)/A`. The left edge is symmetric in y. This makes
+ * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
+ * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
+ */
+@Composable
+private fun BoxScope.Rulers(
+    zoom: Float,
+    offset: Offset,
+    rotationDeg: Float,
+    spacing: Float = 48f,
+) {
+    val thickness = with(LocalDensity.current) { 14.dp.toPx() }
+    Canvas(Modifier.fillMaxSize()) {
+        val barColor = Color(0xCC1A1A1A)
+        val tickColor = Color(0xFFB0B0B0)
+        val z = zoom.coerceAtLeast(1e-4f)
+        val rad = (rotationDeg * PI / 180f).toFloat()
+        val cosT = cos(rad); val sinT = sin(rad)
+        val w = size.width; val h = size.height
+
+        drawRect(barColor, topLeft = Offset(0f, 0f), size = Size(w, thickness))
+        drawRect(barColor, topLeft = Offset(0f, 0f), size = Size(thickness, h))
+
+        // Top ruler: worldX = A·x + B along y = 0.
+        val a = cosT / z
+        val b = -(cosT * offset.x + sinT * offset.y) / z
+        if (abs(a) > 1e-6f && spacing / abs(a) >= 6f) {
+            val kLo = floor(minOf(b, a * w + b) / spacing).toInt()
+            val kHi = ceil(maxOf(b, a * w + b) / spacing).toInt()
+            if (kHi - kLo <= 1000) for (k in kLo..kHi) {
+                val x = (k * spacing - b) / a
+                if (x in 0f..w) drawLine(tickColor, Offset(x, 0f), Offset(x, thickness), strokeWidth = 1f)
+            }
+        }
+        // Left ruler: worldY = A'·y + B' along x = 0.
+        val a2 = cosT / z
+        val b2 = (sinT * offset.x - cosT * offset.y) / z
+        if (abs(a2) > 1e-6f && spacing / abs(a2) >= 6f) {
+            val mLo = floor(minOf(b2, a2 * h + b2) / spacing).toInt()
+            val mHi = ceil(maxOf(b2, a2 * h + b2) / spacing).toInt()
+            if (mHi - mLo <= 1000) for (m in mLo..mHi) {
+                val y = (m * spacing - b2) / a2
+                if (y in 0f..h) drawLine(tickColor, Offset(0f, y), Offset(thickness, y), strokeWidth = 1f)
+            }
+        }
+    }
+}
+
 /** The fixed dark workspace behind the artboard, so the document reads as a distinct page. */
 private val WorkspaceColor = Color(0xFF2B2B2B)
 
@@ -540,7 +727,29 @@ private fun ArtboardPage(documentWidth: Int, documentHeight: Int, color: Color, 
     if (documentWidth <= 0 || documentHeight <= 0) return
     Canvas(modifier) {
         val r = artboardRectIn(size.width, size.height, documentWidth, documentHeight)
-        drawRect(color, topLeft = Offset(r[0], r[1]), size = Size(r[2], r[3]))
+        val topLeft = Offset(r[0], r[1])
+        val rectSize = Size(r[2], r[3])
+        if (color.alpha == 0f) {
+            // Transparent document: paint the standard checkerboard so the empty page reads as
+            // "see-through" instead of blending into the workspace. Cells clipped to the artboard rect.
+            drawRect(Color(0xFFCFCFCF), topLeft = topLeft, size = rectSize)
+            val cell = 16f
+            val cols = ceil(r[2] / cell).toInt()
+            val rows = ceil(r[3] / cell).toInt()
+            for (cy in 0 until rows) for (cx in 0 until cols) {
+                if ((cx + cy) % 2 == 0) {
+                    val x = r[0] + cx * cell
+                    val y = r[1] + cy * cell
+                    drawRect(
+                        Color(0xFF9E9E9E),
+                        topLeft = Offset(x, y),
+                        size = Size(minOf(cell, r[0] + r[2] - x), minOf(cell, r[1] + r[3] - y)),
+                    )
+                }
+            }
+        } else {
+            drawRect(color, topLeft = topLeft, size = rectSize)
+        }
     }
 }
 

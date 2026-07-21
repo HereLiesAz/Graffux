@@ -129,6 +129,11 @@ data class EditorUiState(
     val brushSize: Float = 50f,
     // Feathering [0..1]: 0 = hard edge, 1 = fully soft (blur radius = brushSize)
     val brushFeathering: Float = 0f,
+    // Selected azphalt stamp-brush name, or null for the built-in round brush. When set, the brush
+    // control's second axis is flow (below) rather than hardness.
+    val activeBrushName: String? = null,
+    // Flow [0..1] for an azphalt stamp brush: per-dab paint build-up. Ignored by the built-in brush.
+    val brushFlow: Float = 1f,
     val sketchThickness: Int = 5,
     val activeColor: Color = Color.White,
     val showColorPicker: Boolean = false,

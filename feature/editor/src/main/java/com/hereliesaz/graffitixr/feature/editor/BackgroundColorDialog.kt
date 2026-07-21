@@ -15,6 +15,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
@@ -31,6 +34,7 @@ private val BACKGROUND_COLORS = listOf(
     Color(0xFF0D1B2A), // navy
     Color(0xFF12261E), // forest
     Color(0xFF2A1A2E), // plum
+    Color.Transparent, // see-through page (rendered as a checkerboard swatch)
 )
 
 /**
@@ -56,10 +60,30 @@ fun BackgroundColorDialog(
             ) {
                 BACKGROUND_COLORS.forEach { swatch ->
                     val selected = swatch == current
+                    val isTransparent = swatch.alpha == 0f
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .background(swatch, RoundedCornerShape(6.dp))
+                            .then(
+                                // Transparent → paint a checkerboard so the swatch reads as "see-through".
+                                if (isTransparent) Modifier.drawBehind {
+                                    drawRect(Color(0xFFCFCFCF))
+                                    val c = 9f
+                                    var yy = 0
+                                    while (yy * c < size.height) {
+                                        var xx = 0
+                                        while (xx * c < size.width) {
+                                            if ((xx + yy) % 2 == 0) drawRect(
+                                                Color(0xFF9E9E9E),
+                                                topLeft = Offset(xx * c, yy * c),
+                                                size = Size(c, c),
+                                            )
+                                            xx++
+                                        }
+                                        yy++
+                                    }
+                                } else Modifier.background(swatch, RoundedCornerShape(6.dp))
+                            )
                             .border(
                                 width = if (selected) 3.dp else 1.dp,
                                 color = if (selected) Color(0xFF00E5FF) else Color.Gray,
