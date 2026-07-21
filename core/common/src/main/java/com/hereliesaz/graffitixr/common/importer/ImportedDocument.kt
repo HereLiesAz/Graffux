@@ -26,11 +26,25 @@ class ImportedLayer(
     val opacity: Float = 1f,
     val isVisible: Boolean = true,
     val blendMode: BlendMode = BlendMode.SrcOver,
+    /** Editable vector outlines (from a PSD vector mask / shape layer), in document pixels. Empty for
+     *  a plain raster layer. Lets the importer preserve real vectors instead of only their pixels. */
+    val vectorPaths: List<ImportedPath> = emptyList(),
 ) {
     /** The pixel at ([x], [y]) as packed ARGB, or `0` (transparent) if out of bounds. */
     fun pixel(x: Int, y: Int): Int =
         if (x < 0 || y < 0 || x >= width || y >= height) 0 else argb[y * width + x]
 }
+
+/**
+ * An editable vector outline extracted from a source document (a PSD vector mask / shape layer).
+ * [points] are interleaved `[x0,y0,x1,y1,…]` in **document pixels** (top-left origin); [closed] joins
+ * the last point back to the first. A poly-line approximation of the original Béziers (anchor points
+ * only) — enough to reproduce the shape as an editable path.
+ */
+class ImportedPath(
+    val points: List<Float>,
+    val closed: Boolean,
+)
 
 /**
  * A parsed multi-layer document ready to be mapped onto editor layers. [width]/[height] are the
