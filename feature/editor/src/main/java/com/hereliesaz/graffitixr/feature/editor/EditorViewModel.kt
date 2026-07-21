@@ -74,10 +74,12 @@ data class StrokeCommand(
     val layerOffset: Offset = Offset.Zero,
     val layerRotationZ: Float = 0f,
     // Azphalt stamp-brush stroke (null = the built-in round brush). [flow] is per-dab build-up and
-    // [seed] fixes the dab jitter so a replayed stroke re-composites to identical pixels.
+    // [seed] fixes the dab jitter so a replayed stroke re-composites to identical pixels. [stampShape]
+    // is the brush's optional greyscale/alpha tip image (null = a generated round tip).
     val stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
     val flow: Float = 1f,
     val seed: Long = 0L,
+    val stampShape: Bitmap? = null,
 )
 
 sealed class EditCommand {
@@ -203,6 +205,8 @@ class EditorViewModel @Inject constructor(
     // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
     // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
     private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
+    // Decoded tip image for the active stamp brush (null = a generated round tip). Loaded alongside it.
+    private var activeStampShape: Bitmap? = null
 
     // Live stamp-stroke preview state — valid only between onStrokeStart and onStrokeEnd for a stamp
     // brush. Dabs are stamped incrementally onto [stampLiveBitmap]; [stampSeed] fixes the jitter so the
@@ -212,6 +216,7 @@ class EditorViewModel @Inject constructor(
     private var stampStampedCount: Int = 0
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
+    private var stampShapeForStroke: Bitmap? = null
     // Bitmap-space stroke points, appended incrementally so each drag frame maps only the NEW points
     // instead of re-mapping the whole stroke (interleaved [x0,y0,…]).
     private val stampMappedPoints = ArrayList<Float>()
@@ -2038,6 +2043,7 @@ class EditorViewModel @Inject constructor(
             // Azphalt stamp brush: stamp dabs incrementally onto a working copy for a live preview.
             // Fix the jitter seed now so the preview, the commit, and history replay all match.
             stampBrushForStroke = stampBrush
+            stampShapeForStroke = activeStampShape
             val currentSeed = System.nanoTime()
             stampSeed = currentSeed
             stampStampedCount = 0
@@ -2199,7 +2205,7 @@ class EditorViewModel @Inject constructor(
             if (dabs.size > stampStampedCount) {
                 StampBrushRenderer.paintDabs(
                     canvas, dabs.subList(stampStampedCount, dabs.size), stampBrush,
-                    _uiState.value.activeColor.toArgb(), _uiState.value.brushFlow,
+                    _uiState.value.activeColor.toArgb(), _uiState.value.brushFlow, stampShapeForStroke,
                 )
                 stampStampedCount = dabs.size
                 _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
@@ -2245,7 +2251,7 @@ class EditorViewModel @Inject constructor(
         if (stampBrush != null && state.activeTool == Tool.BRUSH) {
             commitStampStroke(
                 state, layer, layerId, points, canvasW, canvasH,
-                capturedScale, capturedOffset, capturedRotationZ, stampBrush,
+                capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
             )
             clearTransientStrokeState()
             return
@@ -2458,6 +2464,7 @@ class EditorViewModel @Inject constructor(
         offset: Offset,
         rotationZ: Float,
         brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+        stampShape: Bitmap?,
     ) {
         val base = layer.bitmap ?: return
         if (points.isEmpty()) return
@@ -2479,6 +2486,7 @@ class EditorViewModel @Inject constructor(
             flow = flow,
             // Reuse the live-preview seed so the committed pixels match what was previewed (no flash).
             seed = stampSeed,
+            stampShape = stampShape,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -2497,7 +2505,7 @@ class EditorViewModel @Inject constructor(
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
             StampBrushRenderer.paintStroke(
-                Canvas(target), pts, brush, color, brushSize * brushScale, flow, command.seed
+                Canvas(target), pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
@@ -2535,6 +2543,7 @@ class EditorViewModel @Inject constructor(
         stampLiveCanvas = null
         stampStampedCount = 0
         stampBrushForStroke = null
+        stampShapeForStroke = null
         stampMappedPoints.clear()
     }
 
@@ -2608,17 +2617,22 @@ class EditorViewModel @Inject constructor(
     fun selectBrushExtension(id: String?) {
         if (id == null) {
             activeStampBrush = null
+            activeStampShape = null
             dispatch(EditorIntent.SetActiveBrush(null))
             return
         }
-        // loadBrush reads the unpacked manifest/asset from disk — do it off the main thread.
+        // loadBrush + the tip-image decode both read from disk — do them off the main thread.
         viewModelScope.launch(dispatchers.io) {
             val brush = extensionRepository.loadBrush(id)
+            val shape = brush?.shapePath
+                ?.let { extensionRepository.assetFilePath(id, it) }
+                ?.let { path -> runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull() }
             withContext(dispatchers.main) {
                 if (brush == null) {
                     Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
                 } else {
                     activeStampBrush = brush
+                    activeStampShape = shape   // null → StampBrushRenderer draws a generated round tip
                     dispatch(EditorIntent.SetActiveBrush(brush.name))
                     setActiveTool(Tool.BRUSH)
                 }

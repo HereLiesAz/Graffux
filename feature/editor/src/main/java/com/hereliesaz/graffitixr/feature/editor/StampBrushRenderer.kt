@@ -1,8 +1,12 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
@@ -18,9 +22,10 @@ import kotlin.math.max
  * [BrushStamps.stampCoverage]. Overlapping dabs build up via normal source-over compositing, so a low
  * [flow] paints in gradually (matching [BrushStamps.buildUp]).
  *
- * The renderer is round-tip only for now (a generated soft disc); a bespoke [AzphaltBrush.shapePath]
- * stamp image and [AzphaltBrush.grainPath] texture are honoured in a later pass. Device code — call on
- * a background thread with [points] already mapped into the target bitmap's pixel space.
+ * When a `stamp` bitmap is supplied (the brush's [AzphaltBrush.shapePath] tip), each dab draws that
+ * image tinted to the brush colour, scaled to the dab diameter and rotated, instead of the generated
+ * disc. A brush's [AzphaltBrush.grainPath] texture is honoured in a later pass. Device code — call on a
+ * background thread with [points] already mapped into the target bitmap's pixel space.
  */
 internal object StampBrushRenderer {
 
@@ -37,8 +42,9 @@ internal object StampBrushRenderer {
         diameterPx: Float,
         flow: Float,
         seed: Long,
+        stamp: Bitmap? = null,
     ) {
-        paintDabs(canvas, BrushStamps.dabs(points, diameterPx, brush, seed), brush, colorArgb, flow)
+        paintDabs(canvas, BrushStamps.dabs(points, diameterPx, brush, seed), brush, colorArgb, flow, stamp)
     }
 
     /**
@@ -53,21 +59,44 @@ internal object StampBrushRenderer {
         brush: AzphaltBrush,
         colorArgb: Int,
         flow: Float,
+        stamp: Bitmap? = null,
     ) {
         if (dabs.isEmpty()) return
-        val hardness = brush.hardness.coerceIn(0f, 1f)
         val f = flow.coerceIn(0f, 1f)
         val baseAlpha = Color.alpha(colorArgb)
-        val rgb = colorArgb or 0xFF000000.toInt()   // opaque version; the gradient carries the alpha
-        val edge = rgb and 0x00FFFFFF                // transparent edge (alpha 0) — loop-invariant
-        // Solid to `hardness` of the radius, then ramp to transparent at the edge — loop-invariant.
+        val rgbNoAlpha = colorArgb and 0x00FFFFFF
+
+        if (stamp != null) {
+            // Shape stamp: tint the tip's alpha to the brush colour (SRC_IN), then scale it to the dab
+            // diameter and rotate it, once per dab. Assumes an alpha-masked tip (the Procreate norm).
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            val sw = stamp.width.toFloat()
+            val sh = stamp.height.toFloat()
+            if (sw <= 0f || sh <= 0f) return
+            val m = Matrix()
+            for (d in dabs) {
+                val diameter = max(d.radius, 0.5f) * 2f
+                val alphaVal = (baseAlpha * d.alpha * f).toInt().coerceIn(0, 255)
+                paint.colorFilter = PorterDuffColorFilter(rgbNoAlpha or (alphaVal shl 24), PorterDuff.Mode.SRC_IN)
+                m.reset()
+                m.postTranslate(-sw / 2f, -sh / 2f)      // centre the tip on the origin
+                m.postScale(diameter / sw, diameter / sh) // fit to the dab diameter
+                m.postRotate(d.angleDeg)                  // orient the tip
+                m.postTranslate(d.x, d.y)                 // move to the dab centre
+                canvas.drawBitmap(stamp, m, paint)
+            }
+            return
+        }
+
+        // Generated round tip: radial gradient, solid to `hardness` of the radius then fading out.
+        val hardness = brush.hardness.coerceIn(0f, 1f)
+        val edge = rgbNoAlpha                         // transparent edge (alpha 0) — loop-invariant
         val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
         for (d in dabs) {
             val radius = max(d.radius, 0.5f)
             val alphaVal = (baseAlpha * d.alpha * f).toInt().coerceIn(0, 255)
-            val core = (rgb and 0x00FFFFFF) or (alphaVal shl 24)
+            val core = rgbNoAlpha or (alphaVal shl 24)
             paint.shader = RadialGradient(
                 d.x, d.y, radius,
                 intArrayOf(core, core, edge),

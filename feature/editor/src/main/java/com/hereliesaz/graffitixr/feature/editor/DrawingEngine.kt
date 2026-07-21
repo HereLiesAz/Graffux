@@ -60,7 +60,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
             StampBrushRenderer.paintStroke(
                 android.graphics.Canvas(target), pts, brush, stroke.brushColor,
-                stroke.brushSize * brushScale, stroke.flow, stroke.seed,
+                stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
             )
             return target
         }

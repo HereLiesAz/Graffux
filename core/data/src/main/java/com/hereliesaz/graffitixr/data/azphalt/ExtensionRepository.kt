@@ -191,6 +191,18 @@ class ExtensionRepository @Inject constructor(
     private fun isUsableBrush(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
         asset.type == AssetType.BRUSH && asset.standalone
 
+    /**
+     * Absolute path to a bundled file [relative] within installed extension [id] (e.g. a brush's stamp
+     * or grain image), or null if the extension isn't installed, the path is blank, or the file is
+     * absent. The caller decodes it (a Bitmap decode belongs in the Android/editor layer, not here).
+     */
+    fun assetFilePath(id: String, relative: String): String? {
+        if (relative.isBlank()) return null
+        val ext = _installed.value.find { it.id == id } ?: return null
+        val file = File(ext.filePath(relative))
+        return if (file.exists()) file.absolutePath else null
+    }
+
     private fun openSource(source: String): InputStream = when {
         source.startsWith("asset:") -> context.assets.open(source.removePrefix("asset:"))
         source.startsWith("https://") -> {
