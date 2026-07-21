@@ -2626,7 +2626,7 @@ class EditorViewModel @Inject constructor(
             val brush = extensionRepository.loadBrush(id)
             val shape = brush?.shapePath
                 ?.let { extensionRepository.assetFilePath(id, it) }
-                ?.let { path -> runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull() }
+                ?.let { path -> runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull() }
             withContext(dispatchers.main) {
                 if (brush == null) {
                     Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
