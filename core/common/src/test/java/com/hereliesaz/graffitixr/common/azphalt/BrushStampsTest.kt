@@ -115,6 +115,20 @@ class BrushStampsTest {
         assertTrue(BrushStamps.dabs(emptyList(), 8f, hardRound, seed = 1L).isEmpty())
     }
 
+    @Test
+    fun dabsGrowAsAStablePrefixSoLivePreviewCanStampIncrementally() {
+        // The live stamp preview stamps only the newly-added dabs each frame, relying on this: as a
+        // stroke extends, the earlier dabs (positions AND seeded jitter) don't change — a shorter
+        // stroke's dabs are exactly a prefix of the longer stroke's. Uses full jitter to stress it.
+        val brush = AzphaltBrush(
+            name = "B", spacing = 0.5f, sizeJitter = 0.5f, opacityJitter = 0.5f, scatter = 2f,
+        )
+        val short = BrushStamps.dabs(listOf(0f, 0f, 12f, 0f), diameterPx = 8f, brush = brush, seed = 99L)
+        val long = BrushStamps.dabs(listOf(0f, 0f, 20f, 0f), diameterPx = 8f, brush = brush, seed = 99L)
+        assertTrue(short.size < long.size)
+        short.forEachIndexed { i, d -> assertEquals(d, long[i]) }
+    }
+
     // ---- Stamp coverage + flow build-up ----
 
     @Test
