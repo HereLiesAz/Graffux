@@ -180,25 +180,29 @@ fun EditorScreen(
                             }
                         )
                     }
-                    .pointerInput(
-                        uiState.activeLayerId, activeLayerLocked,
-                        uiState.viewportOffset, uiState.viewportZoom,
-                    ) {
+                    .pointerInput(Unit) {
                         // Infinite-canvas navigation vs. object move:
                         //  • two+ fingers  → pan + zoom the CAMERA (about the pinch centroid)
                         //  • one finger on the active layer → move that layer (history-bracketed)
                         //  • one finger on empty space      → pan the CAMERA
                         // Handle drags are claimed by the SelectionHandles layer above (consumed),
                         // so they never reach here.
+                        //
+                        // Keyed on Unit (never restarts): the per-gesture state (layers, viewport,
+                        // active layer) is read fresh from the view-model at each touch-down. Keying on
+                        // viewport would cancel + relaunch this block on every pan frame — which drops
+                        // the in-flight drag and makes panning/zooming feel dead.
                         awaitEachGesture {
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
                             val down = awaitFirstDown(requireUnconsumed = true)
-                            val startOnActiveLayer = activeLayer != null && !activeLayerLocked &&
+                            val st = vm.uiState.value
+                            val active = st.layers.find { it.id == st.activeLayerId }
+                            val startOnActiveLayer = active != null && !active.isImageLocked &&
                                 CanvasHitTest.topHit(
-                                    uiState.layers, down.position, w, h,
-                                    uiState.viewportOffset, uiState.viewportZoom,
-                                ) == uiState.activeLayerId
+                                    st.layers, down.position, w, h,
+                                    st.viewportOffset, st.viewportZoom,
+                                ) == st.activeLayerId
                             var movingObject = false
                             while (true) {
                                 val event = awaitPointerEvent()
