@@ -135,6 +135,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { vm.onAddLayer(it) } }
 
+    // Opens any design file via the Storage Access Framework (*/* — PSD/AI/Procreate typically
+    // report a generic MIME, so the format is sniffed from bytes on import).
+    val documentPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.onImportDocument(it) } }
+
     // Rail-item colour that stays legible against the current canvas background (mirrors GraffitiXR).
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -165,6 +171,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
+            onOpenDocument = { documentPicker.launch(arrayOf("*/*")) },
             onDocumentSize = { showDocDialog = true },
             onBlendMode = { showBlendDialog = true },
             onStrokeWidth = { showStrokeDialog = true },
@@ -349,6 +356,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     strings: AppStrings,
     navItemColor: Color,
     onOpenImage: () -> Unit,
+    onOpenDocument: () -> Unit,
     onShare: () -> Unit,
     onDocumentSize: () -> Unit,
     onBlendMode: () -> Unit,
@@ -371,6 +379,11 @@ private fun AzNavHostScope.ConfigureRailItems(
     )
     azRailSubItem(id = "design.open", hostId = "host.design", text = navStrings.open, color = navItemColor, shape = AzButtonShape.NONE) {
         onOpenImage()
+    }
+    // Open a design document (Photoshop .psd imports with its layers; other formats degrade to a
+    // flattened layer or an explanatory toast).
+    azRailSubItem(id = "design.openfile", hostId = "host.design", text = "Open File", color = navItemColor, shape = AzButtonShape.NONE) {
+        onOpenDocument()
     }
     azRailSubItem(id = "design.add", hostId = "host.design", text = navStrings.new, color = navItemColor, shape = AzButtonShape.NONE) {
         vm.onAddBlankLayer()
