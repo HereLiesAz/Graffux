@@ -189,4 +189,62 @@ class RepositoryApiTest {
         ).toMarketplaceEntry("u")
         assertEquals("https://cdn.example/card.png", withPreview.previewImage)
     }
+
+    // ---- Extension packs (spec/pack.md § Discovery & installation) ----
+
+    @Test
+    fun `getPack reads the pack block off the package detail`() {
+        val fake = FakeHttp(mapOf(
+            "/packages/com.example.paint-starter" to """
+                { "id":"com.example.paint-starter","name":"Paint Starter","kind":"pack","versions":["1.0.0"],
+                  "pack":{ "entries":[
+                    {"id":"com.foldlab.filmluts","version":"1.0.0","required":true},
+                    {"id":"com.brushery.inkbrushes","required":false} ] } }
+            """.trimIndent(),
+        ))
+        val pack = RepositoryClient("https://reg.example", fake::get).getPack("com.example.paint-starter")
+        assertEquals(2, pack?.entries?.size)
+        assertEquals("com.foldlab.filmluts", pack?.entries?.get(0)?.id)
+        assertNull(RepositoryClient("https://reg.example", FakeHttp(mapOf(
+            "/packages/plain" to """{ "id":"plain","name":"Plain","versions":["1.0.0"] }""",
+        ))::get).getPack("plain"))
+    }
+
+    @Test
+    fun `resolvePack pins versions, carries paid status, and reports unresolved members`() {
+        val fake = FakeHttp(mapOf(
+            // Pack detail lists three members: one pinned, one resolve-latest, one that doesn't resolve.
+            "/packages/com.example.paint-starter" to """
+                { "id":"com.example.paint-starter","name":"Paint Starter","kind":"pack","versions":["1.0.0"],
+                  "pack":{ "entries":[
+                    {"id":"com.foldlab.filmluts","version":"1.0.0","required":true,"note":"core"},
+                    {"id":"com.brushery.inkbrushes","required":true},
+                    {"id":"com.hereliesaz.halftone","required":false},
+                    {"id":"com.missing.member"} ] } }
+            """.trimIndent(),
+            "/packages/com.foldlab.filmluts" to
+                """{ "id":"com.foldlab.filmluts","name":"Film LUTs","versions":["2.0.0","1.0.0"],"priceStatus":"free" }""",
+            "/packages/com.brushery.inkbrushes" to
+                """{ "id":"com.brushery.inkbrushes","name":"Ink Brushes","versions":["3.1.0","3.0.0"] }""",
+            "/packages/com.hereliesaz.halftone" to
+                """{ "id":"com.hereliesaz.halftone","name":"Halftone","versions":["1.0.0"],"priceStatus":"paid" }""",
+            // com.missing.member has no body → detail() throws → member is reported unresolved.
+        ))
+        val resolved = RepositoryClient("https://reg.example", fake::get).resolvePack("com.example.paint-starter")
+
+        assertEquals(3, resolved.entries.size)
+        val luts = resolved.entries[0]
+        assertEquals("1.0.0", luts.version)             // honours the entry pin
+        assertTrue(luts.required)
+        assertFalse(luts.paid)
+        assertEquals("core", luts.note)
+        assertEquals(
+            "https://reg.example/packages/com.foldlab.filmluts/versions/1.0.0/download",
+            luts.downloadUrl,
+        )
+        assertEquals("3.1.0", resolved.entries[1].version) // absent pin → member's newest
+        assertTrue(resolved.entries[2].paid)               // member's own gate, even in a free pack
+        assertFalse(resolved.entries[2].required)          // recommended, not base set
+        assertEquals(listOf("com.missing.member"), resolved.unresolved)
+    }
 }

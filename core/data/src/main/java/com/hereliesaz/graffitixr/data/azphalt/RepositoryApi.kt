@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.data.azphalt
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltJson
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionKind
+import com.hereliesaz.graffitixr.common.azphalt.PackManifest
 import com.hereliesaz.graffitixr.common.azphalt.Preview
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -84,6 +85,55 @@ class RepositoryClient(
      */
     fun downloadUrl(id: String, version: String): String =
         "$base/packages/${enc(id)}/versions/${enc(version)}/download"
+
+    /**
+     * The member list of an extension pack (spec/pack.md § Discovery & installation → `getPack`). Reads
+     * the pack's manifest `pack` block off [detail]. Returns null when the package carries no `pack`
+     * block (i.e. it isn't a pack).
+     */
+    fun getPack(id: String): PackManifest? = detail(id).pack
+
+    /**
+     * Resolve an extension pack's members (spec/pack.md § Discovery & installation → `resolvePack`).
+     * For each entry this pins a concrete [ResolvedPackMember.version] — the entry's pinned version when
+     * present, else the member's newest published version — and reports the member's own free/paid
+     * status, because a member honors its **own** entitlement gate even when the pack itself is free.
+     * The [PackEntry.required]/[PackEntry.note] curation flags are carried through so a host can install
+     * the base set and merely offer the recommended rest.
+     *
+     * A member whose id doesn't resolve (not yet in this registry, or lives in another repository — the
+     * spec resolves members lazily) is skipped rather than failing the whole pack; its id is returned in
+     * [ResolvedPack.unresolved] so the host can surface or defer it.
+     */
+    fun resolvePack(id: String): ResolvedPack {
+        val pack = getPack(id) ?: return ResolvedPack(emptyList(), emptyList())
+        val members = ArrayList<ResolvedPackMember>()
+        val unresolved = ArrayList<String>()
+        for (entry in pack.entries) {
+            val memberDetail = try {
+                detail(entry.id)
+            } catch (_: Exception) {
+                unresolved.add(entry.id)
+                continue
+            }
+            val version = entry.version ?: memberDetail.versions.firstOrNull()
+            if (version == null) {
+                unresolved.add(entry.id)
+                continue
+            }
+            members.add(
+                ResolvedPackMember(
+                    id = entry.id,
+                    version = version,
+                    required = entry.required,
+                    note = entry.note,
+                    paid = memberDetail.priceStatus.equals("paid", ignoreCase = true),
+                    downloadUrl = downloadUrl(entry.id, version),
+                ),
+            )
+        }
+        return ResolvedPack(members, unresolved)
+    }
 
     /**
      * GET /revocations — the registry's revocation feed (spec/repository-api.md § Revocations). Lists
@@ -228,6 +278,36 @@ data class PackageDetail(
     val priceStatus: String? = null,
     val preview: Preview? = null,
     val versions: List<String> = emptyList(),
+    /**
+     * For a `kind: "pack"` package, its member manifest (spec/pack.md). Absent/null for a normal
+     * package. Surfaced to hosts via [RepositoryClient.getPack]/[RepositoryClient.resolvePack].
+     */
+    val pack: PackManifest? = null,
+)
+
+/**
+ * The result of [RepositoryClient.resolvePack]: a pack's members resolved to concrete versions, plus
+ * the ids that couldn't be resolved against this registry (a host may retry them elsewhere or defer).
+ */
+data class ResolvedPack(
+    val entries: List<ResolvedPackMember>,
+    val unresolved: List<String> = emptyList(),
+)
+
+/**
+ * One resolved member of an extension pack (spec/pack.md § Discovery & installation). [version] is the
+ * concrete version to download (the entry's pin, or the member's latest). [paid] mirrors the member's
+ * own entitlement gate — a free pack can list a paid member, and that member still needs its own
+ * license at download time. [required] distinguishes the base set (install by default) from the
+ * recommended rest (offer to the user). [downloadUrl] is the ready-to-fetch `.azp` URL.
+ */
+data class ResolvedPackMember(
+    val id: String,
+    val version: String,
+    val required: Boolean,
+    val note: String? = null,
+    val paid: Boolean,
+    val downloadUrl: String,
 )
 
 /** True when this package requires payment/entitlement to download. */

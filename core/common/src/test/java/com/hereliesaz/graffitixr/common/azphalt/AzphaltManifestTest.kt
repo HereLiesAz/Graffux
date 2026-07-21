@@ -296,4 +296,127 @@ class AzphaltManifestTest {
         assertEquals("sha256-abc", m.files["code/main.js"])
         assertEquals(Runtime.WASM, m.runtime)
     }
+
+    // ---- Extension packs (spec/pack.md) ----
+
+    private val paintStarter = """
+        {
+          "azphalt": "0.1",
+          "id": "com.example.azphalt.paint-starter",
+          "name": "Paint Starter Pack",
+          "version": "1.0.0",
+          "kind": "pack",
+          "license": "MIT",
+          "compat": ">=0.1",
+          "description": "The base set for my paint app.",
+          "targetApps": ["com.example.myapp"],
+          "pack": {
+            "entries": [
+              { "id": "com.foldlab.filmluts", "version": "1.0.0", "required": true,  "note": "core LUTs" },
+              { "id": "com.brushery.inkbrushes",                   "required": true,  "note": "default brushes (latest)" },
+              { "id": "com.hereliesaz.halftone",                   "required": false, "note": "optional paid add-on" }
+            ]
+          },
+          "files": {}
+        }
+    """.trimIndent()
+
+    @Test
+    fun `parses a pack manifest with member entries`() {
+        val m = parseManifest(paintStarter)
+        assertEquals(ExtensionKind.PACK, m.kind)
+        val entries = m.pack?.entries ?: error("no pack block")
+        assertEquals(3, entries.size)
+        assertEquals("com.foldlab.filmluts", entries[0].id)
+        assertEquals("1.0.0", entries[0].version)      // pinned
+        assertTrue(entries[0].required)
+        assertNull(entries[1].version)                  // absent = resolve latest
+        assertTrue(entries[1].required)
+        assertFalse(entries[2].required)                // recommended, not base set
+        assertEquals("optional paid add-on", entries[2].note)
+    }
+
+    @Test
+    fun `a well-formed pack validates`() {
+        assertNull(validatePackManifest(parseManifest(paintStarter)))
+    }
+
+    @Test
+    fun `pack kind newer than this build parses as UNKNOWN not throw`() {
+        val m = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"whatsit",
+                "license":"MIT","compat":">=0.1","files":{} }""".trimIndent(),
+        )
+        assertEquals(ExtensionKind.UNKNOWN, m.kind)
+    }
+
+    @Test
+    fun `validatePackManifest rejects a non-pack kind`() {
+        val m = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"asset",
+                "license":"MIT","compat":">=0.1","files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(m)!!.contains("not a pack"))
+    }
+
+    @Test
+    fun `validatePackManifest requires a pack block`() {
+        val m = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(m)!!.contains("no `pack` block"))
+    }
+
+    @Test
+    fun `validatePackManifest requires at least one entry`() {
+        val m = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","pack":{"entries":[]},"files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(m)!!.contains("at least one entry"))
+    }
+
+    @Test
+    fun `validatePackManifest refuses code, capabilities, or assets on a pack`() {
+        val withCode = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","entry":"code/main.js","runtime":"js",
+                "pack":{"entries":[{"id":"a.b"}]},"files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(withCode)!!.contains("must not declare code"))
+
+        val withCaps = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","capabilities":["bitmap"],
+                "pack":{"entries":[{"id":"a.b"}]},"files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(withCaps)!!.contains("must not declare capabilities"))
+    }
+
+    @Test
+    fun `validatePackManifest refuses self-reference and duplicates`() {
+        val selfRef = parseManifest(
+            """{ "azphalt":"0.1","id":"a.b","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","pack":{"entries":[{"id":"a.b"}]},"files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(selfRef)!!.contains("must not reference itself"))
+
+        val dup = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1",
+                "pack":{"entries":[{"id":"a.b","version":"1.0.0"},{"id":"a.b","version":"1.0.0"}]},
+                "files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(dup)!!.contains("duplicate"))
+    }
+
+    @Test
+    fun `validatePackManifest rejects a blank entry id`() {
+        val m = parseManifest(
+            """{ "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"pack",
+                "license":"MIT","compat":">=0.1","pack":{"entries":[{"id":"  "}]},"files":{} }""".trimIndent(),
+        )
+        assertTrue(validatePackManifest(m)!!.contains("blank id"))
+    }
 }
