@@ -1,7 +1,7 @@
 
 [versions]
 activityCompose = "1.13.0"
-agp = "9.6.1"
+agp = "9.3.0"
 appcompat = "1.7.1"
 azNavRail = "11.2"
 camerax = "1.6.1"
@@ -40,7 +40,7 @@ retrofit = "3.0.0"
 okhttp = "5.4.0"
 zxingCore = "3.5.4"
 zxingAndroidEmbedded = "4.3.0"
-chicory = "0.0.12"
+chicory = "1.7.5"
 
 [libraries]
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
