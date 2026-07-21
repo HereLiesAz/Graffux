@@ -67,6 +67,42 @@ class CubeLutTest {
     }
 
     @Test
+    fun `strength blends dry-wet toward the identity in the sampling domain`() {
+        val lut = parseCubeLut(invert)
+        val p = argb(255, 128, 64, 200)
+        // strength 1 = full grade; 0 = original; 0.5 = halfway (blend in the encoded/sampling domain).
+        assertEquals(255 - 128, (lut.withStrength(1f).applyPixel(p) ushr 16) and 0xFF)
+        assertEquals(128, (lut.withStrength(0f).applyPixel(p) ushr 16) and 0xFF)
+        // B: original 200, full grade 55, midpoint ≈ 128.
+        val mid = lut.withStrength(0.5f).applyPixel(p) and 0xFF
+        assertTrue("mid=$mid", kotlin.math.abs(mid - 128) <= 2)
+        // strength >= 1 returns the same instance (no needless table copy).
+        assertTrue(lut.withStrength(1f) === lut)
+    }
+
+    @Test
+    fun `inputTransfer roundtrips an identity lut for linear and log-c`() {
+        val lut = parseCubeLut(identity)
+        val p = argb(255, 128, 64, 200)
+        for (t in listOf(LutInputTransfer.LINEAR, LutInputTransfer.LOG_C)) {
+            val out = lut.withInputTransfer(t).applyPixel(p)
+            // Converting into the transfer domain and back around an identity table returns the pixel.
+            assertTrue(t.name, kotlin.math.abs(((out ushr 16) and 0xFF) - 128) <= 2)
+            assertTrue(t.name, kotlin.math.abs(((out ushr 8) and 0xFF) - 64) <= 2)
+            assertTrue(t.name, kotlin.math.abs((out and 0xFF) - 200) <= 2)
+        }
+    }
+
+    @Test
+    fun `inputTransfer wire mapping defaults to srgb`() {
+        assertEquals(LutInputTransfer.SRGB, LutInputTransfer.fromWire(null))
+        assertEquals(LutInputTransfer.SRGB, LutInputTransfer.fromWire("srgb"))
+        assertEquals(LutInputTransfer.SRGB, LutInputTransfer.fromWire("weird-future-value"))
+        assertEquals(LutInputTransfer.LINEAR, LutInputTransfer.fromWire("linear"))
+        assertEquals(LutInputTransfer.LOG_C, LutInputTransfer.fromWire("log-c"))
+    }
+
+    @Test
     fun `comments and blank lines are ignored`() {
         val lut = parseCubeLut("# a comment\n\nLUT_3D_SIZE 2\n" + "0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1")
         assertEquals(2, lut.size)

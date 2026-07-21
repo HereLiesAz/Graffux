@@ -191,6 +191,52 @@ class AzphaltManifestTest {
     }
 
     @Test
+    fun `parses remote assets, standalone, tags and transition contributions`() {
+        val m = parseManifest(
+            """
+            {
+              "azphalt":"0.1","id":"com.x.mix","name":"Mix","version":"1.0.0","kind":"mixed",
+              "license":"MIT","compat":">=0.1","entry":"code/main.js","runtime":"js",
+              "contributes":{ "transitions":[{ "id":"wipe","name":"Wipe","entry":"wipe" }] },
+              "assets":[
+                { "type":"lut", "path":"assets/base.cube", "tags":["warm"] },
+                { "type":"shader", "path":"assets/fx.glsl", "standalone":false },
+                { "type":"tflite", "path":"", "remoteUrl":"https://cdn.example/m.tflite",
+                  "checksum":"sha256-abc", "byteSize":16777216, "role":"depth" }
+              ],
+              "files":{}
+            }
+            """.trimIndent(),
+        )
+        // standalone defaults true; an explicit false is honoured (asset-only hosts skip it).
+        assertTrue(m.assets[0].standalone)
+        assertEquals(listOf("warm"), m.assets[0].tags)
+        assertFalse(m.assets[1].standalone)
+        // Remote (not-bundled) asset: empty path + remoteUrl + checksum.
+        assertEquals("", m.assets[2].path)
+        assertEquals("https://cdn.example/m.tflite", m.assets[2].remoteUrl)
+        assertEquals("sha256-abc", m.assets[2].checksum)
+        assertEquals("wipe", m.contributes?.transitions?.single()?.id)
+    }
+
+    @Test
+    fun `parses lut strength and inputTransfer params`() {
+        val m = parseManifest(
+            """
+            {
+              "azphalt":"0.1","id":"com.x.lut","name":"Graded","version":"1.0.0","kind":"asset",
+              "license":"MIT","compat":">=0.1",
+              "assets":[{ "type":"lut","path":"assets/g.cube","params":{ "strength":0.5,"inputTransfer":"log-c" } }],
+              "files":{}
+            }
+            """.trimIndent(),
+        )
+        val params = m.assets.single().params
+        assertEquals("log-c", params?.get("inputTransfer")?.let { it.toString().trim('"') })
+        assertTrue(m.assets.single().standalone)
+    }
+
+    @Test
     fun `compat is validated per the single-comparator 0_1 grammar`() {
         // Host implements 0.1; comparator defaults to >=.
         assertTrue(isCompatibleSpec(">=0.1"))

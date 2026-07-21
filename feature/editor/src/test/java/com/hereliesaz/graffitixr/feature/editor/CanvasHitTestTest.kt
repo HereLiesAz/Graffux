@@ -129,4 +129,58 @@ class CanvasHitTestTest {
         val corners = CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!
         assertNull(CanvasHitTest.nearestCornerIndex(Offset(500f, 500f), corners, 30f)) // centre, far
     }
+
+    @Test
+    fun `box centre is the average of the corners`() {
+        val bc = CanvasHitTest.boxCenter(CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!)
+        assertEquals(500f, bc.x, 0.01f)
+        assertEquals(500f, bc.y, 0.01f)
+    }
+
+    @Test
+    fun `rotation handle sits out beyond the top edge`() {
+        val rot = CanvasHitTest.rotationHandlePos(CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!, 50f)!!
+        assertEquals(500f, rot.x, 0.01f) // above the top-edge midpoint (500, 300)
+        assertEquals(250f, rot.y, 0.01f) // 50 px further up
+    }
+
+    @Test
+    fun `angle delta measures signed rotation about the centre`() {
+        val c = Offset(500f, 500f)
+        assertEquals(-90f, CanvasHitTest.angleDeltaDegrees(c, Offset(600f, 500f), Offset(500f, 400f)), 0.01f)
+        assertEquals(90f, CanvasHitTest.angleDeltaDegrees(c, Offset(600f, 500f), Offset(500f, 600f)), 0.01f)
+    }
+
+    // ── Infinite-canvas camera composition ──────────────────────────────────────
+
+    @Test
+    fun `viewport zoom scales screen corners about the top-left`() {
+        // zoom 2, no pan: world corner (300,300) → screen (600,600); (700,700) → (1400,1400)
+        val corners = CanvasHitTest.layerScreenCorners(vlayer("a"), W, H, Offset.Zero, 2f)!!
+        assertEquals(600f, corners[0].x, 0.01f)
+        assertEquals(600f, corners[0].y, 0.01f)
+        assertEquals(1400f, corners[2].x, 0.01f)
+        assertEquals(1400f, corners[2].y, 0.01f)
+    }
+
+    @Test
+    fun `viewport offset translates screen corners`() {
+        // pan (100,50), zoom 1: world corner (300,300) → screen (400,350)
+        val corners = CanvasHitTest.layerScreenCorners(vlayer("a"), W, H, Offset(100f, 50f), 1f)!!
+        assertEquals(400f, corners[0].x, 0.01f)
+        assertEquals(350f, corners[0].y, 0.01f)
+    }
+
+    @Test
+    fun `topHit undoes the camera before testing`() {
+        val l = listOf(vlayer("a"))
+        // zoom 2: the layer's world centre (500,500) sits at screen (1000,1000).
+        assertEquals("a", CanvasHitTest.topHit(l, Offset(1000f, 1000f), W, H, Offset.Zero, 2f))
+        // screen (600,600) → world (300,300) = TL corner → hit
+        assertEquals("a", CanvasHitTest.topHit(l, Offset(600f, 600f), W, H, Offset.Zero, 2f))
+        // screen (500,500) → world (250,250) → local x -250 outside ±200 → miss
+        assertNull(CanvasHitTest.topHit(l, Offset(500f, 500f), W, H, Offset.Zero, 2f))
+        // pan (200,200), zoom 1: world centre (500,500) → screen (700,700)
+        assertEquals("a", CanvasHitTest.topHit(l, Offset(700f, 700f), W, H, Offset(200f, 200f), 1f))
+    }
 }

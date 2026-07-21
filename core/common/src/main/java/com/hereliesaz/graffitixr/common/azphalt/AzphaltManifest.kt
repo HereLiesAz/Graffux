@@ -134,6 +134,8 @@ data class Contributes(
     val filters: List<Contribution> = emptyList(),
     val tools: List<Contribution> = emptyList(),
     val commands: List<Contribution> = emptyList(),
+    /** Two-input blends over a normalized progress, for temporal hosts (spec § contributes). */
+    val transitions: List<Contribution> = emptyList(),
 )
 
 @Serializable
@@ -204,10 +206,16 @@ enum class AssetType(val wire: String) {
 @Serializable
 data class AssetContribution(
     val type: AssetType,
+    /**
+     * Relative path into `/assets` inside the `.azp`. Per spec § assets it MAY be an **empty string**
+     * for a *remote* asset — the key stays present (it's required), and [remoteUrl] + [checksum] carry
+     * the not-bundled payload instead. A host treats an empty [path] as "not bundled".
+     */
     val path: String,
     /**
-     * Declarative parameters for the asset (spec 0.1). For [AssetType.SHADER] this carries
-     * `format` (`"isf"` | `"glsl"`) and the shader's declared inputs; for [AssetType.TRANSITION],
+     * Declarative parameters for the asset (spec 0.1). For [AssetType.LUT] this may carry `strength`
+     * (dry/wet blend, `0..1`, default `1`) and `inputTransfer` (`srgb`|`linear`|`log-c`); for
+     * [AssetType.SHADER] `format` (`isf`|`glsl`) + declared inputs; for [AssetType.TRANSITION]
      * `format: "gl-transition"`. Modelled as raw JSON so the host reads only what it understands.
      */
     val params: JsonObject? = null,
@@ -220,6 +228,21 @@ data class AssetContribution(
     val role: String? = null,
     /** Optional payload size in bytes; helps a host allocate/report before downloading a large asset. */
     val byteSize: Long? = null,
+    /**
+     * Remote payload URL for a not-bundled asset (spec § assets, "VSCode header pattern"). Present when
+     * [path] is empty. A host fetches it lazily and MUST verify the bytes against [checksum] before use.
+     */
+    val remoteUrl: String? = null,
+    /** `sha256-<hex>` digest of a [remoteUrl] payload — the integrity gate for a not-bundled asset. */
+    val checksum: String? = null,
+    /**
+     * In a `mixed` package, whether the asset is usable without the package's code (spec § Mixed-package
+     * asset independence). Default `true`. An **asset-only host MUST select assets where this is not
+     * false** and skip the rest; ignored for `asset`-kind packages (always standalone).
+     */
+    val standalone: Boolean = true,
+    /** Optional marketplace-filter tags for this asset (e.g. `["sfx", "impact"]`). */
+    val tags: List<String> = emptyList(),
 )
 
 /** Shared lenient JSON — tolerates unknown/future manifest fields rather than failing to parse. */

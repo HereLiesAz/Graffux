@@ -35,6 +35,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
@@ -42,6 +43,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
+import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import dagger.hilt.android.AndroidEntryPoint
@@ -117,6 +119,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Polygon sides picker visibility (opened from the Design folder's "Sides" item).
     var showSidesDialog by remember { mutableStateOf(false) }
 
+    // Text layer being edited via the rail's "Edit Text" item. Adding a text layer opens the editor
+    // automatically via uiState.autoEditTextLayerId; this covers re-editing an existing one.
+    var manualEditTextId by remember { mutableStateOf<String?>(null) }
+
+    // Canvas background-colour picker visibility (opened from the Project folder's "Background" item).
+    var showBgDialog by remember { mutableStateOf(false) }
+
     // Open a shared image (two-app interop) as a layer once, after the ViewModel exists.
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -162,6 +171,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             onCornerRadius = { showCornerDialog = true },
             onShapeSize = { showShapeSizeDialog = true },
             onPolygonSides = { showSidesDialog = true },
+            onEditText = { id -> manualEditTextId = id },
+            onBackground = { showBgDialog = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -287,6 +298,40 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
             }
+
+            // Text editor — opens automatically after adding a text layer (autoEditTextLayerId), or
+            // when re-editing one via the rail. Edits apply live (re-rasterized by the view model).
+            val editTextId = uiState.autoEditTextLayerId ?: manualEditTextId
+            if (editTextId != null) {
+                val params = uiState.layers.find { it.id == editTextId }?.textParams
+                if (params != null) {
+                    TextEditDialog(
+                        initialText = params.text,
+                        initialSizeDp = params.fontSizeDp,
+                        initialColorArgb = params.colorArgb,
+                        initialBold = params.isBold,
+                        initialItalic = params.isItalic,
+                        onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                        onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                        onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                        onStyleChange = { b, i ->
+                            vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
+                        },
+                        onDismiss = {
+                            vm.consumeAutoEditTextLayer()
+                            manualEditTextId = null
+                        },
+                    )
+                }
+            }
+
+            if (showBgDialog) {
+                BackgroundColorDialog(
+                    current = uiState.canvasBackground,
+                    onSelect = { vm.setCanvasBackground(it) },
+                    onDismiss = { showBgDialog = false },
+                )
+            }
         }
     }
 }
@@ -311,6 +356,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     onCornerRadius: () -> Unit,
     onShapeSize: () -> Unit,
     onPolygonSides: () -> Unit,
+    onEditText: (String) -> Unit,
+    onBackground: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -327,6 +374,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     }
     azRailSubItem(id = "design.add", hostId = "host.design", text = navStrings.new, color = navItemColor, shape = AzButtonShape.NONE) {
         vm.onAddBlankLayer()
+    }
+    // Text — adds a text layer (the editor opens automatically via autoEditTextLayerId).
+    azRailSubItem(id = "design.text", hostId = "host.design", text = "Text", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.onAddTextLayer()
     }
     // Vector shapes — each adds a new vector layer.
     azRailSubHostItem(id = "design.shapes", hostId = "host.design", text = "Shape", color = navItemColor, shape = AzButtonShape.NONE)
@@ -405,6 +456,12 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Core tracing prep (act on the active overlay layer) — matches GraffitiXR's Design sub-items.
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
+        // Text-layer only: re-open the text editor for the active text layer.
+        if (overlay.textParams != null) {
+            azRailSubItem(id = "design.edittext", hostId = "host.design", text = "Edit Text", color = navItemColor, shape = AzButtonShape.NONE) {
+                onEditText(overlay.id)
+            }
+        }
         azRailSubItem(id = "design.outline", hostId = "host.design", text = navStrings.outline, color = navItemColor, shape = AzButtonShape.NONE) {
             vm.onSketchClicked()
         }
@@ -436,6 +493,8 @@ private fun AzNavHostScope.ConfigureRailItems(
         if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
             azRailSubItem(id = "design.sides", hostId = "host.design", text = "Sides", color = navItemColor, shape = AzButtonShape.NONE) {
                 onPolygonSides()
+            }
+        }
         // Rect/ellipse-only: fill on/off (enables outline-only shapes). Cyan while filled.
         if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
             azRailSubItem(
@@ -486,6 +545,9 @@ private fun AzNavHostScope.ConfigureRailItems(
         shape = AzButtonShape.NONE,
     ) {
         onDocumentSize()
+    }
+    azRailSubItem(id = "proj.background", hostId = "host.project", text = "Background", color = navItemColor, shape = AzButtonShape.NONE) {
+        onBackground()
     }
     azRailSubItem(id = "proj.save", hostId = "host.project", text = navStrings.save, color = navItemColor, shape = AzButtonShape.NONE) {
         vm.saveProject()
