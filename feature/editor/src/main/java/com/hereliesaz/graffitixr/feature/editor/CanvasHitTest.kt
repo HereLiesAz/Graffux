@@ -36,10 +36,19 @@ internal object CanvasHitTest {
         canvasHeight: Float,
         viewportOffset: Offset = Offset.Zero,
         viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
     ): String? {
         if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return null
         // Undo the camera first: screen → world (container) space, where the per-layer math lives.
-        val worldTap = (tap - viewportOffset) / viewportZoom
+        // screen = viewportOffset + zoom · R(rot) · world  ⇒  world = R(-rot) · (screen - offset) / zoom.
+        val d = (tap - viewportOffset) / viewportZoom
+        val camRad = Math.toRadians(-viewportRotation.toDouble())
+        val camC = cos(camRad)
+        val camS = sin(camRad)
+        val worldTap = Offset(
+            (d.x * camC - d.y * camS).toFloat(),
+            (d.x * camS + d.y * camC).toFloat(),
+        )
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
@@ -76,6 +85,7 @@ internal object CanvasHitTest {
         canvasHeight: Float,
         viewportOffset: Offset = Offset.Zero,
         viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
     ): List<Offset>? {
         if (canvasWidth <= 0f || canvasHeight <= 0f) return null
         val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: return null
@@ -84,6 +94,9 @@ internal object CanvasHitTest {
         val rad = Math.toRadians(layer.rotationZ.toDouble())
         val c = cos(rad)
         val s = sin(rad)
+        val camRad = Math.toRadians(viewportRotation.toDouble())
+        val camC = cos(camRad)
+        val camS = sin(camRad)
         val locals = listOf(
             -halfW to -halfH, // TL
             halfW to -halfH,  // TR
@@ -91,10 +104,12 @@ internal object CanvasHitTest {
             -halfW to halfH,  // BL
         )
         return locals.map { (lx, ly) ->
-            // World (container) position, then apply the camera: screen = viewportOffset + world*zoom.
+            // World (container) position, then apply the camera: screen = offset + zoom·R(rot)·world.
             val wx = cx + layer.offset.x + (layer.scale * (lx * c - ly * s)).toFloat()
             val wy = cy + layer.offset.y + (layer.scale * (lx * s + ly * c)).toFloat()
-            Offset(viewportOffset.x + wx * viewportZoom, viewportOffset.y + wy * viewportZoom)
+            val rx = (wx * camC - wy * camS).toFloat()
+            val ry = (wx * camS + wy * camC).toFloat()
+            Offset(viewportOffset.x + rx * viewportZoom, viewportOffset.y + ry * viewportZoom)
         }
     }
 

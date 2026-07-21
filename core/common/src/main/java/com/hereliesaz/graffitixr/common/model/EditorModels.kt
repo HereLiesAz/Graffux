@@ -159,4 +159,6 @@ data class EditorUiState(
     // viewportZoom (top-left origin). Identity (Zero / 1f) reproduces the pre-camera behaviour.
     val viewportOffset: Offset = Offset.Zero,
     val viewportZoom: Float = 1f,
+    // Camera rotation in degrees (two-finger twist rotates the whole canvas about the pinch centroid).
+    val viewportRotation: Float = 0f,
 )

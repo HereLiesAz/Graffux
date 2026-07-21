@@ -1385,7 +1385,7 @@ class EditorViewModel @Inject constructor(
     fun onCanvasTap(tap: Offset, canvasWidth: Float, canvasHeight: Float) {
         val st = _uiState.value
         val hitId = CanvasHitTest.topHit(
-            st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom,
+            st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
         )
         if (hitId != null) {
             if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
@@ -1406,27 +1406,38 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Pans/zooms the infinite-canvas camera (the whole workspace), leaving individual layers alone.
-     * [panDelta] is a screen-pixel pan; [zoomFactor] multiplies the current zoom about [focus] (a
-     * screen point, e.g. the pinch centroid) so that point stays put under the fingers. The
-     * screen↔world mapping is `screen = viewportOffset + world * viewportZoom`, so holding [focus]
-     * fixed means `newOffset = focus - (focus - oldOffset) * (newZoom/oldZoom) + panDelta`.
+     * Pans/zooms/rotates the infinite-canvas camera (the whole workspace), leaving individual layers
+     * alone. [panDelta] is a screen-pixel pan; [zoomFactor] multiplies the current zoom and
+     * [rotationDelta] (degrees) adds to the current rotation, both about [focus] (a screen point, e.g.
+     * the pinch centroid) so that point stays put under the fingers.
+     *
+     * The screen↔world mapping is `screen = viewportOffset + viewportZoom · R(rotation) · world`.
+     * Holding [focus] fixed while zooming by `k = newZoom/oldZoom` and rotating by `Δ` gives
+     * `newOffset = focus + panDelta − k · R(Δ) · (focus − oldOffset)`.
      */
-    fun onViewportPanZoom(panDelta: Offset, zoomFactor: Float, focus: Offset) {
+    fun onViewportPanZoom(panDelta: Offset, zoomFactor: Float, focus: Offset, rotationDelta: Float = 0f) {
         val st = _uiState.value
         val oldZoom = st.viewportZoom
         val newZoom = (oldZoom * zoomFactor).coerceIn(0.1f, 10f)
         val k = newZoom / oldZoom
         val old = st.viewportOffset
+        val rad = Math.toRadians(rotationDelta.toDouble())
+        val cos = kotlin.math.cos(rad).toFloat()
+        val sin = kotlin.math.sin(rad).toFloat()
+        val dx = focus.x - old.x
+        val dy = focus.y - old.y
+        // R(Δ) · (dx, dy)
+        val rx = dx * cos - dy * sin
+        val ry = dx * sin + dy * cos
         val newOffset = Offset(
-            focus.x - (focus.x - old.x) * k + panDelta.x,
-            focus.y - (focus.y - old.y) * k + panDelta.y,
+            focus.x + panDelta.x - k * rx,
+            focus.y + panDelta.y - k * ry,
         )
-        dispatch(EditorIntent.SetViewport(newOffset, newZoom))
+        dispatch(EditorIntent.SetViewport(newOffset, newZoom, st.viewportRotation + rotationDelta))
     }
 
-    /** Resets the camera to identity (100%, centred). */
-    fun resetViewport() = dispatch(EditorIntent.SetViewport(Offset.Zero, 1f))
+    /** Resets the camera to identity (100%, centred, unrotated). */
+    fun resetViewport() = dispatch(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
 
     override fun onGestureEnd() {
         saveProject()

@@ -183,4 +183,29 @@ class CanvasHitTestTest {
         // pan (200,200), zoom 1: world centre (500,500) → screen (700,700)
         assertEquals("a", CanvasHitTest.topHit(l, Offset(700f, 700f), W, H, Offset(200f, 200f), 1f))
     }
+
+    @Test
+    fun `camera rotation round-trips between corners and hit-test`() {
+        // For any camera (pan/zoom/rotate), the screen centre of the projected box must hit the
+        // layer, and a point pushed past a corner must miss — layerScreenCorners and topHit invert
+        // each other exactly, including the camera rotation.
+        val layer = vlayer("a", offset = Offset(60f, -40f))
+        val off = Offset(120f, 30f)
+        val zoom = 1.5f
+        val rot = 37f
+        val corners = CanvasHitTest.layerScreenCorners(layer, W, H, off, zoom, rot)!!
+        val center = CanvasHitTest.boxCenter(corners)
+        assertEquals("a", CanvasHitTest.topHit(listOf(layer), center, W, H, off, zoom, rot))
+        val outside = center + (corners[2] - center) * 1.3f // past the bottom-right corner
+        assertNull(CanvasHitTest.topHit(listOf(layer), outside, W, H, off, zoom, rot))
+    }
+
+    @Test
+    fun `camera rotation moves where a layer projects`() {
+        val layer = vlayer("a", offset = Offset(150f, 0f)) // off-centre so a spin actually moves it
+        val at = CanvasHitTest.boxCenter(CanvasHitTest.layerScreenCorners(layer, W, H)!!)
+        assertEquals("a", CanvasHitTest.topHit(listOf(layer), at, W, H)) // no camera → hits
+        // A 90° canvas spin moves the layer off that screen point.
+        assertNull(CanvasHitTest.topHit(listOf(layer), at, W, H, Offset.Zero, 1f, 90f))
+    }
 }

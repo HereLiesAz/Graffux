@@ -74,7 +74,7 @@ internal sealed interface EditorIntent {
     /** Sets the artboard / document pixel dimensions. */
     data class SetDocumentSize(val width: Int, val height: Int) : EditorIntent
     /** Sets the infinite-canvas camera (pan offset + zoom). */
-    data class SetViewport(val offset: Offset, val zoom: Float) : EditorIntent
+    data class SetViewport(val offset: Offset, val zoom: Float, val rotation: Float = 0f) : EditorIntent
     data object ToggleHandedness : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent

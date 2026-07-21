@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -84,6 +85,7 @@ fun EditorScreen(
                 .graphicsLayer {
                     scaleX = uiState.viewportZoom
                     scaleY = uiState.viewportZoom
+                    rotationZ = uiState.viewportRotation
                     translationX = uiState.viewportOffset.x
                     translationY = uiState.viewportOffset.y
                     transformOrigin = TransformOrigin(0f, 0f)
@@ -201,7 +203,7 @@ fun EditorScreen(
                             val startOnActiveLayer = active != null && !active.isImageLocked &&
                                 CanvasHitTest.topHit(
                                     st.layers, down.position, w, h,
-                                    st.viewportOffset, st.viewportZoom,
+                                    st.viewportOffset, st.viewportZoom, st.viewportRotation,
                                 ) == st.activeLayerId
                             var movingObject = false
                             while (true) {
@@ -213,7 +215,9 @@ fun EditorScreen(
                                 val centroid = event.calculateCentroid()
                                 when {
                                     pressed >= 2 -> {
-                                        if (centroid != Offset.Unspecified) vm.onViewportPanZoom(pan, zoom, centroid)
+                                        // Two fingers → pan + zoom + rotate the whole canvas (Procreate-style).
+                                        if (centroid != Offset.Unspecified)
+                                            vm.onViewportPanZoom(pan, zoom, centroid, event.calculateRotation())
                                     }
                                     startOnActiveLayer -> {
                                         if (!movingObject) { vm.onGestureStart(); movingObject = true }
@@ -238,6 +242,7 @@ fun EditorScreen(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
                 viewportZoom = uiState.viewportZoom,
+                viewportRotation = uiState.viewportRotation,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -251,6 +256,7 @@ fun EditorScreen(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
                 viewportZoom = uiState.viewportZoom,
+                viewportRotation = uiState.viewportRotation,
                 onGestureStart = { vm.onGestureStart() },
                 onResize = { zoom -> vm.onTransformGesture(Offset.Zero, zoom, 0f) },
                 onRotate = { deg -> vm.onTransformGesture(Offset.Zero, 1f, deg) },
@@ -304,12 +310,13 @@ private fun SelectionOverlay(
     activeLayer: Layer?,
     viewportOffset: Offset,
     viewportZoom: Float,
+    viewportRotation: Float,
     modifier: Modifier = Modifier,
 ) {
     if (activeLayer == null) return
     Canvas(modifier) {
         val corners = CanvasHitTest.layerScreenCorners(
-            activeLayer, size.width, size.height, viewportOffset, viewportZoom,
+            activeLayer, size.width, size.height, viewportOffset, viewportZoom, viewportRotation,
         ) ?: return@Canvas
         val stroke = 2.dp.toPx()
         val color = Color(0xFF00E5FF) // cyan, matches the rail accent
@@ -320,12 +327,16 @@ private fun SelectionOverlay(
 }
 
 /**
- * Interactive resize handles: draws a dot at each corner of the active layer's bounding box, and a
- * drag that begins on a corner scales the layer about its centre. The scale is applied as an
- * incremental "zoom" through the existing [EditorViewModel.onTransformGesture] path (single-finger
- * pinch), so it reuses the proven transform + linked-group + history/persistence lifecycle
- * ([onResizeStart]/[onResizeEnd] wrap it). A drag that does NOT start on a handle is left
- * unconsumed, so the pan-gesture layer below still handles it.
+ * Interactive transform handles on the selected layer's bounding box. Two corner handles, following
+ * the box as it (and the camera) rotate:
+ *  • **resize** — the bottom-right corner (`corners[2]`), drawn as a filled square. Dragging it scales
+ *    the layer about its centre (distance-from-pivot ratio) via the [onResize] "zoom" path.
+ *  • **rotate** — the adjacent top-right corner (`corners[1]`), drawn as a ring. Dragging it spins the
+ *    layer about its centre (swept angle) via [onRotate].
+ *
+ * Both reuse the proven [EditorViewModel.onTransformGesture] lifecycle ([onGestureStart]/[onGestureEnd]
+ * bracket history + persistence). A drag that starts on neither handle is left unconsumed, so the
+ * pan-gesture layer below still handles it. The box outline itself is drawn by [SelectionOverlay].
  *
  * Device-tuning note: the handle touch radius and the render-transform pivot basis (shared with
  * [CanvasHitTest]) are derived, not yet verified on a device.
@@ -335,6 +346,7 @@ private fun SelectionHandles(
     activeLayer: Layer,
     viewportOffset: Offset,
     viewportZoom: Float,
+    viewportRotation: Float,
     onGestureStart: () -> Unit,
     onResize: (zoom: Float) -> Unit,
     onRotate: (degrees: Float) -> Unit,
@@ -342,24 +354,24 @@ private fun SelectionHandles(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val handleRadiusPx = with(density) { 22.dp.toPx() }
-    val rotationArmPx = with(density) { 36.dp.toPx() }
+    val handleRadiusPx = with(density) { 24.dp.toPx() }
     Canvas(
-        modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom) {
+        modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom, viewportRotation) {
             awaitEachGesture {
                 val corners = CanvasHitTest.layerScreenCorners(
-                    activeLayer, size.width.toFloat(), size.height.toFloat(), viewportOffset, viewportZoom,
+                    activeLayer, size.width.toFloat(), size.height.toFloat(),
+                    viewportOffset, viewportZoom, viewportRotation,
                 ) ?: return@awaitEachGesture
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val pivot = CanvasHitTest.boxCenter(corners)
-                val rotHandle = CanvasHitTest.rotationHandlePos(corners, rotationArmPx)
+                val resizeHandle = corners[2] // bottom-right
+                val rotateHandle = corners[1] // top-right (adjacent)
 
-                // Rotation handle takes priority over corners; a drag that starts on neither is left
-                // unconsumed so the pan layer below still handles it.
-                val onRotationHandle =
-                    rotHandle != null && (down.position - rotHandle).getDistance() <= handleRadiusPx
-                val onCorner = CanvasHitTest.nearestCornerIndex(down.position, corners, handleRadiusPx) != null
-                if (!onRotationHandle && !onCorner) return@awaitEachGesture
+                val onRotateHandle = (down.position - rotateHandle).getDistance() <= handleRadiusPx
+                // Resize only if not already on the rotate handle (they can crowd on a tiny box).
+                val onResizeHandle = !onRotateHandle &&
+                    (down.position - resizeHandle).getDistance() <= handleRadiusPx
+                if (!onRotateHandle && !onResizeHandle) return@awaitEachGesture
 
                 down.consume()
                 onGestureStart()
@@ -369,7 +381,7 @@ private fun SelectionHandles(
                     val event = awaitPointerEvent()
                     val change = event.changes.firstOrNull() ?: break
                     if (!change.pressed) break
-                    if (onRotationHandle) {
+                    if (onRotateHandle) {
                         onRotate(CanvasHitTest.angleDeltaDegrees(pivot, prevPos, change.position))
                     } else {
                         val curDist = (change.position - pivot).getDistance().coerceAtLeast(1f)
@@ -384,17 +396,17 @@ private fun SelectionHandles(
         },
     ) {
         val corners = CanvasHitTest.layerScreenCorners(
-            activeLayer, size.width, size.height, viewportOffset, viewportZoom,
+            activeLayer, size.width, size.height, viewportOffset, viewportZoom, viewportRotation,
         ) ?: return@Canvas
         val accent = Color(0xFF00E5FF)
-        val r = 6.dp.toPx()
-        corners.forEach { drawCircle(accent, radius = r, center = it) }
-        // Rotation handle: a stem from the top-edge midpoint out to a dot.
-        CanvasHitTest.rotationHandlePos(corners, 36.dp.toPx())?.let { rot ->
-            val topMid = (corners[0] + corners[1]) / 2f
-            drawLine(accent, topMid, rot, strokeWidth = 2.dp.toPx())
-            drawCircle(accent, radius = r, center = rot)
-        }
+        val r = 7.dp.toPx()
+        // Resize handle (bottom-right): a filled square.
+        val br = corners[2]
+        drawRect(accent, topLeft = Offset(br.x - r, br.y - r), size = Size(2 * r, 2 * r))
+        // Rotate handle (top-right): a ring.
+        val tr = corners[1]
+        drawCircle(accent, radius = r, center = tr, style = Stroke(width = 2.dp.toPx()))
+        drawCircle(accent, radius = r * 0.35f, center = tr)
     }
 }
 
