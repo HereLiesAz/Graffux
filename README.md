@@ -39,16 +39,6 @@ orchestrates side effects (history, persistence, OpenCV) around each dispatch.
 The `:core:*` and `:feature:editor` modules keep the `com.hereliesaz.graffitixr` namespace — they are
 the shared single source of truth. Only `:app` is Graffux-specific (`com.hereliesaz.graffux`).
 
-## Building
-
-Standard Gradle Android build. OpenCV is pulled from Maven Central (`org.opencv:opencv`), whose Prefab
-part also exposes the native C++ world to CMake — nothing to vendor.
-
-```bash
-./gradlew :app:assembleDebug
-```
-
-Requirements: JDK 17, Android SDK (compileSdk 37), minSdk 26.
 
 ## Roadmap
 
