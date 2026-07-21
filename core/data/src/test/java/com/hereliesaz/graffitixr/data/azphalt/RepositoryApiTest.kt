@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.data.azphalt
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
