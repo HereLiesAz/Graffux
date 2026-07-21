@@ -19,6 +19,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.coop.OpEmitter
+import com.hereliesaz.graffitixr.common.importer.DocumentFormat
+import com.hereliesaz.graffitixr.common.importer.DocumentImporter
+import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
@@ -481,6 +484,124 @@ class EditorViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Opens a design document handed in as [uri]. A Photoshop `.psd` is decoded into its individual
+     * layers — each becomes an editor layer carrying the source layer's name, opacity, and blend
+     * mode — and the artboard is resized to the document. Inputs we can't yet decode into layers
+     * degrade gracefully: an ordinary image is added as a single layer; anything else is explained
+     * with a toast rather than failing silently.
+     */
+    fun onImportDocument(uri: Uri) {
+        if (_uiState.value.projectId == null) return
+        viewModelScope.launch(dispatchers.io) {
+            val name = queryDisplayName(uri)
+            val bytes = try {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } catch (e: Exception) {
+                null
+            }
+            if (bytes == null) {
+                withContext(dispatchers.main) { toast("Couldn't read that file.") }
+                return@launch
+            }
+            val format = DocumentImporter.detect(name, bytes)
+            val doc = if (format == DocumentFormat.PSD) {
+                try { DocumentImporter.readLayered(name, bytes) } catch (e: Exception) { null }
+            } else {
+                null
+            }
+
+            if (doc != null && doc.layers.isNotEmpty()) {
+                importLayeredDocument(doc)
+                return@launch
+            }
+            withContext(dispatchers.main) {
+                when (format) {
+                    DocumentFormat.IMAGE -> onAddLayer(uri)
+                    DocumentFormat.PSD ->
+                        toast("This PSD uses a mode that isn't supported yet (only 8-bit RGB).")
+                    DocumentFormat.CANVA ->
+                        toast("Canva files aren't stored locally — export to PNG or PDF and open that.")
+                    DocumentFormat.PDF, DocumentFormat.PROCREATE ->
+                        toast("Opening ${format.name.lowercase()} files is coming soon.")
+                    else -> toast("That file type isn't supported.")
+                }
+            }
+        }
+    }
+
+    /**
+     * Composites each [ImportedLayer] onto a document-sized transparent canvas and adds it as an
+     * editor layer. Every layer shares the same canvas footprint, so their `ContentScale.Fit` mapping
+     * is identical and the source layout is reproduced exactly with `offset = 0` and a common scale.
+     * The working canvas is capped so a many-layer import doesn't exhaust the heap (per-layer cropping
+     * to native bounds is a later optimisation).
+     */
+    private suspend fun importLayeredDocument(doc: ImportedDocument) {
+        val projectId = _uiState.value.projectId ?: return
+        val cap = 2048f
+        val docScale = minOf(1f, cap / maxOf(doc.width, doc.height).coerceAtLeast(1))
+        val fullW = (doc.width * docScale).toInt().coerceAtLeast(1)
+        val fullH = (doc.height * docScale).toInt().coerceAtLeast(1)
+
+        val metrics = context.resources.displayMetrics
+        val initialScale = minOf(
+            metrics.widthPixels * 0.9f / fullW,
+            metrics.heightPixels * 0.9f / fullH,
+            1f,
+        )
+
+        val created = ArrayList<Layer>(doc.layers.size)
+        for (imported in doc.layers) {
+            if (imported.width <= 0 || imported.height <= 0) continue
+            val full = createBitmap(fullW, fullH)
+            val small = Bitmap.createBitmap(imported.argb, imported.width, imported.height, Bitmap.Config.ARGB_8888)
+            val dst = android.graphics.RectF(
+                imported.left * docScale, imported.top * docScale,
+                (imported.left + imported.width) * docScale, (imported.top + imported.height) * docScale,
+            )
+            Canvas(full).drawBitmap(small, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+            small.recycle()
+
+            val filename = "layer_${UUID.randomUUID()}.png"
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(full))
+            val layer = Layer(
+                id = UUID.randomUUID().toString(),
+                name = imported.name.ifBlank { "Layer ${created.size + 1}" },
+                uri = "file://$path".toUri(),
+                bitmap = full,
+                isVisible = imported.isVisible,
+                opacity = imported.opacity,
+                scale = initialScale,
+                blendMode = imported.blendMode.toComposeBlendMode(),
+            )
+            layerStore.putBase(layer.id, full.copy(Bitmap.Config.ARGB_8888, false))
+            layerStore.initStrokes(layer.id)
+            created += layer
+        }
+
+        withContext(dispatchers.main) {
+            pushHistory()
+            dispatch(EditorIntent.SetDocumentSize(doc.width, doc.height))
+            created.forEach { layer ->
+                dispatch(EditorIntent.AddLayer(layer))
+                opEmitter.emit(Op.LayerAdd(layer))
+            }
+            saveProject()
+        }
+    }
+
+    /** Best-effort human-readable file name for [uri] (for format detection + layer naming). */
+    private fun queryDisplayName(uri: Uri): String? = try {
+        context.contentResolver.query(
+            uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: uri.lastPathSegment
+    } catch (e: Exception) {
+        uri.lastPathSegment
+    }
+
+    private fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 
     fun onAddBlankLayer() {
         pushHistory()
