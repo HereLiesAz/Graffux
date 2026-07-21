@@ -35,6 +35,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
@@ -411,6 +412,26 @@ private fun AzNavHostScope.ConfigureRailItems(
     }
     azRailSubItem(id = "shape.hexagon", hostId = "design.shapes", text = "Hexagon", color = navItemColor, shape = AzButtonShape.NONE) {
         vm.onAddPolygonLayer(6)
+    }
+    // Align the active layer to the artboard.
+    azRailSubHostItem(id = "design.align", hostId = "host.design", text = "Align", color = navItemColor, shape = AzButtonShape.NONE)
+    azRailSubItem(id = "align.left", hostId = "design.align", text = "Left", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.LEFT)
+    }
+    azRailSubItem(id = "align.hcenter", hostId = "design.align", text = "Center", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.H_CENTER)
+    }
+    azRailSubItem(id = "align.right", hostId = "design.align", text = "Right", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.RIGHT)
+    }
+    azRailSubItem(id = "align.top", hostId = "design.align", text = "Top", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.TOP)
+    }
+    azRailSubItem(id = "align.vcenter", hostId = "design.align", text = "Middle", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.V_CENTER)
+    }
+    azRailSubItem(id = "align.bottom", hostId = "design.align", text = "Bottom", color = navItemColor, shape = AzButtonShape.NONE) {
+        vm.alignActiveLayer(AlignMode.BOTTOM)
     }
     azRailSubItem(
         id = "design.layers",

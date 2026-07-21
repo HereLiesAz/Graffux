@@ -36,6 +36,7 @@ import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
+import com.hereliesaz.graffitixr.feature.editor.export.artboardRect
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -853,6 +854,32 @@ class EditorViewModel @Inject constructor(
         // AddLayer resets the tool to NONE; keep the pen active so strokes can be drawn continuously.
         dispatch(EditorIntent.SetActiveTool(Tool.PEN))
         opEmitter.emit(Op.LayerAdd(newLayer))
+        saveProject()
+    }
+
+    /**
+     * Aligns the active layer to the artboard by [mode] (left / centre / right / top / middle /
+     * bottom). Computes the layer's world bounding box and the artboard rect, then shifts the layer's
+     * offset by the pure [AlignOps] delta. A no-op if there's no active layer or it's already aligned.
+     */
+    fun alignActiveLayer(mode: AlignMode) {
+        val st = _uiState.value
+        val layer = st.layers.find { it.id == st.activeLayerId } ?: return
+        val metrics = context.resources.displayMetrics
+        val cw = metrics.widthPixels.toFloat()
+        val ch = metrics.heightPixels.toFloat()
+        if (cw <= 0f || ch <= 0f) return
+        // Layer bounding box in world space (identity camera), matching the artboard's world rect.
+        val corners = CanvasHitTest.layerScreenCorners(layer, cw, ch) ?: return
+        val box = floatArrayOf(
+            corners.minOf { it.x }, corners.minOf { it.y },
+            corners.maxOf { it.x }, corners.maxOf { it.y },
+        )
+        val artboard = artboardRect(cw.toInt(), ch.toInt(), st.documentWidth, st.documentHeight)
+        val (dx, dy) = AlignOps.delta(mode, box, artboard)
+        if (dx == 0f && dy == 0f) return
+        pushHistory()
+        dispatch(EditorIntent.AddOffset(Offset(dx, dy)))
         saveProject()
     }
 
