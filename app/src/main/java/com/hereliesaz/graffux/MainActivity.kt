@@ -164,7 +164,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             // Circles for the short top-level buttons; nested-rail items override to NONE (text pills).
             defaultShape = AzButtonShape.CIRCLE,
             headerIconShape = AzHeaderIconShape.CIRCLE,
-            translucentBackground = Color.Transparent
+            // A translucent dark fill — NOT fully transparent, or the NONE-shaped nested-rail pills
+            // (File / Add / Align / …) render as invisible text-only boxes with no readable backing.
+            translucentBackground = Color.Black.copy(alpha = 0.55f)
         )
         azConfig(
             // No always-open menu: the rail folds away when the app icon is tapped.
