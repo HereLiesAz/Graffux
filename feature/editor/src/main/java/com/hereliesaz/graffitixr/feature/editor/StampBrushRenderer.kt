@@ -7,6 +7,7 @@ import android.graphics.RadialGradient
 import android.graphics.Shader
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.Dab
 import kotlin.math.max
 
 /**
@@ -37,7 +38,22 @@ internal object StampBrushRenderer {
         flow: Float,
         seed: Long,
     ) {
-        val dabs = BrushStamps.dabs(points, diameterPx, brush, seed)
+        paintDabs(canvas, BrushStamps.dabs(points, diameterPx, brush, seed), brush, colorArgb, flow)
+    }
+
+    /**
+     * Draw an already-computed list of [dabs] (from [BrushStamps.dabs]) onto [canvas]. Split out so the
+     * live preview can stamp *only the newly-added* dabs each drag frame — because [BrushStamps.dabs]
+     * grows a stable prefix (earlier dab positions and their seeded jitter don't change as the stroke
+     * extends), re-drawing just `dabs.subList(alreadyDrawn, size)` incrementally matches a full re-render.
+     */
+    fun paintDabs(
+        canvas: Canvas,
+        dabs: List<Dab>,
+        brush: AzphaltBrush,
+        colorArgb: Int,
+        flow: Float,
+    ) {
         if (dabs.isEmpty()) return
         val hardness = brush.hardness.coerceIn(0f, 1f)
         val f = flow.coerceIn(0f, 1f)
