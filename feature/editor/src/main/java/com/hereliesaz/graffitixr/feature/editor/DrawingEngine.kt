@@ -54,7 +54,8 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         // Azphalt stamp-brush stroke: replay through the stamp renderer onto a fresh copy, using the
         // stroke's stored seed so the re-composited pixels match the original commit exactly.
         stroke.stampBrush?.let { brush ->
-            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            // Bitmap.copy can return null under memory pressure — fall back to the input rather than NPE.
+            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
             StampBrushRenderer.paintStroke(

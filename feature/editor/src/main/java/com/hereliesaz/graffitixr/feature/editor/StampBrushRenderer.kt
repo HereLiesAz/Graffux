@@ -43,18 +43,19 @@ internal object StampBrushRenderer {
         val f = flow.coerceIn(0f, 1f)
         val baseAlpha = Color.alpha(colorArgb)
         val rgb = colorArgb or 0xFF000000.toInt()   // opaque version; the gradient carries the alpha
+        val edge = rgb and 0x00FFFFFF                // transparent edge (alpha 0) — loop-invariant
+        // Solid to `hardness` of the radius, then ramp to transparent at the edge — loop-invariant.
+        val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         for (d in dabs) {
             val radius = max(d.radius, 0.5f)
-            val a = (baseAlpha * d.alpha * f / 255f).coerceIn(0f, 1f)
-            val core = (rgb and 0x00FFFFFF) or ((a * 255f).toInt().coerceIn(0, 255) shl 24)
-            val edge = rgb and 0x00FFFFFF     // alpha 0
-            // Solid to `hardness` of the radius, then ramp to transparent at the edge.
+            val alphaVal = (baseAlpha * d.alpha * f).toInt().coerceIn(0, 255)
+            val core = (rgb and 0x00FFFFFF) or (alphaVal shl 24)
             paint.shader = RadialGradient(
                 d.x, d.y, radius,
                 intArrayOf(core, core, edge),
-                floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f),
+                stops,
                 Shader.TileMode.CLAMP,
             )
             canvas.drawCircle(d.x, d.y, radius, paint)

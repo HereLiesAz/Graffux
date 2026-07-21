@@ -2523,14 +2523,19 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.SetActiveBrush(null))
             return
         }
-        val brush = extensionRepository.loadBrush(id)
-        if (brush == null) {
-            Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
-            return
+        // loadBrush reads the unpacked manifest/asset from disk — do it off the main thread.
+        viewModelScope.launch(dispatchers.io) {
+            val brush = extensionRepository.loadBrush(id)
+            withContext(dispatchers.main) {
+                if (brush == null) {
+                    Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
+                } else {
+                    activeStampBrush = brush
+                    dispatch(EditorIntent.SetActiveBrush(brush.name))
+                    setActiveTool(Tool.BRUSH)
+                }
+            }
         }
-        activeStampBrush = brush
-        dispatch(EditorIntent.SetActiveBrush(brush.name))
-        setActiveTool(Tool.BRUSH)
     }
 
     override fun setActiveColor(color: Color) {

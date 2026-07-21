@@ -627,6 +627,7 @@ private fun InfiniteGrid(
     color: Color = Color(0x33808080),
 ) {
     Canvas(modifier) {
+        if (spacing <= 0f) return@Canvas   // guard the tick loops against a non-positive step
         val z = zoom.coerceAtLeast(1e-4f)
         val rad = (-rotationDeg * PI / 180f).toFloat()
         val cs = cos(rad); val sn = sin(rad)
