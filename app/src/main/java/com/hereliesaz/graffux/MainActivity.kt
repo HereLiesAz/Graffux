@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -113,9 +114,13 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?) {
     val vm: EditorViewModel = hiltViewModel()
+    val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
+
+    // Settings overlay visibility (opened from the rail's gear item).
+    var showSettings by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
 
@@ -202,6 +207,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             onPolygonSides = { showSidesDialog = true },
             onEditText = { id -> manualEditTextId = id },
             onBackground = { showBgDialog = true },
+            onSettings = { showSettings = true },
             onShare = {
                 // Interop hand-off: composite the design to a content:// Uri and offer it to any app
                 // (e.g. GraffitiXR to project in AR). No-op silently if there's nothing to share.
@@ -361,6 +367,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onDismiss = { showBgDialog = false },
                 )
             }
+
+            if (showSettings) {
+                SettingsScreen(
+                    vm = settingsVm,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onClose = { showSettings = false },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -457,6 +472,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onPolygonSides: () -> Unit,
     onEditText: (String) -> Unit,
     onBackground: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -581,4 +597,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             )
         }
     }
+
+    // Settings — a standalone gear that opens the settings overlay.
+    azRailItem(id = "settings", text = "Settings", content = Icons.Filled.Settings, color = navItemColor) { onSettings() }
 }
