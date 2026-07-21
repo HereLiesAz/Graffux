@@ -14,6 +14,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FormatAlignCenter
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -105,7 +114,6 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 private fun GraffuxApp(sharedImageUri: Uri?) {
     val vm: EditorViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
-    val railExpansion by vm.railExpansion.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -178,7 +186,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ConfigureRailItems(
             vm = vm,
             uiState = uiState,
-            railExpansion = railExpansion,
             strings = strings,
             navItemColor = navItemColor,
             onOpenImage = {
@@ -413,15 +420,18 @@ private fun BrushSizePad(vm: EditorViewModel) {
 }
 
 /**
- * Declares Graffux's AzNavRail items — the DESIGN-only subset of GraffitiXR's rail. Graffux has no
- * AR / Overlay / Mockup / Trace modes, co-op, or a project library, so those folders are dropped; what
- * remains is the Design toolset (open / add / layers / move / brush / colour / adjust / outline /
- * edges / invert / undo / redo) and a small Project folder (save / export / share).
+ * Declares Graffux's AzNavRail items as inline host groups (the DESIGN-only subset of GraffitiXR's
+ * rail — no AR / Overlay / Mockup / Trace modes, co-op, or project library). Collapsed, the rail is a
+ * short column of icon circles (`azRailHostItem`); expanding one reveals its actions as inline text
+ * pills (`azRailSubItem`). **Design** (the brush toolset) is open by default. Reset-view and undo/redo
+ * are not here — they're floating controls in the canvas's bottom corners (EditorScreen.ViewportControls).
+ *
+ * There is deliberately no "Move" tool: transforming/selecting a layer is what the canvas does when no
+ * brush tool is active, so a dedicated button was redundant.
  */
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
-    railExpansion: Map<String, Boolean>,
     strings: AppStrings,
     navItemColor: Color,
     onOpenImage: () -> Unit,
@@ -438,115 +448,106 @@ private fun AzNavHostScope.ConfigureRailItems(
 ) {
     val navStrings = strings.nav
 
-    // Primary tools — always-visible circular rail buttons. Tapping the app icon folds the rail away.
-    azRailItem(
-        id = "tool.move",
-        text = navStrings.move,
-        color = if (uiState.activeTool == Tool.NONE) Cyan else navItemColor,
-    ) { vm.setActiveTool(Tool.NONE) }
-    azRailItem(
-        id = "tool.brush",
-        text = navStrings.brush,
+    // ── Design (brush toolset) — the always-open default group ────────────────────────────────────
+    azRailHostItem(
+        id = "grp.design", text = "Design", content = Icons.Filled.Brush, color = navItemColor,
+        initiallyExpanded = true,
+    )
+    azRailSubItem(
+        id = "tool.brush", hostId = "grp.design", text = navStrings.brush, shape = AzButtonShape.NONE,
         color = if (uiState.activeTool == Tool.BRUSH) Cyan else navItemColor,
-    ) { vm.setActiveTool(Tool.BRUSH) }
-    // The size/hardness pad — GraffitiXR's two-axis brush control, restored. Drag ↕ to resize, ↔ to
-    // soften/harden; the live preview shows the exact tip. Custom content isn't clipped to rail width.
-    azRailItem(
-        id = "tool.size",
-        text = "Size",
+        // Toggle: tapping the active brush returns to no-tool (selection/transform) — Move's old job.
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
+    )
+    // The size/hardness pad — GraffitiXR's two-axis brush control. Drag ↕ to resize, ↔ to soften/harden;
+    // the live preview shows the exact tip. Custom content isn't clipped to rail width.
+    azRailSubItem(
+        id = "tool.size", hostId = "grp.design", text = "Size", shape = AzButtonShape.NONE,
         content = AzComposableContent { BrushSizePad(vm) },
     )
-    azRailItem(
-        id = "tool.pen",
-        text = "Pen",
+    azRailSubItem(
+        id = "tool.pen", hostId = "grp.design", text = "Pen", shape = AzButtonShape.NONE,
         color = if (uiState.activeTool == Tool.PEN) Cyan else navItemColor,
-    ) { vm.setActiveTool(Tool.PEN) }
-    azRailItem(
-        id = "tool.color",
-        text = navStrings.color,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
+    )
+    azRailSubItem(
+        id = "tool.color", hostId = "grp.design", text = navStrings.color, shape = AzButtonShape.NONE,
         color = if (uiState.showColorPicker) Cyan else navItemColor,
-    ) { vm.onColorClicked() }
-    azRailItem(
-        id = "panel.layers",
-        text = strings.editor.layers,
+        onClick = { vm.onColorClicked() },
+    )
+    azRailSubItem(
+        id = "panel.layers", hostId = "grp.design", text = strings.editor.layers, shape = AzButtonShape.NONE,
         color = if (uiState.activePanel == EditorPanel.LAYERS) Cyan else navItemColor,
-    ) { vm.onLayersClicked() }
+        onClick = { vm.onLayersClicked() },
+    )
 
-    // File — a nested-rail popup (open / new / document size / background / save / export / share).
-    azNestedRail(id = "grp.file", text = "File", color = navItemColor) {
-        azRailItem(id = "file.open", text = navStrings.open, shape = AzButtonShape.NONE) { onOpenImage() }
-        azRailItem(id = "file.openfile", text = "Open File", shape = AzButtonShape.NONE) { onOpenDocument() }
-        azRailItem(id = "file.new", text = navStrings.new, shape = AzButtonShape.NONE) { vm.onAddBlankLayer() }
-        azRailItem(id = "file.size", text = "${uiState.documentWidth}×${uiState.documentHeight}", shape = AzButtonShape.NONE) { onDocumentSize() }
-        azRailItem(id = "file.background", text = "Background", shape = AzButtonShape.NONE) { onBackground() }
-        azRailItem(id = "file.save", text = navStrings.save, shape = AzButtonShape.NONE) { vm.saveProject() }
-        azRailItem(id = "file.export", text = navStrings.export, shape = AzButtonShape.NONE) { vm.exportImage() }
-        azRailItem(id = "file.share", text = navStrings.share, shape = AzButtonShape.NONE) { onShare() }
-    }
+    // ── Project (file actions) ────────────────────────────────────────────────────────────────────
+    azRailHostItem(id = "grp.project", text = "Project", content = Icons.Filled.FolderOpen, color = navItemColor)
+    azRailSubItem(id = "file.open", hostId = "grp.project", text = navStrings.open, shape = AzButtonShape.NONE, onClick = { onOpenImage() })
+    azRailSubItem(id = "file.openfile", hostId = "grp.project", text = "Open File", shape = AzButtonShape.NONE, onClick = { onOpenDocument() })
+    azRailSubItem(id = "file.new", hostId = "grp.project", text = navStrings.new, shape = AzButtonShape.NONE, onClick = { vm.onAddBlankLayer() })
+    azRailSubItem(id = "file.size", hostId = "grp.project", text = "${uiState.documentWidth}×${uiState.documentHeight}", shape = AzButtonShape.NONE, onClick = { onDocumentSize() })
+    azRailSubItem(id = "file.background", hostId = "grp.project", text = "Background", shape = AzButtonShape.NONE, onClick = { onBackground() })
+    azRailSubItem(id = "file.save", hostId = "grp.project", text = navStrings.save, shape = AzButtonShape.NONE, onClick = { vm.saveProject() })
+    azRailSubItem(id = "file.export", hostId = "grp.project", text = navStrings.export, shape = AzButtonShape.NONE, onClick = { vm.exportImage() })
+    azRailSubItem(id = "file.share", hostId = "grp.project", text = navStrings.share, shape = AzButtonShape.NONE, onClick = { onShare() })
 
-    // Add — nested-rail popup of text + vector shapes (each adds a new layer).
-    azNestedRail(id = "grp.add", text = "Add", color = navItemColor) {
-        azRailItem(id = "add.text", text = "Text", shape = AzButtonShape.NONE) { vm.onAddTextLayer() }
-        azRailItem(id = "add.rect", text = "Rectangle", shape = AzButtonShape.NONE) { vm.onAddShapeLayer(ShapeKind.RECTANGLE) }
-        azRailItem(id = "add.ellipse", text = "Ellipse", shape = AzButtonShape.NONE) { vm.onAddShapeLayer(ShapeKind.ELLIPSE) }
-        azRailItem(id = "add.line", text = "Line", shape = AzButtonShape.NONE) { vm.onAddShapeLayer(ShapeKind.LINE) }
-        azRailItem(id = "add.triangle", text = "Triangle", shape = AzButtonShape.NONE) { vm.onAddPolygonLayer(3) }
-        azRailItem(id = "add.pentagon", text = "Pentagon", shape = AzButtonShape.NONE) { vm.onAddPolygonLayer(5) }
-        azRailItem(id = "add.hexagon", text = "Hexagon", shape = AzButtonShape.NONE) { vm.onAddPolygonLayer(6) }
-    }
+    // ── Add (new text + vector-shape layers) ──────────────────────────────────────────────────────
+    azRailHostItem(id = "grp.add", text = "Add", content = Icons.Filled.Add, color = navItemColor)
+    azRailSubItem(id = "add.text", hostId = "grp.add", text = "Text", shape = AzButtonShape.NONE, onClick = { vm.onAddTextLayer() })
+    azRailSubItem(id = "add.rect", hostId = "grp.add", text = "Rectangle", shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) })
+    azRailSubItem(id = "add.ellipse", hostId = "grp.add", text = "Ellipse", shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) })
+    azRailSubItem(id = "add.line", hostId = "grp.add", text = "Line", shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.LINE) })
+    azRailSubItem(id = "add.triangle", hostId = "grp.add", text = "Triangle", shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(3) })
+    azRailSubItem(id = "add.pentagon", hostId = "grp.add", text = "Pentagon", shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(5) })
+    azRailSubItem(id = "add.hexagon", hostId = "grp.add", text = "Hexagon", shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(6) })
 
-    // Align the active layer to the artboard — nested-rail popup.
-    azNestedRail(id = "grp.align", text = "Align", color = navItemColor) {
-        azRailItem(id = "align.left", text = "Left", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.LEFT) }
-        azRailItem(id = "align.hcenter", text = "Center", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.H_CENTER) }
-        azRailItem(id = "align.right", text = "Right", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.RIGHT) }
-        azRailItem(id = "align.top", text = "Top", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.TOP) }
-        azRailItem(id = "align.vcenter", text = "Middle", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.V_CENTER) }
-        azRailItem(id = "align.bottom", text = "Bottom", shape = AzButtonShape.NONE) { vm.alignActiveLayer(AlignMode.BOTTOM) }
-    }
-    // Adjust — nested-rail popup.
-    azNestedRail(id = "grp.adjust", text = navStrings.adjust, color = navItemColor) {
-        azRailItem(
-            id = "adj.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
-            color = if (uiState.activePanel == EditorPanel.ADJUST) Cyan else navItemColor,
-        ) { vm.onAdjustClicked() }
-        azRailItem(
-            id = "adj.transform", text = "Transform", shape = AzButtonShape.NONE,
-            color = if (uiState.activePanel == EditorPanel.TRANSFORM) Cyan else navItemColor,
-        ) { vm.onTransformClicked() }
-        azRailItem(id = "adj.blend", text = "Blend", shape = AzButtonShape.NONE) { onBlendMode() }
-    }
+    // ── Align (active layer → artboard) ───────────────────────────────────────────────────────────
+    azRailHostItem(id = "grp.align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor)
+    azRailSubItem(id = "align.left", hostId = "grp.align", text = "Left", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.LEFT) })
+    azRailSubItem(id = "align.hcenter", hostId = "grp.align", text = "Center", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.H_CENTER) })
+    azRailSubItem(id = "align.right", hostId = "grp.align", text = "Right", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.RIGHT) })
+    azRailSubItem(id = "align.top", hostId = "grp.align", text = "Top", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.TOP) })
+    azRailSubItem(id = "align.vcenter", hostId = "grp.align", text = "Middle", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.V_CENTER) })
+    azRailSubItem(id = "align.bottom", hostId = "grp.align", text = "Bottom", shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.BOTTOM) })
 
-    // Edit — context actions on the active layer, nested-rail popup.
+    // ── Adjust ────────────────────────────────────────────────────────────────────────────────────
+    azRailHostItem(id = "grp.adjust", text = navStrings.adjust, content = Icons.Filled.Tune, color = navItemColor)
+    azRailSubItem(
+        id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
+        color = if (uiState.activePanel == EditorPanel.ADJUST) Cyan else navItemColor, onClick = { vm.onAdjustClicked() },
+    )
+    azRailSubItem(
+        id = "adj.transform", hostId = "grp.adjust", text = "Transform", shape = AzButtonShape.NONE,
+        color = if (uiState.activePanel == EditorPanel.TRANSFORM) Cyan else navItemColor, onClick = { vm.onTransformClicked() },
+    )
+    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+
+    // ── Edit (context actions on the active layer) ────────────────────────────────────────────────
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
-        azNestedRail(id = "grp.edit", text = "Edit", color = navItemColor) {
-            if (overlay.textParams != null) {
-                azRailItem(id = "edit.text", text = "Edit Text", shape = AzButtonShape.NONE) { onEditText(overlay.id) }
-            }
-            azRailItem(id = "edit.outline", text = navStrings.outline, shape = AzButtonShape.NONE) { vm.onSketchClicked() }
-            azRailItem(id = "edit.edges", text = navStrings.edges, shape = AzButtonShape.NONE) { vm.onApplyCannyEdgeClicked() }
-            azRailItem(id = "edit.invert", text = navStrings.invert, shape = AzButtonShape.NONE) { vm.onToggleInvert() }
-            if (overlay.shapes.isNotEmpty()) {
-                azRailItem(id = "edit.size", text = "Size", shape = AzButtonShape.NONE) { onShapeSize() }
-                azRailItem(id = "edit.stroke", text = "Stroke", shape = AzButtonShape.NONE) { onStrokeWidth() }
-            }
-            if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
-                azRailItem(id = "edit.corners", text = "Corners", shape = AzButtonShape.NONE) { onCornerRadius() }
-            }
-            if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
-                azRailItem(id = "edit.sides", text = "Sides", shape = AzButtonShape.NONE) { onPolygonSides() }
-            }
-            if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
-                azRailItem(
-                    id = "edit.fill", text = "Fill", shape = AzButtonShape.NONE,
-                    color = if (overlay.shapes.any { it.hasFill }) Cyan else navItemColor,
-                ) { vm.toggleVectorFill() }
-            }
+        azRailHostItem(id = "grp.edit", text = "Edit", content = Icons.Filled.Edit, color = navItemColor)
+        if (overlay.textParams != null) {
+            azRailSubItem(id = "edit.text", hostId = "grp.edit", text = "Edit Text", shape = AzButtonShape.NONE, onClick = { onEditText(overlay.id) })
+        }
+        azRailSubItem(id = "edit.outline", hostId = "grp.edit", text = navStrings.outline, shape = AzButtonShape.NONE, onClick = { vm.onSketchClicked() })
+        azRailSubItem(id = "edit.edges", hostId = "grp.edit", text = navStrings.edges, shape = AzButtonShape.NONE, onClick = { vm.onApplyCannyEdgeClicked() })
+        azRailSubItem(id = "edit.invert", hostId = "grp.edit", text = navStrings.invert, shape = AzButtonShape.NONE, onClick = { vm.onToggleInvert() })
+        if (overlay.shapes.isNotEmpty()) {
+            azRailSubItem(id = "edit.size", hostId = "grp.edit", text = "Size", shape = AzButtonShape.NONE, onClick = { onShapeSize() })
+            azRailSubItem(id = "edit.stroke", hostId = "grp.edit", text = "Stroke", shape = AzButtonShape.NONE, onClick = { onStrokeWidth() })
+        }
+        if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
+            azRailSubItem(id = "edit.corners", hostId = "grp.edit", text = "Corners", shape = AzButtonShape.NONE, onClick = { onCornerRadius() })
+        }
+        if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
+            azRailSubItem(id = "edit.sides", hostId = "grp.edit", text = "Sides", shape = AzButtonShape.NONE, onClick = { onPolygonSides() })
+        }
+        if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
+            azRailSubItem(
+                id = "edit.fill", hostId = "grp.edit", text = "Fill", shape = AzButtonShape.NONE,
+                color = if (overlay.shapes.any { it.hasFill }) Cyan else navItemColor, onClick = { vm.toggleVectorFill() },
+            )
         }
     }
-
-    // Reset-view and undo/redo are no longer rail items — they live as floating controls in the
-    // canvas's bottom corners (EditorScreen.ViewportControls): fit/reset bottom-left, undo/redo
-    // bottom-right, matching GraffitiXR's placement.
 }
