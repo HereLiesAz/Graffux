@@ -8,13 +8,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -22,6 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
@@ -348,6 +357,57 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 }
 
 /**
+ * GraffitiXR's "brilliant" two-axis brush control, rebuilt for Graffux. A single drag tunes both the
+ * brush's size and its edge hardness: a mostly-vertical drag changes size (up = bigger), a mostly-
+ * horizontal drag changes feathering (right = softer). The item paints a live preview — a solid core
+ * that shrinks as the tip softens, wrapped in a translucent halo once there's any feathering — so the
+ * exact tip is visible while dragging. Renders as custom rail content (which isn't clipped to rail
+ * width, so the preview can grow to fill the button).
+ *
+ * NOTE: for an active azphalt extension (stamp) brush the horizontal axis should tune *flow* rather
+ * than hardness — wired once extension-brush selection lands in the editor.
+ */
+@Composable
+private fun BrushSizePad(vm: EditorViewModel) {
+    val state by vm.uiState.collectAsState()
+    val density = LocalDensity.current
+    // Full item width (the fixed GraffitiXR behaviour: the preview may grow to fill the whole button,
+    // not just half). Guarded below so a transient 0 during a layout pass can't invert a coerce range.
+    var itemPx by remember { mutableFloatStateOf(120f) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { itemPx = it.width.toFloat() }
+            .pointerInput(Unit) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    val maxPx = maxOf(itemPx, 1f)
+                    if (kotlin.math.abs(drag.y) >= kotlin.math.abs(drag.x)) {
+                        // Vertical → size. Up (negative dy) grows the tip.
+                        val cur = vm.uiState.value.brushSize
+                        vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(1f, maxPx))
+                    } else {
+                        // Horizontal → feathering (hardness). Right softens.
+                        val cur = vm.uiState.value.brushFeathering
+                        vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val maxPx = maxOf(itemPx, 1f)
+        val feather = state.brushFeathering
+        // Halo = the full brush diameter; core = the hard centre, shrinking as feathering rises.
+        val haloDp = with(density) { state.brushSize.coerceIn(1f, maxPx).toDp() }
+        val coreDp = with(density) { (state.brushSize * (1f - feather * 0.7f)).coerceIn(2f, maxPx).toDp() }
+        if (feather > 0.05f) {
+            Box(Modifier.size(haloDp).background(Cyan.copy(alpha = 0.3f), CircleShape))
+        }
+        Box(Modifier.size(coreDp).background(Cyan, CircleShape))
+    }
+}
+
+/**
  * Declares Graffux's AzNavRail items — the DESIGN-only subset of GraffitiXR's rail. Graffux has no
  * AR / Overlay / Mockup / Trace modes, co-op, or a project library, so those folders are dropped; what
  * remains is the Design toolset (open / add / layers / move / brush / colour / adjust / outline /
@@ -384,6 +444,13 @@ private fun AzNavHostScope.ConfigureRailItems(
         text = navStrings.brush,
         color = if (uiState.activeTool == Tool.BRUSH) Cyan else navItemColor,
     ) { vm.setActiveTool(Tool.BRUSH) }
+    // The size/hardness pad — GraffitiXR's two-axis brush control, restored. Drag ↕ to resize, ↔ to
+    // soften/harden; the live preview shows the exact tip. Custom content isn't clipped to rail width.
+    azRailItem(
+        id = "tool.size",
+        text = "Size",
+        content = AzComposableContent { BrushSizePad(vm) },
+    )
     azRailItem(
         id = "tool.pen",
         text = "Pen",
