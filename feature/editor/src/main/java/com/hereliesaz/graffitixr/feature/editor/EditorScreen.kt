@@ -17,12 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
@@ -331,14 +326,6 @@ fun EditorScreen(
             rotationDeg = uiState.viewportRotation,
         )
 
-        // 4c. Viewport controls — floating canvas controls in the bottom corners (out of the rail, the
-        // way GraffitiXR anchors them): fit/reset the view on the left, undo/redo on the right. Each
-        // button shows only when it can act, so a clean canvas stays uncluttered.
-        ViewportControls(
-            uiState = uiState,
-            onReset = { vm.resetViewport() },
-        )
-
         // 5. Loading indicator.
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -614,37 +601,6 @@ private fun SnapGuides(guidesX: List<Float>, guidesY: List<Float>, modifier: Mod
         val stroke = 1.dp.toPx()
         guidesX.forEach { x -> drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = stroke) }
         guidesY.forEach { y -> drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = stroke) }
-    }
-}
-
-/**
- * Floating canvas control anchored in the bottom-left corner (out of the nav rail, the way
- * GraffitiXR places it): fit/reset the infinite-canvas view. Only appears off the identity view, so
- * a fresh, un-panned canvas shows nothing. Placed directly in the editor's root [Box] so only the
- * button itself captures touches; the rest of the canvas keeps its gestures.
- *
- * Undo/redo used to live here too, duplicating the AzNavRail onscreen composable's buttons
- * (MainActivity.GraffuxApp) — removed in favor of that single copy.
- */
-@Composable
-private fun BoxScope.ViewportControls(
-    uiState: EditorUiState,
-    onReset: () -> Unit,
-) {
-    val chip = Color.Black.copy(alpha = 0.35f)
-    val viewMoved = uiState.viewportZoom != 1f ||
-        uiState.viewportOffset != Offset.Zero ||
-        uiState.viewportRotation != 0f
-    if (viewMoved) {
-        IconButton(
-            onClick = onReset,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(16.dp)
-                .background(chip, CircleShape),
-        ) {
-            Icon(Icons.Filled.FitScreen, contentDescription = "Fit view to screen", tint = Color.White)
-        }
     }
 }
 

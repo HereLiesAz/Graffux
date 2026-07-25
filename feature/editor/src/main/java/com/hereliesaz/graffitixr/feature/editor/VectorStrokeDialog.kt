@@ -3,7 +3,6 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
 /**
@@ -30,28 +30,19 @@ fun VectorStrokeDialog(
 ) {
     var width by remember { mutableFloatStateOf(currentWidth.coerceIn(0f, 100f)) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Stroke width") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(if (width < 0.5f) "No outline" else "${width.roundToInt()} px")
-                Slider(
-                    value = width,
-                    onValueChange = { width = it },
-                    valueRange = 0f..100f,
-                )
-            }
-        },
-        confirmButton = {
+    FloatingWindow(title = "Stroke width", onDismiss = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(if (width < 0.5f) "No outline" else "${width.roundToInt()} px")
+            Slider(
+                value = width,
+                onValueChange = { width = it },
+                valueRange = 0f..100f,
+            )
             AzButton(
                 text = "Apply",
                 onClick = { onApply(width) },
                 shape = AzButtonShape.RECTANGLE,
             )
-        },
-        dismissButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

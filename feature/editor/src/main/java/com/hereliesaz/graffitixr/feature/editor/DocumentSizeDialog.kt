@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
  * Picks the artboard / document size. Tapping a preset applies it immediately; "Custom" reveals
@@ -38,70 +38,62 @@ fun DocumentSizeDialog(
     var widthText by remember { mutableStateOf(currentWidth.toString()) }
     var heightText by remember { mutableStateOf(currentHeight.toString()) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Document size") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                DOCUMENT_PRESETS.forEach { preset ->
-                    if (preset.isCustom) {
-                        AzButton(
-                            text = "Custom…",
-                            onClick = { showCustom = true },
-                            shape = AzButtonShape.RECTANGLE,
-                        )
-                    } else {
-                        AzButton(
-                            text = "${preset.label}  (${preset.width}×${preset.height})",
-                            onClick = { onConfirm(preset.width, preset.height) },
-                            shape = AzButtonShape.RECTANGLE,
-                        )
+    FloatingWindow(title = "Document size", onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            DOCUMENT_PRESETS.forEach { preset ->
+                if (preset.isCustom) {
+                    AzButton(
+                        text = "Custom…",
+                        onClick = { showCustom = true },
+                        shape = AzButtonShape.RECTANGLE,
+                    )
+                } else {
+                    AzButton(
+                        text = "${preset.label}  (${preset.width}×${preset.height})",
+                        onClick = { onConfirm(preset.width, preset.height) },
+                        shape = AzButtonShape.RECTANGLE,
+                    )
+                }
+            }
+
+            if (showCustom) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = widthText,
+                        onValueChange = { widthText = it.filter(Char::isDigit).take(5) },
+                        label = { Text("Width") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = heightText,
+                        onValueChange = { heightText = it.filter(Char::isDigit).take(5) },
+                        label = { Text("Height") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
                     }
                 }
 
                 if (showCustom) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = widthText,
-                            onValueChange = { widthText = it.filter(Char::isDigit).take(5) },
-                            label = { Text("Width") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = heightText,
-                            onValueChange = { heightText = it.filter(Char::isDigit).take(5) },
-                            label = { Text("Height") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                    AzButton(
+                        text = "Apply",
+                        onClick = {
+                            val w = widthText.toIntOrNull() ?: currentWidth
+                            val h = heightText.toIntOrNull() ?: currentHeight
+                            onConfirm(w, h)
+                        },
+                        shape = AzButtonShape.RECTANGLE,
+                    )
                 }
-            }
-        },
-        confirmButton = {
-            if (showCustom) {
-                AzButton(
-                    text = "Apply",
-                    onClick = {
-                        val w = widthText.toIntOrNull() ?: currentWidth
-                        val h = heightText.toIntOrNull() ?: currentHeight
-                        onConfirm(w, h)
-                    },
-                    shape = AzButtonShape.RECTANGLE,
-                )
-            }
-        },
-        dismissButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }
