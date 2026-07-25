@@ -3,7 +3,6 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
 /**
@@ -28,25 +28,16 @@ fun PolygonSidesDialog(
 ) {
     var sides by remember { mutableIntStateOf(currentSides.coerceIn(3, 12)) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Polygon sides") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text("$sides sides")
-                Slider(
-                    value = sides.toFloat(),
-                    onValueChange = { sides = it.roundToInt() },
-                    valueRange = 3f..12f,
-                    steps = 8, // 3..12 inclusive → 10 stops → 8 intermediate steps
-                )
-            }
-        },
-        confirmButton = {
+    FloatingWindow(title = "Polygon sides", onDismiss = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("$sides sides")
+            Slider(
+                value = sides.toFloat(),
+                onValueChange = { sides = it.roundToInt() },
+                valueRange = 3f..12f,
+                steps = 8, // 3..12 inclusive → 10 stops → 8 intermediate steps
+            )
             AzButton(text = "Apply", onClick = { onApply(sides) }, shape = AzButtonShape.RECTANGLE)
-        },
-        dismissButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

@@ -2,11 +2,11 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
  * Sets the width × height (px) of the active vector layer's shapes — the numeric alternative to
@@ -36,10 +37,8 @@ fun ShapeSizeDialog(
     var widthText by remember { mutableStateOf(currentWidth.toInt().toString()) }
     var heightText by remember { mutableStateOf(currentHeight.toInt().toString()) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (isLine) "Line length" else "Shape size") },
-        text = {
+    FloatingWindow(title = if (isLine) "Line length" else "Shape size", onDismiss = onDismiss) {
+        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -63,8 +62,6 @@ fun ShapeSizeDialog(
                     )
                 }
             }
-        },
-        confirmButton = {
             AzButton(
                 text = "Apply",
                 onClick = {
@@ -74,9 +71,6 @@ fun ShapeSizeDialog(
                 },
                 shape = AzButtonShape.RECTANGLE,
             )
-        },
-        dismissButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

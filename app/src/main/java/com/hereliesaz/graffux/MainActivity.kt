@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -171,7 +172,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             noMenu = true,
             packButtons = true,
             dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
-            railItemWidth = 56.dp 
+            railItemWidth = 44.dp
         )
 
         ConfigureRailItems(
@@ -236,11 +237,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 modifier = Modifier.padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen view reset */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.RestartAlt, contentDescription = "Reset Canvas")
-                }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen fit logic */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.FitScreen, contentDescription = "Fit to Screen")
+                val viewMoved = uiState.viewportZoom != 1f ||
+                    uiState.viewportOffset != Offset.Zero ||
+                    uiState.viewportRotation != 0f
+                if (viewMoved) {
+                    FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
+                        Icon(Icons.Filled.FitScreen, contentDescription = "Fit to screen")
+                    }
                 }
                 if (uiState.undoCount > 0) {
                     FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {

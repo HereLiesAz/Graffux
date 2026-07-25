@@ -1,10 +1,9 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import androidx.compose.runtime.Composable
@@ -15,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 @Composable
 fun CurvesDialog(
@@ -25,10 +25,8 @@ fun CurvesDialog(
         mutableStateOf(listOf(Offset(0f, 0f), Offset(1f, 1f)))
     }
 
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        title = { Text(text = "Curves") },
-        text = {
+    FloatingWindow(title = "Curves", onDismiss = onDismissRequest) {
+        Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -40,8 +38,6 @@ fun CurvesDialog(
                     onDragEnd = { }
                 )
             }
-        },
-        confirmButton = {
             AzButton(
                 text = "Apply",
                 onClick = {
@@ -50,13 +46,6 @@ fun CurvesDialog(
                 },
                 shape = AzButtonShape.RECTANGLE
             )
-        },
-        dismissButton = {
-            AzButton(
-                text = "Cancel",
-                onClick = onDismissRequest,
-                shape = AzButtonShape.RECTANGLE
-            )
         }
-    )
+    }
 }

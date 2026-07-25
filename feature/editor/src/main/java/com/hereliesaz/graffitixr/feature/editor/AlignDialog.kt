@@ -6,13 +6,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
  * Window listing the six ways to align the active layer within the canvas. Replaces the flat
@@ -32,27 +31,20 @@ fun AlignDialog(
         "Middle" to AlignMode.V_CENTER,
         "Bottom" to AlignMode.BOTTOM,
     )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Align") },
-        text = {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                items(choices) { (label, mode) ->
-                    AzButton(
-                        text = label,
-                        onClick = { onAlign(mode); onDismiss() },
-                        shape = AzButtonShape.RECTANGLE,
-                    )
-                }
+    FloatingWindow(title = "Align", onDismiss = onDismiss) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(choices) { (label, mode) ->
+                AzButton(
+                    text = label,
+                    onClick = { onAlign(mode); onDismiss() },
+                    shape = AzButtonShape.RECTANGLE,
+                )
             }
-        },
-        confirmButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

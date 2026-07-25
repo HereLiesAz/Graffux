@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -28,6 +27,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
 /** Swatch palette offered for text colour. */
@@ -60,14 +60,11 @@ fun TextEditDialog(
     var bold by remember { mutableStateOf(initialBold) }
     var italic by remember { mutableStateOf(initialItalic) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Text") },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+    FloatingWindow(title = "Text", onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it; onTextChange(it) },
@@ -114,10 +111,8 @@ fun TextEditDialog(
                         shape = AzButtonShape.RECTANGLE,
                     )
                 }
-            }
-        },
-        confirmButton = {
-            AzButton(text = "Done", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+
+                AzButton(text = "Done", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
+        }
+    }
 }
