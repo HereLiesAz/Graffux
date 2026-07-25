@@ -384,7 +384,38 @@ class EditorViewModel @Inject constructor(
     /** The current layer set, stripped of bitmaps — what we record so an undo can be reverted. */
     private fun currentLayerSnapshot(): List<Layer> = _uiState.value.layers.map { it.copy(bitmap = null) }
 
+    // ── Transient HUD (Procreate's confirmations) ────────────────────────────────────────────
+
+    private var hudJob: kotlinx.coroutines.Job? = null
+    private var brushHudJob: kotlinx.coroutines.Job? = null
+
+    /** Flash a short confirmation pill ("Undo", "Redo") over the canvas. */
+    private fun showHud(message: String) {
+        hudJob?.cancel()
+        _uiState.update { it.copy(hudMessage = message) }
+        hudJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(700)
+            _uiState.update { it.copy(hudMessage = null) }
+        }
+    }
+
+    /** Show the brush-diameter preview circle while the size slider is moving. */
+    private fun showBrushHud() {
+        brushHudJob?.cancel()
+        if (!_uiState.value.brushHudVisible) _uiState.update { it.copy(brushHudVisible = true) }
+        brushHudJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(800)
+            _uiState.update { it.copy(brushHudVisible = false) }
+        }
+    }
+
+    /** Procreate's four-finger tap: hide every panel and fold the rail for full-screen art. */
+    fun toggleHideUi() {
+        _uiState.update { it.copy(hideUiForCapture = !it.hideUiForCapture) }
+    }
+
     override fun onUndoClicked() {
+        if (_uiState.value.undoCount > 0) showHud("Undo")
         val command = history.popUndo { undone ->
             when (undone) {
                 is EditCommand.Draw -> undone
@@ -410,6 +441,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onRedoClicked() {
+        if (_uiState.value.redoCount > 0) showHud("Redo")
         val command = history.popRedo { redone ->
             when (redone) {
                 is EditCommand.Draw -> redone
@@ -1757,7 +1789,15 @@ class EditorViewModel @Inject constructor(
             focus.x + panDelta.x - k * rx,
             focus.y + panDelta.y - k * ry,
         )
-        dispatch(EditorIntent.SetViewport(newOffset, newZoom, st.viewportRotation + rotationDelta))
+        // Procreate's rotation snap: within ~4° of square, the canvas clicks to exactly 0°, so a
+        // two-finger twist that's meant to straighten the page actually lands straight. The pull
+        // stays sticky until the twist accumulates past the window again.
+        var newRotation = st.viewportRotation + rotationDelta
+        if (rotationDelta != 0f) {
+            val norm = ((newRotation % 360f) + 540f) % 360f - 180f
+            if (kotlin.math.abs(norm) < 4f) newRotation -= norm
+        }
+        dispatch(EditorIntent.SetViewport(newOffset, newZoom, newRotation))
     }
 
     /** Resets the camera to identity (100%, centred, unrotated). */
@@ -3104,6 +3144,8 @@ class EditorViewModel @Inject constructor(
 
     override fun setBrushSize(size: Float) {
         dispatch(EditorIntent.SetBrushSize(size))
+        // Procreate shows the true brush diameter at canvas centre while the size slider moves.
+        showBrushHud()
     }
 
     fun setBrushFeathering(amount: Float) {

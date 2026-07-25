@@ -32,18 +32,23 @@ class StrokeGate {
 }
 
 private const val TAP_MAX_DURATION_MS = 350L
+private const val REPEAT_START_MS = 450L
+private const val REPEAT_TICK_MS = 130L
 
 /**
- * Procreate's signature history gestures: **two-finger tap = undo, three-finger tap = redo.**
+ * Procreate's signature history gestures: **two-finger tap = undo, three-finger tap = redo**,
+ * **hold two/three fingers to repeat** (rapid step-back through history), and **four-finger tap**
+ * to toggle the full-screen (UI-hidden) view.
  *
  * A pure observer on [PointerEventPass.Initial]: it never consumes anything, so it coexists with
  * every other handler (drawing, pan/zoom, taps) — a qualifying tap is short, still, and lands
- * 2 or 3 fingers; anything longer or travelling is someone else's gesture.
+ * 2–4 fingers; anything travelling is someone else's gesture.
  */
 fun Modifier.multiFingerTaps(
     gate: StrokeGate,
     onTwoFingerTap: () -> Unit,
     onThreeFingerTap: () -> Unit,
+    onFourFingerTap: () -> Unit = {},
 ): Modifier = pointerInput(gate) {
     val slop = viewConfiguration.touchSlop * 1.5f
     awaitEachGesture {
@@ -51,22 +56,40 @@ fun Modifier.multiFingerTaps(
         val startMs = first.uptimeMillis
         val origins = HashMap<PointerId, Offset>().apply { put(first.id, first.position) }
         var maxPointers = 1
+        var pressedNow = 1
         var moved = false
+        var repeats = 0
 
         while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Initial)
-            val pressedCount = event.changes.count { it.pressed }
-            if (pressedCount > maxPointers) maxPointers = pressedCount
+            // Timed wait: fingers held perfectly still emit no events, and the timeout drives
+            // Procreate's hold-to-repeat (keep two fingers down to step rapidly back through
+            // history). withTimeoutOrNull here is AwaitPointerEventScope's own member.
+            val event = withTimeoutOrNull(REPEAT_TICK_MS) { awaitPointerEvent(PointerEventPass.Initial) }
+
+            if (event == null) {
+                val heldLongEnough = SystemClock.uptimeMillis() - startMs >= REPEAT_START_MS
+                if (heldLongEnough && !moved && pressedNow == maxPointers && !gate.shouldSuppressTap()) {
+                    when (maxPointers) {
+                        2 -> { onTwoFingerTap(); repeats++ }
+                        3 -> { onThreeFingerTap(); repeats++ }
+                    }
+                }
+                continue
+            }
+
+            pressedNow = event.changes.count { it.pressed }
+            if (pressedNow > maxPointers) maxPointers = pressedNow
             for (change in event.changes) {
                 val origin = origins.getOrPut(change.id) { change.position }
                 if ((change.position - origin).getDistance() > slop) moved = true
             }
-            if (pressedCount == 0) {
+            if (pressedNow == 0) {
                 val duration = event.changes.maxOf { it.uptimeMillis } - startMs
-                if (!moved && duration <= TAP_MAX_DURATION_MS && !gate.shouldSuppressTap()) {
+                if (repeats == 0 && !moved && duration <= TAP_MAX_DURATION_MS && !gate.shouldSuppressTap()) {
                     when (maxPointers) {
                         2 -> onTwoFingerTap()
                         3 -> onThreeFingerTap()
+                        4 -> onFourFingerTap()
                     }
                 }
                 break

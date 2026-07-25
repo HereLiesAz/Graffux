@@ -191,6 +191,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
             railItemWidth = 44.dp
         )
+        // Four-finger tap (see EditorScreen's multiFingerTaps): full-screen art. Folding the rail
+        // is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the same flag.
+        isFoldedUp = uiState.hideUiForCapture
 
         ConfigureRailItems(
             vm = vm,
@@ -211,9 +214,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             }
         }
         
-        // Standalone Top-Right File Operations Dropdown[span_5](start_span)[span_5](end_span)
+        // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
         onscreen(alignment = Alignment.TopEnd) {
-            AzDropdownMenu(navController = navController) {
+            if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                 azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
                 azItem(text = "Gallery", onClick = { showGalleryDialog = true })
                 azItem(text = strings.nav.open, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
@@ -256,7 +259,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
         // landing on top of their fields.
         onscreen(alignment = Alignment.BottomCenter) {
-            if (uiState.activePanel == EditorPanel.NONE) Row(
+            if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
                 modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
