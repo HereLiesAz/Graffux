@@ -53,6 +53,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.design.components.BrushEdgeSliders
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
@@ -107,6 +108,10 @@ private fun incomingImageUri(intent: Intent?): Uri? {
         else -> null
     }
 }
+
+/** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
+private const val MIN_BRUSH_SIZE = 1f
+private const val MAX_BRUSH_SIZE = 200f
 
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?) {
@@ -205,6 +210,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = strings.nav.open, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Open File", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = strings.nav.new, onClick = { vm.onAddBlankLayer() })
+                azItem(text = "Add…", onClick = { showAddDialog = true })
+                azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
                 azItem(text = strings.nav.save, onClick = { vm.saveProject() })
@@ -234,6 +241,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
+        }
+
+        // Procreate's edge sliders, parked against whichever side the rail is docked to: brush size
+        // on top, brush opacity beneath. Opacity is the active colour's alpha, which is what the
+        // stroke paint actually samples, so the slider drives the real thing rather than a proxy.
+        onscreen(alignment = if (uiState.isRightHanded) Alignment.CenterStart else Alignment.CenterEnd) {
+            BrushEdgeSliders(
+                size = ((uiState.brushSize - MIN_BRUSH_SIZE) / (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)).coerceIn(0f, 1f),
+                opacity = uiState.activeColor.alpha,
+                onSizeChange = { vm.setBrushSize(MIN_BRUSH_SIZE + it * (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)) },
+                onOpacityChange = { vm.setActiveColor(uiState.activeColor.copy(alpha = it.coerceIn(0.05f, 1f))) },
+            )
         }
 
         // Onscreen Foreground Elements explicitly pinned over the canvas
@@ -499,11 +518,11 @@ private fun BrushSizePad(vm: EditorViewModel) {
 /**
  * ConfigureRailItems builder block.
  *
- * Procreate-shaped: the rail holds only frequently-used, always-visible tools (brush, color,
- * layers, adjust/transform) plus a couple of single entry points ("Add", "Align", "Edit") that
- * open a window instead of expanding a wall of rail buttons. Everything document/project-level
- * (open/new/save/export/share/background/install brush/settings) lives in the dropdown menu
- * instead — see the `AzDropdownMenu` block in [GraffuxApp].
+ * Procreate-shaped: the rail is only the tools you reach for mid-stroke — brush, smudge, eraser,
+ * pen, colour, layers — each with its own glyph. Brush size and opacity live on the edge sliders
+ * beside the rail; Adjust/Transform/Blend float as a draggable palette; and everything
+ * document-level (open/new/add/align/save/export/share/background/store/settings) is in the
+ * drop-down, Procreate's Actions menu — see the `AzDropdownMenu` block in [GraffuxApp].
  */
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
@@ -547,10 +566,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
     )
-    azRailItem(
-        id = "tool.size", text = "Size", shape = AzButtonShape.NONE,
-        content = AzComposableContent { BrushSizePad(vm) },
-    )
+    // No size item here: brush size lives on the edge slider beside the rail, where Procreate puts it.
     // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
     // palette glyph that says nothing about what you're about to paint with.
     azRailItem(
@@ -606,8 +622,8 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    azRailItem(id = "add", text = "Add", content = Icons.Filled.Add, color = navItemColor, onClick = { onAddClicked() })
-    azRailItem(id = "align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor, onClick = { onAlignClicked() })
+    // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
+    // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
     // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
     // unattached host): the user parks it wherever it suits the artwork and the position persists
@@ -627,6 +643,12 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
     )
     azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = Icons.Filled.Gradient, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+    // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
+    // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
+    azRailSubItem(
+        id = "adj.brush", hostId = "grp.adjust", text = "Brush", shape = AzButtonShape.NONE,
+        content = AzComposableContent { BrushSizePad(vm) },
+    )
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
