@@ -166,6 +166,10 @@ data class EditorUiState(
     val isEyedropping: Boolean = false,
     val eyedropColor: Color? = null,
     val eyedropPosition: Offset = Offset.Zero,
+    // Transient HUD confirmations, Procreate-style: a short-lived pill ("Undo", "Redo") at the top
+    // of the canvas, and a brush-diameter preview circle while the size slider moves.
+    val hudMessage: String? = null,
+    val brushHudVisible: Boolean = false,
     val activeColor: Color = Color.White,
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,

@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -106,6 +107,7 @@ fun EditorScreen(
                 gate = strokeGate,
                 onTwoFingerTap = { vm.onUndoClicked() },
                 onThreeFingerTap = { vm.onRedoClicked() },
+                onFourFingerTap = { vm.toggleHideUi() },
             )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
@@ -324,6 +326,30 @@ fun EditorScreen(
                 position = uiState.eyedropPosition,
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+
+        // 3d. Brush-size HUD — while the size slider moves, the ACTUAL brush diameter previews as
+        // a circle at canvas centre, the way Procreate shows what you're about to paint with.
+        if (uiState.brushHudVisible) {
+            Canvas(Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val r = uiState.brushSize / 2f
+                drawCircle(uiState.activeColor, radius = r, center = center)
+                drawCircle(Color.White.copy(alpha = 0.9f), radius = r, center = center, style = Stroke(width = 1.5.dp.toPx()))
+            }
+        }
+
+        // 3e. HUD pill — Procreate's transient confirmation ("Undo", "Redo") at the top of the canvas.
+        uiState.hudMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
+            ) {
+                Text(message, color = Color.White)
+            }
         }
 
         // 4. Bottom panels overlay (layers list, adjustment knobs, colour picker).
