@@ -14,10 +14,16 @@ import java.net.URLEncoder
 object AzphaltStore {
     /**
      * Registry API base for the official store. The apex `azphalt.store` 308-redirects to `www`, so we
-     * target `www` directly. The store currently serves a bare package array at `GET /packages`
-     * (see [RepositoryClient.listPackages]); the richer repository-api.md endpoints may not exist yet.
+     * target `www` directly.
+     *
+     * No `/api` suffix: the store mounts the normative repository-api.md surface at the **domain root**
+     * (`/.well-known/azphalt-repository.json`, `/packages`, `/packages/{id}/versions/{v}/download`, …)
+     * via `beforeFiles` rewrites. The `/api` prefix is Next's own storefront-internal namespace, where
+     * only `/api/packages` happens to exist — so browsing appeared to work while every other call fell
+     * through the SPA fallback and came back as `index.html`, which the installer then rejected as
+     * "Package has no manifest.json".
      */
-    const val REGISTRY_BASE_URL: String = "https://www.azphalt.store/api"
+    const val REGISTRY_BASE_URL: String = "https://www.azphalt.store"
 }
 
 /**

@@ -56,8 +56,12 @@ class RepositoryApiTest {
     }
 
     @Test
-    fun `official store base url targets the www api host`() {
-        assertEquals("https://www.azphalt.store/api", AzphaltStore.REGISTRY_BASE_URL)
+    fun `official store base url targets the repository root, not the storefront's api namespace`() {
+        // No `/api`: the store mounts repository-api.md at the domain root. Pointing at `/api` only
+        // ever resolved `/api/packages` (a storefront-internal route); detail, download and
+        // .well-known all fell through the SPA fallback and returned index.html, which the installer
+        // then rejected as "Package has no manifest.json".
+        assertEquals("https://www.azphalt.store", AzphaltStore.REGISTRY_BASE_URL)
     }
 
     @Test
