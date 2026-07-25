@@ -16,7 +16,8 @@ class StereoDepthProvider @Inject constructor(
 ) {
     private var directLeftBuffer: ByteBuffer? = null
     private var directRightBuffer: ByteBuffer? = null
-    private var currentAllocationSize = 0
+    private var currentLeftAllocationSize = 0
+    private var currentRightAllocationSize = 0
 
     // Temporal stereo state (single-camera, consecutive frames)
     private var prevFrameBuffer: ByteBuffer? = null
@@ -26,8 +27,11 @@ class StereoDepthProvider @Inject constructor(
     private var prevWidth: Int = 0
     private var prevHeight: Int = 0
 
+    // True only when a real dual-camera pair has been fed via processStereoFrames — not when
+    // submitFrame's single-camera temporal pairing (stereoLeft/stereoRight) is in use, which is a
+    // synthetic pair from consecutive frames of the same lens, not a genuine dual-lens signal.
     val isDualLensActive: Boolean
-        get() = synchronized(this) { stereoLeft != null && stereoRight != null }
+        get() = synchronized(this) { directLeftBuffer != null && directRightBuffer != null }
 
     /**
      * Processes incoming stereo frames by mapping them into native memory space.
@@ -44,12 +48,18 @@ class StereoDepthProvider @Inject constructor(
     @Synchronized
     fun processStereoFrames(left: ByteArray, right: ByteArray, width: Int, height: Int, timestamp: Long) {
         if (left.isEmpty() || right.isEmpty()) return
-        val requiredSize = left.size
 
-        if (currentAllocationSize != requiredSize || directLeftBuffer == null) {
-            directLeftBuffer = ByteBuffer.allocateDirect(requiredSize)
+        // Left and right are tracked independently: a stream that resizes only one side (e.g. an
+        // asymmetric lens pair, or a mid-session reconfiguration) must not leave the other side's
+        // buffer at a stale, too-small capacity — put() into an undersized buffer throws
+        // BufferOverflowException.
+        if (currentLeftAllocationSize != left.size || directLeftBuffer == null) {
+            directLeftBuffer = ByteBuffer.allocateDirect(left.size)
+            currentLeftAllocationSize = left.size
+        }
+        if (currentRightAllocationSize != right.size || directRightBuffer == null) {
             directRightBuffer = ByteBuffer.allocateDirect(right.size)
-            currentAllocationSize = requiredSize
+            currentRightAllocationSize = right.size
         }
 
         val leftBuf = directLeftBuffer ?: return

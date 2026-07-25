@@ -59,6 +59,12 @@ class SubjectIsolator @Inject constructor(
                 }
             }
             val isolated = applyConfidenceThreshold(scaled, mergedConf, threshold = 0.5f)
+            // downsample() only allocates a new bitmap when the source actually exceeds 2048px —
+            // the common case for a full-resolution camera capture — and that intermediate was never
+            // recycled, leaking up to ~16MB (2048x2048 ARGB_8888) per isolate() call. Only recycle
+            // when a distinct bitmap was actually allocated: if `scaled === bitmap`, it's the
+            // caller's own bitmap and not ours to destroy.
+            if (scaled !== bitmap) scaled.recycle()
             IsolationResult(isolatedBitmap = isolated, rawConfidence = mergedConf, width = w, height = h)
         }
     }

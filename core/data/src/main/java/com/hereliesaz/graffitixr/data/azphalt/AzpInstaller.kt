@@ -152,11 +152,21 @@ class AzpInstaller(
                 target.parentFile?.mkdirs()
                 target.writeBytes(bytes)
             }
-            // Swap in: drop any prior install, then move staging into place.
-            if (dir.exists()) dir.deleteRecursively()
+            // Swap in: move any prior install aside first — NOT delete-then-rename — so a renameTo
+            // failure (File.renameTo is documented as unreliable; this file's own atomic-write paths
+            // elsewhere already assume it can fail) restores the working extension instead of leaving
+            // it permanently gone, which would otherwise contradict this function's "no partial
+            // install" contract for what should be a pure version update.
+            val backup = File(extensionsRoot, ".backup-${safeId(manifest.id)}-$nowMs")
+            val hadPriorInstall = dir.exists()
+            if (hadPriorInstall && !dir.renameTo(backup)) {
+                throw InstallException("Failed to stage prior install of '${manifest.id}' aside for swap")
+            }
             if (!staging.renameTo(dir)) {
+                if (hadPriorInstall) backup.renameTo(dir) // best-effort restore of the working install
                 throw InstallException("Failed to finalize install for '${manifest.id}'")
             }
+            if (hadPriorInstall) backup.deleteRecursively()
         } catch (t: Throwable) {
             staging.deleteRecursively()
             throw t

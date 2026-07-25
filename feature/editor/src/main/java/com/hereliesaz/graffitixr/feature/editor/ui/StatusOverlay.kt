@@ -32,8 +32,11 @@ fun StatusOverlay(
             !isTargetCreated -> "Create a Grid to start."
             arState == ArState.SEARCHING && !isPlanesDetected -> "Scan surfaces around you."
             arState == ArState.SEARCHING && isPlanesDetected -> "Tap a surface to place anchor."
-            arState == ArState.LOCKED -> "Looking for your Grid..."
-            arState == ArState.PLACED -> "Ready."
+            // Per ArState's own KDoc: PLACED is the intermediate "still adjusting" state, LOCKED is
+            // the final settled state. These two branches were swapped, so the overlay told the user
+            // the app was still "looking" right after tracking had fully locked in.
+            arState == ArState.PLACED -> "Looking for your Grid..."
+            arState == ArState.LOCKED -> "Ready."
             else -> ""
         }
         if (txt.isNotEmpty()) {

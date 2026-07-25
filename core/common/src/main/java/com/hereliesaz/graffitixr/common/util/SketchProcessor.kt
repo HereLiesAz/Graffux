@@ -19,9 +19,13 @@ import org.opencv.imgproc.Imgproc
  */
 object SketchProcessor {
 
-    init {
-        NativeLibLoader.loadAll()
-    }
+    // Loading here, not from `init {}`, is deliberate: SketchProcessor is a Kotlin `object` (a JVM
+    // class with a static initializer), and a JVM class whose <clinit> throws is marked erroneous
+    // *permanently* — every later reference throws NoClassDefFoundError for the rest of the
+    // process, even though NativeLibLoader.loadAll() itself is designed to be retried (it only
+    // flips its `isLoaded` flag on success). Calling loadAll() per-invocation instead lets a later
+    // call retry cleanly after a transient failure.
+    private fun ensureNativeLibsLoaded() = NativeLibLoader.loadAll()
 
     /**
      * Applies a pencil-sketch (dodge-blend) effect to [bitmap].
@@ -36,6 +40,7 @@ object SketchProcessor {
      *                  or null if processing fails.
      */
     fun sketchEffect(bitmap: Bitmap, thickness: Int = 5, penColor: Int = android.graphics.Color.WHITE): Bitmap? {
+        ensureNativeLibsLoaded()
         val mats = mutableListOf<Mat>()
         return try {
             val clampedThickness = thickness.coerceAtLeast(1)

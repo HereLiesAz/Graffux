@@ -180,8 +180,8 @@ fun AdjustmentsPanel(
 
         if (canShowActionRow && state.showUndoRedo) {
             UndoRedoRow(
-                canUndo = true, // Logic handled by ViewModel, but we can pass state if needed
-                canRedo = true, // Logic handled by ViewModel
+                canUndo = state.undoCount > 0,
+                canRedo = state.redoCount > 0,
                 undoCount = state.undoCount,
                 redoCount = state.redoCount,
                 onUndo = onUndo,

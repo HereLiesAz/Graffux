@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -327,23 +328,33 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             if (editTextId != null) {
                 val params = uiState.layers.find { it.id == editTextId }?.textParams
                 if (params != null) {
-                    TextEditDialog(
-                        initialText = params.text,
-                        initialSizeDp = params.fontSizeDp,
-                        initialColorArgb = params.colorArgb,
-                        initialBold = params.isBold,
-                        initialItalic = params.isItalic,
-                        onTextChange = { vm.onTextContentChanged(editTextId, it) },
-                        onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
-                        onColorChange = { vm.onTextColorChanged(editTextId, it) },
-                        onStyleChange = { b, i ->
-                            vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
-                        },
-                        onDismiss = {
-                            vm.consumeAutoEditTextLayer()
-                            manualEditTextId = null
-                        },
-                    )
+                    // key() on the layer id: without it, if editTextId flips to a different layer
+                    // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
+                    // layer while the dialog is already open for a previous one), TextEditDialog's
+                    // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
+                    // shows stale values and further edits get sent out tagged with the new id but
+                    // carrying the old id's field values. key() forces a fresh composable instance
+                    // (and fresh `remember`s) whenever the id changes, while recomposition for the
+                    // SAME id (e.g. every keystroke) still preserves in-progress local state.
+                    key(editTextId) {
+                        TextEditDialog(
+                            initialText = params.text,
+                            initialSizeDp = params.fontSizeDp,
+                            initialColorArgb = params.colorArgb,
+                            initialBold = params.isBold,
+                            initialItalic = params.isItalic,
+                            onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                            onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                            onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                            onStyleChange = { b, i ->
+                                vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
+                            },
+                            onDismiss = {
+                                vm.consumeAutoEditTextLayer()
+                                manualEditTextId = null
+                            },
+                        )
+                    }
                 }
             }
 

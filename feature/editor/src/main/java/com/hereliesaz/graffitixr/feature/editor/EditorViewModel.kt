@@ -374,6 +374,7 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 saveProject()
                 emitLayerStateResync(restoredLayers)
+                rebuildMissingBitmaps(restoredLayers)
             }
         }
         updateHistoryCounts()
@@ -398,9 +399,22 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 saveProject()
                 emitLayerStateResync(restoredLayers)
+                rebuildMissingBitmaps(restoredLayers)
             }
         }
         updateHistoryCounts()
+    }
+
+    /**
+     * Rebuilds pixels for any [layers] entry that came back from undo/redo with a null bitmap —
+     * i.e. it wasn't in the live state a moment ago (undoing a delete/flatten, or redoing an add),
+     * so the `currentBitmaps[id]` lookup in onUndoClicked/onRedoClicked couldn't find it. Without
+     * this the layer reappears in the panel but renders nothing for the rest of the session.
+     * rebuildLayerBitmap itself no-ops for a layer LayerStore never cached (e.g. vector/text), so
+     * this is safe to call unconditionally over every restored layer.
+     */
+    private fun rebuildMissingBitmaps(layers: List<Layer>) {
+        layers.filter { it.bitmap == null }.forEach { rebuildLayerBitmap(it.id, emitOp = true) }
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
@@ -1258,7 +1272,12 @@ class EditorViewModel @Inject constructor(
     override fun onLayerRemoved(id: String) {
         pushHistory()
         dispatch(EditorIntent.RemoveLayer(id))
-        layerStore.remove(id)
+        // Deliberately NOT layerStore.remove(id): pushHistory() above stripped this layer's bitmap
+        // out of the undo snapshot (history only stores bitmap-less Layers to bound memory), so
+        // undoing this delete has nothing to rebuild the layer's pixels from except LayerStore's
+        // still-cached base+strokes for `id`. Evicting them here would make the layer come back
+        // permanently blank on undo. See onUndoClicked/onRedoClicked's PropertyChange branch, which
+        // rebuilds any restored layer missing a bitmap from this same cache.
         opEmitter.emit(Op.LayerRemove(id))
         saveProject()
     }
@@ -1464,6 +1483,7 @@ class EditorViewModel @Inject constructor(
                     }
                     // Load the bitmap into the sketch layer so it renders immediately
                     updateLayerUri(sketchLayer.id, sketchUri)
+                    opEmitter.emit(Op.LayerAdd(sketchLayer))
                     return@launch
                 }
             }
@@ -1524,6 +1544,7 @@ class EditorViewModel @Inject constructor(
                     }
                 }
                 updateLayerUri(cannyLayer.id, cannyUri)
+                opEmitter.emit(Op.LayerAdd(cannyLayer))
                 return@launch
             }
             withContext(dispatchers.main) {
@@ -1782,15 +1803,38 @@ class EditorViewModel @Inject constructor(
             }
         }
     }
-    override fun onScaleChanged(s: Float) = dispatch(EditorIntent.SetScale(s))
+    // These (and setLayerTransform below) are also the absolute setters TransformPanel's numeric
+    // fields commit through on every keystroke — unlike the drag-gesture path, which brackets its
+    // whole gesture in onAdjustmentStart()/onAdjustmentEnd() (pushHistory + saveProject), nothing
+    // upstream of these calls did either, so a typed transform value couldn't be undone and (scale/
+    // rotation only — setLayerTransform already saved) was never persisted. pushHistory per keystroke
+    // mirrors this file's own onToggleVisibility/onLayerRemoved convention of one history entry per
+    // discrete state-changing call; it's more undo steps while typing, not a correctness issue.
+    override fun onScaleChanged(s: Float) {
+        pushHistory()
+        dispatch(EditorIntent.SetScale(s))
+        saveProject()
+    }
     override fun onOffsetChanged(o: Offset) = dispatch(EditorIntent.AddOffset(o))
 
     fun setStabilizerLevel(level: Int) = dispatch(EditorIntent.SetStabilizerLevel(level))
     fun toggleWrapAroundMode() = dispatch(EditorIntent.ToggleWrapAroundMode)
 
-    override fun onRotationXChanged(d: Float) = dispatch(EditorIntent.SetRotationX(d))
-    override fun onRotationYChanged(d: Float) = dispatch(EditorIntent.SetRotationY(d))
-    override fun onRotationZChanged(d: Float) = dispatch(EditorIntent.SetRotationZ(d))
+    override fun onRotationXChanged(d: Float) {
+        pushHistory()
+        dispatch(EditorIntent.SetRotationX(d))
+        saveProject()
+    }
+    override fun onRotationYChanged(d: Float) {
+        pushHistory()
+        dispatch(EditorIntent.SetRotationY(d))
+        saveProject()
+    }
+    override fun onRotationZChanged(d: Float) {
+        pushHistory()
+        dispatch(EditorIntent.SetRotationZ(d))
+        saveProject()
+    }
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
 
@@ -1804,6 +1848,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun setLayerTransform(scale: Float, offset: Offset, rx: Float, ry: Float, rz: Float) {
+        pushHistory()
         dispatch(EditorIntent.SetLayerTransform(scale, offset, rx, ry, rz))
         saveProject()
     }
@@ -1979,6 +2024,7 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
+                opEmitter.emit(Op.LayerAdd(duplicated))
                 saveProject()
             }
         }
@@ -2863,10 +2909,20 @@ class EditorViewModel @Inject constructor(
             )
 
             withContext(dispatchers.main) {
-                _uiState.value.layers.forEach { layerStore.remove(it.id) }
+                // Deliberately NOT layerStore.remove() on the pre-flatten layers: pushHistory()
+                // above stripped their bitmaps out of the undo snapshot, so undoing this flatten has
+                // nothing to rebuild them from except LayerStore's still-cached base+strokes. See
+                // onLayerRemoved for the same reasoning and onUndoClicked/onRedoClicked for the
+                // rebuild-on-restore that depends on this cache surviving.
+                val oldLayerIds = _uiState.value.layers.map { it.id }
                 layerStore.putBase(flatLayer.id, composite.copy(Bitmap.Config.ARGB_8888, false))
                 layerStore.initStrokes(flatLayer.id)
                 dispatch(EditorIntent.ReplaceLayers(listOf(flatLayer), flatLayer.id))
+                // Without this a spectator's layer list silently diverges from the host's until some
+                // unrelated action forces a full resync — flatten replaced every layer wholesale, so
+                // guests need the removes and the add, not just a props/transform resync.
+                oldLayerIds.forEach { opEmitter.emit(Op.LayerRemove(it)) }
+                opEmitter.emit(Op.LayerAdd(flatLayer))
                 saveProject()
             }
         }
@@ -3142,6 +3198,7 @@ class EditorViewModel @Inject constructor(
                             kotlinx.coroutines.delay(3000)
                             dispatch(EditorIntent.SetStencilHintVisible(false))
                         }
+                        newLayers.forEach { opEmitter.emit(Op.LayerAdd(it)) }
                         saveProject()
                     }
                 }

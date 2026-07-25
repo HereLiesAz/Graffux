@@ -39,8 +39,16 @@ fun CurvesAdjustment(
                         selectedPointIndex?.let { index ->
                             val newPoints = points.toMutableList()
                             val newPoint = points[index] + Offset(dragAmount.x / size.width, dragAmount.y / size.height)
+                            // Clamp x against the immediate neighbors, not just the global [0,1] range:
+                            // without this a point can be dragged past its neighbor, producing a
+                            // non-ascending x array. CurvesUtil.calculateAdjustmentCurve assumes
+                            // ascending x for both its segment-length math and Kotlin's
+                            // List.binarySearch (unspecified behavior on unsorted input) — a crossed
+                            // pair turned into a visibly glitchy tone curve instead of a clean stop.
+                            val lowerX = if (index > 0) points[index - 1].x else 0f
+                            val upperX = if (index < points.lastIndex) points[index + 1].x else 1f
                             newPoints[index] = newPoint.copy(
-                                x = newPoint.x.coerceIn(0f, 1f),
+                                x = newPoint.x.coerceIn(lowerX, upperX),
                                 y = newPoint.y.coerceIn(0f, 1f)
                             )
                             onPointsChanged(newPoints)

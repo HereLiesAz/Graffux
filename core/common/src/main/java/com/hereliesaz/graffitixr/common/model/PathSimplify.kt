@@ -24,20 +24,30 @@ object PathSimplify {
         return out
     }
 
+    /**
+     * Explicit-stack (not recursive) so a long, low-curvature stroke — thousands of points where
+     * each RDP split only shaves off one or two points, e.g. a near-straight or gently-spiraling
+     * drag — can't drive recursion depth anywhere near the point count and risk a StackOverflowError.
+     */
     private fun simplify(p: List<Float>, start: Int, end: Int, eps: Float, keep: BooleanArray) {
-        if (end <= start + 1) return
-        val ax = p[2 * start]; val ay = p[2 * start + 1]
-        val bx = p[2 * end]; val by = p[2 * end + 1]
-        var maxDist = -1f
-        var idx = -1
-        for (i in start + 1 until end) {
-            val d = perpDistance(p[2 * i], p[2 * i + 1], ax, ay, bx, by)
-            if (d > maxDist) { maxDist = d; idx = i }
-        }
-        if (maxDist > eps && idx >= 0) {
-            keep[idx] = true
-            simplify(p, start, idx, eps, keep)
-            simplify(p, idx, end, eps, keep)
+        val stack = ArrayDeque<IntArray>()
+        stack.addLast(intArrayOf(start, end))
+        while (stack.isNotEmpty()) {
+            val (s, e) = stack.removeLast()
+            if (e <= s + 1) continue
+            val ax = p[2 * s]; val ay = p[2 * s + 1]
+            val bx = p[2 * e]; val by = p[2 * e + 1]
+            var maxDist = -1f
+            var idx = -1
+            for (i in s + 1 until e) {
+                val d = perpDistance(p[2 * i], p[2 * i + 1], ax, ay, bx, by)
+                if (d > maxDist) { maxDist = d; idx = i }
+            }
+            if (maxDist > eps && idx >= 0) {
+                keep[idx] = true
+                stack.addLast(intArrayOf(s, idx))
+                stack.addLast(intArrayOf(idx, e))
+            }
         }
     }
 
