@@ -3,7 +3,7 @@
 activityCompose = "1.13.0"
 agp = "9.3.0"
 appcompat = "1.7.1"
-azNavRail = "11.3"
+azNavRail = "11.4"
 camerax = "1.6.1"
 coil = "2.7.0"
 constraintlayout = "2.2.1"
