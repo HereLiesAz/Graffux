@@ -55,6 +55,8 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
+import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
@@ -62,6 +64,7 @@ import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
@@ -123,6 +126,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showSidesDialog by remember { mutableStateOf(false) }
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
     var showBgDialog by remember { mutableStateOf(false) }
+    // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
+    // live behind a single rail item that opens one of these instead.
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showAlignDialog by remember { mutableStateOf(false) }
+    var showLayerOptionsDialog by remember { mutableStateOf(false) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
@@ -174,13 +182,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             navItemColor = navItemColor,
             activeColor = activeRailColor, // Pass down to DSL builder
             onBlendMode = { showBlendDialog = true },
-            onStrokeWidth = { showStrokeDialog = true },
-            onCornerRadius = { showCornerDialog = true },
-            onShapeSize = { showShapeSizeDialog = true },
-            onPolygonSides = { showSidesDialog = true },
-            onEditText = { id -> manualEditTextId = id },
-            onSettings = { showSettings = true },
-            onInstallBrush = { brushPicker.launch(arrayOf("*/*")) }
+            onAddClicked = { showAddDialog = true },
+            onAlignClicked = { showAlignDialog = true },
+            onEditClicked = { showLayerOptionsDialog = true },
         )
 
         background(weight = 0) {
@@ -220,6 +224,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     }
                 })
+                azDivider()
+                azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
+                azItem(text = "Settings", onClick = { showSettings = true })
             }
         }
 
@@ -372,6 +379,46 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 )
             }
 
+            if (showAddDialog) {
+                AddContentDialog(
+                    onAddText = { vm.onAddTextLayer() },
+                    onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
+                    onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
+                    onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
+                    onAddTriangle = { vm.onAddPolygonLayer(3) },
+                    onAddPentagon = { vm.onAddPolygonLayer(5) },
+                    onAddHexagon = { vm.onAddPolygonLayer(6) },
+                    onDismiss = { showAddDialog = false },
+                )
+            }
+
+            if (showAlignDialog) {
+                AlignDialog(
+                    onAlign = { mode -> vm.alignActiveLayer(mode) },
+                    onDismiss = { showAlignDialog = false },
+                )
+            }
+
+            if (showLayerOptionsDialog) {
+                val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
+                if (overlay != null) {
+                    LayerOptionsDialog(
+                        overlay = overlay,
+                        navStrings = strings.nav,
+                        onEditText = { manualEditTextId = overlay.id },
+                        onOutline = { vm.onSketchClicked() },
+                        onEdges = { vm.onApplyCannyEdgeClicked() },
+                        onInvert = { vm.onToggleInvert() },
+                        onShapeSize = { showShapeSizeDialog = true },
+                        onStrokeWidth = { showStrokeDialog = true },
+                        onCornerRadius = { showCornerDialog = true },
+                        onPolygonSides = { showSidesDialog = true },
+                        onToggleFill = { vm.toggleVectorFill() },
+                        onDismiss = { showLayerOptionsDialog = false },
+                    )
+                }
+            }
+
             if (showSettings) {
                 SettingsScreen(
                     vm = settingsVm,
@@ -432,7 +479,12 @@ private fun BrushSizePad(vm: EditorViewModel) {
 
 /**
  * ConfigureRailItems builder block.
- * Icons are strictly enforced alongside text for all rail items.
+ *
+ * Procreate-shaped: the rail holds only frequently-used, always-visible tools (brush, color,
+ * layers, adjust/transform) plus a couple of single entry points ("Add", "Align", "Edit") that
+ * open a window instead of expanding a wall of rail buttons. Everything document/project-level
+ * (open/new/save/export/share/background/install brush/settings) lives in the dropdown menu
+ * instead — see the `AzDropdownMenu` block in [GraffuxApp].
  */
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
@@ -442,13 +494,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     navItemColor: Color,
     activeColor: Color,
     onBlendMode: () -> Unit,
-    onStrokeWidth: () -> Unit,
-    onCornerRadius: () -> Unit,
-    onShapeSize: () -> Unit,
-    onPolygonSides: () -> Unit,
-    onEditText: (String) -> Unit,
-    onSettings: () -> Unit,
-    onInstallBrush: () -> Unit,
+    onAddClicked: () -> Unit,
+    onAlignClicked: () -> Unit,
+    onEditClicked: () -> Unit,
 ) {
     val navStrings = strings.nav
 
@@ -479,17 +527,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.showColorPicker) activeColor else navItemColor,
         onClick = { vm.onColorClicked() },
     )
-    azRailSubItem(
-        id = "panel.layers", hostId = "grp.design", text = strings.editor.layers, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Layers,
-        color = if (uiState.activePanel == EditorPanel.LAYERS) activeColor else navItemColor,
-        onClick = { vm.onLayersClicked() },
-    )
-    azRailSubItem(
-        id = "brush.install", hostId = "grp.design", text = "Install brush…", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Add,
-        onClick = { onInstallBrush() },
-    )
     if (brushes.isNotEmpty()) {
         azRailSubItem(
             id = "brush.round", hostId = "grp.design", text = "Round", shape = AzButtonShape.NONE,
@@ -507,22 +544,37 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    azRailHostItem(id = "grp.add", text = "Add", content = Icons.Filled.Add, color = navItemColor)
-    azRailSubItem(id = "add.text", hostId = "grp.add", text = "Text", content = Icons.Filled.TextFields, shape = AzButtonShape.NONE, onClick = { vm.onAddTextLayer() })
-    azRailSubItem(id = "add.rect", hostId = "grp.add", text = "Rectangle", content = Icons.Filled.CropSquare, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) })
-    azRailSubItem(id = "add.ellipse", hostId = "grp.add", text = "Ellipse", content = Icons.Filled.Lens, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) })
-    azRailSubItem(id = "add.line", hostId = "grp.add", text = "Line", content = Icons.Filled.HorizontalRule, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.LINE) })
-    azRailSubItem(id = "add.triangle", hostId = "grp.add", text = "Triangle", content = Icons.Filled.ChangeHistory, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(3) })
-    azRailSubItem(id = "add.pentagon", hostId = "grp.add", text = "Pentagon", content = Icons.Filled.Details, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(5) })
-    azRailSubItem(id = "add.hexagon", hostId = "grp.add", text = "Hexagon", content = Icons.Filled.Settings, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(6) })
+    // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
+    // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
+    // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
+    // paints first, underneath everything); declared here top-first (reversed) so the item at
+    // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
+    // convention and Photoshop/Procreate's own. onRelocate's newOrder comes back in that same
+    // top-first rail order, so it's reversed again before reaching onLayerReordered, which
+    // expects bottom-first (it becomes the new uiState.layers verbatim).
+    if (uiState.layers.isNotEmpty()) {
+        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = Icons.Filled.Layers, color = navItemColor)
+        uiState.layers.reversed().forEach { layer ->
+            azRailRelocItem(
+                id = "layer.${layer.id}",
+                hostId = "grp.layers",
+                text = layer.name,
+                content = layer.bitmap ?: Icons.Filled.Layers,
+                shape = AzButtonShape.NONE,
+                color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
+                onClick = { vm.onLayerActivated(layer.id) },
+                onRelocate = { _, _, newOrder -> vm.onLayerReordered(newOrder.reversed()) },
+            ) {
+                inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+                listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+                listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+                listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+            }
+        }
+    }
 
-    azRailHostItem(id = "grp.align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor)
-    azRailSubItem(id = "align.left", hostId = "grp.align", text = "Left", content = Icons.Filled.FormatAlignLeft, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.LEFT) })
-    azRailSubItem(id = "align.hcenter", hostId = "grp.align", text = "Center", content = Icons.Filled.FormatAlignCenter, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.H_CENTER) })
-    azRailSubItem(id = "align.right", hostId = "grp.align", text = "Right", content = Icons.Filled.FormatAlignRight, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.RIGHT) })
-    azRailSubItem(id = "align.top", hostId = "grp.align", text = "Top", content = Icons.Filled.VerticalAlignTop, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.TOP) })
-    azRailSubItem(id = "align.vcenter", hostId = "grp.align", text = "Middle", content = Icons.Filled.VerticalAlignCenter, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.V_CENTER) })
-    azRailSubItem(id = "align.bottom", hostId = "grp.align", text = "Bottom", content = Icons.Filled.VerticalAlignBottom, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.BOTTOM) })
+    azRailItem(id = "add", text = "Add", content = Icons.Filled.Add, color = navItemColor, onClick = { onAddClicked() })
+    azRailItem(id = "align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor, onClick = { onAlignClicked() })
 
     azRailHostItem(id = "grp.adjust", text = navStrings.adjust, content = Icons.Filled.Tune, color = navItemColor)
     azRailSubItem(
@@ -539,31 +591,6 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
-        azRailHostItem(id = "grp.edit", text = "Edit", content = Icons.Filled.Edit, color = navItemColor)
-        if (overlay.textParams != null) {
-            azRailSubItem(id = "edit.text", hostId = "grp.edit", text = "Edit Text", content = Icons.Filled.TextFields, shape = AzButtonShape.NONE, onClick = { onEditText(overlay.id) })
-        }
-        azRailSubItem(id = "edit.outline", hostId = "grp.edit", text = navStrings.outline, content = Icons.Filled.BorderOuter, shape = AzButtonShape.NONE, onClick = { vm.onSketchClicked() })
-        azRailSubItem(id = "edit.edges", hostId = "grp.edit", text = navStrings.edges, content = Icons.Filled.FilterCenterFocus, shape = AzButtonShape.NONE, onClick = { vm.onApplyCannyEdgeClicked() })
-        azRailSubItem(id = "edit.invert", hostId = "grp.edit", text = navStrings.invert, content = Icons.Filled.InvertColors, shape = AzButtonShape.NONE, onClick = { vm.onToggleInvert() })
-        if (overlay.shapes.isNotEmpty()) {
-            azRailSubItem(id = "edit.size", hostId = "grp.edit", text = "Size", content = Icons.Filled.AspectRatio, shape = AzButtonShape.NONE, onClick = { onShapeSize() })
-            azRailSubItem(id = "edit.stroke", hostId = "grp.edit", text = "Stroke", content = Icons.Filled.LineWeight, shape = AzButtonShape.NONE, onClick = { onStrokeWidth() })
-        }
-        if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
-            azRailSubItem(id = "edit.corners", hostId = "grp.edit", text = "Corners", content = Icons.Filled.RoundedCorner, shape = AzButtonShape.NONE, onClick = { onCornerRadius() })
-        }
-        if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
-            azRailSubItem(id = "edit.sides", hostId = "grp.edit", text = "Sides", content = Icons.Filled.Hexagon, shape = AzButtonShape.NONE, onClick = { onPolygonSides() })
-        }
-        if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
-            azRailSubItem(
-                id = "edit.fill", hostId = "grp.edit", text = "Fill", shape = AzButtonShape.NONE,
-                content = Icons.Filled.FormatColorFill,
-                color = if (overlay.shapes.any { it.hasFill }) activeColor else navItemColor, onClick = { vm.toggleVectorFill() },
-            )
-        }
+        azRailItem(id = "edit", text = "Edit", content = Icons.Filled.Edit, color = navItemColor, onClick = { onEditClicked() })
     }
-
-    azRailItem(id = "settings", text = "Settings", content = Icons.Filled.Settings, color = navItemColor) { onSettings() }
 }
