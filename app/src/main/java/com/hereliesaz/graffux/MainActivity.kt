@@ -55,7 +55,6 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.R as DesignR
-import com.hereliesaz.graffitixr.design.components.BrushEdgeSliders
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
@@ -77,6 +76,7 @@ import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
@@ -114,6 +114,9 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 /** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
 private const val MIN_BRUSH_SIZE = 1f
 private const val MAX_BRUSH_SIZE = 200f
+
+/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */
+private const val MIN_BRUSH_ALPHA = 0.05f
 
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?) {
@@ -243,18 +246,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
-        }
-
-        // Procreate's edge sliders, parked against whichever side the rail is docked to: brush size
-        // on top, brush opacity beneath. Opacity is the active colour's alpha, which is what the
-        // stroke paint actually samples, so the slider drives the real thing rather than a proxy.
-        onscreen(alignment = if (uiState.isRightHanded) Alignment.CenterStart else Alignment.CenterEnd) {
-            BrushEdgeSliders(
-                size = ((uiState.brushSize - MIN_BRUSH_SIZE) / (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)).coerceIn(0f, 1f),
-                opacity = uiState.activeColor.alpha,
-                onSizeChange = { vm.setBrushSize(MIN_BRUSH_SIZE + it * (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)) },
-                onOpacityChange = { vm.setActiveColor(uiState.activeColor.copy(alpha = it.coerceIn(0.05f, 1f))) },
-            )
         }
 
         // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
@@ -578,7 +569,37 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
-    // No size item here: brush size lives on the edge slider beside the rail, where Procreate puts it.
+    // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
+    // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
+    // its own read-out while dragging, so it's obvious which is which and what value you're on.
+    azRailSlider(
+        id = "tool.size",
+        text = "Size",
+        value = uiState.brushSize,
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = MIN_BRUSH_SIZE,
+            valueTo = MAX_BRUSH_SIZE,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${it.roundToInt()} px" },
+        onValueChange = { vm.setBrushSize(it) },
+    )
+    // Brush opacity is the active colour's alpha — the value buildStrokePaint actually samples, so
+    // this moves the stroke itself rather than a proxy for it.
+    azRailSlider(
+        id = "tool.opacity",
+        text = "Opacity",
+        value = uiState.activeColor.alpha,
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = MIN_BRUSH_ALPHA,
+            valueTo = 1f,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${(it * 100).roundToInt()}%" },
+        onValueChange = { vm.setActiveColor(uiState.activeColor.copy(alpha = it)) },
+    )
     // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
     // palette glyph that says nothing about what you're about to paint with.
     azRailItem(
