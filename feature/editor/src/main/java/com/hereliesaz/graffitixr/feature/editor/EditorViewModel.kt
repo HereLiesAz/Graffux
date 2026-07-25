@@ -1126,7 +1126,10 @@ class EditorViewModel @Inject constructor(
             thumbnailJob = viewModelScope.launch(dispatchers.default) {
                 try {
                     kotlinx.coroutines.delay(2000)
-                    if (_uiState.value.layers.none { it.isVisible && it.bitmap != null }) return@launch
+                    // `bitmap != null` alone would skip vector-only projects (pen paths and shapes
+                    // carry no bitmap), leaving them permanently thumbnail-less in the gallery even
+                    // though compositeToDocument renders their shapes perfectly well.
+                    if (_uiState.value.layers.none { it.isVisible && (it.bitmap != null || it.shapes.isNotEmpty()) }) return@launch
                     val metrics = context.resources.displayMetrics
                     val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
                     val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
@@ -3084,10 +3087,13 @@ class EditorViewModel @Inject constructor(
 
     override fun onAddTextLayer() {
         pushHistory()
-        val projectId = _uiState.value.projectId ?: return
         val textCount = _uiState.value.layers.count { it.textParams != null }
         val defaultParams = TextLayerParams(text = "Text ${textCount + 1}")
         viewModelScope.launch(dispatchers.io) {
+            // ensureProjectId() rather than `projectId ?: return`: this one bailed *after*
+            // pushHistory(), so a missing project didn't just silently drop the text layer, it left
+            // a phantom undo step behind that reverted nothing.
+            val projectId = ensureProjectId()
             val metrics = context.resources.displayMetrics
             val widthPx = metrics.widthPixels.takeIf { it > 0 } ?: 1080
             val heightPx = metrics.heightPixels.takeIf { it > 0 } ?: 1920

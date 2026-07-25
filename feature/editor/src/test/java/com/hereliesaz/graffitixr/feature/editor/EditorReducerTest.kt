@@ -283,6 +283,23 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `LoadedProject activates a layer so reopening a project leaves something selected`() {
+        // Regression: LoadedProject used to leave activeLayerId null and lean on the SetLayers that
+        // follows it, but the view model only dispatches that when a layer still needs its bitmap
+        // read off disk. A vector-only project (pen paths, shapes) has neither bitmap nor uri, so
+        // nothing reconciled the id and every layer-scoped control came back inert on reopen.
+        val loaded = reduce(state(), EditorIntent.LoadedProject("p1", listOf(lyr("a"), lyr("b"))))
+        assertEquals("a", loaded.activeLayerId)
+    }
+
+    @Test
+    fun `LoadedProject keeps the active layer when the reloaded set still contains it`() {
+        val before = state(lyr("a"), lyr("b")).copy(activeLayerId = "b")
+        val loaded = reduce(before, EditorIntent.LoadedProject("p1", listOf(lyr("a"), lyr("b"))))
+        assertEquals("b", loaded.activeLayerId)
+    }
+
+    @Test
     fun `PasteLayerModifications copies aesthetic props and warp from the source`() {
         val source = lyr("src").copy(opacity = 0.2f, warpMesh = listOf(1f, 2f))
         val s = state(lyr("a"))
