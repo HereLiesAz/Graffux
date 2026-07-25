@@ -72,11 +72,15 @@ class ExtensionRepository @Inject constructor(
     /**
      * Browse the official azphalt store (https://azphalt.store) — the live catalog, not a bundled seed.
      * Fetches the store's package list and maps each to a catalog card whose [MarketplaceEntry.source]
-     * is its resolved `.azp` download URL, so the existing [install] path works unchanged once the store
-     * serves downloads. Blocking IO — call from a background dispatcher.
+     * is its resolved `.azp` download URL, which [install] then fetches. Blocking IO — call from a
+     * background dispatcher.
+     *
+     * Uses [RepositoryClient.search], not [RepositoryClient.listPackages]: at its canonical root path
+     * the store answers with the repository-api.md envelope (`{packages,total,page,pages}`). The bare
+     * array is what its storefront-internal `/api/packages` returns, which is a different surface.
      */
     fun browseStore(query: String? = null): List<MarketplaceEntry> =
-        storeRegistry.listPackages(query).map { pkg ->
+        storeRegistry.search(q = query).packages.map { pkg ->
             pkg.toMarketplaceEntry(storeRegistry.downloadUrl(pkg.id, pkg.version))
         }
 
