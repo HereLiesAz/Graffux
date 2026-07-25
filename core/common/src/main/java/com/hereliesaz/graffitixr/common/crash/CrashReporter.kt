@@ -59,7 +59,7 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
         // FATAL must be the first line so consumers (CrashUploadWorker) can classify the report
         // cheaply: true = the process was killed, false = the exception was caught and the app kept
         // running.
-        return """
+        val report = """
             FATAL: $fatal
             TIMESTAMP: $timestamp
             DEVICE: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE})
@@ -71,6 +71,13 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
             LOGCAT:
             $logcat
         """.trimIndent()
+        // CrashUploadWorker publishes this verbatim as a PUBLIC GitHub issue. Up to 1000 raw logcat
+        // lines (and, less likely, the stack trace's exception messages) can carry whatever the app
+        // or a library happened to log during the session — GPS coordinates, a co-op session token,
+        // an account/device identifier. Scrub known-sensitive shapes before anything leaves the
+        // device; this is defense-in-depth, not a substitute for not logging secrets in the first
+        // place.
+        return redactSensitive(report)
     }
 
     private fun collectLogcat(): String {
@@ -94,6 +101,27 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
     }
 
     companion object {
+        // Best-effort scrub of shapes that are sensitive if they end up in a public crash report:
+        // GPS coordinates, bearer/session/API tokens, and email addresses. Not exhaustive (there is
+        // no reliable way to redact arbitrary PII from free-form log text), but it removes the
+        // concrete categories this app's own logs and libraries are known to emit.
+        private val REDACTION_PATTERNS: List<Pair<Regex, String>> = listOf(
+            // Decimal-degree coordinate pairs, e.g. "37.421998,-122.084000" or "37.421998, -122.084".
+            Regex("""-?\d{1,3}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}""") to "[REDACTED_COORDS]",
+            // key=value / key: value latitude / longitude fields.
+            Regex("""(?i)\b(lat(?:itude)?)\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
+            Regex("""(?i)\b(lon(?:g(?:itude)?)?)\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
+            // Bearer/auth headers and token-/secret-/key-/session-shaped key=value pairs.
+            Regex("""(?i)\bBearer\s+[A-Za-z0-9\-_.=]{8,}""") to "Bearer [REDACTED]",
+            Regex("""(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth)\s*[=:]\s*[A-Za-z0-9\-_.]{6,}""") to "$1=[REDACTED]",
+            // Email addresses.
+            Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[REDACTED_EMAIL]",
+        )
+
+        /** Scrubs known-sensitive substrings (see [REDACTION_PATTERNS]) from free-form report text. */
+        internal fun redactSensitive(text: String): String =
+            REDACTION_PATTERNS.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
+
         // Substrings that uniquely identify ARCore's camera-pipe "the camera device vanished while we
         // were still using it" failure. Stored lowercase so matching only has to lowercase the
         // message; checked against every message in the throwable's cause + suppressed chain.

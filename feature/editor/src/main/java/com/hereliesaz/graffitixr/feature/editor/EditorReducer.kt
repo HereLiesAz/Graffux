@@ -138,7 +138,20 @@ internal object EditorReducer {
         EditorIntent.ToggleColorPanel ->
             state.copy(activePanel = if (state.activePanel == EditorPanel.COLOR) EditorPanel.NONE else EditorPanel.COLOR)
         EditorIntent.BeginGesture -> state.copy(gestureInProgress = true, activePanel = EditorPanel.NONE)
-        is EditorIntent.SetLayers -> state.copy(layers = intent.layers)
+        is EditorIntent.SetLayers -> state.copy(
+            layers = intent.layers,
+            // Reconcile activeLayerId against the new list: undo/redo can swap in a layer set
+            // that no longer contains the previously-active id (e.g. undoing an AddLayer, or
+            // redoing a RemoveLayer), which otherwise leaves activeLayerId dangling — the
+            // Transform panel, selection outline, and every adjustment control key off
+            // `layers.find { it.id == activeLayerId }` and silently no-op once that lookup
+            // misses. Mirrors RemoveLayer's fallback below.
+            activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
+                state.activeLayerId
+            } else {
+                intent.layers.firstOrNull()?.id
+            },
+        )
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
             it.copy(
                 opacity = intent.source.opacity,

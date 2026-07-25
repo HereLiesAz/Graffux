@@ -32,7 +32,9 @@ suspend fun PointerInputScope.detectSmartOverlayGestures(
             val event = awaitPointerEvent()
             val canceled = event.changes.any { it.isConsumed }
             if (canceled) {
-                onGestureEnd()
+                // Don't call onGestureEnd() here too: breaking out of the loop already falls through
+                // to the single onGestureEnd() call below. Calling it here as well fired it twice per
+                // canceled gesture (e.g. EditorViewModel.onGestureEnd() calling saveProject() twice).
                 break
             }
 

@@ -252,22 +252,32 @@ class ExtensionRepository @Inject constructor(
         
         when (ext.manifest.runtime) {
             com.hereliesaz.graffitixr.common.azphalt.Runtime.WASM -> {
-                com.hereliesaz.graffitixr.data.azphalt.sandbox.WasmSandbox(
-                    file.inputStream(),
-                    host,
-                    caps
-                )
+                // WasmSandbox's constructor fully consumes the stream while parsing the module
+                // (synchronously, inside its init block), so it's safe to close right after
+                // construction — .use{} was previously skipped here, leaking a file descriptor per
+                // invocation. The sandbox was also being built and immediately discarded with no
+                // way to invoke it: .run() actually executes the module's entry point now.
+                file.inputStream().use { stream ->
+                    val wasmSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.WasmSandbox(
+                        stream,
+                        host,
+                        caps
+                    )
+                    wasmSandbox.run()
+                }
             }
             com.hereliesaz.graffitixr.common.azphalt.Runtime.JS -> {
                 val jsCode = file.readText()
-                val qjsWasmStream = context.assets.open("wasm/quickjs.wasm")
-                val jsSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.JsSandbox(
-                    jsCode,
-                    qjsWasmStream,
-                    host,
-                    caps
-                )
-                jsSandbox.eval()
+                // Same leak as above: this asset stream was never closed.
+                context.assets.open("wasm/quickjs.wasm").use { qjsWasmStream ->
+                    val jsSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.JsSandbox(
+                        jsCode,
+                        qjsWasmStream,
+                        host,
+                        caps
+                    )
+                    jsSandbox.eval()
+                }
             }
             else -> {
                 // Unsupported runtime

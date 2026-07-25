@@ -132,10 +132,17 @@ class ExportManager @Inject constructor() {
         val cw = rect[2].roundToInt().coerceIn(1, full.width - left)
         val ch = rect[3].roundToInt().coerceIn(1, full.height - top)
         val cropped = Bitmap.createBitmap(full, left, top, cw, ch)
+        // createBitmap(source, ...) can return `source` itself when the requested subset covers it
+        // exactly, so only recycle `full` when a distinct bitmap was actually allocated for the crop
+        // — otherwise this would recycle the very bitmap we're about to return/use. Every
+        // export/print call previously leaked this full-canvas-resolution intermediate.
+        if (cropped !== full) full.recycle()
         return if (cropped.width == docW && cropped.height == docH) {
             cropped
         } else {
-            Bitmap.createScaledBitmap(cropped, docW, docH, true)
+            val scaled = Bitmap.createScaledBitmap(cropped, docW, docH, true)
+            if (scaled !== cropped) cropped.recycle()
+            scaled
         }
     }
 

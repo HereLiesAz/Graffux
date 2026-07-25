@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.crash
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -110,5 +111,38 @@ class CrashReporterTest {
 
         // Must not loop forever; this chain has no camera signature.
         assertFalse(CrashReporter.isRecoverableArCameraCrash(a))
+    }
+
+    @Test
+    fun `redacts GPS coordinate pairs`() {
+        val redacted = CrashReporter.redactSensitive("last fix: 37.421998,-122.084000 accuracy=5m")
+        assertFalse(redacted.contains("37.421998"))
+        assertTrue(redacted.contains("[REDACTED_COORDS]"))
+    }
+
+    @Test
+    fun `redacts bearer tokens`() {
+        val redacted = CrashReporter.redactSensitive("Authorization: Bearer abc123XYZ-token.value")
+        assertFalse(redacted.contains("abc123XYZ-token.value"))
+        assertTrue(redacted.contains("Bearer [REDACTED]"))
+    }
+
+    @Test
+    fun `redacts token and session id key-value pairs`() {
+        val redacted = CrashReporter.redactSensitive("coop session_id=f47ac10b58cc4372a5670e02b2c3d479 joined")
+        assertFalse(redacted.contains("f47ac10b58cc4372a5670e02b2c3d479"))
+    }
+
+    @Test
+    fun `redacts email addresses`() {
+        val redacted = CrashReporter.redactSensitive("signed in as jane.doe+test@example.com")
+        assertFalse(redacted.contains("jane.doe+test@example.com"))
+        assertTrue(redacted.contains("[REDACTED_EMAIL]"))
+    }
+
+    @Test
+    fun `leaves ordinary log lines untouched`() {
+        val line = "onCreate: ArState=LOCKED layers=3"
+        assertEquals(line, CrashReporter.redactSensitive(line))
     }
 }

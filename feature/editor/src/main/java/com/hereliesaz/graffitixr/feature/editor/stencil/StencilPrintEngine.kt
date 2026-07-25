@@ -150,13 +150,16 @@ class StencilPrintEngine @Inject constructor() {
             val file = File(context.cacheDir, "GraffitiXR_Stencil_${System.currentTimeMillis()}.pdf")
             // use{} closes the stream: PdfDocument.writeTo does not, so it leaked an fd per export.
             FileOutputStream(file).use { pdfDocument.writeTo(it) }
-            pdfDocument.close()
-            
+
             val authority = "${context.packageName}.fileprovider"
             Result.success(FileProvider.getUriForFile(context, authority, file))
         } catch (e: Exception) {
-            pdfDocument.close()
             Result.failure(e)
+        } finally {
+            // Single close on every path: closing on both the try's tail AND the catch block meant
+            // that if getUriForFile (after writeTo/close) threw, pdfDocument.close() ran twice on an
+            // already-closed document.
+            pdfDocument.close()
         }
     }
 

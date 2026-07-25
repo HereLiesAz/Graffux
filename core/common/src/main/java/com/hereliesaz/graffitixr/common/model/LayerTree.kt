@@ -11,12 +11,19 @@ data class LayerNode(
  */
 fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
     val byParent = layers.groupBy { it.parentId }
-    fun build(parentId: String?, depth: Int): List<LayerNode> {
-        return (byParent[parentId] ?: emptyList()).map { layer ->
-            LayerNode(layer, depth, build(layer.id, depth + 1))
+    // `ancestry` guards against a cyclic parentId chain (e.g. A's parent is B and B's parent is A)
+    // recursing forever. Not reachable from a normally-edited project today, but nothing upstream
+    // validates parentId, so a malformed project file or an inconsistent co-op Op could produce one.
+    fun build(parentId: String?, depth: Int, ancestry: Set<String>): List<LayerNode> {
+        return (byParent[parentId] ?: emptyList()).mapNotNull { layer ->
+            if (layer.id in ancestry) {
+                null
+            } else {
+                LayerNode(layer, depth, build(layer.id, depth + 1, ancestry + layer.id))
+            }
         }
     }
-    return build(null, 0)
+    return build(null, 0, emptySet())
 }
 
 /**

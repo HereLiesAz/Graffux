@@ -72,13 +72,18 @@ fun saveBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
     val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) ?: return false
 
     return try {
-        resolver.openOutputStream(uri)?.let {
+        val saved = resolver.openOutputStream(uri)?.let {
             it.use { outputStream ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
             }
         } ?: false
+        // A null stream or a failed compress() leaves the just-inserted MediaStore row pointing at
+        // an empty/nonexistent file — clean it up instead of leaving an orphaned gallery entry.
+        if (!saved) resolver.delete(uri, null, null)
+        saved
     } catch (e: Exception) {
         Timber.e(e, "CaptureUtils: failed to save bitmap")
+        resolver.delete(uri, null, null)
         false
     }
 }
