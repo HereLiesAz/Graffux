@@ -44,12 +44,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -240,6 +242,19 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
                 dispatch(EditorIntent.SetCanvasBackground(Color(argb.toLong() and 0xFFFFFFFFL)))
+            }
+        }
+
+        // Bootstrap a project. Nothing else in the app ever loads or creates one, so without this
+        // `projectId` stays null for the whole session — and every content entry point guards on it
+        // (`?: return`), which made a cold start silently swallow File > New, File > Open and every
+        // pen stroke. Reopen the most recent project if there is one, else start a fresh one.
+        // (Layers are not created here: picking a raster tool makes one on demand, see setActiveTool.)
+        viewModelScope.launch(dispatchers.io) {
+            if (projectRepository.currentProject.value == null) {
+                val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
+                if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
+                else projectRepository.createProject("Untitled")
             }
         }
 
@@ -544,8 +559,8 @@ class EditorViewModel @Inject constructor(
             // decoding/copying/PNG-encoding it (then rendering it as a texture every frame) is what
             // made the first layer take seconds to appear and the canvas lag. 2048px is ample here.
             val bitmap = ImageUtils.loadBitmapAsync(context, uri, maxDimension = 2048)
-            val projectId = _uiState.value.projectId
-            if (bitmap != null && projectId != null) {
+            val projectId = ensureProjectId()
+            if (bitmap != null) {
                 val filename = "layer_${UUID.randomUUID()}.png"
                 val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bitmap))
                 val localUri = "file://$path".toUri()
@@ -578,7 +593,7 @@ class EditorViewModel @Inject constructor(
                 }
             } else {
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Invalid image format or missing project", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Couldn't read that image", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -813,10 +828,25 @@ class EditorViewModel @Inject constructor(
 
     private fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 
+    /**
+     * The current project's id, creating a project first if there isn't one yet. Callers used to read
+     * [EditorUiState.projectId] and `?: return` when it was null, which silently discarded whatever the
+     * user was making; go through this instead so the work always lands somewhere.
+     */
+    private suspend fun ensureProjectId(): String {
+        _uiState.value.projectId?.let { return it }
+        if (projectRepository.currentProject.value == null) {
+            projectRepository.createProject("Untitled")
+        }
+        // Return only once the currentProject collector has published it into uiState, so a caller that
+        // adds a layer next isn't clobbered by LoadedProject landing behind it.
+        return _uiState.first { it.projectId != null }.projectId!!
+    }
+
     fun onAddBlankLayer() {
         pushHistory()
-        val projectId = _uiState.value.projectId ?: return
         viewModelScope.launch(dispatchers.io) {
+            val projectId = ensureProjectId()
             val metrics = context.resources.displayMetrics
             val width = metrics.widthPixels.takeIf { it > 0 } ?: 1080
             val height = metrics.heightPixels.takeIf { it > 0 } ?: 1920
@@ -909,7 +939,10 @@ class EditorViewModel @Inject constructor(
      * the current brush colour/size. No-op for a degenerate (<2 point) stroke.
      */
     fun onCommitPenPath(screenPoints: List<Offset>, canvasWidth: Float, canvasHeight: Float) {
-        if (screenPoints.size < 2 || _uiState.value.projectId == null) return
+        // No projectId guard: a pen layer is pure vector (no artifact file to write), and saveProject()
+        // below creates the project if there isn't one. Bailing here is what made a pen stroke vanish
+        // the instant the finger lifted — PenCanvas dropped its preview and nothing took its place.
+        if (screenPoints.size < 2) return
         val st = _uiState.value
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
@@ -1253,7 +1286,22 @@ class EditorViewModel @Inject constructor(
 
     fun toggleHandedness() = dispatch(EditorIntent.ToggleHandedness)
     fun toggleDiagOverlay() = dispatch(EditorIntent.ToggleDiagOverlay)
-    fun setActiveTool(tool: Tool) = dispatch(EditorIntent.SetActiveTool(tool))
+    fun setActiveTool(tool: Tool) {
+        // A raster tool needs something to paint on: with no layers EditorScreen doesn't even mount the
+        // touch layer, so the brush silently does nothing. Give it a canvas instead of a dead tool.
+        // PEN is exempt — it makes its own vector layer per stroke.
+        if (tool != Tool.NONE && tool != Tool.PEN && _uiState.value.layers.isEmpty()) {
+            viewModelScope.launch(dispatchers.main) {
+                onAddBlankLayer()
+                // AddLayer clears activeTool, so select the tool only once the layer has landed —
+                // setting it first would have it wiped the moment the layer arrives.
+                withTimeoutOrNull(5_000) { _uiState.first { it.layers.isNotEmpty() } }
+                dispatch(EditorIntent.SetActiveTool(tool))
+            }
+            return
+        }
+        dispatch(EditorIntent.SetActiveTool(tool))
+    }
 
     /** Sets the artboard / document size and persists it to the current project. */
     fun setDocumentSize(width: Int, height: Int) {
