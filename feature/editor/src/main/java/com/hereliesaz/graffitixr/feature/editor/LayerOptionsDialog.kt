@@ -1,0 +1,78 @@
+// FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/LayerOptionsDialog.kt
+package com.hereliesaz.graffitixr.feature.editor
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.hereliesaz.aznavrail.AzButton
+import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.design.theme.NavStrings
+
+/**
+ * Window with every option for the active layer that isn't already an always-visible rail tool —
+ * which of these apply depends on the layer's own type (text vs. shape vs. plain raster). Replaces
+ * the flat, conditionally-populated "Edit" rail sub-item list (was up to 9 rail buttons that
+ * appeared and disappeared as the active layer changed); the rail now has a single "Edit" item
+ * (shown only when a layer is active) that opens this instead.
+ */
+@Composable
+fun LayerOptionsDialog(
+    overlay: Layer,
+    navStrings: NavStrings,
+    onEditText: () -> Unit,
+    onOutline: () -> Unit,
+    onEdges: () -> Unit,
+    onInvert: () -> Unit,
+    onShapeSize: () -> Unit,
+    onStrokeWidth: () -> Unit,
+    onCornerRadius: () -> Unit,
+    onPolygonSides: () -> Unit,
+    onToggleFill: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val hasFill = overlay.shapes.any { it.hasFill }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (overlay.textParams != null) {
+                    AzButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                }
+                AzButton(text = navStrings.outline, onClick = { onOutline(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                AzButton(text = navStrings.edges, onClick = { onEdges(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                AzButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                if (overlay.shapes.isNotEmpty()) {
+                    AzButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                    AzButton(text = "Stroke", onClick = { onStrokeWidth(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                }
+                if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
+                    AzButton(text = "Corners", onClick = { onCornerRadius(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                }
+                if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
+                    AzButton(text = "Sides", onClick = { onPolygonSides(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                }
+                if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
+                    AzButton(
+                        text = if (hasFill) "Fill: On" else "Fill: Off",
+                        onClick = { onToggleFill() },
+                        shape = AzButtonShape.RECTANGLE,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            AzButton(text = "Close", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
+        },
+    )
+}

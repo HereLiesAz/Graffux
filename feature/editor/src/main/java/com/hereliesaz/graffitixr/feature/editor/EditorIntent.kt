@@ -54,7 +54,6 @@ internal sealed interface EditorIntent {
     data class SetActiveTool(val tool: Tool) : EditorIntent
     data object ToggleAdjustPanel : EditorIntent
     data object ToggleTransformPanel : EditorIntent
-    data object ToggleLayersPanel : EditorIntent
     data object DismissPanel : EditorIntent
     data class SetGestureInProgress(val inProgress: Boolean) : EditorIntent
 
