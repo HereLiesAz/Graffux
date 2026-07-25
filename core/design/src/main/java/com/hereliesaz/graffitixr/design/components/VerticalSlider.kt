@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.design.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -9,11 +10,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -22,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Procreate's edge slider: a slim vertical track that fills from the bottom to the current value.
@@ -95,10 +100,36 @@ fun BrushEdgeSliders(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.padding(horizontal = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        // A scrim behind the pair: unlabelled bare tracks over the artwork read as stray marks on the
+        // canvas rather than controls, and white-on-white vanished entirely against light strokes.
+        modifier = modifier
+            .padding(horizontal = 6.dp)
+            .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        VerticalSlider(value = size, onValueChange = onSizeChange)
-        VerticalSlider(value = opacity, onValueChange = onOpacityChange)
+        SliderWithCaption(caption = "SIZE", value = size, onValueChange = onSizeChange)
+        SliderWithCaption(caption = "OPAC", value = opacity, onValueChange = onOpacityChange)
+    }
+}
+
+@Composable
+private fun SliderWithCaption(
+    caption: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        VerticalSlider(value = value, onValueChange = onValueChange)
+        Text(
+            text = caption,
+            color = Color.White.copy(alpha = 0.75f),
+            fontSize = 8.sp,
+            letterSpacing = 0.5.sp,
+        )
     }
 }

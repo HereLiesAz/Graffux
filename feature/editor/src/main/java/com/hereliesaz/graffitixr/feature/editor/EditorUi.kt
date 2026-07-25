@@ -3,6 +3,8 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,7 +56,12 @@ fun EditorUi(
         )
 
         Column(
-            modifier = Modifier.align(Alignment.BottomCenter),
+            // Clear the system navigation bar: without this the Transform panel's Scale/Rotate row and
+            // the adjustment knobs' labels were drawn underneath it and simply couldn't be read or hit.
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 1b. Precise numeric transform panel (X / Y / Scale / Rotation of the active layer).

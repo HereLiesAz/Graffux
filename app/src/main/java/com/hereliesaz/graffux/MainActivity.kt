@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -53,6 +54,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.design.components.BrushEdgeSliders
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
@@ -255,10 +257,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             )
         }
 
-        // Onscreen Foreground Elements explicitly pinned over the canvas
+        // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
+        // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
+        // landing on top of their fields.
         onscreen(alignment = Alignment.BottomCenter) {
-            Row(
-                modifier = Modifier.padding(bottom = 24.dp),
+            if (uiState.activePanel == EditorPanel.NONE) Row(
+                modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 val viewMoved = uiState.viewportZoom != 1f ||
@@ -539,32 +543,40 @@ private fun AzNavHostScope.ConfigureRailItems(
     val navStrings = strings.nav
 
     // Procreate's tool strip: a flat row of the tools you paint with, not an accordion you have to
-    // open first. Every item gets its own glyph — the old rail drew Icons.Filled.Brush for the group,
+    // open first, drawn with the app's own Photoshop-style vector set (core/design's ic_ps_*) rather
+    // than stock Material glyphs — a broom stood in for the eraser and a squiggle for smudge.
+    // Every item gets its own glyph — the old rail drew Icons.Filled.Brush for the group,
     // the brush tool, the round brush AND every installed brush, and the same pencil for Pen and Edit,
     // so nothing in it was identifiable at a glance.
     azRailItem(
         id = "tool.brush", text = uiState.activeBrushName ?: navStrings.brush,
-        content = Icons.Filled.Brush,
+        content = DesignR.drawable.ic_ps_brush,
         color = if (uiState.activeTool == Tool.BRUSH) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
     azRailItem(
         id = "tool.smudge", text = "Smudge",
-        content = Icons.Filled.Gesture,
+        content = DesignR.drawable.ic_ps_blur,
         color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
     azRailItem(
         id = "tool.eraser", text = "Eraser",
-        content = Icons.Filled.CleaningServices,
+        content = DesignR.drawable.ic_ps_eraser,
         color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
     )
     azRailItem(
         id = "tool.pen", text = "Pen",
-        content = Icons.Filled.Draw,
+        content = DesignR.drawable.ic_ps_pencil,
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
+    )
+    azRailItem(
+        id = "tool.liquify", text = "Liquify",
+        content = DesignR.drawable.ic_ps_liquify,
+        color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
     // No size item here: brush size lives on the edge slider beside the rail, where Procreate puts it.
     // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
@@ -576,7 +588,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         onClick = { vm.onColorClicked() },
     )
     if (brushes.isNotEmpty()) {
-        azRailHostItem(id = "grp.brushes", text = "Brushes", content = Icons.Filled.Category, color = navItemColor)
+        azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
         azRailSubItem(
             id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
             content = Icons.Filled.Circle,
@@ -586,7 +598,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         brushes.forEach { (id, name) ->
             azRailSubItem(
                 id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
-                content = Icons.Filled.Brush,
+                content = DesignR.drawable.ic_ps_brush,
                 color = if (uiState.activeBrushName == name) activeColor else navItemColor,
                 onClick = { vm.selectBrushExtension(id) },
             )
@@ -602,13 +614,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // top-first rail order, so it's reversed again before reaching onLayerReordered, which
     // expects bottom-first (it becomes the new uiState.layers verbatim).
     if (uiState.layers.isNotEmpty()) {
-        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = Icons.Filled.Layers, color = navItemColor)
+        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = DesignR.drawable.ic_ps_layers, color = navItemColor)
         uiState.layers.reversed().forEach { layer ->
             azRailRelocItem(
                 id = "layer.${layer.id}",
                 hostId = "grp.layers",
                 text = layer.name,
-                content = layer.bitmap ?: Icons.Filled.Layers,
+                content = layer.bitmap ?: DesignR.drawable.ic_ps_layers,
                 shape = AzButtonShape.NONE,
                 color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
                 onClick = { vm.onLayerActivated(layer.id) },

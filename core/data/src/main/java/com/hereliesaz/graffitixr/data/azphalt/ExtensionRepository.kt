@@ -108,6 +108,7 @@ class ExtensionRepository @Inject constructor(
             openSource(entry.source).use { input ->
                 tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
             }
+            requireAzpPackage(tempFile, entry)
             return synchronized(lock) {
                 val installed = tempFile.inputStream().use { installer.install(it, nowMs) }
                 _installed.value = scanInstalled()
@@ -135,6 +136,25 @@ class ExtensionRepository @Inject constructor(
             }
         } finally {
             tempFile.delete()
+        }
+    }
+
+    /**
+     * Reject anything that isn't actually an `.azp` before the installer opens it. A registry that
+     * doesn't implement `/download` can still answer 200 — the azphalt store currently serves its
+     * single-page-app `index.html` for every unmatched API path — and feeding that to the unpacker
+     * surfaced as the baffling "Package has no manifest.json". An `.azp` is a zip, so check the local
+     * file header magic and say plainly what arrived instead.
+     */
+    private fun requireAzpPackage(file: File, entry: MarketplaceEntry) {
+        val header = ByteArray(4)
+        val read = file.inputStream().use { it.read(header) }
+        val isZip = read == 4 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte() &&
+            header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
+        if (!isZip) {
+            throw AzpInstaller.InstallException(
+                "${entry.name} isn't downloadable yet — ${entry.source} returned a web page, not a package."
+            )
         }
     }
 
