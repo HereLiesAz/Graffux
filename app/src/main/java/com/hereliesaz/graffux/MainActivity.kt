@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -233,11 +235,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen fit logic */ }, containerColor = surfaceVariantColor) {
                     Icon(Icons.Filled.FitScreen, contentDescription = "Fit to Screen")
                 }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen undo */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.Undo, contentDescription = "Undo")
+                if (uiState.undoCount > 0) {
+                    FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                    }
                 }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen redo */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.Redo, contentDescription = "Redo")
+                if (uiState.redoCount > 0) {
+                    FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                    }
                 }
             }
         }
