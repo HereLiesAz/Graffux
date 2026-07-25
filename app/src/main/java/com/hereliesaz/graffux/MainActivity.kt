@@ -68,6 +68,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
+import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
@@ -112,6 +113,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val storeState by vm.storeState.collectAsState()
+    val installedExtensionIds by vm.installedExtensionIds.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
 
@@ -132,6 +135,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
+    var showStoreDialog by remember { mutableStateOf(false) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
@@ -226,6 +230,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     }
                 })
                 azDivider()
+                azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
@@ -420,6 +425,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onDismiss = { showLayerOptionsDialog = false },
                     )
                 }
+            }
+
+            if (showStoreDialog) {
+                StoreWindow(
+                    state = storeState,
+                    installedIds = installedExtensionIds,
+                    onSearch = { vm.searchStore(it) },
+                    onInstall = { vm.installFromStore(it) },
+                    onUninstall = { vm.uninstallStoreExtension(it) },
+                    onDismiss = { showStoreDialog = false },
+                )
             }
 
             if (showSettings) {

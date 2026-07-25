@@ -2790,6 +2790,81 @@ class EditorViewModel @Inject constructor(
             .map { extensionRepository.installedBrushes().map { ext -> ext.id to ext.manifest.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Ids of every installed azphalt extension — lets the Store mark catalog cards Installed. */
+    val installedExtensionIds: StateFlow<Set<String>> =
+        extensionRepository.installed
+            .map { list -> list.map { it.id }.toSet() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * The Azphalt Store's browse state: the query behind the current [results], whether a browse is
+     * in flight, and the last error. Browsing hits a live HTTPS registry
+     * ([com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.browseStore]), so unlike
+     * [installedExtensions] it's asynchronous and can fail (no network, unreachable registry).
+     */
+    data class StoreUiState(
+        val query: String = "",
+        val results: List<com.hereliesaz.graffitixr.data.azphalt.MarketplaceEntry> = emptyList(),
+        val isLoading: Boolean = false,
+        val error: String? = null,
+    )
+
+    private val _storeState = MutableStateFlow(StoreUiState())
+    val storeState: StateFlow<StoreUiState> = _storeState.asStateFlow()
+
+    /** Open the Store and load its default (unfiltered) catalog. Cheap to call repeatedly — a no-op once a browse has already loaded or is in flight. */
+    fun openStore() {
+        if (_storeState.value.results.isNotEmpty() || _storeState.value.isLoading) return
+        searchStore("")
+    }
+
+    /** Browse (or re-browse with a new [query]) the live Azphalt Store catalog. */
+    fun searchStore(query: String) {
+        _storeState.update { it.copy(query = query, isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.io) {
+            try {
+                val entries = extensionRepository.browseStore(query.ifBlank { null })
+                withContext(dispatchers.main) {
+                    _storeState.update { it.copy(results = entries, isLoading = false) }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e   // never swallow cancellation — let the coroutine unwind cooperatively
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    _storeState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't reach the store") }
+                }
+            }
+        }
+    }
+
+    /**
+     * Install a Store catalog [entry]. Fetches, verifies, and unpacks its `.azp` off the main thread
+     * and toasts the outcome; [installedExtensionIds] updates itself so the card flips to Installed.
+     */
+    fun installFromStore(entry: com.hereliesaz.graffitixr.data.azphalt.MarketplaceEntry) {
+        viewModelScope.launch(dispatchers.io) {
+            try {
+                val installed = extensionRepository.install(entry, System.currentTimeMillis())
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Installed ${installed.manifest.name}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    /** Uninstall a previously-installed Store extension by [id]. */
+    fun uninstallStoreExtension(id: String) {
+        viewModelScope.launch(dispatchers.io) {
+            extensionRepository.uninstall(id)
+        }
+    }
+
     /**
      * Install an azphalt `.azp` package from a user-picked [uri] (a `content://` from the file picker).
      * Opens the stream, verifies + unpacks off the main thread, and toasts the outcome; the installed
