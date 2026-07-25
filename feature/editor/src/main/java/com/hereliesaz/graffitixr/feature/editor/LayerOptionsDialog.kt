@@ -4,6 +4,8 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -13,6 +15,7 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import com.hereliesaz.graffitixr.design.theme.NavStrings
+import kotlin.math.roundToInt
 
 /**
  * Window with every option for the active layer that isn't already an always-visible rail tool —
@@ -34,6 +37,9 @@ fun LayerOptionsDialog(
     onCornerRadius: () -> Unit,
     onPolygonSides: () -> Unit,
     onToggleFill: () -> Unit,
+    onOpacityChange: (Float) -> Unit,
+    onBlendMode: () -> Unit,
+    onToggleAlphaLock: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val hasFill = overlay.shapes.any { it.hasFill }
@@ -42,6 +48,22 @@ fun LayerOptionsDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // Per-layer opacity + blend + alpha lock — the trio Procreate keeps one tap from
+            // any layer, so they live at the top of this window rather than behind sub-dialogs.
+            Text("Opacity ${(overlay.opacity * 100).roundToInt()}%")
+            Slider(
+                value = overlay.opacity,
+                onValueChange = onOpacityChange,
+                valueRange = 0f..1f,
+            )
+            AzButton(text = "Blend mode", onClick = { onBlendMode(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+            if (overlay.shapes.isEmpty()) {
+                AzButton(
+                    text = if (overlay.alphaLock) "Alpha Lock: On" else "Alpha Lock: Off",
+                    onClick = { onToggleAlphaLock() },
+                    shape = AzButtonShape.RECTANGLE,
+                )
+            }
             if (overlay.textParams != null) {
                 AzButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             }

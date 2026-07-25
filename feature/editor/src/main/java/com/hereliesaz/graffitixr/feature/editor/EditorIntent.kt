@@ -34,6 +34,8 @@ internal sealed interface EditorIntent {
     data class SetLayerTransform(val scale: Float, val offset: Offset, val rx: Float, val ry: Float, val rz: Float) : EditorIntent
     data object ToggleInvert : EditorIntent
     data object ToggleImageLock : EditorIntent
+    /** Toggles Procreate-style Alpha Lock on layer [id] (paint only lands on existing alpha). */
+    data class ToggleAlphaLock(val id: String) : EditorIntent
     data object CycleRotationAxis : EditorIntent
 
     // ── Layer list ────────────────────────────────────────────────────────────
@@ -85,6 +87,10 @@ internal sealed interface EditorIntent {
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
+    /** Toggles the vertical-mirror symmetry guide for painting. */
+    data object ToggleSymmetry : EditorIntent
+    /** Live eyedropper state: sampling in progress, current colour + loupe position. */
+    data class SetEyedrop(val active: Boolean, val color: Color? = null, val position: Offset = Offset.Zero) : EditorIntent
     /** Selects an azphalt stamp brush by name, or clears back to the built-in round brush (null). */
     data class SetActiveBrush(val name: String?) : EditorIntent
     data object ShowColorPicker : EditorIntent

@@ -25,7 +25,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -88,12 +90,23 @@ fun EditorScreen(
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
 
+    // Coordinates the drawing surface with the multi-finger tap observer below, so a two-finger
+    // tap that cancelled an in-flight stroke doesn't also undo the previous action.
+    val strokeGate = remember { StrokeGate() }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             // Fixed dark workspace so the artboard (the document, its own fill) reads as a distinct
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
+            // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger
+            // tap redoes. A pure observer — consumes nothing, so painting and navigation are unaffected.
+            .multiFingerTaps(
+                gate = strokeGate,
+                onTwoFingerTap = { vm.onUndoClicked() },
+                onThreeFingerTap = { vm.onRedoClicked() },
+            )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
         // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
@@ -277,10 +290,16 @@ fun EditorScreen(
                 brushSize = uiState.brushSize,
                 activeColor = uiState.activeColor,
                 layerBitmapKey = activeLayer.bitmap,
+                gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { offset, size -> vm.onStrokeStart(offset, size) },
                 onStrokePoint = { offset -> vm.onStrokePoint(offset) },
-                onStrokeEnd = { vm.onStrokeEnd() }
+                onStrokeEnd = { vm.onStrokeEnd() },
+                onStrokeCancel = { vm.onStrokeCancel() },
+                onFillTap = { offset, size -> vm.onFillTap(offset, size) },
+                onEyedropStart = { size -> vm.onEyedropStart(size) },
+                onEyedropSample = { offset -> vm.onEyedropSample(offset) },
+                onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
             )
         }
 
@@ -292,6 +311,17 @@ fun EditorScreen(
                 color = uiState.activeColor,
                 strokeWidthPx = uiState.brushSize,
                 onCommit = { pts, cw, ch -> vm.onCommitPenPath(pts, cw, ch) },
+                onCommitEllipse = { c, rx, ry, cw, ch -> vm.onCommitPenEllipse(c, rx, ry, cw, ch) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
+        // with the colour currently under it; screen-space overlay, purely visual.
+        if (uiState.isEyedropping) {
+            EyedropLoupe(
+                color = uiState.eyedropColor,
+                position = uiState.eyedropPosition,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -547,45 +577,109 @@ private fun SelectionHandles(
 }
 
 /**
- * Freeform vector pen capture. A single-finger drag traces a poly-line, previewed live in the brush
- * colour; on release the traced screen points are handed to [onCommit] (with the canvas size) to be
- * turned into an open PATH vector layer. Full-screen and in screen space — the camera mapping happens
- * in the view-model. A stroke of fewer than two points is ignored.
+ * Freeform vector pen capture with **QuickShape**. A single-finger drag traces a poly-line,
+ * previewed live in the brush colour; on release the traced screen points are handed to [onCommit]
+ * (with the canvas size) to be turned into an open PATH vector layer.
+ *
+ * QuickShape (Procreate): stop moving and HOLD at the end of the stroke and the wobbly trace snaps
+ * to the ideal shape it approximates — the preview switches to the snapped shape while still held,
+ * and lifting commits it: a recognized line commits as a clean two-point path, a recognized
+ * circle/ellipse goes through [onCommitEllipse] instead.
+ *
+ * A second finger cancels the trace (it's a gesture, not drawing). Strokes of fewer than two
+ * points are ignored.
  */
 @Composable
 private fun PenCanvas(
     color: Color,
     strokeWidthPx: Float,
     onCommit: (points: List<Offset>, canvasWidth: Float, canvasHeight: Float) -> Unit,
+    onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val points = remember { mutableStateListOf<Offset>() }
+    var snapped by remember { mutableStateOf<QuickShape.Shape?>(null) }
     Canvas(
         modifier = modifier.pointerInput(Unit) {
             awaitEachGesture {
                 points.clear()
+                snapped = null
                 val down = awaitFirstDown(requireUnconsumed = false)
                 points.add(down.position)
                 down.consume()
+                var lastMove = down.position
+                var cancelled = false
                 while (true) {
-                    val event = awaitPointerEvent()
+                    // Timed wait: a finger holding still emits no events, and the timeout is what
+                    // triggers QuickShape recognition mid-hold.
+                    // AwaitPointerEventScope's own withTimeoutOrNull — the restricted-suspension-safe one.
+                    val event = withTimeoutOrNull(QuickShape.HOLD_MS) { awaitPointerEvent() }
+                    if (event == null) {
+                        if (snapped == null && points.size >= 2) {
+                            snapped = QuickShape.recognize(points.toList())
+                        }
+                        continue
+                    }
+                    if (event.changes.count { it.pressed } > 1) {
+                        cancelled = true
+                        break
+                    }
                     val change = event.changes.firstOrNull() ?: break
                     if (!change.pressed) break
                     points.add(change.position)
+                    if ((change.position - lastMove).getDistance() > QuickShape.HOLD_SLOP_PX) {
+                        lastMove = change.position
+                        snapped = null // real movement resumes freehand; the hold timer restarts
+                    }
                     change.consume()
                 }
-                if (points.size >= 2) onCommit(points.toList(), size.width.toFloat(), size.height.toFloat())
+                val w = size.width.toFloat()
+                val h = size.height.toFloat()
+                if (!cancelled && points.size >= 2) {
+                    when (val shape = snapped) {
+                        is QuickShape.Line -> onCommit(listOf(shape.start, shape.end), w, h)
+                        is QuickShape.Ellipse -> onCommitEllipse(shape.center, shape.radiusX, shape.radiusY, w, h)
+                        null -> onCommit(points.toList(), w, h)
+                    }
+                }
                 points.clear()
+                snapped = null
             }
         },
     ) {
-        if (points.size >= 2) {
-            val path = Path().apply {
-                moveTo(points[0].x, points[0].y)
-                for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+        when (val shape = snapped) {
+            is QuickShape.Line -> drawLine(color, shape.start, shape.end, strokeWidth = strokeWidthPx)
+            is QuickShape.Ellipse -> drawOval(
+                color = color,
+                topLeft = Offset(shape.center.x - shape.radiusX, shape.center.y - shape.radiusY),
+                size = Size(shape.radiusX * 2, shape.radiusY * 2),
+                style = Stroke(width = strokeWidthPx),
+            )
+            null -> if (points.size >= 2) {
+                val path = Path().apply {
+                    moveTo(points[0].x, points[0].y)
+                    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+                }
+                drawPath(path, color, style = Stroke(width = strokeWidthPx))
             }
-            drawPath(path, color, style = Stroke(width = strokeWidthPx))
         }
+    }
+}
+
+/**
+ * The eyedropper's loupe: a colour-filled ring floated above the sampling finger so the picked
+ * colour is visible while the fingertip covers the pixel. Purely visual.
+ */
+@Composable
+private fun EyedropLoupe(color: Color?, position: Offset, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val center = position - Offset(0f, 56.dp.toPx())
+        val radius = 26.dp.toPx()
+        drawCircle(color = Color.Black.copy(alpha = 0.35f), radius = radius + 4.dp.toPx(), center = center)
+        drawCircle(color = color ?: Color.Transparent, radius = radius, center = center)
+        drawCircle(color = Color.White, radius = radius, center = center, style = Stroke(width = 2.dp.toPx()))
+        // Crosshair at the actual sample point.
+        drawCircle(color = Color.White, radius = 4.dp.toPx(), center = position, style = Stroke(width = 1.5f.dp.toPx()))
     }
 }
 

@@ -36,6 +36,8 @@ internal object EditorReducer {
         }
         EditorIntent.ToggleInvert -> state.mapActive { it.copy(isInverted = !it.isInverted) }
         EditorIntent.ToggleImageLock -> state.mapActive { it.copy(isImageLocked = !it.isImageLocked) }
+        is EditorIntent.ToggleAlphaLock ->
+            state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(alphaLock = !it.alphaLock) })
         EditorIntent.CycleRotationAxis -> {
             val next = when (state.activeRotationAxis) {
                 RotationAxis.X -> RotationAxis.Y
@@ -103,6 +105,12 @@ internal object EditorReducer {
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
+        EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        is EditorIntent.SetEyedrop -> state.copy(
+            isEyedropping = intent.active,
+            eyedropColor = if (intent.active) intent.color else null,
+            eyedropPosition = intent.position,
+        )
         is EditorIntent.SetActiveBrush -> state.copy(activeBrushName = intent.name)
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)

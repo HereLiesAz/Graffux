@@ -67,6 +67,7 @@ import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
@@ -125,6 +126,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val uiState by vm.uiState.collectAsState()
     val storeState by vm.storeState.collectAsState()
     val installedExtensionIds by vm.installedExtensionIds.collectAsState()
+    val projects by vm.projects.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
 
@@ -146,6 +148,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
+    var showGalleryDialog by remember { mutableStateOf(false) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
@@ -212,6 +215,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         onscreen(alignment = Alignment.TopEnd) {
             AzDropdownMenu(navController = navController) {
                 azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
+                azItem(text = "Gallery", onClick = { showGalleryDialog = true })
                 azItem(text = strings.nav.open, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Open File", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = strings.nav.new, onClick = { vm.onAddBlankLayer() })
@@ -436,9 +440,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onCornerRadius = { showCornerDialog = true },
                         onPolygonSides = { showSidesDialog = true },
                         onToggleFill = { vm.toggleVectorFill() },
+                        onOpacityChange = { vm.onOpacityChanged(it) },
+                        onBlendMode = { showBlendDialog = true },
+                        onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
                         onDismiss = { showLayerOptionsDialog = false },
                     )
                 }
+            }
+
+            if (showGalleryDialog) {
+                GalleryWindow(
+                    projects = projects,
+                    currentProjectId = uiState.projectId,
+                    onOpen = { vm.openProject(it) },
+                    onNew = { vm.createNewProject() },
+                    onDelete = { vm.deleteProjectById(it) },
+                    onDismiss = { showGalleryDialog = false },
+                )
             }
 
             if (showStoreDialog) {
@@ -569,6 +587,22 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
+    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
+    azRailItem(
+        id = "tool.fill", text = "Fill",
+        content = Icons.Filled.FormatColorFill,
+        color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
+    )
+    // Symmetry guide: strokes mirror across the vertical centre while it's on.
+    azRailToggle(
+        id = "tool.symmetry",
+        isChecked = uiState.symmetryEnabled,
+        toggleOnText = "Sym On",
+        toggleOffText = "Sym Off",
+        color = if (uiState.symmetryEnabled) activeColor else navItemColor,
+        onClick = { vm.onToggleSymmetry() },
+    )
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
     // its own read-out while dragging, so it's obvious which is which and what value you're on.
@@ -649,6 +683,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             ) {
                 inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
                 listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
                 listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
                 listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
             }
