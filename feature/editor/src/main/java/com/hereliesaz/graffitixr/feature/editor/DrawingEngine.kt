@@ -45,6 +45,14 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
         )
+        // Flood fill replays deterministically from its tap point — same base, same seed pixel,
+        // same result — so it records and undoes exactly like a brush stroke.
+        if (stroke.tool == Tool.FILL) {
+            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
+            val p = mapped.firstOrNull() ?: return target
+            ImageProcessor.floodFill(target, p.x.toInt(), p.y.toInt(), stroke.brushColor)
+            return target
+        }
         // brushSize is stored in screen px (what the rail size preview shows). Convert it to bitmap
         // space with the same scale the coordinates use, so the painted stroke renders at exactly the
         // previewed on-screen diameter regardless of the layer's resolution/scale.
@@ -66,7 +74,8 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         }
         return ImageProcessor.applyToolToBitmap(
             bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
-            replaceExisting, stroke.feathering
+            replaceExisting, stroke.feathering,
+            alphaLock = stroke.alphaLock, symmetry = stroke.symmetry,
         )
     }
 

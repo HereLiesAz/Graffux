@@ -46,6 +46,11 @@ data class Layer(
     val colorBalanceG: Float = 1.0f,
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
+    /**
+     * Procreate's Alpha Lock: while set, painting on this layer only lands where pixels already
+     * have alpha — strokes recolour existing content and never extend its silhouette.
+     */
+    val alphaLock: Boolean = false,
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
@@ -81,6 +86,7 @@ data class LayerProps(
     val colorBalanceG: Float = 1.0f,
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
+    val alphaLock: Boolean = false,
     val isInverted: Boolean = false,
     @Serializable(with = BlendModeSerializer::class)
     val blendMode: BlendMode = BlendMode.SrcOver
@@ -151,6 +157,15 @@ data class EditorUiState(
     val sketchThickness: Int = 5,
     val stabilizerLevel: Int = 0,
     val wrapAroundMode: Boolean = false,
+    // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
+    // vertical centre line as they're painted.
+    val symmetryEnabled: Boolean = false,
+    // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
+    // the colour currently under the finger (committed to activeColor on lift) and
+    // [eyedropPosition] the screen point for the loupe overlay.
+    val isEyedropping: Boolean = false,
+    val eyedropColor: Color? = null,
+    val eyedropPosition: Offset = Offset.Zero,
     val activeColor: Color = Color.White,
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,

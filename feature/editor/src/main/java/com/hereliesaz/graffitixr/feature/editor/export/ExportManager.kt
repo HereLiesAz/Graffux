@@ -216,8 +216,10 @@ class ExportManager @Inject constructor() {
     /**
      * Draws a vector [layer]'s shapes into [canvas], mirroring the on-screen render: shapes are drawn
      * centered in the (screenWidth × screenHeight) surface, transformed by the layer's
-     * scale / rotationZ / offset, with the layer opacity applied via a save-layer. Blend mode is left
-     * at the default (SrcOver) for shapes in this first pass.
+     * scale / rotationZ / offset. Opacity, blend mode, and the colour adjustments (brightness /
+     * contrast / saturation / colour balance / invert) are applied through the save-layer paint, so
+     * a vector layer exports with exactly the parity a raster layer gets — a pen layer set to
+     * Multiply no longer flattens back to SrcOver.
      */
     private fun drawVectorLayer(canvas: Canvas, layer: Layer, screenWidth: Int, screenHeight: Int) {
         val cx = screenWidth / 2f
@@ -227,7 +229,21 @@ class ExportManager @Inject constructor() {
             postRotate(layer.rotationZ, cx, cy)
             postTranslate(layer.offset.x, layer.offset.y)
         }
-        val saveCount = canvas.saveLayerAlpha(null, (layer.opacity * 255).toInt().coerceIn(0, 255))
+        val cm = createColorMatrix(
+            saturation = layer.saturation,
+            contrast = layer.contrast,
+            brightness = layer.brightness,
+            colorBalanceR = layer.colorBalanceR,
+            colorBalanceG = layer.colorBalanceG,
+            colorBalanceB = layer.colorBalanceB,
+            isInverted = layer.isInverted
+        )
+        val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+            blendMode = layer.blendMode.toNativeBlendMode()
+            colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
+        }
+        val saveCount = canvas.saveLayer(null, layerPaint)
         canvas.concat(matrix)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         layer.shapes.forEach { drawShape(canvas, it, cx, cy, paint) }

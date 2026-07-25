@@ -83,6 +83,11 @@ data class StrokeCommand(
     val flow: Float = 1f,
     val seed: Long = 0L,
     val stampShape: Bitmap? = null,
+    // Procreate parity, recorded per stroke so undo/redo replay reproduces the paint exactly:
+    // [symmetry] mirrors the stroke across the layer's vertical centre; [alphaLock] confines the
+    // paint to pixels that already have alpha.
+    val symmetry: Boolean = false,
+    val alphaLock: Boolean = false,
 )
 
 sealed class EditCommand {
@@ -182,6 +187,15 @@ class EditorViewModel @Inject constructor(
     private var strokeWorkingCanvas: Canvas? = null
     private var strokePaint: Paint? = null
     private var strokePrevBitmapPoint: Offset? = null
+    // Captured at stroke start so mid-stroke toggles can't desync the live paint from the recorded
+    // StrokeCommand (which is what undo/redo replays).
+    private var strokeSymmetry: Boolean = false
+    private var strokeAlphaLock: Boolean = false
+    // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
+    // from scratch, so live pixels match replayed pixels exactly.
+    private var strokeDynamics: BrushDynamics.State? = null
+    // Eyedropper: the screen-sized composite the long-press samples from (built once per hold).
+    private var eyedropComposite: Bitmap? = null
     private val strokeCollectedPointsLock = Any()
     // Touched from the main thread (add/reset) and background Default coroutines (snapshot). All access
     // MUST go through the synchronized helpers below, or a concurrent add during toList() throws a
@@ -2186,6 +2200,11 @@ class EditorViewModel @Inject constructor(
         strokeLayerScale = layer.scale
         strokeLayerOffset = layer.offset
         strokeLayerRotationZ = layer.rotationZ
+        // Captured once per stroke: mid-stroke toggles must not desync live paint from the
+        // recorded command that undo/redo replays.
+        strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
+        strokeAlphaLock = layer.alphaLock
+        strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
             // Store the original bitmap so live-preview warps can be applied from a clean copy.
@@ -2249,7 +2268,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height, layerScale
             )
-            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering)
+            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock)
 
             // Snapshot the collected points at this moment — may include points that arrived
             // during the bitmap-copy phase.
@@ -2259,40 +2278,58 @@ class EditorViewModel @Inject constructor(
                 layerScale, layerOffset, layerRotationZ
             )
 
-            if (mappedAll.size == 1) {
-                if (state.wrapAroundMode) {
-                    val w = workBitmap.width.toFloat()
-                    val h = workBitmap.height.toFloat()
-                    for (dx in -1..1) {
-                        for (dy in -1..1) {
-                            workCanvas.drawPoint(mappedAll[0].x + dx * w, mappedAll[0].y + dy * h, paint)
+            val bw = workBitmap.width.toFloat()
+            val bh = workBitmap.height.toFloat()
+            val mirrored = strokeSymmetry
+
+            // Draws [seg] with wrap-around tiling, plus its vertical-mirror twin when symmetry is on.
+            fun drawPathAll(seg: android.graphics.Path) {
+                val targets = ArrayList<android.graphics.Path>(2)
+                targets.add(seg)
+                if (mirrored) {
+                    val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bw / 2f, 0f) }
+                    targets.add(android.graphics.Path(seg).apply { transform(m) })
+                }
+                for (t in targets) {
+                    if (state.wrapAroundMode) {
+                        for (dx in -1..1) for (dy in -1..1) {
+                            if (dx == 0 && dy == 0) workCanvas.drawPath(t, paint)
+                            else workCanvas.drawPath(android.graphics.Path(t).apply { offset(dx * bw, dy * bh) }, paint)
                         }
+                    } else {
+                        workCanvas.drawPath(t, paint)
                     }
-                } else {
-                    workCanvas.drawPoint(mappedAll[0].x, mappedAll[0].y, paint)
+                }
+            }
+
+            if (mappedAll.size == 1) {
+                val xs = if (mirrored) floatArrayOf(mappedAll[0].x, bw - mappedAll[0].x) else floatArrayOf(mappedAll[0].x)
+                for (x in xs) {
+                    if (state.wrapAroundMode) {
+                        for (dx in -1..1) for (dy in -1..1) workCanvas.drawPoint(x + dx * bw, mappedAll[0].y + dy * bh, paint)
+                    } else {
+                        workCanvas.drawPoint(x, mappedAll[0].y, paint)
+                    }
                 }
             } else {
-                val seg = android.graphics.Path()
-                seg.moveTo(mappedAll[0].x, mappedAll[0].y)
-                for (i in 1 until mappedAll.size) {
-                    seg.lineTo(mappedAll[i].x, mappedAll[i].y)
-                }
-                if (state.wrapAroundMode) {
-                    val w = workBitmap.width.toFloat()
-                    val h = workBitmap.height.toFloat()
-                    for (dx in -1..1) {
-                        for (dy in -1..1) {
-                            if (dx == 0 && dy == 0) {
-                                workCanvas.drawPath(seg, paint)
-                            } else {
-                                val p = android.graphics.Path(seg)
-                                p.offset(dx * w, dy * h)
-                                workCanvas.drawPath(p, paint)
-                            }
-                        }
+                val dyn = strokeDynamics
+                if (dyn != null) {
+                    // Dynamic brush: each segment at its own velocity-derived width. The same
+                    // recursion runs on commit/replay, so live pixels match replayed pixels.
+                    for (i in 0 until mappedAll.size - 1) {
+                        paint.strokeWidth = dyn.next((mappedAll[i + 1] - mappedAll[i]).getDistance(), brushSize * brushScale)
+                        val seg = android.graphics.Path()
+                        seg.moveTo(mappedAll[i].x, mappedAll[i].y)
+                        seg.lineTo(mappedAll[i + 1].x, mappedAll[i + 1].y)
+                        drawPathAll(seg)
                     }
                 } else {
-                    workCanvas.drawPath(seg, paint)
+                    val seg = android.graphics.Path()
+                    seg.moveTo(mappedAll[0].x, mappedAll[0].y)
+                    for (i in 1 until mappedAll.size) {
+                        seg.lineTo(mappedAll[i].x, mappedAll[i].y)
+                    }
+                    drawPathAll(seg)
                 }
             }
 
@@ -2407,26 +2444,43 @@ class EditorViewModel @Inject constructor(
             strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
         ).first()
 
+        // Dynamic brush width: advance the per-stroke recursion by this segment's length. The same
+        // recursion runs from scratch on commit/replay, so the live paint matches exactly.
+        strokeDynamics?.let { dyn ->
+            val brushScale = ImageProcessor.screenToBitmapScale(
+                strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
+            )
+            paint.strokeWidth = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale)
+        }
+
         val seg = Path()
         seg.moveTo(prev.x, prev.y)
         seg.lineTo(mapped.x, mapped.y)
 
-        if (_uiState.value.wrapAroundMode) {
-            val w = workBitmap.width.toFloat()
-            val h = workBitmap.height.toFloat()
-            for (dx in -1..1) {
-                for (dy in -1..1) {
-                    if (dx == 0 && dy == 0) {
-                        canvas.drawPath(seg, paint)
-                    } else {
-                        val p = Path(seg)
-                        p.offset(dx * w, dy * h)
-                        canvas.drawPath(p, paint)
+        val segs = ArrayList<Path>(2)
+        segs.add(seg)
+        if (strokeSymmetry) {
+            val m = android.graphics.Matrix().apply { setScale(-1f, 1f, workBitmap.width / 2f, 0f) }
+            segs.add(Path(seg).apply { transform(m) })
+        }
+        for (s in segs) {
+            if (_uiState.value.wrapAroundMode) {
+                val w = workBitmap.width.toFloat()
+                val h = workBitmap.height.toFloat()
+                for (dx in -1..1) {
+                    for (dy in -1..1) {
+                        if (dx == 0 && dy == 0) {
+                            canvas.drawPath(s, paint)
+                        } else {
+                            val p = Path(s)
+                            p.offset(dx * w, dy * h)
+                            canvas.drawPath(p, paint)
+                        }
                     }
                 }
+            } else {
+                canvas.drawPath(s, paint)
             }
-        } else {
-            canvas.drawPath(seg, paint)
         }
         strokePrevBitmapPoint = mapped
 
@@ -2474,6 +2528,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
+                symmetry = strokeSymmetry,
             )
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
@@ -2487,7 +2542,8 @@ class EditorViewModel @Inject constructor(
             viewModelScope.launch(dispatchers.default) {
                 val blurred = ImageProcessor.applyToolToBitmap(
                     base, mapped, Tool.BLUR, state.brushSize * brushScale,
-                    state.activeColor.toArgb(), 0.5f, false, state.brushFeathering
+                    state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
+                    symmetry = strokeSymmetry,
                 )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -2542,45 +2598,59 @@ class EditorViewModel @Inject constructor(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
                     val paint = buildStrokePaint(
-                        state.activeTool, state.activeColor.toArgb(), state.brushSize * brushScale, state.brushFeathering
+                        state.activeTool, state.activeColor.toArgb(), state.brushSize * brushScale,
+                        state.brushFeathering, strokeAlphaLock
                     )
                     val mapped = ImageProcessor.mapScreenToBitmap(
                         points, canvasW, canvasH, target.width, target.height,
                         capturedScale, capturedOffset, capturedRotationZ
                     )
-                    if (mapped.size == 1) {
-                        if (state.wrapAroundMode) {
-                            val w = target.width.toFloat()
-                            val h = target.height.toFloat()
-                            for (dx in -1..1) {
-                                for (dy in -1..1) {
-                                    canvas.drawPoint(mapped[0].x + dx * w, mapped[0].y + dy * h, paint)
-                                }
-                            }
-                        } else {
-                            canvas.drawPoint(mapped[0].x, mapped[0].y, paint)
+                    val bw = target.width.toFloat()
+                    val bh = target.height.toFloat()
+
+                    fun drawPathAll(seg: android.graphics.Path) {
+                        val targets = ArrayList<android.graphics.Path>(2)
+                        targets.add(seg)
+                        if (strokeSymmetry) {
+                            val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bw / 2f, 0f) }
+                            targets.add(android.graphics.Path(seg).apply { transform(m) })
                         }
-                    } else if (mapped.size > 1) {
+                        for (t in targets) {
+                            if (state.wrapAroundMode) {
+                                for (dx in -1..1) for (dy in -1..1) {
+                                    if (dx == 0 && dy == 0) canvas.drawPath(t, paint)
+                                    else canvas.drawPath(android.graphics.Path(t).apply { offset(dx * bw, dy * bh) }, paint)
+                                }
+                            } else {
+                                canvas.drawPath(t, paint)
+                            }
+                        }
+                    }
+
+                    if (mapped.size == 1) {
+                        val xs = if (strokeSymmetry) floatArrayOf(mapped[0].x, bw - mapped[0].x) else floatArrayOf(mapped[0].x)
+                        for (x in xs) {
+                            if (state.wrapAroundMode) {
+                                for (dx in -1..1) for (dy in -1..1) canvas.drawPoint(x + dx * bw, mapped[0].y + dy * bh, paint)
+                            } else {
+                                canvas.drawPoint(x, mapped[0].y, paint)
+                            }
+                        }
+                    } else if (state.activeTool == Tool.BRUSH) {
+                        // Dynamic brush: same recursion the live path and undo replay use.
+                        val widths = BrushDynamics.segmentWidths(mapped, state.brushSize * brushScale)
+                        for (i in 0 until mapped.size - 1) {
+                            paint.strokeWidth = widths[i]
+                            val seg = android.graphics.Path()
+                            seg.moveTo(mapped[i].x, mapped[i].y)
+                            seg.lineTo(mapped[i + 1].x, mapped[i + 1].y)
+                            drawPathAll(seg)
+                        }
+                    } else {
                         val seg = android.graphics.Path()
                         seg.moveTo(mapped[0].x, mapped[0].y)
                         for (i in 1 until mapped.size) seg.lineTo(mapped[i].x, mapped[i].y)
-                        if (state.wrapAroundMode) {
-                            val w = target.width.toFloat()
-                            val h = target.height.toFloat()
-                            for (dx in -1..1) {
-                                for (dy in -1..1) {
-                                    if (dx == 0 && dy == 0) {
-                                        canvas.drawPath(seg, paint)
-                                    } else {
-                                        val p = android.graphics.Path(seg)
-                                        p.offset(dx * w, dy * h)
-                                        canvas.drawPath(p, paint)
-                                    }
-                                }
-                            }
-                        } else {
-                            canvas.drawPath(seg, paint)
-                        }
+                        drawPathAll(seg)
                     }
                 }
                 target ?: bitmap
@@ -2596,7 +2666,9 @@ class EditorViewModel @Inject constructor(
                 feathering = state.brushFeathering,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
-                layerRotationZ = capturedRotationZ
+                layerRotationZ = capturedRotationZ,
+                symmetry = strokeSymmetry,
+                alphaLock = strokeAlphaLock,
             )
 
             // Add stroke to history
@@ -2625,7 +2697,9 @@ class EditorViewModel @Inject constructor(
                 feathering = state.brushFeathering,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
-                layerRotationZ = capturedRotationZ
+                layerRotationZ = capturedRotationZ,
+                symmetry = strokeSymmetry,
+                alphaLock = strokeAlphaLock,
             )
 
             // Add stroke to history for undo/redo replay.
@@ -2754,11 +2828,217 @@ class EditorViewModel @Inject constructor(
      * in-progress stroke (stroke end, mode switch, project load) must invoke this so a later
      * onStrokePoint/onStrokeEnd can't commit to a stale layer or bitmap.
      */
+    /**
+     * Cancels the in-flight stroke without committing — a second finger landing mid-stroke means
+     * the user is gesturing (two-finger tap = undo, pinch = navigate), not painting; Procreate
+     * discards the partial stroke the same way. Nothing has been recorded yet (commands are
+     * recorded on finger-up), so dropping the live preview is the whole cancel.
+     */
+    fun onStrokeCancel() {
+        liquifyJob?.cancel()
+        _uiState.update { it.copy(liveStrokeLayerId = null, liveStrokeBitmap = null) }
+        clearTransientStrokeState()
+    }
+
+    // ── Long-press eyedropper (Procreate: hold still to sample the canvas) ───────────────────
+
+    /** Begin sampling: composite what's on screen once, off the main thread, to read pixels from. */
+    fun onEyedropStart(canvasSize: IntSize) {
+        val layers = _uiState.value.layers
+        val bg = _uiState.value.canvasBackground
+        dispatch(EditorIntent.SetEyedrop(active = true))
+        viewModelScope.launch(dispatchers.default) {
+            val composite = exportManager.compositeLayers(
+                layers, canvasSize.width, canvasSize.height, backgroundColor = bg.toArgb(),
+            )
+            withContext(dispatchers.main) {
+                if (_uiState.value.isEyedropping) {
+                    eyedropComposite?.recycle()
+                    eyedropComposite = composite
+                } else {
+                    composite.recycle() // finger already lifted before the composite finished
+                }
+            }
+        }
+    }
+
+    /** Update the sampled colour as the finger moves; [position] is in screen coordinates. */
+    fun onEyedropSample(position: Offset) {
+        val st = _uiState.value
+        if (!st.isEyedropping) return
+        val comp = eyedropComposite ?: run {
+            dispatch(EditorIntent.SetEyedrop(true, st.eyedropColor, position))
+            return
+        }
+        // Screen → world: undo the viewport camera, same math as onCommitPenPath.
+        val rad = Math.toRadians(-st.viewportRotation.toDouble())
+        val cos = kotlin.math.cos(rad)
+        val sin = kotlin.math.sin(rad)
+        val ux = (position.x - st.viewportOffset.x) / st.viewportZoom
+        val uy = (position.y - st.viewportOffset.y) / st.viewportZoom
+        val x = (ux * cos - uy * sin).toInt()
+        val y = (ux * sin + uy * cos).toInt()
+        val color = if (x in 0 until comp.width && y in 0 until comp.height) Color(comp.getPixel(x, y)) else null
+        dispatch(EditorIntent.SetEyedrop(true, color ?: st.eyedropColor, position))
+    }
+
+    /** Lift: adopt the sampled colour (keeping the brush's working alpha) or abandon the sample. */
+    fun onEyedropEnd(commit: Boolean) {
+        val picked = _uiState.value.eyedropColor
+        if (commit && picked != null) {
+            setActiveColor(picked.copy(alpha = _uiState.value.activeColor.alpha))
+        }
+        dispatch(EditorIntent.SetEyedrop(active = false))
+        eyedropComposite?.recycle()
+        eyedropComposite = null
+    }
+
+    // ── Flood fill (Procreate's ColorDrop) ────────────────────────────────────────────────────
+
+    /**
+     * Fill the contiguous region of the active layer under [position] with the active colour.
+     * Recorded as a replayable [StrokeCommand] (the fill re-runs deterministically from its tap
+     * point), so it undoes and redoes exactly like a brush stroke.
+     */
+    fun onFillTap(position: Offset, canvasSize: IntSize) {
+        val state = _uiState.value
+        if (state.activeTool != Tool.FILL) return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val command = StrokeCommand(
+            path = listOf(position),
+            canvasSize = canvasSize,
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = state.activeColor.toArgb(),
+            intensity = 1f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        viewModelScope.launch(dispatchers.default) {
+            val mapped = ImageProcessor.mapScreenToBitmap(
+                listOf(position), canvasSize.width, canvasSize.height, base.width, base.height,
+                layer.scale, layer.offset, layer.rotationZ
+            ).first()
+            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            ImageProcessor.floodFill(target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb())
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+            // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
+    // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
+
+    fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
+
+    fun onToggleAlphaLock(id: String) {
+        pushHistory()
+        dispatch(EditorIntent.ToggleAlphaLock(id))
+    }
+
+    // ── QuickShape (pen snapped to an ideal ellipse on hold) ────────────────────────────────
+
+    /**
+     * Commits a QuickShape-recognized ellipse as a vector layer. Inputs are in screen space; the
+     * centre is mapped back through the camera like a pen path, and the radii divided by the zoom.
+     */
+    fun onCommitPenEllipse(
+        centerScreen: Offset,
+        radiusXScreen: Float,
+        radiusYScreen: Float,
+        canvasWidth: Float,
+        canvasHeight: Float,
+    ) {
+        if (_uiState.value.projectId == null) return
+        val st = _uiState.value
+        val cx = canvasWidth / 2f
+        val cy = canvasHeight / 2f
+        val rad = Math.toRadians(-st.viewportRotation.toDouble())
+        val cos = kotlin.math.cos(rad)
+        val sin = kotlin.math.sin(rad)
+        val ux = (centerScreen.x - st.viewportOffset.x) / st.viewportZoom
+        val uy = (centerScreen.y - st.viewportOffset.y) / st.viewportZoom
+        val wx = (ux * cos - uy * sin).toFloat()
+        val wy = (ux * sin + uy * cos).toFloat()
+        val rx = (radiusXScreen / st.viewportZoom).coerceAtLeast(1f)
+        val ry = (radiusYScreen / st.viewportZoom).coerceAtLeast(1f)
+        pushHistory()
+        val count = _uiState.value.layers.count { it.shapes.isNotEmpty() }
+        val newLayer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "Ellipse ${count + 1}",
+            shapes = listOf(
+                com.hereliesaz.graffitixr.common.model.VectorShape(
+                    kind = com.hereliesaz.graffitixr.common.model.ShapeKind.ELLIPSE,
+                    width = rx * 2f,
+                    height = ry * 2f,
+                    fillArgb = 0x00000000L,
+                    strokeArgb = st.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
+                    strokeWidth = st.brushSize.coerceAtLeast(1f),
+                )
+            ),
+            offset = Offset(wx - cx, wy - cy),
+        )
+        dispatch(EditorIntent.AddLayer(newLayer))
+        // Keep the pen active for the next stroke, matching onCommitPenPath.
+        dispatch(EditorIntent.SetActiveTool(Tool.PEN))
+        opEmitter.emit(Op.LayerAdd(newLayer))
+        saveProject()
+    }
+
+    // ── Gallery (Procreate's home surface: browse, open, create, delete projects) ───────────
+
+    val projects: StateFlow<List<GraffitiProject>> =
+        projectRepository.projects
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun openProject(id: String) {
+        if (id == _uiState.value.projectId) return
+        viewModelScope.launch(dispatchers.io) { projectRepository.loadProject(id) }
+    }
+
+    fun createNewProject() {
+        viewModelScope.launch(dispatchers.io) {
+            val n = projectRepository.getProjects().size + 1
+            projectRepository.createProject("Untitled $n")
+        }
+    }
+
+    fun deleteProjectById(id: String) {
+        viewModelScope.launch(dispatchers.io) {
+            projectRepository.deleteProject(id)
+            // Deleting the open project leaves the editor pointing at nothing: fall back to the
+            // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
+            if (_uiState.value.projectId == id) {
+                val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
+                if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
+                else projectRepository.createProject("Untitled")
+            }
+        }
+    }
+
     private fun clearTransientStrokeState() {
         strokeWorkingBitmap = null
         strokeWorkingCanvas = null
         strokePaint = null
         strokePrevBitmapPoint = null
+        strokeDynamics = null
+        strokeSymmetry = false
+        strokeAlphaLock = false
         resetStrokePoints()
         strokeLayerId = null
 
@@ -2774,7 +3054,7 @@ class EditorViewModel @Inject constructor(
         stampMappedPoints.clear()
     }
 
-    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float): Paint =
+    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false): Paint =
         Paint().apply {
             strokeWidth = brushSize
             style = Paint.Style.STROKE
@@ -2784,6 +3064,9 @@ class EditorViewModel @Inject constructor(
             when (tool) {
                 Tool.BRUSH -> {
                     color = argbColor
+                    // Alpha Lock: paint only where the layer already has alpha, so strokes
+                    // recolour existing content without extending its silhouette.
+                    if (alphaLock) xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
                     if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                 }
                 Tool.ERASER -> {
