@@ -11,18 +11,14 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -341,8 +337,6 @@ fun EditorScreen(
         ViewportControls(
             uiState = uiState,
             onReset = { vm.resetViewport() },
-            onUndo = { vm.onUndoClicked() },
-            onRedo = { vm.onRedoClicked() },
         )
 
         // 5. Loading indicator.
@@ -624,18 +618,18 @@ private fun SnapGuides(guidesX: List<Float>, guidesY: List<Float>, modifier: Mod
 }
 
 /**
- * Floating canvas controls anchored in the bottom corners (out of the nav rail, the way GraffitiXR
- * places them): fit/reset the infinite-canvas view on the bottom-left, undo and redo on the bottom-
- * right. Each button appears only when it can do something — reset only off the identity view, undo/
- * redo only with history — so a fresh, un-panned canvas shows nothing. Placed directly in the editor's
- * root [Box] so only the buttons themselves capture touches; the rest of the canvas keeps its gestures.
+ * Floating canvas control anchored in the bottom-left corner (out of the nav rail, the way
+ * GraffitiXR places it): fit/reset the infinite-canvas view. Only appears off the identity view, so
+ * a fresh, un-panned canvas shows nothing. Placed directly in the editor's root [Box] so only the
+ * button itself captures touches; the rest of the canvas keeps its gestures.
+ *
+ * Undo/redo used to live here too, duplicating the AzNavRail onscreen composable's buttons
+ * (MainActivity.GraffuxApp) — removed in favor of that single copy.
  */
 @Composable
 private fun BoxScope.ViewportControls(
     uiState: EditorUiState,
     onReset: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
 ) {
     val chip = Color.Black.copy(alpha = 0.35f)
     val viewMoved = uiState.viewportZoom != 1f ||
@@ -650,21 +644,6 @@ private fun BoxScope.ViewportControls(
                 .background(chip, CircleShape),
         ) {
             Icon(Icons.Filled.FitScreen, contentDescription = "Fit view to screen", tint = Color.White)
-        }
-    }
-    Row(
-        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (uiState.undoCount > 0) {
-            IconButton(onClick = onUndo, modifier = Modifier.background(chip, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
-            }
-        }
-        if (uiState.redoCount > 0) {
-            IconButton(onClick = onRedo, modifier = Modifier.background(chip, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = Color.White)
-            }
         }
     }
 }
