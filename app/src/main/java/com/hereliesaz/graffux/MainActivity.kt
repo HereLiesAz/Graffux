@@ -519,43 +519,57 @@ private fun AzNavHostScope.ConfigureRailItems(
 ) {
     val navStrings = strings.nav
 
-    azRailHostItem(
-        id = "grp.design", text = "Design", content = Icons.Filled.Brush, color = navItemColor,
-        initiallyExpanded = true,
-    )
-    azRailSubItem(
-        id = "tool.brush", hostId = "grp.design", text = uiState.activeBrushName ?: navStrings.brush,
-        shape = AzButtonShape.NONE,
+    // Procreate's tool strip: a flat row of the tools you paint with, not an accordion you have to
+    // open first. Every item gets its own glyph — the old rail drew Icons.Filled.Brush for the group,
+    // the brush tool, the round brush AND every installed brush, and the same pencil for Pen and Edit,
+    // so nothing in it was identifiable at a glance.
+    azRailItem(
+        id = "tool.brush", text = uiState.activeBrushName ?: navStrings.brush,
         content = Icons.Filled.Brush,
         color = if (uiState.activeTool == Tool.BRUSH) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
-    azRailSubItem(
-        id = "tool.size", hostId = "grp.design", text = "Size", shape = AzButtonShape.NONE,
-        content = AzComposableContent { BrushSizePad(vm) },
+    azRailItem(
+        id = "tool.smudge", text = "Smudge",
+        content = Icons.Filled.Gesture,
+        color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
-    azRailSubItem(
-        id = "tool.pen", hostId = "grp.design", text = "Pen", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Edit,
+    azRailItem(
+        id = "tool.eraser", text = "Eraser",
+        content = Icons.Filled.CleaningServices,
+        color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
+    )
+    azRailItem(
+        id = "tool.pen", text = "Pen",
+        content = Icons.Filled.Draw,
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
     )
-    azRailSubItem(
-        id = "tool.color", hostId = "grp.design", text = navStrings.color, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Palette,
+    azRailItem(
+        id = "tool.size", text = "Size", shape = AzButtonShape.NONE,
+        content = AzComposableContent { BrushSizePad(vm) },
+    )
+    // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
+    // palette glyph that says nothing about what you're about to paint with.
+    azRailItem(
+        id = "tool.color", text = navStrings.color,
+        content = uiState.activeColor,
         color = if (uiState.showColorPicker) activeColor else navItemColor,
         onClick = { vm.onColorClicked() },
     )
     if (brushes.isNotEmpty()) {
+        azRailHostItem(id = "grp.brushes", text = "Brushes", content = Icons.Filled.Category, color = navItemColor)
         azRailSubItem(
-            id = "brush.round", hostId = "grp.design", text = "Round", shape = AzButtonShape.NONE,
-            content = Icons.Filled.Brush,
+            id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
+            content = Icons.Filled.Circle,
             color = if (uiState.activeBrushName == null) activeColor else navItemColor,
             onClick = { vm.selectBrushExtension(null) },
         )
         brushes.forEach { (id, name) ->
             azRailSubItem(
-                id = "brush.$id", hostId = "grp.design", text = name, shape = AzButtonShape.NONE,
+                id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
                 content = Icons.Filled.Brush,
                 color = if (uiState.activeBrushName == name) activeColor else navItemColor,
                 onClick = { vm.selectBrushExtension(id) },
@@ -595,7 +609,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     azRailItem(id = "add", text = "Add", content = Icons.Filled.Add, color = navItemColor, onClick = { onAddClicked() })
     azRailItem(id = "align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor, onClick = { onAlignClicked() })
 
-    azRailHostItem(id = "grp.adjust", text = navStrings.adjust, content = Icons.Filled.Tune, color = navItemColor)
+    // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
+    // unattached host): the user parks it wherever it suits the artwork and the position persists
+    // across launches, the way Procreate's panels stay where you leave them.
+    azUnattachedHostItem(
+        id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
+        content = Icons.Filled.Tune, color = navItemColor,
+    )
     azRailSubItem(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
         content = Icons.Filled.Tune,
@@ -603,13 +623,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     )
     azRailSubItem(
         id = "adj.transform", hostId = "grp.adjust", text = "Transform", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Transform,
+        content = Icons.Filled.OpenWith,
         color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
     )
     azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = Icons.Filled.Gradient, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
-        azRailItem(id = "edit", text = "Edit", content = Icons.Filled.Edit, color = navItemColor, onClick = { onEditClicked() })
+        azRailItem(id = "edit", text = "Edit", content = Icons.Filled.MoreHoriz, color = navItemColor, onClick = { onEditClicked() })
     }
 }
