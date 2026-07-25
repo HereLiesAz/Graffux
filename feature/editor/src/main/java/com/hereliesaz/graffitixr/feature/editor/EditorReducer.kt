@@ -163,7 +163,22 @@ internal object EditorReducer {
                 warpMesh = intent.source.warpMesh,
             )
         })
-        is EditorIntent.LoadedProject -> state.copy(projectId = intent.projectId, layers = intent.layers, activeTool = Tool.NONE)
+        is EditorIntent.LoadedProject -> state.copy(
+            projectId = intent.projectId,
+            layers = intent.layers,
+            activeTool = Tool.NONE,
+            // Activate a layer on load, for the same reason SetLayers does above. LoadedProject used
+            // to leave activeLayerId null and rely on the SetLayers that follows it — but the view
+            // model only dispatches that when some layer still needs its bitmap read off disk. A
+            // project made of vector layers (pen paths, shapes) has no bitmap and no uri, so nothing
+            // reconciled the id and reopening such a project left every layer-scoped control inert:
+            // no selection outline, no Transform, no Adjust, and the Edit rail item hidden outright.
+            activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
+                state.activeLayerId
+            } else {
+                intent.layers.firstOrNull()?.id
+            },
+        )
         EditorIntent.ClearProject -> state.copy(projectId = null, layers = emptyList(), backgroundBitmap = null, activeTool = Tool.NONE)
     }
 
