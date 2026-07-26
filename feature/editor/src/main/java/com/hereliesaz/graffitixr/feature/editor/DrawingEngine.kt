@@ -47,6 +47,15 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             stroke.selection, bitmap.width, bitmap.height,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
+        // Clear: wipe to transparency, inside the selection if there is one. Checked before the
+        // tool switch because it is an operation recorded onto a tool, not a kind of paint.
+        if (stroke.clearAll) {
+            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
+            val canvas = android.graphics.Canvas(target)
+            SelectionMask.clip(canvas, clipPath)
+            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            return target
+        }
         // A selection move: lift the selected pixels, clear the hole, stamp them down offset. Fully
         // determined by (base, selection, delta), so it replays through history like any stroke.
         if (stroke.tool == Tool.SELECT) {

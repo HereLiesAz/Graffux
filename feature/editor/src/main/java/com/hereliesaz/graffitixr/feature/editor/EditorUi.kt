@@ -41,12 +41,16 @@ fun EditorUi(
     Box(modifier = Modifier.fillMaxSize()) {
 
         if (uiState.showColorPicker) {
+            val savedPalette by actions.savedPalette.collectAsState()
             ColorPickerDialog(
                 currentColor = uiState.activeColor,
                 history = listOf(Color.Red, Color.Green, Color.Blue, Color.Yellow, Color.Black, Color.White),
                 onSelectColor = { actions.setActiveColor(it) },
                 onDismiss = { actions.onColorPickerDismissed() },
-                strings = strings
+                strings = strings,
+                savedPalette = savedPalette,
+                onSavePaletteColor = { actions.onSavePaletteColor(it) },
+                onRemovePaletteColor = { actions.onRemovePaletteColor(it) },
             )
         }
 

@@ -95,6 +95,10 @@ data class StrokeCommand(
     // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
     // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
     val moveDelta: Offset? = null,
+    // Wipes the layer to transparency instead of painting a path — Procreate's clear-layer. Recorded
+    // as a command so it undoes by replay like everything else; honours [selection], so clearing
+    // with a lasso active wipes only inside it.
+    val clearAll: Boolean = false,
 )
 
 sealed class EditCommand {
@@ -3057,6 +3061,128 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Layer operations: clear and merge down ───────────────────────────────────────────────
+
+    /**
+     * Wipes the active layer to transparency — Procreate's clear-layer (its three-finger scrub).
+     * With a lasso active it clears only inside it, which is what a selection means everywhere else.
+     *
+     * Recorded as a replayable [StrokeCommand] for the same reason a selection move is: the editor
+     * restores pixels by replaying commands onto a base, so a bitmap edit is only undoable if it is
+     * replayable.
+     */
+    fun onClearLayer() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: return
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = IntSize(base.width, base.height),
+            tool = Tool.ERASER,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = state.selection,
+            clearAll = true,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
+
+        viewModelScope.launch(dispatchers.default) {
+            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val canvas = Canvas(target)
+            SelectionMask.clip(
+                canvas,
+                SelectionMask.bitmapPath(
+                    command.selection, target.width, target.height,
+                    layer.scale, layer.offset, layer.rotationZ,
+                ),
+            )
+            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
+    /**
+     * Merges [layerId] into the layer directly beneath it, as Procreate's Merge Down does.
+     *
+     * Mirrors [onFlattenAllLayers] rather than overwriting the lower layer in place: the merged
+     * pixels become a **new** layer and both sources leave the visible list while keeping their
+     * [layerStore] base+strokes. That is what makes the undo correct — [pushHistory] strips bitmaps
+     * from its snapshot, so restoring the two source layers can only work by rebuilding them from
+     * the store, and overwriting the lower layer's cached base would have destroyed exactly what
+     * the rebuild needs.
+     */
+    fun onMergeDown(layerId: String) {
+        val projectId = _uiState.value.projectId ?: return
+        val layers = _uiState.value.layers
+        val index = layers.indexOfFirst { it.id == layerId }
+        // Index 0 paints first (bottom), so there is nothing beneath it to merge into.
+        if (index <= 0) {
+            Toast.makeText(context, "Nothing below this layer to merge into", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val upper = layers[index]
+        val lower = layers[index - 1]
+        pushHistory()
+
+        viewModelScope.launch(dispatchers.default) {
+            val metrics = context.resources.displayMetrics
+            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
+            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            // Composited in paint order (lower first) so the upper layer's blend mode and opacity
+            // resolve against the one it is being merged into, exactly as they do on canvas.
+            val merged = exportManager.compositeLayers(listOf(lower, upper), w, h)
+
+            val filename = "merged_${UUID.randomUUID()}.png"
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(merged))
+            val mergedLayer = Layer(
+                id = UUID.randomUUID().toString(),
+                name = lower.name,
+                uri = "file://$path".toUri(),
+                bitmap = merged,
+            )
+
+            withContext(dispatchers.main) {
+                val current = _uiState.value.layers
+                // Re-resolve positions: the list can have changed while the composite was running.
+                val stillThere = current.any { it.id == upper.id } && current.any { it.id == lower.id }
+                if (!stillThere) return@withContext
+                val at = current.indexOfFirst { it.id == lower.id }
+                layerStore.putBase(mergedLayer.id, merged.copy(Bitmap.Config.ARGB_8888, false))
+                layerStore.initStrokes(mergedLayer.id)
+                val next = current.filterNot { it.id == upper.id || it.id == lower.id }
+                    .toMutableList()
+                    .apply { add(at.coerceIn(0, size), mergedLayer) }
+                dispatch(EditorIntent.ReplaceLayers(next, mergedLayer.id))
+                opEmitter.emit(Op.LayerRemove(upper.id))
+                opEmitter.emit(Op.LayerRemove(lower.id))
+                opEmitter.emit(Op.LayerAdd(mergedLayer))
+                saveProject()
+                showHud("Merged down")
+            }
+        }
+    }
+
+    // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
+
+    /** Opens the radial menu centred on [at] (screen space) — normally the summoning centroid. */
+    fun onOpenQuickMenu(at: Offset) = dispatch(EditorIntent.SetQuickMenu(at))
+
+    fun onDismissQuickMenu() = dispatch(EditorIntent.SetQuickMenu(null))
+
     // ── Freehand selection (Procreate's lasso) ───────────────────────────────────────────────
 
     /**
@@ -3322,6 +3448,34 @@ class EditorViewModel @Inject constructor(
         extensionRepository.installed
             .map { extensionRepository.installedBrushes().map { ext -> ext.id to ext.manifest.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The user's saved colour swatches (the colour picker's Palettes tab), reactive so a swatch
+     * saved in one place appears everywhere the palette is shown.
+     */
+    val savedPalette: StateFlow<List<androidx.compose.ui.graphics.Color>> =
+        settingsRepository.savedPalette
+            .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. */
+    fun onSavePaletteColor(color: androidx.compose.ui.graphics.Color) {
+        viewModelScope.launch {
+            val current = settingsRepository.savedPalette.first()
+            val next = com.hereliesaz.graffitixr.common.util.PaletteCodec.add(current, color.toArgb())
+            if (next !== current) settingsRepository.setSavedPalette(next)
+        }
+    }
+
+    /** Removes every swatch matching [color] from the saved palette. */
+    fun onRemovePaletteColor(color: androidx.compose.ui.graphics.Color) {
+        viewModelScope.launch {
+            val argb = color.toArgb()
+            val current = settingsRepository.savedPalette.first()
+            val next = current.filterNot { it == argb }
+            if (next.size != current.size) settingsRepository.setSavedPalette(next)
+        }
+    }
 
     /** Ids of every installed azphalt extension — lets the Store mark catalog cards Installed. */
     val installedExtensionIds: StateFlow<Set<String>> =

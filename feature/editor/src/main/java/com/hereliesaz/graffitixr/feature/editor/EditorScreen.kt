@@ -108,6 +108,8 @@ fun EditorScreen(
                 onTwoFingerTap = { vm.onUndoClicked() },
                 onThreeFingerTap = { vm.onRedoClicked() },
                 onFourFingerTap = { vm.toggleHideUi() },
+                onFourFingerHold = { at -> vm.onOpenQuickMenu(at) },
+                onThreeFingerScrub = { vm.onClearLayer() },
             )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
@@ -372,6 +374,28 @@ fun EditorScreen(
             ) {
                 Text(message, color = Color.White)
             }
+        }
+
+        // 3f. QuickMenu — Procreate's radial six-slot, opened by holding four fingers and centred
+        // where they landed. Drawn above the canvas overlays and below the panels: it is modal over
+        // the artwork (its scrim swallows touches) but should never cover a panel it just opened.
+        uiState.quickMenuAt?.let { at ->
+            val activeId = uiState.activeLayerId
+            QuickMenu(
+                center = at,
+                onDismiss = { vm.onDismissQuickMenu() },
+                modifier = Modifier.fillMaxSize(),
+                actions = listOf(
+                    QuickAction("Undo", enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
+                    QuickAction("Layer") { vm.onAddBlankLayer() },
+                    QuickAction("Alpha", enabled = activeId != null) {
+                        activeId?.let { vm.onToggleAlphaLock(it) }
+                    },
+                    QuickAction(if (uiState.symmetryEnabled) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
+                    QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
+                    QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
+                ),
+            )
         }
 
         // 4. Bottom panels overlay (layers list, adjustment knobs, colour picker).

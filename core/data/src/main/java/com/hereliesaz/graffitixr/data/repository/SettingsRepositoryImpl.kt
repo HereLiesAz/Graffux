@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.map
 import java.io.IOException
 import javax.inject.Inject
 
+import com.hereliesaz.graffitixr.common.util.PaletteCodec
+
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 class SettingsRepositoryImpl @Inject constructor(
@@ -46,6 +48,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val THROTTLE_ON_LAG = booleanPreferencesKey("throttle_on_lag")
     private val ADAPTIVE_RATE_ENABLED = booleanPreferencesKey("adaptive_rate_enabled")
     private val COMPLETED_TUTORIALS = stringSetPreferencesKey("completed_tutorials")
+    private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -218,5 +221,13 @@ class SettingsRepositoryImpl @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences[COMPLETED_TUTORIALS] = emptySet()
         }
+    }
+
+    override val savedPalette: Flow<List<Int>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> PaletteCodec.decode(preferences[SAVED_PALETTE]) }
+
+    override suspend fun setSavedPalette(colors: List<Int>) {
+        context.dataStore.edit { it[SAVED_PALETTE] = PaletteCodec.encode(colors) }
     }
 }

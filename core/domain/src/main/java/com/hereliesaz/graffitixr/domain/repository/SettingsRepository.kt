@@ -107,4 +107,12 @@ interface SettingsRepository {
 
     /** Clears every completed-tutorial key, allowing first-run flows to fire again. */
     suspend fun clearCompletedTutorials()
+
+    /**
+     * The user's saved colour swatches, as ARGB ints, in the order they arranged them. Ordered, so
+     * it is stored as one encoded string rather than on a string-set preference.
+     */
+    val savedPalette: Flow<List<Int>>
+
+    suspend fun setSavedPalette(colors: List<Int>)
 }

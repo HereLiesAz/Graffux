@@ -69,6 +69,14 @@ class SelectionTest {
         assertNull(EditorReducer.reduce(EditorUiState(), EditorIntent.InvertSelection).selection)
     }
 
+    @Test
+    fun `SetQuickMenu opens at a point and closes with null`() {
+        val at = Offset(120f, 340f)
+        val open = EditorReducer.reduce(EditorUiState(), EditorIntent.SetQuickMenu(at))
+        assertEquals(at, open.quickMenuAt)
+        assertNull(EditorReducer.reduce(open, EditorIntent.SetQuickMenu(null)).quickMenuAt)
+    }
+
     // ── Replay ───────────────────────────────────────────────────────────────────────────
 
     @Before
@@ -123,6 +131,52 @@ class SelectionTest {
         DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(moveCommand(delta = null)))
 
         verify(exactly = 0) { SelectionMask.moveRegion(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a clear command wipes rather than painting`() = runTest {
+        val base = bitmap()
+        every { SelectionMask.bitmapPath(any(), any(), any(), any(), any(), any()) } returns null
+
+        val clear = StrokeCommand(
+            path = emptyList(),
+            canvasSize = canvas,
+            tool = Tool.ERASER,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            clearAll = true,
+        )
+        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(clear))
+
+        // The clear branch is taken before any paint path — an empty-path eraser stroke would
+        // otherwise fall through to applyToolToBitmap and do nothing at all.
+        coVerify(exactly = 0) {
+            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
+        }
+        verify(exactly = 0) { SelectionMask.moveRegion(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a clear command inside a selection clips to it`() = runTest {
+        val base = bitmap()
+        val clip = mockk<android.graphics.Path>(relaxed = true)
+        every { SelectionMask.bitmapPath(any(), any(), any(), any(), any(), any()) } returns clip
+        every { SelectionMask.clip(any(), any()) } returns Unit
+
+        val clear = StrokeCommand(
+            path = emptyList(),
+            canvasSize = canvas,
+            tool = Tool.ERASER,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            selection = square,
+            clearAll = true,
+        )
+        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(clear))
+
+        verify { SelectionMask.clip(any(), eq(clip)) }
     }
 
     @Test

@@ -89,6 +89,8 @@ internal sealed interface EditorIntent {
     data object ToggleWrapAroundMode : EditorIntent
     /** Toggles the vertical-mirror symmetry guide for painting. */
     data object ToggleSymmetry : EditorIntent
+    /** Opens the radial QuickMenu at a screen point, or closes it with null. */
+    data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */
     data class SetSelection(val selection: com.hereliesaz.graffitixr.common.model.Selection?) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */

@@ -172,6 +172,8 @@ data class EditorUiState(
     val eyedropPosition: Offset = Offset.Zero,
     // Transient HUD confirmations, Procreate-style: a short-lived pill ("Undo", "Redo") at the top
     // of the canvas, and a brush-diameter preview circle while the size slider moves.
+    // Procreate's QuickMenu: the screen point the radial menu is open at, or null when closed.
+    val quickMenuAt: Offset? = null,
     val hudMessage: String? = null,
     val brushHudVisible: Boolean = false,
     val activeColor: Color = Color.White,

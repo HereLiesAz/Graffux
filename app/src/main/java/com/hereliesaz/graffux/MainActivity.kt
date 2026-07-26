@@ -42,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
@@ -153,6 +154,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
+    // at the middle of the screen — the canvas is full-bleed, so that is the middle of the artwork.
+    val screenConfig = LocalConfiguration.current
+    val screenCenter = with(LocalDensity.current) {
+        Offset(screenConfig.screenWidthDp.dp.toPx() / 2f, screenConfig.screenHeightDp.dp.toPx() / 2f)
+    }
 
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -202,6 +209,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             strings = strings,
             navItemColor = navItemColor,
             activeColor = activeRailColor, // Pass down to DSL builder
+            screenCenter = screenCenter,
             onBlendMode = { showBlendDialog = true },
             onAddClicked = { showAddDialog = true },
             onAlignClicked = { showAlignDialog = true },
@@ -547,6 +555,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
+    // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't
+    // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in).
+    screenCenter: Offset,
     onBlendMode: () -> Unit,
     onAddClicked: () -> Unit,
     onAlignClicked: () -> Unit,
@@ -621,6 +632,15 @@ private fun AzNavHostScope.ConfigureRailItems(
             onClick = { vm.onClearSelection() },
         )
     }
+    // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
+    // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
+    // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
+    azRailItem(
+        id = "tool.quick", text = "Quick",
+        content = Icons.Filled.DonutLarge,
+        color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
+        onClick = { vm.onOpenQuickMenu(screenCenter) },
+    )
     // Symmetry guide: strokes mirror across the vertical centre while it's on.
     azRailToggle(
         id = "tool.symmetry",
@@ -712,6 +732,8 @@ private fun AzNavHostScope.ConfigureRailItems(
                 listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
                 listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
                 listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+                listItem("Merge Down") { vm.onMergeDown(layer.id) }
+                listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
                 listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
             }
         }
