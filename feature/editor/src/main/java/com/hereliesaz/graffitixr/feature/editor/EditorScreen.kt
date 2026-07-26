@@ -285,7 +285,8 @@ fun EditorScreen(
         // space back to bitmap pixels). Active only when a RASTER tool is selected on an unlocked
         // layer — the vector PEN has its own capture layer below.
         if (activeLayer != null && !activeLayerLocked &&
-            uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN
+            uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN &&
+            uiState.activeTool != Tool.SELECT
         ) {
             DrawingCanvas(
                 activeTool = uiState.activeTool,
@@ -303,6 +304,27 @@ fun EditorScreen(
                 onEyedropSample = { offset -> vm.onEyedropSample(offset) },
                 onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
             )
+        }
+
+        // 3a-bis. Lasso capture layer — traces a new selection, or moves the pixels of the current
+        // one when the drag starts inside it. Screen space, like the brush layer, so the polygon it
+        // records maps into any layer through the same screen→bitmap transform the paint uses.
+        if (uiState.activeTool == Tool.SELECT) {
+            SelectionCanvas(
+                selection = uiState.selection,
+                gate = strokeGate,
+                modifier = Modifier.fillMaxSize(),
+                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
+                onSelectionMove = { delta -> vm.onSelectionMove(delta) },
+                onClearSelection = { vm.onClearSelection() },
+            )
+        }
+
+        // 3a-ter. Marching ants for the committed selection. Purely visual, and shown under every
+        // tool — the selection keeps clipping the brush after you switch back to it, so hiding the
+        // outline would leave strokes mysteriously stopping at an invisible edge.
+        uiState.selection?.let { sel ->
+            SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
         }
 
         // 3b. Pen (vector) capture layer — a freeform drag traces a live poly-line that is committed

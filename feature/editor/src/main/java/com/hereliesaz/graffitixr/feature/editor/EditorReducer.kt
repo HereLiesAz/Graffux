@@ -106,6 +106,14 @@ internal object EditorReducer {
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
         EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        // A polygon too small to enclose anything is a deselect, not a selection that silently
+        // clips every subsequent stroke to nothing.
+        is EditorIntent.SetSelection -> state.copy(
+            selection = intent.selection?.takeIf { it.isUsable }
+        )
+        EditorIntent.InvertSelection -> state.copy(
+            selection = state.selection?.let { it.copy(inverted = !it.inverted) }
+        )
         is EditorIntent.SetEyedrop -> state.copy(
             isEyedropping = intent.active,
             eyedropColor = if (intent.active) intent.color else null,

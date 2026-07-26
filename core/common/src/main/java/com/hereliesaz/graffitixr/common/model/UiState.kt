@@ -9,7 +9,12 @@ enum class Tool {
     /** Vector pen: a freeform drag traces an open PATH vector shape on a new layer. */
     PEN,
     /** Flood fill (Procreate's ColorDrop): a tap fills the contiguous region under the finger. */
-    FILL
+    FILL,
+    /**
+     * Freehand selection (Procreate's lasso). A drag traces a region; every raster tool is then
+     * confined to it until it is cleared. Dragging inside an existing selection moves its pixels.
+     */
+    SELECT
 }
 
 enum class ArScanMode {

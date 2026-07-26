@@ -88,6 +88,13 @@ data class StrokeCommand(
     // paint to pixels that already have alpha.
     val symmetry: Boolean = false,
     val alphaLock: Boolean = false,
+    // The lasso selection in force when the stroke was drawn, if any. Recorded per stroke (rather
+    // than read from live state at replay time) so an undo/redo re-composites against the same
+    // boundary the paint was originally clipped to, even after the selection has moved or gone.
+    val selection: com.hereliesaz.graffitixr.common.model.Selection? = null,
+    // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
+    // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
+    val moveDelta: Offset? = null,
 )
 
 sealed class EditCommand {
@@ -191,6 +198,8 @@ class EditorViewModel @Inject constructor(
     // StrokeCommand (which is what undo/redo replays).
     private var strokeSymmetry: Boolean = false
     private var strokeAlphaLock: Boolean = false
+    /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
+    private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
@@ -427,6 +436,11 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 if (!layerStore.removeLastStroke(command.layerId)) return
                 rebuildLayerBitmap(command.layerId, emitOp = true)
+                // Undoing a selection move must walk the marquee back with its pixels, or it would
+                // sit over content it no longer bounds.
+                if (command.command.tool == Tool.SELECT) {
+                    dispatch(EditorIntent.SetSelection(command.command.selection))
+                }
             }
             is EditCommand.PropertyChange -> {
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
@@ -453,6 +467,13 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 rebuildLayerBitmap(command.layerId, emitOp = true)
+                // Redo re-applies the move, so the marquee moves forward with it again.
+                val delta = command.command.moveDelta
+                if (command.command.tool == Tool.SELECT && delta != null) {
+                    dispatch(EditorIntent.SetSelection(
+                        command.command.selection?.let { sel -> sel.copy(path = sel.path.map { it + delta }) }
+                    ))
+                }
             }
             is EditCommand.PropertyChange -> {
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
@@ -2244,6 +2265,7 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
         strokeAlphaLock = layer.alphaLock
+        strokeSelection = state.selection
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
@@ -2273,7 +2295,16 @@ class EditorViewModel @Inject constructor(
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
                     if (stampSeed == currentSeed && stampBrushForStroke === stampBrush && strokeLayerId == layerId) {
                         stampLiveBitmap = work
-                        stampLiveCanvas = Canvas(work)
+                        // Same sticky-clip trick as the brush preview: bound the stamp canvas once.
+                        stampLiveCanvas = Canvas(work).also { c ->
+                            SelectionMask.clip(
+                                c,
+                                SelectionMask.bitmapPath(
+                                    strokeSelection, work.width, work.height,
+                                    layer.scale, layer.offset, layer.rotationZ,
+                                ),
+                            )
+                        }
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
@@ -2298,6 +2329,16 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.default) {
             val workBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val workCanvas = Canvas(workBitmap)
+            // Clip the live-preview canvas to the lasso once, here. A Canvas clip is sticky until a
+            // restore, and this canvas is retained for the whole stroke — so every later segment
+            // drawn by onStrokePoint is confined too, without re-clipping per frame.
+            SelectionMask.clip(
+                workCanvas,
+                SelectionMask.bitmapPath(
+                    strokeSelection, workBitmap.width, workBitmap.height,
+                    layer.scale, layer.offset, layer.rotationZ,
+                ),
+            )
             // Read the transform off the captured immutable `layer` (not the mutable stroke* members,
             // which a quick second stroke could overwrite before this coroutine runs).
             val layerScale = layer.scale
@@ -2547,6 +2588,7 @@ class EditorViewModel @Inject constructor(
             commitStampStroke(
                 state, layer, layerId, points, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
+                strokeSelection,
             )
             clearTransientStrokeState()
             return
@@ -2569,6 +2611,7 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
+                selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
@@ -2583,7 +2626,13 @@ class EditorViewModel @Inject constructor(
                 val blurred = ImageProcessor.applyToolToBitmap(
                     base, mapped, Tool.BLUR, state.brushSize * brushScale,
                     state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
-                    symmetry = strokeSymmetry,
+                    symmetry = command.symmetry,
+                    // Read off the command, not `strokeSelection`: this runs after the caller has
+                    // already cleared the transient stroke state.
+                    clipPath = SelectionMask.bitmapPath(
+                        command.selection, base.width, base.height,
+                        capturedScale, capturedOffset, capturedRotationZ,
+                    ),
                 )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -2634,6 +2683,13 @@ class EditorViewModel @Inject constructor(
                 val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                 if (target != null && points.isNotEmpty()) {
                     val canvas = android.graphics.Canvas(target)
+                    SelectionMask.clip(
+                        canvas,
+                        SelectionMask.bitmapPath(
+                            strokeSelection, target.width, target.height,
+                            capturedScale, capturedOffset, capturedRotationZ,
+                        ),
+                    )
                     val brushScale = ImageProcessor.screenToBitmapScale(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
@@ -2709,6 +2765,7 @@ class EditorViewModel @Inject constructor(
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
+                selection = strokeSelection,
             )
 
             // Add stroke to history
@@ -2740,6 +2797,7 @@ class EditorViewModel @Inject constructor(
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
+                selection = strokeSelection,
             )
 
             // Add stroke to history for undo/redo replay.
@@ -2806,6 +2864,10 @@ class EditorViewModel @Inject constructor(
         rotationZ: Float,
         brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
         stampShape: Bitmap?,
+        // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke
+        // state the moment this returns, while the rasterization below runs later on a background
+        // dispatcher and would otherwise find it already null.
+        selection: com.hereliesaz.graffitixr.common.model.Selection?,
     ) {
         val base = layer.bitmap ?: return
         if (points.isEmpty()) return
@@ -2828,6 +2890,7 @@ class EditorViewModel @Inject constructor(
             // Reuse the live-preview seed so the committed pixels match what was previewed (no flash).
             seed = stampSeed,
             stampShape = stampShape,
+            selection = selection,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -2845,8 +2908,13 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
+            val commitCanvas = Canvas(target)
+            SelectionMask.clip(
+                commitCanvas,
+                SelectionMask.bitmapPath(selection, target.width, target.height, scale, offset, rotationZ),
+            )
             StampBrushRenderer.paintStroke(
-                Canvas(target), pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
+                commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
@@ -2959,6 +3027,7 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
+            selection = state.selection,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -2969,7 +3038,14 @@ class EditorViewModel @Inject constructor(
                 layer.scale, layer.offset, layer.rotationZ
             ).first()
             val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            ImageProcessor.floodFill(target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb())
+            val clipPath = SelectionMask.bitmapPath(
+                command.selection, target.width, target.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+            ImageProcessor.floodFill(
+                target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb(),
+                clipRegion = SelectionMask.region(clipPath, target.width, target.height),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -2978,6 +3054,86 @@ class EditorViewModel @Inject constructor(
             }
             // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
             opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
+    // ── Freehand selection (Procreate's lasso) ───────────────────────────────────────────────
+
+    /**
+     * Adopts the lasso the finger just traced. The polygon is thinned first — a traced loop arrives
+     * at touch-event rate, and every retained vertex is re-mapped on every paint op the selection
+     * clips. A loop too small to enclose anything is treated as a deselect by the reducer.
+     */
+    fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
+        val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        dispatch(EditorIntent.SetSelection(
+            com.hereliesaz.graffitixr.common.model.Selection(simplified, canvasSize)
+        ))
+    }
+
+    fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
+
+    fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
+
+    /**
+     * Moves the selected pixels by [delta] (screen space) on the active layer.
+     *
+     * Recorded as a [Tool.SELECT] [StrokeCommand] rather than a bitmap snapshot: the editor's
+     * history restores pixels by *replaying* stroke commands onto a base (property snapshots
+     * deliberately strip bitmaps), so a move only becomes undoable by being replayable. Given the
+     * same base, lasso and delta it reproduces identically — see [DrawingEngine].
+     *
+     * The marquee travels with its pixels so the selection keeps bounding the same content.
+     */
+    fun onSelectionMove(delta: Offset) {
+        val state = _uiState.value
+        val selection = state.selection ?: return
+        if (!selection.isUsable) return
+        // Sub-pixel drags would spend a full-bitmap lift to change nothing.
+        if (delta.getDistance() < 1f) return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Move needs a paint layer — vector shapes move via Transform", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val command = StrokeCommand(
+            // `path` carries the lasso too so the command reads sensibly on its own; the clip is
+            // built from `selection`, which also records whether it was inverted.
+            path = selection.path,
+            canvasSize = selection.canvasSize,
+            tool = Tool.SELECT,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = selection,
+            moveDelta = delta,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+
+        viewModelScope.launch(dispatchers.default) {
+            val clipPath = SelectionMask.bitmapPath(
+                selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+            ) ?: return@launch
+            val d = SelectionMask.mapDelta(
+                delta, selection.canvasSize.width, selection.canvasSize.height,
+                base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+            )
+            val moved = SelectionMask.moveRegion(base, clipPath, d.x, d.y)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
+                }
+                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + delta })))
+                scheduleDiskSave(layerId, moved, layer.uri)
+            }
+            // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
         }
     }
 
@@ -3079,6 +3235,7 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = null
         strokeSymmetry = false
         strokeAlphaLock = false
+        strokeSelection = null
         resetStrokePoints()
         strokeLayerId = null
 

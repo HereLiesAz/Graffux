@@ -160,6 +160,10 @@ data class EditorUiState(
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.
     val symmetryEnabled: Boolean = false,
+    // Procreate's freehand selection: while set, every raster tool is confined to this region and
+    // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
+    // a selection are undoable, the act of selecting isn't.
+    val selection: Selection? = null,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

@@ -597,6 +597,30 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
     )
+    // Procreate's freehand selection: lasso a region, and every raster tool is confined to it until
+    // it's cleared. Dragging inside the marquee moves the selected pixels.
+    azRailItem(
+        id = "tool.select", text = "Select",
+        content = Icons.Filled.Gesture,
+        color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
+    )
+    // Only meaningful with something selected, so they appear with the selection rather than
+    // sitting permanently greyed in the strip.
+    if (uiState.selection != null) {
+        azRailItem(
+            id = "tool.selectInvert", text = "Invert",
+            content = Icons.Filled.FlipCameraAndroid,
+            color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
+            onClick = { vm.onInvertSelection() },
+        )
+        azRailItem(
+            id = "tool.deselect", text = "Deselect",
+            content = Icons.Filled.Deselect,
+            color = navItemColor,
+            onClick = { vm.onClearSelection() },
+        )
+    }
     // Symmetry guide: strokes mirror across the vertical centre while it's on.
     azRailToggle(
         id = "tool.symmetry",

@@ -41,6 +41,23 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         applyTool(base, command, replaceExisting = false)
 
     private suspend fun applyTool(bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean): Bitmap {
+        // The lasso in force when this stroke was drawn, in this bitmap's pixel space. Every branch
+        // below clips to it, so replaying a stroke reproduces the clipped paint exactly.
+        val clipPath = SelectionMask.bitmapPath(
+            stroke.selection, bitmap.width, bitmap.height,
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+        )
+        // A selection move: lift the selected pixels, clear the hole, stamp them down offset. Fully
+        // determined by (base, selection, delta), so it replays through history like any stroke.
+        if (stroke.tool == Tool.SELECT) {
+            val delta = stroke.moveDelta ?: return bitmap
+            if (clipPath == null) return bitmap
+            val d = SelectionMask.mapDelta(
+                delta, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            )
+            return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y)
+        }
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
@@ -50,7 +67,10 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         if (stroke.tool == Tool.FILL) {
             val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
             val p = mapped.firstOrNull() ?: return target
-            ImageProcessor.floodFill(target, p.x.toInt(), p.y.toInt(), stroke.brushColor)
+            ImageProcessor.floodFill(
+                target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
+                clipRegion = SelectionMask.region(clipPath, target.width, target.height),
+            )
             return target
         }
         // brushSize is stored in screen px (what the rail size preview shows). Convert it to bitmap
@@ -66,8 +86,10 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
+            val stampCanvas = android.graphics.Canvas(target)
+            SelectionMask.clip(stampCanvas, clipPath)
             StampBrushRenderer.paintStroke(
-                android.graphics.Canvas(target), pts, brush, stroke.brushColor,
+                stampCanvas, pts, brush, stroke.brushColor,
                 stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
             )
             return target
@@ -76,6 +98,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
             replaceExisting, stroke.feathering,
             alphaLock = stroke.alphaLock, symmetry = stroke.symmetry,
+            clipPath = clipPath,
         )
     }
 
