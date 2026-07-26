@@ -1,13 +1,10 @@
 package com.hereliesaz.graffitixr.feature.editor
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +24,15 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Selection
+import kotlinx.coroutines.delay
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
+
+/** Dash length of the marching ants, in px. */
+private const val ANT_DASH = 8f
+
+/** Steps per full dash cycle, and how long each is held. 12/s reads as motion without the cost. */
+private const val ANT_STEPS = 8
+private const val ANT_STEP_MS = 80L
 
 /**
  * The touch surface for the freehand selection tool. Two gestures, chosen by where the finger
@@ -121,7 +126,7 @@ fun SelectionCanvas(
         if (d != null && selection != null && selection.isUsable && d != Offset.Zero) {
             drawPolygon(
                 selection.path.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
-                closed = true, dash = floatArrayOf(8f, 8f),
+                closed = true, dash = floatArrayOf(ANT_DASH, ANT_DASH),
             )
         }
     }
@@ -140,17 +145,22 @@ fun SelectionMarquee(
     selection: Selection,
     modifier: Modifier = Modifier,
 ) {
-    val transition = rememberInfiniteTransition(label = "marching-ants")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 16f,
-        animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing)),
-        label = "ant-phase",
-    )
+    // Stepped, not a continuous animation. An infiniteRepeatable drives this at the display's
+    // refresh rate, which repainted a full-screen canvas 60-120 times a second for the entire life
+    // of a selection — the ants only need to *look* like they are marching. Twelve steps a second
+    // reads as continuous motion and costs an order of magnitude less power.
+    var step by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(ANT_STEP_MS)
+            step++
+        }
+    }
+    val phase = (step % ANT_STEPS) * (ANT_DASH * 2f / ANT_STEPS)
     Canvas(modifier = modifier) {
         if (!selection.isUsable) return@Canvas
         val width = 1.5.dp.toPx()
-        val dash = floatArrayOf(8f, 8f)
+        val dash = floatArrayOf(ANT_DASH, ANT_DASH)
         // Black underlay then white ants on top: legible over light and dark artwork alike.
         drawPolygon(selection.path, Color.Black.copy(alpha = 0.6f), width, closed = true)
         drawPolygon(selection.path, Color.White, width, closed = true, dash = dash, phase = phase)

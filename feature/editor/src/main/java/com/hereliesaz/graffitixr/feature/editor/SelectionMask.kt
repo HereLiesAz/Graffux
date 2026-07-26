@@ -5,6 +5,7 @@ import android.graphics.Path
 import android.graphics.Region
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
 /**
@@ -80,12 +81,28 @@ internal object SelectionMask {
      * [StrokeCommand] and replayed by [DrawingEngine] on undo/redo like any stroke.
      */
     fun moveRegion(source: android.graphics.Bitmap, clipPath: Path, dx: Float, dy: Float): android.graphics.Bitmap {
-        val out = source.copy(android.graphics.Bitmap.Config.ARGB_8888, true) ?: return source
-        // Lift: the selected pixels alone, on transparency, at their original position.
-        val lifted = android.graphics.Bitmap.createBitmap(
-            source.width, source.height, android.graphics.Bitmap.Config.ARGB_8888,
-        )
+        // Only the selection's bounds are lifted, not a second full-canvas buffer. A full-size lift
+        // cost another width*height*4 bytes on top of the output copy, which on a phone-resolution
+        // layer is tens of megabytes for what is usually a small region — enough, stacked on the
+        // layers already resident, to be the allocation that fails.
+        val bounds = android.graphics.RectF()
+        clipPath.computeBounds(bounds, true)
+        val left = bounds.left.toInt().coerceIn(0, source.width)
+        val top = bounds.top.toInt().coerceIn(0, source.height)
+        val right = kotlin.math.ceil(bounds.right).toInt().coerceIn(left, source.width)
+        val bottom = kotlin.math.ceil(bounds.bottom).toInt().coerceIn(top, source.height)
+        val w = right - left
+        val h = bottom - top
+        val out = SafeBitmap.copy(source) ?: return source
+        // An empty region has nothing to move; the copy is still the right answer.
+        if (w <= 0 || h <= 0) return out
+
+        // Without the lift there is nothing to move; returning the untouched copy is the
+        // honest degradation — better a move that didn't happen than a crash mid-drag.
+        val lifted = SafeBitmap.create(w, h) ?: return out
         val liftCanvas = Canvas(lifted)
+        // Shift the clip into the lift's own coordinate space before using it.
+        liftCanvas.translate(-left.toFloat(), -top.toFloat())
         liftCanvas.clipPath(clipPath)
         liftCanvas.drawBitmap(source, 0f, 0f, null)
 
@@ -95,7 +112,7 @@ internal object SelectionMask {
         outCanvas.clipPath(clipPath)
         outCanvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
         outCanvas.restore()
-        outCanvas.drawBitmap(lifted, dx, dy, null)
+        outCanvas.drawBitmap(lifted, left + dx, top + dy, null)
         lifted.recycle()
         return out
     }

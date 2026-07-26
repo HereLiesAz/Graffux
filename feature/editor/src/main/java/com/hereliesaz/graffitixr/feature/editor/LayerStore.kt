@@ -68,6 +68,35 @@ internal class LayerStore {
         return true
     }
 
+    /** How many strokes are queued for replay on [layerId]. */
+    fun strokeCount(layerId: String): Int {
+        val list = layerStrokes[layerId] ?: return 0
+        return synchronized(list) { list.size }
+    }
+
+    /**
+     * Removes and returns the oldest [count] strokes for [layerId] — the caller bakes them into the
+     * base bitmap so they never need replaying again.
+     *
+     * Every layer replays its *entire* stroke list to rebuild, so an unbounded list makes each undo
+     * cost O(strokes) full-bitmap composites and holds every recorded path (and stamp bitmap)
+     * forever. Strokes older than the undo depth can never be reached again, so folding them into
+     * the base is pure profit: identical pixels, bounded work, bounded memory.
+     *
+     * Returns an empty list if there is nothing to bake, so the caller can skip the work entirely.
+     */
+    fun takeOldestStrokes(layerId: String, count: Int): List<StrokeCommand> {
+        if (count <= 0) return emptyList()
+        val list = layerStrokes[layerId] ?: return emptyList()
+        return synchronized(list) {
+            val take = minOf(count, list.size)
+            if (take <= 0) return@synchronized emptyList()
+            val taken = ArrayList<StrokeCommand>(take)
+            repeat(take) { taken.add(list.removeAt(0)) }
+            taken
+        }
+    }
+
     /** Drops both caches for [layerId]. */
     fun remove(layerId: String) {
         baseBitmaps.remove(layerId)

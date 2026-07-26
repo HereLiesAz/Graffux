@@ -34,6 +34,7 @@ import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
@@ -101,6 +102,13 @@ data class StrokeCommand(
     val clearAll: Boolean = false,
 )
 
+/**
+ * How many edits deep undo goes — and therefore how many strokes a layer must keep replayable.
+ * Shared by [EditHistory] and the stroke baker so they can't drift apart: if the history were ever
+ * deeper than the strokes kept, an undo would silently restore the wrong pixels.
+ */
+internal const val HISTORY_DEPTH = 20
+
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
     data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
@@ -163,7 +171,7 @@ class EditorViewModel @Inject constructor(
                 emptyList()
             )
 
-    private val history = EditHistory()
+    private val history = EditHistory(HISTORY_DEPTH)
 
     // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore).
     private val layerStore = LayerStore()
@@ -204,6 +212,8 @@ class EditorViewModel @Inject constructor(
     private var strokeAlphaLock: Boolean = false
     /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
+    /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
+    private var lastSampleMs: Long = 0L
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
@@ -269,6 +279,18 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
                 dispatch(EditorIntent.SetCanvasBackground(Color(argb.toLong() and 0xFFFFFFFFL)))
+            }
+        }
+        // Performance settings, mirrored into UiState so the hot paths (onStrokePoint, layer
+        // allocation) read them without touching DataStore per touch sample.
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.inputSampleRateHz.collect { hz ->
+                dispatch(EditorIntent.SetInputSampleRateHz(hz))
+            }
+        }
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.canvasRenderScale.collect { scale ->
+                dispatch(EditorIntent.SetCanvasRenderScale(scale))
             }
         }
 
@@ -503,6 +525,80 @@ class EditorViewModel @Inject constructor(
         layers.filter { it.bitmap == null }.forEach { rebuildLayerBitmap(it.id, emitOp = true) }
     }
 
+    /**
+     * Folds strokes older than the undo depth into the layer's base bitmap and drops them.
+     *
+     * A layer rebuilds by replaying its *whole* stroke list onto the base, so without this the list
+     * grows for the life of the session: every undo costs one full-bitmap composite per stroke ever
+     * made on that layer, and every recorded path — plus any stamp-brush bitmap it references — is
+     * retained forever. Both were unbounded.
+     *
+     * [EditHistory] keeps at most [HISTORY_DEPTH] entries, so a stroke older than that can never be
+     * undone back to. Baking it produces identical pixels for strictly less work and memory.
+     *
+     * The composite runs against a *snapshot* and the strokes are only removed afterwards, on the
+     * main thread, so a cancelled bake loses nothing: strokes are append-only, which keeps "the
+     * oldest N" the same N it composited.
+     */
+    private fun maybeBakeOldStrokes(layerId: String) {
+        val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
+        if (excess <= 0) return
+        val base = layerStore.base(layerId) ?: return
+        val stale = layerStore.strokes(layerId).take(excess)
+        if (stale.isEmpty()) return
+
+        viewModelScope.launch(dispatchers.default) {
+            try {
+                val baked = drawingEngine.composite(base, stale)
+                withContext(dispatchers.main) {
+                    // Re-check under the main thread: a project reload could have replaced the
+                    // layer's caches wholesale while this ran, and baking onto a stale base would
+                    // resurrect deleted pixels.
+                    if (layerStore.base(layerId) !== base) {
+                        baked.recycle()
+                        return@withContext
+                    }
+                    layerStore.takeOldestStrokes(layerId, stale.size)
+                    layerStore.putBase(layerId, baked)
+                    // The superseded base is deliberately NOT recycled: a rebuild launched before
+                    // this bake may still be compositing from it on another thread, and recycling
+                    // it underneath would fail that rebuild. It is unreachable now, so the
+                    // collector reclaims it — a moment later, but safely.
+                    //
+                    // Swapping the base and dropping the strokes together on the main thread is
+                    // what keeps this correct: rebuildLayerBitmap captures base and strokes on the
+                    // same thread, so it can never pair a freshly baked base with the strokes
+                    // already folded into it and apply them twice.
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Losing a bake is harmless — the strokes are still queued and still replay.
+                android.util.Log.w("EditorViewModel", "Failed to bake old strokes for $layerId", e)
+            }
+        }
+    }
+
+    /**
+     * The pixel size a newly created layer should allocate at: the screen, scaled by the user's
+     * canvas render scale.
+     *
+     * A layer costs width*height*4 bytes twice over (the displayed bitmap and [LayerStore]'s
+     * pristine base), so on a 1440x3120 panel each layer is ~36 MB at full scale and a handful of
+     * them exhausts the heap. Scale is quadratic here: 0.5 leaves a quarter of the bytes.
+     *
+     * Stroke coordinates are unaffected — [ImageProcessor.mapScreenToBitmap] derives its fit scale
+     * from the bitmap's own dimensions, so a smaller layer takes the same strokes in the same
+     * places and simply renders scaled up.
+     */
+    private fun newLayerSize(): Pair<Int, Int> {
+        val metrics = context.resources.displayMetrics
+        val scale = _uiState.value.canvasRenderScale.coerceIn(0.25f, 1f)
+        val w = (metrics.widthPixels.takeIf { it > 0 } ?: 1080) * scale
+        val h = (metrics.heightPixels.takeIf { it > 0 } ?: 1920) * scale
+        return w.toInt().coerceAtLeast(1) to h.toInt().coerceAtLeast(1)
+    }
+
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
         val base = layerStore.base(layerId) ?: return
         val strokes = layerStore.strokes(layerId)
@@ -541,6 +637,7 @@ class EditorViewModel @Inject constructor(
 
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
 
         viewModelScope.launch(dispatchers.default) {
             val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command)
@@ -918,9 +1015,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         viewModelScope.launch(dispatchers.io) {
             val projectId = ensureProjectId()
-            val metrics = context.resources.displayMetrics
-            val width = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val height = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            val (width, height) = newLayerSize()
             val blankBitmap = createBitmap(width, height)
 
             val filename = "layer_${UUID.randomUUID()}.png"
@@ -1947,6 +2042,16 @@ class EditorViewModel @Inject constructor(
     override fun onOffsetChanged(o: Offset) = dispatch(EditorIntent.AddOffset(o))
 
     fun setStabilizerLevel(level: Int) = dispatch(EditorIntent.SetStabilizerLevel(level))
+
+    /** Persisted; the collector above mirrors it back into [EditorUiState]. */
+    fun setInputSampleRateHz(hz: Int) {
+        viewModelScope.launch { settingsRepository.setInputSampleRateHz(hz) }
+    }
+
+    /** Persisted. Applies to layers created from now on — existing layers keep their pixels. */
+    fun setCanvasRenderScale(scale: Float) {
+        viewModelScope.launch { settingsRepository.setCanvasRenderScale(scale) }
+    }
     fun toggleWrapAroundMode() = dispatch(EditorIntent.ToggleWrapAroundMode)
 
     override fun onRotationXChanged(d: Float) {
@@ -2270,6 +2375,7 @@ class EditorViewModel @Inject constructor(
         strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
         strokeAlphaLock = layer.alphaLock
         strokeSelection = state.selection
+        lastSampleMs = 0L
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
@@ -2293,7 +2399,7 @@ class EditorViewModel @Inject constructor(
             stampLiveCanvas = null
             stampMappedPoints.clear()
             viewModelScope.launch(dispatchers.default) {
-                val work = originalBitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+                val work = SafeBitmap.copy(originalBitmap) ?: return@launch
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -2331,7 +2437,10 @@ class EditorViewModel @Inject constructor(
         // After the copy is done, replay ALL points collected so far (including any that
         // arrived while the copy was in flight) so no input is lost.
         viewModelScope.launch(dispatchers.default) {
-            val workBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            // Skipping the preview beats crashing: the stroke still commits on finger-up through
+            // onStrokeEnd's whole-stroke fallback, which is exactly the path a stroke too fast for
+            // this copy already takes.
+            val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch
             val workCanvas = Canvas(workBitmap)
             // Clip the live-preview canvas to the lasso once, here. A Canvas clip is sticky until a
             // restore, and this canvas is retained for the whole stroke — so every later segment
@@ -2437,6 +2546,25 @@ class EditorViewModel @Inject constructor(
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
     fun onStrokePoint(currentPoint: Offset) {
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel)
+
+        // Input-rate throttle. Touch panels report at 120-240 Hz and this method previously
+        // rendered and published a frame for every single sample — the editor's largest power cost
+        // while drawing, spent on frames the display never showed. Dropping a sample loses nothing
+        // visible: the stroke is a polyline, so the segment simply spans to the next kept point.
+        //
+        // The point is still stabilized first (above) so the filter's history stays continuous, and
+        // the very first point of a stroke is never dropped — a quick tap is a single dab and has
+        // no later sample to fall back on.
+        val rateHz = _uiState.value.inputSampleRateHz
+        if (rateHz > 0 && lastSampleMs != 0L) {
+            val minGapMs = 1000L / rateHz
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastSampleMs < minGapMs) return
+            lastSampleMs = now
+        } else {
+            lastSampleMs = android.os.SystemClock.uptimeMillis()
+        }
+
         addStrokePoint(stabilizedPoint)
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
@@ -2620,6 +2748,7 @@ class EditorViewModel @Inject constructor(
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             val mapped = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, base.width, base.height,
@@ -2776,6 +2905,7 @@ class EditorViewModel @Inject constructor(
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             _uiState.update { s ->
                 s.copy(
@@ -2808,6 +2938,7 @@ class EditorViewModel @Inject constructor(
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             // Commit: working bitmap becomes the displayed layer bitmap.
             _uiState.update { s ->
@@ -2899,6 +3030,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
 
         // Capture this stroke's preview bitmap synchronously (clearTransientStrokeState nulls the field
         // right after this returns). The async commit only clears the live preview if it's still ours —
@@ -3036,6 +3168,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
         viewModelScope.launch(dispatchers.default) {
             val mapped = ImageProcessor.mapScreenToBitmap(
                 listOf(position), canvasSize.width, canvasSize.height, base.width, base.height,
@@ -3092,6 +3225,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
         viewModelScope.launch(dispatchers.default) {
@@ -3241,6 +3375,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
 
         viewModelScope.launch(dispatchers.default) {
             val clipPath = SelectionMask.bitmapPath(
@@ -3362,6 +3497,7 @@ class EditorViewModel @Inject constructor(
         strokeSymmetry = false
         strokeAlphaLock = false
         strokeSelection = null
+        lastSampleMs = 0L
         resetStrokePoints()
         strokeLayerId = null
 

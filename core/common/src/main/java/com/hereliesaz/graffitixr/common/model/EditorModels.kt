@@ -156,6 +156,12 @@ data class EditorUiState(
     val brushFlow: Float = 1f,
     val sketchThickness: Int = 5,
     val stabilizerLevel: Int = 0,
+    // Ceiling on touch samples rendered per second while drawing (0 = unthrottled). The editor
+    // renders a frame per recorded sample, so this is the main lever on drawing's power draw.
+    val inputSampleRateHz: Int = 60,
+    // Fraction of screen resolution new layers allocate at. Every layer is a full ARGB_8888 bitmap,
+    // so halving this quarters the bytes per layer — the main lever on memory.
+    val canvasRenderScale: Float = 1f,
     val wrapAroundMode: Boolean = false,
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.

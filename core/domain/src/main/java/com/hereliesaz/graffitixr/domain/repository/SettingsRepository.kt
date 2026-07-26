@@ -115,4 +115,19 @@ interface SettingsRepository {
     val savedPalette: Flow<List<Int>>
 
     suspend fun setSavedPalette(colors: List<Int>)
+
+    /**
+     * Ceiling on how many touch samples per second a stroke records and previews, in Hz.
+     * Modern panels report touch at 120-240 Hz and the editor previously rendered a frame per
+     * sample, so this is the main lever on drawing's power draw. 0 means unthrottled.
+     */
+    val inputSampleRateHz: Flow<Int>
+    suspend fun setInputSampleRateHz(hz: Int)
+
+    /**
+     * Fraction of the screen resolution new layers are allocated at, in (0, 1]. Every layer costs a
+     * full ARGB_8888 bitmap, so this is the main lever on memory: halving it quarters the bytes.
+     */
+    val canvasRenderScale: Flow<Float>
+    suspend fun setCanvasRenderScale(scale: Float)
 }

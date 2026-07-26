@@ -49,6 +49,8 @@ class SettingsRepositoryImpl @Inject constructor(
     private val ADAPTIVE_RATE_ENABLED = booleanPreferencesKey("adaptive_rate_enabled")
     private val COMPLETED_TUTORIALS = stringSetPreferencesKey("completed_tutorials")
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
+    private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
+    private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -229,5 +231,23 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setSavedPalette(colors: List<Int>) {
         context.dataStore.edit { it[SAVED_PALETTE] = PaletteCodec.encode(colors) }
+    }
+
+    override val inputSampleRateHz: Flow<Int> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        // 60 Hz by default rather than unthrottled: a stroke cannot be shown faster than the
+        // display refreshes, so sampling above it spent power on frames nobody ever saw.
+        .map { preferences -> preferences[INPUT_SAMPLE_RATE_HZ] ?: 60 }
+
+    override suspend fun setInputSampleRateHz(hz: Int) {
+        context.dataStore.edit { it[INPUT_SAMPLE_RATE_HZ] = hz.coerceIn(0, 240) }
+    }
+
+    override val canvasRenderScale: Flow<Float> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> (preferences[CANVAS_RENDER_SCALE] ?: 1f).coerceIn(0.25f, 1f) }
+
+    override suspend fun setCanvasRenderScale(scale: Float) {
+        context.dataStore.edit { it[CANVAS_RENDER_SCALE] = scale.coerceIn(0.25f, 1f) }
     }
 }

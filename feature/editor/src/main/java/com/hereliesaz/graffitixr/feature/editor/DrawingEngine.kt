@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
@@ -17,9 +18,18 @@ import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
  */
 internal class DrawingEngine(private val slamManager: SlamManager) {
 
-    /** Replays [strokes] in order onto a fresh mutable copy of [base], returning the result. */
+    /**
+     * Replays [strokes] in order onto a fresh mutable copy of [base], returning the result.
+     *
+     * Throws if that first copy cannot be allocated. Returning [base] itself would be worse than
+     * failing: callers publish the result as the layer's live bitmap, which would alias
+     * [LayerStore]'s pristine base into the UI and let the next in-place stroke corrupt the one
+     * copy every rebuild and undo depends on. Both callers already treat a thrown rebuild as
+     * "leave the layer as it was", which is the correct outcome.
+     */
     suspend fun composite(base: Bitmap, strokes: List<StrokeCommand>): Bitmap {
-        var current = base.copy(Bitmap.Config.ARGB_8888, true)
+        var current = SafeBitmap.copy(base)
+            ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
         for (stroke in strokes) {
             val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
             else applyTool(current, stroke, replaceExisting = true)
@@ -50,7 +60,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         // Clear: wipe to transparency, inside the selection if there is one. Checked before the
         // tool switch because it is an operation recorded onto a tool, not a kind of paint.
         if (stroke.clearAll) {
-            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val canvas = android.graphics.Canvas(target)
             SelectionMask.clip(canvas, clipPath)
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
@@ -74,7 +84,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         // Flood fill replays deterministically from its tap point — same base, same seed pixel,
         // same result — so it records and undoes exactly like a brush stroke.
         if (stroke.tool == Tool.FILL) {
-            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val p = mapped.firstOrNull() ?: return target
             ImageProcessor.floodFill(
                 target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
@@ -92,7 +102,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         // stroke's stored seed so the re-composited pixels match the original commit exactly.
         stroke.stampBrush?.let { brush ->
             // Bitmap.copy can return null under memory pressure — fall back to the input rather than NPE.
-            val target = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
             val stampCanvas = android.graphics.Canvas(target)
@@ -120,7 +130,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }
         slamManager.applyLiquify(flatArr, stroke.brushSize, 0.5f)
-        val baked = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val baked = SafeBitmap.copy(bitmap) ?: return bitmap
         slamManager.bakeLiquify(baked)
         return baked
     }

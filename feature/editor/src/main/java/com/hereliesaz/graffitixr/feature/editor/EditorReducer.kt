@@ -104,6 +104,12 @@ internal object EditorReducer {
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
+        // 240 Hz is above any panel's report rate, so it doubles as "unthrottled" without a
+        // special case; 0 means the same thing explicitly.
+        is EditorIntent.SetInputSampleRateHz -> state.copy(inputSampleRateHz = intent.hz.coerceIn(0, 240))
+        // Floored at a quarter: below that the artwork is visibly soft, and the memory saved is
+        // already 94% of what any scale can save.
+        is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
         EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)

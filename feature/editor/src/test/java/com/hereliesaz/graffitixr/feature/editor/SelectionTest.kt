@@ -70,6 +70,26 @@ class SelectionTest {
     }
 
     @Test
+    fun `sample rate clamps into range and keeps zero as unlimited`() {
+        fun rate(hz: Int) = EditorReducer.reduce(EditorUiState(), EditorIntent.SetInputSampleRateHz(hz)).inputSampleRateHz
+        assertEquals(60, rate(60))
+        assertEquals(0, rate(0))       // 0 is the explicit "unthrottled" value, not an error
+        assertEquals(0, rate(-10))
+        assertEquals(240, rate(10_000))
+    }
+
+    @Test
+    fun `canvas render scale clamps to a usable range`() {
+        fun scale(v: Float) = EditorReducer.reduce(EditorUiState(), EditorIntent.SetCanvasRenderScale(v)).canvasRenderScale
+        assertEquals(1f, scale(1f), 0.001f)
+        assertEquals(0.5f, scale(0.5f), 0.001f)
+        // A zero or negative scale would allocate a zero-pixel layer; the floor prevents it.
+        assertEquals(0.25f, scale(0f), 0.001f)
+        assertEquals(0.25f, scale(-1f), 0.001f)
+        assertEquals(1f, scale(4f), 0.001f)
+    }
+
+    @Test
     fun `SetQuickMenu opens at a point and closes with null`() {
         val at = Offset(120f, 340f)
         val open = EditorReducer.reduce(EditorUiState(), EditorIntent.SetQuickMenu(at))

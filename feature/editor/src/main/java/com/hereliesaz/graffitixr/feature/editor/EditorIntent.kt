@@ -86,6 +86,10 @@ internal sealed interface EditorIntent {
     data class SetBrushFeathering(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
+    /** Ceiling on rendered touch samples per second while drawing; 0 is unthrottled. */
+    data class SetInputSampleRateHz(val hz: Int) : EditorIntent
+    /** Fraction of screen resolution new layers allocate at. */
+    data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
     /** Toggles the vertical-mirror symmetry guide for painting. */
     data object ToggleSymmetry : EditorIntent
