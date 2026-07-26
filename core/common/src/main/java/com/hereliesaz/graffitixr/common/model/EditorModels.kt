@@ -64,8 +64,6 @@ data class Layer(
     val rotationZ: Float = 0f,
     val scale: Float = 1.0f,
     val isInverted: Boolean = false,
-    val stencilType: StencilLayerType? = null,
-    val stencilSourceId: String? = null,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
     // when empty the layer is the usual raster layer backed by [bitmap]. Defaulted for back-compat.
     val shapes: List<VectorShape> = emptyList()
@@ -154,7 +152,6 @@ data class EditorUiState(
     val activeBrushName: String? = null,
     // Flow [0..1] for an azphalt stamp brush: per-dab paint build-up. Ignored by the built-in brush.
     val brushFlow: Float = 1f,
-    val sketchThickness: Int = 5,
     val stabilizerLevel: Int = 0,
     // Ceiling on touch samples rendered per second while drawing (0 = unthrottled). The editor
     // renders a frame per recorded sample, so this is the main lever on drawing's power draw.
@@ -196,12 +193,6 @@ data class EditorUiState(
     // Artboard / document dimensions in pixels (the fixed design/output size).
     val documentWidth: Int = 1080,
     val documentHeight: Int = 1080,
-    val isSegmenting: Boolean = false,
-    val segmentationInfluence: Float = 0.5f,
-    val segmentationPreview: Bitmap? = null,
-    val isStencilGenerating: Boolean = false,
-    val stencilButtonPosition: Offset = Offset.Zero,
-    val stencilHintVisible: Boolean = false,
     // One-shot: set to a freshly-created text layer's id so the UI can immediately open its
     // edit-text box. Cleared once consumed.
     val autoEditTextLayerId: String? = null,

@@ -443,8 +443,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         overlay = overlay,
                         navStrings = strings.nav,
                         onEditText = { manualEditTextId = overlay.id },
-                        onOutline = { vm.onSketchClicked() },
-                        onEdges = { vm.onApplyCannyEdgeClicked() },
                         onInvert = { vm.onToggleInvert() },
                         onShapeSize = { showShapeSizeDialog = true },
                         onStrokeWidth = { showStrokeDialog = true },

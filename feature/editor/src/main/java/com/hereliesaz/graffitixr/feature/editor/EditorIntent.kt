@@ -62,13 +62,6 @@ internal sealed interface EditorIntent {
     // ── Effect-result / transient flags (dispatched by the VM around async work) ───
     data class SetLoading(val loading: Boolean) : EditorIntent
     data class SetBackgroundBitmap(val bitmap: Bitmap?) : EditorIntent
-    data object BeginSegmentation : EditorIntent
-    data object EndSegmentation : EditorIntent
-    data class SetSegmentationInfluence(val value: Float) : EditorIntent
-    data class SetSegmentationPreview(val preview: Bitmap?) : EditorIntent
-    data class SetStencilGenerating(val generating: Boolean) : EditorIntent
-    data class SetStencilHintVisible(val visible: Boolean) : EditorIntent
-    data class SetStencilButtonPosition(val position: Offset) : EditorIntent
 
     // ── Settings / tool / brush / color ───────────────────────────────────────
     data class SetCanvasBackground(val color: Color) : EditorIntent
@@ -81,7 +74,6 @@ internal sealed interface EditorIntent {
     data object ToggleHandedness : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
-    data class SetSketchThickness(val value: Int) : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent

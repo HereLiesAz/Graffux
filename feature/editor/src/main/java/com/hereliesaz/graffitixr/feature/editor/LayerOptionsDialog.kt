@@ -29,8 +29,6 @@ fun LayerOptionsDialog(
     overlay: Layer,
     navStrings: NavStrings,
     onEditText: () -> Unit,
-    onOutline: () -> Unit,
-    onEdges: () -> Unit,
     onInvert: () -> Unit,
     onShapeSize: () -> Unit,
     onStrokeWidth: () -> Unit,
@@ -67,8 +65,6 @@ fun LayerOptionsDialog(
             if (overlay.textParams != null) {
                 AzButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             }
-            AzButton(text = navStrings.outline, onClick = { onOutline(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
-            AzButton(text = navStrings.edges, onClick = { onEdges(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             AzButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             if (overlay.shapes.isNotEmpty()) {
                 AzButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = AzButtonShape.RECTANGLE)

@@ -58,11 +58,7 @@ import java.util.UUID
 import javax.inject.Inject
 import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilPrintEngine
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilProcessor
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilProgress
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
-import com.hereliesaz.graffitixr.common.util.SketchProcessor
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import kotlinx.coroutines.flow.collect
 
@@ -121,9 +117,6 @@ class EditorViewModel @Inject constructor(
     private val projectManager: ProjectManager,
     private val exportManager: ExportManager,
     @ApplicationContext private val context: Context,
-    private val subjectIsolator: SubjectIsolator,
-    private val stencilProcessor: StencilProcessor,
-    private val stencilPrintEngine: StencilPrintEngine,
     internal val slamManager: SlamManager,
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
@@ -194,13 +187,6 @@ class EditorViewModel @Inject constructor(
     private var copiedLayerState: Layer? = null
     private var anchorHalfExtentMeters: Pair<Float, Float>? = null
 
-    private var rawSegmentationConfidence: FloatArray? = null
-    private var segmentationSourceBitmap: Bitmap? = null
-    private var segmentationTargetLayerId: String? = null
-    // Stencil-mode segmentation: pending pipeline info set while the slider is visible
-    private var pendingStencilSourceLayerId: String? = null
-    private var pendingStencilProjectId: String? = null
-
     // Real-time stroke state — valid only between onStrokeStart and onStrokeEnd.
     private var strokeWorkingBitmap: Bitmap? = null
     private var strokeWorkingCanvas: Canvas? = null
@@ -245,10 +231,6 @@ class EditorViewModel @Inject constructor(
     private var strokeLayerScale: Float = 1f
     private var strokeLayerOffset: Offset = Offset.Zero
     private var strokeLayerRotationZ: Float = 0f
-
-    // Cancels the previous segmentation-influence recompute so a slider drag doesn't pile up full
-    // K-means passes (one uncancelled Default coroutine per tick).
-    private var segmentationInfluenceJob: kotlinx.coroutines.Job? = null
 
     // Liquify live-preview state — valid only between onStrokeStart and onStrokeEnd for LIQUIFY.
     private var liquifyJob: kotlinx.coroutines.Job? = null
@@ -1506,270 +1488,6 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onRemoveBackgroundClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val result = subjectIsolator.isolate(bitmap)
-                result.onSuccess { isolationResult ->
-                    val path = projectRepository.saveArtifact(projectId, "bg_removed_${System.currentTimeMillis()}.png", ImageUtils.bitmapToByteArray(isolationResult.isolatedBitmap))
-                    updateLayerUri(layerId, "file://$path".toUri())
-                    rawSegmentationConfidence = isolationResult.rawConfidence
-                    segmentationSourceBitmap = bitmap
-                    segmentationTargetLayerId = layerId
-                    withContext(dispatchers.main) {
-                        dispatch(EditorIntent.BeginSegmentation)
-                    }
-                }
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
-    fun setSegmentationInfluence(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
-        dispatch(EditorIntent.SetSegmentationInfluence(clamped))
-
-        val confidence = rawSegmentationConfidence ?: return
-        val source = segmentationSourceBitmap ?: return
-        val targetId = segmentationTargetLayerId
-
-        // Debounce: each slider tick reruns full K-means, so cancel the in-flight recompute before
-        // starting a fresh one — otherwise fast dragging piles up parallel passes on the Default pool.
-        segmentationInfluenceJob?.cancel()
-        segmentationInfluenceJob = viewModelScope.launch(dispatchers.default) {
-            val newBitmap = subjectIsolator.applyConfidenceThreshold(source, confidence, clamped, 0.1f)
-
-            val finalPreview = if (pendingStencilSourceLayerId != null) {
-                val polarity = stencilProcessor.assessTonalPolarity(newBitmap)
-                val mask = stencilProcessor.alphaToMask(newBitmap)
-                val stencilLayers = stencilProcessor.kmeansLayers(newBitmap, mask, polarity, clamped)
-
-                val combined = Bitmap.createBitmap(newBitmap.width, newBitmap.height, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(combined)
-                stencilLayers.forEach { stencilLayer ->
-                    canvas.drawBitmap(stencilLayer.bitmap, 0f, 0f, null)
-                }
-                combined
-            } else {
-                newBitmap
-            }
-
-            withContext(dispatchers.main) {
-                if (targetId != null) {
-                    _uiState.update { state ->
-                        state.copy(
-                            layers = state.layers.map { layer ->
-                                if (layer.id == targetId) layer.copy(bitmap = finalPreview) else layer
-                            }
-                        )
-                    }
-                } else {
-                    // Update live preview for stencil generation
-                    dispatch(EditorIntent.SetSegmentationPreview(finalPreview))
-                }
-            }
-        }
-    }
-
-    override fun onConfirmSegmentation() {
-        val stencilSourceLayerId = pendingStencilSourceLayerId
-        val stencilProjectId = pendingStencilProjectId
-        val confidence = rawSegmentationConfidence
-        val source = segmentationSourceBitmap
-        val influence = _uiState.value.segmentationInfluence
-        val targetLayerId = segmentationTargetLayerId
-
-        rawSegmentationConfidence = null
-        segmentationSourceBitmap = null
-        segmentationTargetLayerId = null
-        pendingStencilSourceLayerId = null
-        pendingStencilProjectId = null
-        dispatch(EditorIntent.EndSegmentation)
-
-        if (stencilSourceLayerId != null && stencilProjectId != null) {
-            dispatch(EditorIntent.SetLoading(true))
-            viewModelScope.launch(dispatchers.default) {
-                val isolated = if (confidence != null && source != null)
-                    subjectIsolator.applyConfidenceThreshold(source, confidence, influence, 0.1f)
-                else source ?: return@launch
-                runStencilPipeline(isolated, stencilSourceLayerId, stencilProjectId, influence)
-                withContext(dispatchers.main) {
-                    dispatch(EditorIntent.SetLoading(false))
-                }
-            }
-        } else if (targetLayerId != null && confidence != null && source != null) {
-            // Background-removal path: setSegmentationInfluence only updated the in-memory
-            // Layer.bitmap (which is @Transient and never serialized). Recompute the adjusted
-            // isolation deterministically and overwrite the layer's file so the slider
-            // adjustment survives a reload instead of reverting to the default threshold.
-            dispatch(EditorIntent.SetLoading(true))
-            viewModelScope.launch(dispatchers.default) {
-                val adjusted = subjectIsolator.applyConfidenceThreshold(source, confidence, influence, 0.1f)
-                val state = _uiState.value
-                val projectId = state.projectId
-                val filename = state.layers.find { it.id == targetLayerId }?.uri?.path?.substringAfterLast('/')
-                if (projectId != null && filename != null) {
-                    val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(adjusted))
-                    withContext(dispatchers.main) { updateLayerUri(targetLayerId, "file://$path".toUri()) }
-                }
-                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
-            }
-        }
-    }
-
-    override fun onCancelSegmentation() {
-        rawSegmentationConfidence = null
-        segmentationSourceBitmap = null
-        segmentationTargetLayerId = null
-        pendingStencilSourceLayerId = null
-        pendingStencilProjectId = null
-        dispatch(EditorIntent.EndSegmentation)
-    }
-
-    fun dismissSegmentationSlider() {
-        onConfirmSegmentation()
-    }
-
-    override fun onSketchClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val bg = state.canvasBackground
-                val penArgb = android.graphics.Color.argb(
-                    255,
-                    (255 * (1f - bg.red)).toInt().coerceIn(0, 255),
-                    (255 * (1f - bg.green)).toInt().coerceIn(0, 255),
-                    (255 * (1f - bg.blue)).toInt().coerceIn(0, 255)
-                )
-                val sketchBitmap = SketchProcessor.sketchEffect(bitmap, state.sketchThickness, penArgb)
-                if (sketchBitmap != null) {
-                    val path = projectRepository.saveArtifact(
-                        projectId,
-                        "sketch_${System.currentTimeMillis()}.png",
-                        ImageUtils.bitmapToByteArray(sketchBitmap)
-                    )
-                    val sketchUri = "file://$path".toUri()
-                    val sketchLayer = Layer(
-                        id = java.util.UUID.randomUUID().toString(),
-                        name = "Outline – ${layer.name}",
-                        uri = sketchUri,
-                        isSketch = true,
-                        isLinked = false,
-                        blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
-                        scale = layer.scale,
-                        offset = layer.offset,
-                        rotationX = layer.rotationX,
-                        rotationY = layer.rotationY,
-                        rotationZ = layer.rotationZ,
-                        warpMesh = layer.warpMesh
-                    )
-                    withContext(dispatchers.main) {
-                        _uiState.update { s ->
-                            val idx = s.layers.indexOfFirst { it.id == layerId }
-                            if (idx < 0) return@update s
-                            val newLayers = s.layers.toMutableList().also { list ->
-                                // Find top of the linked group to avoid splitting it
-                                var topIdx = idx
-                                while (topIdx + 1 < list.size && list[topIdx + 1].isLinked) topIdx++
-                                // Insert sketch layer above the group
-                                list.add(topIdx + 1, sketchLayer)
-                            }
-                            s.copy(layers = newLayers, isLoading = false)
-                        }
-                    }
-                    // Load the bitmap into the sketch layer so it renders immediately
-                    updateLayerUri(sketchLayer.id, sketchUri)
-                    opEmitter.emit(Op.LayerAdd(sketchLayer))
-                    return@launch
-                }
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
-    override fun onSketchThicknessChanged(thickness: Int) {
-        dispatch(EditorIntent.SetSketchThickness(thickness))
-    }
-
-    override fun onApplyCannyEdgeClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val cannyBitmap = ImageProcessor.applyCannyEdgeDetection(bitmap, 50.0, 150.0)
-                val path = projectRepository.saveArtifact(
-                    projectId,
-                    "canny_${System.currentTimeMillis()}.png",
-                    ImageUtils.bitmapToByteArray(cannyBitmap)
-                )
-                val cannyUri = android.net.Uri.parse("file://$path")
-                val cannyLayer = Layer(
-                    id = java.util.UUID.randomUUID().toString(),
-                    name = "Canny – ${layer.name}",
-                    uri = cannyUri,
-                    isSketch = true,
-                    isLinked = false,
-                    blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
-                    scale = layer.scale,
-                    offset = layer.offset,
-                    rotationX = layer.rotationX,
-                    rotationY = layer.rotationY,
-                    rotationZ = layer.rotationZ,
-                    warpMesh = layer.warpMesh
-                )
-                withContext(dispatchers.main) {
-                    _uiState.update { s ->
-                        val idx = s.layers.indexOfFirst { it.id == layerId }
-                        if (idx < 0) return@update s
-                        val newLayers = s.layers.toMutableList().apply {
-                            var topIdx = idx
-                            while (topIdx + 1 < size && get(topIdx + 1).isLinked) topIdx++
-                            add(topIdx + 1, cannyLayer)
-                        }
-                        s.copy(layers = newLayers, isLoading = false)
-                    }
-                }
-                updateLayerUri(cannyLayer.id, cannyUri)
-                opEmitter.emit(Op.LayerAdd(cannyLayer))
-                return@launch
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
     private fun updateLayerUri(id: String, uri: Uri) {
         viewModelScope.launch(dispatchers.io) {
             val bitmap = ImageUtils.loadBitmapAsync(context, uri)
@@ -1807,16 +1525,6 @@ class EditorViewModel @Inject constructor(
         updateActiveLayer { it.copy(scale = scale, offset = Offset.Zero, rotationX = 0f, rotationY = 0f, rotationZ = 0f) }
     }
 
-    override fun onMagicClicked() {
-        pushHistory()
-        val extent = anchorHalfExtentMeters
-        if (extent != null) {
-            fitActiveLayerToAnchor(extent.first, extent.second)
-        } else {
-            updateActiveLayer { it.copy(brightness = 0.1f, contrast = 1.2f, saturation = 1.1f) }
-        }
-        saveProject()
-    }
     override fun onAdjustClicked() = dispatch(EditorIntent.ToggleAdjustPanel)
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
@@ -3986,137 +3694,6 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) { saveProject() }
     }
 
-    fun updateStencilButtonPosition(position: Offset) {
-        dispatch(EditorIntent.SetStencilButtonPosition(position))
-    }
-
-    override fun onGenerateStencil(layerId: String) {
-        val state = _uiState.value
-        val sourceLayer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetStencilGenerating(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            // 1. Identify linked group
-            val groupIds = getLinkedGroupIds(layerId)
-            val groupLayers = state.layers.filter { it.id in groupIds }
-            
-            val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
-            
-            // 2. Generate anchor-relative composite for analysis
-            val composite = exportManager.compositeToLayerSpace(sourceLayer, groupLayers, w, h)
-            
-            // 3. Isolate subject, then show the segmentation slider
-            val isolationResult = subjectIsolator.isolate(composite).getOrNull()
-            if (isolationResult != null) {
-                rawSegmentationConfidence = isolationResult.rawConfidence
-                segmentationSourceBitmap = composite
-                pendingStencilSourceLayerId = layerId
-                pendingStencilProjectId = projectId
-                withContext(dispatchers.main) {
-                    _uiState.update { it.copy(
-                        isStencilGenerating = false, 
-                        isSegmenting = true, 
-                        segmentationInfluence = 0.5f,
-                        segmentationPreview = isolationResult.isolatedBitmap
-                    ) }
-                }
-            } else {
-                // Isolation failed — run binary stencil on the raw composite immediately
-                runStencilPipeline(composite, layerId, projectId, 0.5f)
-            }
-        }
-    }
-
-    private suspend fun runStencilPipeline(
-        isolated: Bitmap,
-        sourceLayerId: String,
-        projectId: String,
-        influence: Float
-    ) {
-        stencilProcessor.process(isolated, influence).collect { progress ->
-            when (progress) {
-                is StencilProgress.Done -> {
-                    val sourceLayer = _uiState.value.layers.find { it.id == sourceLayerId }
-                    val newLayers = progress.layers.map { stencilLayer ->
-                        val type = stencilLayer.type
-                        val filename = "stencil_${type.name.lowercase()}_${UUID.randomUUID()}.png"
-                        val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(stencilLayer.bitmap))
-                        val localUri = "file://$path".toUri()
-
-                        Layer(
-                            id = UUID.randomUUID().toString(),
-                            name = "Stencil ${type.label}",
-                            uri = localUri,
-                            bitmap = stencilLayer.bitmap,
-                            isLinked = false,
-                            stencilType = type,
-                            stencilSourceId = sourceLayerId,
-                            scale = sourceLayer?.scale ?: 1.0f,
-                            offset = sourceLayer?.offset ?: Offset.Zero,
-                            rotationX = sourceLayer?.rotationX ?: 0f,
-                            rotationY = sourceLayer?.rotationY ?: 0f,
-                            rotationZ = sourceLayer?.rotationZ ?: 0f,
-                            warpMesh = sourceLayer?.warpMesh ?: emptyList()
-                        )
-                    }
-
-                    withContext(dispatchers.main) {
-                        for (layer in newLayers) {
-                            layerStore.putBase(layer.id, layer.bitmap!!.copy(Bitmap.Config.ARGB_8888, false))
-                            layerStore.initStrokes(layer.id)
-                        }
-
-                        // Set canvas background to match the color of the first generated layer (the Base)
-                        val baseColor = if (progress.layers.first().type.color == android.graphics.Color.BLACK) {
-                            androidx.compose.ui.graphics.Color.Black
-                        } else {
-                            androidx.compose.ui.graphics.Color.White
-                        }
-
-                        _uiState.update { s ->
-                            val idx = s.layers.indexOfFirst { it.id == sourceLayerId }
-                            val updatedLayers = s.layers.toMutableList().also { list ->
-                                var topIdx = idx
-                                while (topIdx + 1 < list.size && list[topIdx + 1].isLinked) topIdx++
-                                // Add all new layers in order
-                                list.addAll(topIdx + 1, newLayers)
-                            }
-                            s.copy(
-                                layers = updatedLayers,
-                                activeLayerId = newLayers.last().id,
-                                isStencilGenerating = false,
-                                stencilHintVisible = true,
-                                canvasBackground = baseColor
-                            )
-                        }
-                        viewModelScope.launch {
-                            kotlinx.coroutines.delay(3000)
-                            dispatch(EditorIntent.SetStencilHintVisible(false))
-                        }
-                        newLayers.forEach { opEmitter.emit(Op.LayerAdd(it)) }
-                        saveProject()
-                    }
-                }
-                is StencilProgress.Error -> {
-                    withContext(dispatchers.main) {
-                        dispatch(EditorIntent.SetStencilGenerating(false))
-                        Toast.makeText(context, "Stencil failed: ${progress.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-                else -> { /* Progress updates handled by UI if needed */ }
-            }
-        }
-    }
-
-    override fun onGeneratePoster(layerId: String) {
-        // This is called from the PosterOptionsDialog
-    }
-
     // -------------------------------------------------------------------------
     // Co-op spectator API
     // -------------------------------------------------------------------------
@@ -4224,48 +3801,4 @@ class EditorViewModel @Inject constructor(
     // already reacts to by loading the project's layers. The former loadAsSpectator stub here was
     // dead code from Task 14 — never called — and implied a second, unimplemented load path.
 
-    fun generatePosterPdf(selectedLayerIds: List<String>, outputSizeMm: Float) {
-        val state = _uiState.value
-        val stencilLayers = state.layers.filter { it.id in selectedLayerIds }
-            .mapNotNull { layer ->
-                layer.stencilType?.let { type ->
-                    layer.bitmap?.let { bmp ->
-                        StencilLayer(type, bmp, layer.name)
-                    }
-                }
-            }
-
-        if (stencilLayers.isEmpty()) return
-
-        dispatch(EditorIntent.SetLoading(true))
-        viewModelScope.launch(dispatchers.io) {
-            val result = stencilPrintEngine.generatePdf(
-                context,
-                stencilLayers,
-                outputSizeMm,
-                StencilOutputDimension.WIDTH // Default to width for now
-            )
-            
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-                result.fold(
-                    onSuccess = { uri ->
-                        // Share intent triggered via Activity/UI state or broadcast
-                        // For simplicity, let's just toast or use a callback
-                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(intent, "Share Stencil PDF").apply {
-                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    },
-                    onFailure = { e ->
-                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                )
-            }
-        }
-    }
 }

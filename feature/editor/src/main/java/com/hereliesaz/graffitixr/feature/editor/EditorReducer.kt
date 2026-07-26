@@ -77,13 +77,6 @@ internal object EditorReducer {
 
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
-        EditorIntent.BeginSegmentation -> state.copy(isSegmenting = true, segmentationInfluence = 0.5f)
-        EditorIntent.EndSegmentation -> state.copy(isSegmenting = false, segmentationPreview = null)
-        is EditorIntent.SetSegmentationInfluence -> state.copy(segmentationInfluence = intent.value)
-        is EditorIntent.SetSegmentationPreview -> state.copy(segmentationPreview = intent.preview)
-        is EditorIntent.SetStencilGenerating -> state.copy(isStencilGenerating = intent.generating)
-        is EditorIntent.SetStencilHintVisible -> state.copy(stencilHintVisible = intent.visible)
-        is EditorIntent.SetStencilButtonPosition -> state.copy(stencilButtonPosition = intent.position)
 
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
         is EditorIntent.SetDocumentSize -> state.copy(
@@ -99,7 +92,6 @@ internal object EditorReducer {
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
-        is EditorIntent.SetSketchThickness -> state.copy(sketchThickness = intent.value.coerceIn(1, 20))
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))

@@ -137,11 +137,6 @@ fun EditorUi(
                 onAdjustmentStart = actions::onAdjustmentStart,
                 onAdjustmentEnd = actions::onAdjustmentEnd,
                 strings = strings,
-                showSegmentationSlider = uiState.isSegmenting,
-                segmentationInfluence = uiState.segmentationInfluence,
-                onSegmentationInfluenceChange = { actions.setSegmentationInfluence(it) },
-                onSegmentationDismiss = { actions.onConfirmSegmentation() },
-                onSegmentationCancel = { actions.onCancelSegmentation() },
             )
         }
     }
