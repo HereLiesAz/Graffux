@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Graffux mark as an Android vector drawable.
+
+    This replaces graffuxicon.svg, which could not live here: the resource merger accepts only .xml
+    and raster files under res/drawable, so an .svg failed every release build at
+    packageReleaseResources. The raw SVG is kept as the editable source at branding/graffux-icon.svg.
+
+    Geometry is that file's, unchanged — a 512-unit viewport, the two crossed strokes, and the drip.
+    Stroked paths declare a transparent fillColor because a VectorDrawable path with no fillColor
+    would otherwise render filled.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <path
+        android:fillColor="#14161D"
+        android:pathData="M0,0h512v512h-512z" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00E0D0"
+        android:strokeWidth="92.2"
+        android:strokeLineCap="round"
+        android:pathData="M334.5,177.5L177.5,334.5" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF2D78"
+        android:strokeWidth="92.2"
+        android:strokeLineCap="round"
+        android:pathData="M177.5,177.5L334.5,334.5" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M315,135.9c23,7 15.9,123.8 14.4,146.4c-1.4,32.6 -19.8,37.6 -19.8,61.4c0,6.4 2.5,12.5 7,16.9c4.5,4.5 10.6,7 16.9,7c6.3,0 12.4,-2.5 16.9,-7c4.5,-4.4 7,-10.5 7,-16.9c0,-23.8 -18.4,-24.8 -19.8,-61.4c-0.6,-26.3 -7.6,-150.4 19.4,-144.4c-7,-6 -32,-8 -42,-2z" />
+</vector>
