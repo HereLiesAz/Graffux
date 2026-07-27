@@ -60,7 +60,9 @@ import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
+import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
+import kotlin.math.roundToInt
 
 data class StrokeCommand(
     val path: List<Offset>,
@@ -81,9 +83,9 @@ data class StrokeCommand(
     val seed: Long = 0L,
     val stampShape: Bitmap? = null,
     // Procreate parity, recorded per stroke so undo/redo replay reproduces the paint exactly:
-    // [symmetry] mirrors the stroke across the layer's vertical centre; [alphaLock] confines the
-    // paint to pixels that already have alpha.
-    val symmetry: Boolean = false,
+    // [symmetryMode] mirrors the stroke across one or more axes through the canvas centre;
+    // [alphaLock] confines the paint to pixels that already have alpha.
+    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
     val alphaLock: Boolean = false,
     // The lasso selection in force when the stroke was drawn, if any. Recorded per stroke (rather
     // than read from live state at replay time) so an undo/redo re-composites against the same
@@ -105,6 +107,9 @@ data class StrokeCommand(
  */
 internal const val HISTORY_DEPTH = 20
 
+/** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
+private const val TIME_LAPSE_FRAME_MAX_DIM = 480
+
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
     data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
@@ -121,6 +126,8 @@ class EditorViewModel @Inject constructor(
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
+    private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
+    private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
 ) : ViewModel(), EditorActions {
 
     private val _uiState = MutableStateFlow(EditorUiState())
@@ -194,7 +201,7 @@ class EditorViewModel @Inject constructor(
     private var strokePrevBitmapPoint: Offset? = null
     // Captured at stroke start so mid-stroke toggles can't desync the live paint from the recorded
     // StrokeCommand (which is what undo/redo replays).
-    private var strokeSymmetry: Boolean = false
+    private var strokeSymmetry: SymmetryMode = SymmetryMode.NONE
     private var strokeAlphaLock: Boolean = false
     /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
@@ -257,6 +264,9 @@ class EditorViewModel @Inject constructor(
 
     private val strokeStabilizer = StrokeStabilizer()
 
+    // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
+    private val timeLapseRecorder = TimeLapseRecorder()
+
     init {
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
@@ -289,6 +299,11 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.isImperialUnits.collect { imperial ->
                 dispatch(EditorIntent.SetImperialUnits(imperial))
+            }
+        }
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.gestureMapping.collect { mapping ->
+                dispatch(EditorIntent.SetGestureMapping(mapping))
             }
         }
 
@@ -647,7 +662,122 @@ class EditorViewModel @Inject constructor(
             }
 
             scheduleDiskSave(layerId, newBitmap, layer.uri)
+            if (_uiState.value.isTimeLapseRecording) captureTimeLapseFrame()
         }
+    }
+
+    /**
+     * Composites the current canvas down to a small [TIME_LAPSE_FRAME_MAX_DIM]-ish snapshot and
+     * hands it to [timeLapseRecorder]. Called off the main thread — see [processNewStroke].
+     */
+    private fun captureTimeLapseFrame() {
+        val state = _uiState.value
+        val docW = state.documentWidth
+        val docH = state.documentHeight
+        if (docW <= 0 || docH <= 0) return
+        val metrics = context.resources.displayMetrics
+        val longestDoc = maxOf(docW, docH)
+        val scale = TIME_LAPSE_FRAME_MAX_DIM.toFloat() / longestDoc
+        val targetW = (docW * scale).roundToInt().coerceAtLeast(1)
+        val targetH = (docH * scale).roundToInt().coerceAtLeast(1)
+        val frame = exportManager.compositeToDocument(
+            state.layers,
+            metrics.widthPixels,
+            metrics.heightPixels,
+            targetW,
+            targetH,
+            backgroundColor = android.graphics.Color.WHITE,
+        )
+        val consumed = timeLapseRecorder.captureFrame(frame, System.currentTimeMillis())
+        if (!consumed) frame.recycle()
+    }
+
+    /** Starts or stops time-lapse recording, saving the finished GIF to Downloads on stop. */
+    fun onToggleTimeLapseRecording() {
+        if (_uiState.value.isTimeLapseRecording) {
+            dispatch(EditorIntent.ToggleTimeLapseRecording)
+            viewModelScope.launch(dispatchers.default) {
+                val file = timeLapseRecorder.finish()
+                if (file != null) {
+                    saveTimeLapseToDownloads(file)
+                } else {
+                    withContext(dispatchers.main) {
+                        Toast.makeText(context, "No time-lapse frames captured", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            return
+        }
+        viewModelScope.launch(dispatchers.default) {
+            val dir = File(context.cacheDir, "timelapse").apply { mkdirs() }
+            val file = File(dir, "timelapse_${System.currentTimeMillis()}.gif")
+            val started = timeLapseRecorder.start(file)
+            if (started) {
+                captureTimeLapseFrame()
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.ToggleTimeLapseRecording)
+                    Toast.makeText(context, "Time-lapse recording started", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Couldn't start time-lapse recording", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun saveTimeLapseToDownloads(file: File) =
+        copyGifToDownloads(file, "Time-lapse saved to Downloads", "Time-lapse export failed")
+
+    private suspend fun copyGifToDownloads(file: File, successMessage: String, failurePrefix: String) =
+        copyToDownloads(file, "image/gif", successMessage, failurePrefix)
+
+    /**
+     * Copies a cache-dir file into Downloads (MediaStore on Q+, the public directory below it, the
+     * same split [exportProjectInternal] uses) and deletes the cache copy either way.
+     */
+    private suspend fun copyToDownloads(
+        file: File,
+        mimeType: String,
+        successMessage: String,
+        failurePrefix: String,
+    ) {
+        try {
+            val filename = file.name
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    ?: throw java.io.IOException("Failed to create MediaStore entry")
+                context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
+                }
+            } else {
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val dest = File(downloadsDir, filename)
+                file.copyTo(dest, overwrite = true)
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "$successMessage (${dest.absolutePath})", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            withContext(dispatchers.main) {
+                Toast.makeText(context, "$failurePrefix: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    override fun onCleared() {
+        // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
+        timeLapseRecorder.finish()
+        playbackJob?.cancel()
+        super.onCleared()
     }
 
     private val sandboxHost = object : com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost {
@@ -2124,7 +2254,7 @@ class EditorViewModel @Inject constructor(
         strokeLayerRotationZ = layer.rotationZ
         // Captured once per stroke: mid-stroke toggles must not desync live paint from the
         // recorded command that undo/redo replays.
-        strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
+        strokeSymmetry = if (state.activeTool != Tool.LIQUIFY) state.symmetryMode else SymmetryMode.NONE
         strokeAlphaLock = layer.alphaLock
         strokeSelection = state.selection
         lastSampleMs = 0L
@@ -2231,7 +2361,7 @@ class EditorViewModel @Inject constructor(
 
             val bw = workBitmap.width.toFloat()
             val bh = workBitmap.height.toFloat()
-            val mirrored = strokeSymmetry
+            val mirrored = strokeSymmetry != SymmetryMode.NONE
 
             // Draws [seg] with wrap-around tiling, plus its vertical-mirror twin when symmetry is on.
             fun drawPathAll(seg: android.graphics.Path) {
@@ -2429,7 +2559,7 @@ class EditorViewModel @Inject constructor(
 
         val segs = ArrayList<Path>(2)
         segs.add(seg)
-        if (strokeSymmetry) {
+        if (strokeSymmetry != SymmetryMode.NONE) {
             val m = android.graphics.Matrix().apply { setScale(-1f, 1f, workBitmap.width / 2f, 0f) }
             segs.add(Path(seg).apply { transform(m) })
         }
@@ -2499,7 +2629,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
@@ -2516,7 +2646,7 @@ class EditorViewModel @Inject constructor(
                 val blurred = ImageProcessor.applyToolToBitmap(
                     base, mapped, Tool.BLUR, state.brushSize * brushScale,
                     state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
-                    symmetry = command.symmetry,
+                    symmetryMode = command.symmetryMode,
                     // Read off the command, not `strokeSelection`: this runs after the caller has
                     // already cleared the transient stroke state.
                     clipPath = SelectionMask.bitmapPath(
@@ -2597,7 +2727,7 @@ class EditorViewModel @Inject constructor(
                     fun drawPathAll(seg: android.graphics.Path) {
                         val targets = ArrayList<android.graphics.Path>(2)
                         targets.add(seg)
-                        if (strokeSymmetry) {
+                        if (strokeSymmetry != SymmetryMode.NONE) {
                             val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bw / 2f, 0f) }
                             targets.add(android.graphics.Path(seg).apply { transform(m) })
                         }
@@ -2614,7 +2744,7 @@ class EditorViewModel @Inject constructor(
                     }
 
                     if (mapped.size == 1) {
-                        val xs = if (strokeSymmetry) floatArrayOf(mapped[0].x, bw - mapped[0].x) else floatArrayOf(mapped[0].x)
+                        val xs = if (strokeSymmetry != SymmetryMode.NONE) floatArrayOf(mapped[0].x, bw - mapped[0].x) else floatArrayOf(mapped[0].x)
                         for (x in xs) {
                             if (state.wrapAroundMode) {
                                 for (dx in -1..1) for (dy in -1..1) canvas.drawPoint(x + dx * bw, mapped[0].y + dy * bh, paint)
@@ -2653,7 +2783,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
             )
@@ -2686,7 +2816,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
             )
@@ -3067,6 +3197,52 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Groups [layerId] with the layer immediately above it into a new [LayerType.GROUP] — the rail
+     * equivalent of Procreate's pinch-to-group gesture, which AzNavRail's drag-to-reorder has no way
+     * to express directly.
+     */
+    fun onGroupWithLayerAbove(layerId: String) {
+        val layers = _uiState.value.layers
+        val index = layers.indexOfFirst { it.id == layerId }
+        if (index < 0 || index >= layers.lastIndex) {
+            Toast.makeText(context, "Nothing above this layer to group with", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val above = layers[index + 1]
+        pushHistory()
+        dispatch(EditorIntent.GroupLayers(layerId, above.id, UUID.randomUUID().toString(), "Group"))
+        saveProject()
+    }
+
+    fun onUngroupLayer(groupId: String) {
+        pushHistory()
+        dispatch(EditorIntent.UngroupLayer(groupId))
+        saveProject()
+    }
+
+    /** Deletes group [groupId] AND its contents — unlike [onUngroupLayer], nothing survives it. */
+    fun onDeleteGroup(groupId: String) {
+        val layers = _uiState.value.layers
+        if (layers.none { it.id == groupId }) return
+        pushHistory()
+        val toRemove = descendantIds(layers, groupId) + groupId
+        dispatch(EditorIntent.SetLayers(layers.filterNot { it.id in toRemove }))
+        saveProject()
+    }
+
+    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> {
+        val direct = layers.filter { it.parentId == parentId }.map { it.id }
+        return direct.toSet() + direct.flatMap { descendantIds(layers, it) }
+    }
+
+    fun onToggleClipToLayerBelow(id: String) {
+        pushHistory()
+        dispatch(EditorIntent.ToggleClipToLayerBelow(id))
+        saveProject()
+        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+    }
+
     // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
 
     /** Opens the radial menu centred on [at] (screen space) — normally the summoning centroid. */
@@ -3155,9 +3331,166 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Animation Assist ─────────────────────────────────────────────────────────────────────
+
+    private var playbackJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Enters/exits Animation Assist. Entering syncs the frame cursor to whichever frame the active
+     * layer already belongs to (see the reducer), so the canvas doesn't jump; exiting stops playback
+     * so a running loop can't keep mutating state from behind a closed panel.
+     */
+    fun onToggleAnimationMode() {
+        if (_uiState.value.isAnimationMode) stopPlayback()
+        dispatch(EditorIntent.ToggleAnimationMode)
+    }
+
+    fun onToggleOnionSkin() = dispatch(EditorIntent.ToggleOnionSkin)
+    fun onSetOnionSkinFrameCount(count: Int) = dispatch(EditorIntent.SetOnionSkinFrameCount(count))
+    fun onSetAnimationFrameDurationMs(ms: Int) = dispatch(EditorIntent.SetAnimationFrameDurationMs(ms))
+    fun onSetAnimationLoopMode(mode: com.hereliesaz.graffitixr.common.model.AnimationLoopMode) =
+        dispatch(EditorIntent.SetAnimationLoopMode(mode))
+
+    /** Frame count == top-level layer count, since that's what a frame *is*. */
+    fun animationFrameCount(): Int = AnimationFrames.topLevelFrames(_uiState.value.layers).size
+
+    /**
+     * Moves the frame cursor and points the active layer at that frame, so a stroke drawn right
+     * after stepping lands on the frame the user is looking at rather than the one they left.
+     */
+    fun onSelectFrame(index: Int) {
+        val count = animationFrameCount()
+        if (count == 0) return
+        dispatch(EditorIntent.SetActiveFrameIndex(index.coerceIn(0, count - 1), followActiveLayer = true))
+    }
+
+    fun onNextFrame() {
+        val count = animationFrameCount()
+        if (count == 0) return
+        onSelectFrame((_uiState.value.activeFrameIndex + 1) % count)
+    }
+
+    fun onPreviousFrame() {
+        val count = animationFrameCount()
+        if (count == 0) return
+        onSelectFrame((_uiState.value.activeFrameIndex - 1 + count) % count)
+    }
+
+    /** A new frame is just a new top-level layer, appended — so this is the existing blank-layer add. */
+    fun onAddFrame() {
+        val before = animationFrameCount()
+        onAddBlankLayer()
+        viewModelScope.launch(dispatchers.main) {
+            // AddLayer lands asynchronously (it writes the layer's artifact first), so wait for the
+            // count to grow rather than moving the cursor to a frame that doesn't exist yet.
+            withTimeoutOrNull(5_000) { _uiState.first { AnimationFrames.topLevelFrames(it.layers).size > before } }
+            dispatch(EditorIntent.SetActiveFrameIndex((animationFrameCount() - 1).coerceAtLeast(0)))
+        }
+    }
+
+    fun onToggleAnimationPlayback() {
+        if (_uiState.value.isAnimationPlaying) stopPlayback() else startPlayback()
+    }
+
+    private fun startPlayback() {
+        val count = animationFrameCount()
+        if (count <= 1) return
+        dispatch(EditorIntent.SetAnimationPlaying(true))
+        playbackJob?.cancel()
+        playbackJob = viewModelScope.launch(dispatchers.main) {
+            var index = _uiState.value.activeFrameIndex
+            var forward = true
+            while (isActive) {
+                kotlinx.coroutines.delay(_uiState.value.animationFrameDurationMs.toLong())
+                val frames = animationFrameCount()
+                if (frames <= 1) break
+                when (_uiState.value.animationLoopMode) {
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.LOOP -> index = (index + 1) % frames
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.PING_PONG -> {
+                        if (forward && index >= frames - 1) forward = false
+                        else if (!forward && index <= 0) forward = true
+                        index = (index + if (forward) 1 else -1).coerceIn(0, frames - 1)
+                    }
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.ONCE -> {
+                        if (index >= frames - 1) break
+                        index++
+                    }
+                }
+                // Only the cursor moves during playback — syncActiveLayerToFrame would rewrite the
+                // active layer dozens of times a second and clobber whatever the user had selected.
+                dispatch(EditorIntent.SetActiveFrameIndex(index))
+            }
+            dispatch(EditorIntent.SetAnimationPlaying(false))
+        }
+    }
+
+    private fun stopPlayback() {
+        playbackJob?.cancel()
+        playbackJob = null
+        if (_uiState.value.isAnimationPlaying) dispatch(EditorIntent.SetAnimationPlaying(false))
+    }
+
+    /**
+     * Exports every frame as an animated GIF in Downloads. Each frame composites only its own
+     * subtree — [buildLayerTree] roots at `parentId == null`, so a frame's own layers form a
+     * complete tree on their own and group/clip/blend handling comes along unchanged.
+     */
+    fun exportAnimation() {
+        val state = _uiState.value
+        val frames = AnimationFrames.topLevelFrames(state.layers)
+        if (frames.isEmpty()) {
+            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        stopPlayback()
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val metrics = context.resources.displayMetrics
+                val dir = File(context.cacheDir, "animation").apply { mkdirs() }
+                val file = File(dir, "animation_${System.currentTimeMillis()}.gif")
+                val written = com.hereliesaz.graffitixr.feature.editor.animation.AnimationGifWriter.write(
+                    file = file,
+                    frameCount = frames.size,
+                    frameDurationMs = state.animationFrameDurationMs,
+                    loopMode = state.animationLoopMode,
+                ) { index ->
+                    val frame = frames.getOrNull(index) ?: return@write null
+                    val ids = AnimationFrames.frameSubtreeIds(state.layers, frame.id)
+                    exportManager.compositeToDocument(
+                        state.layers.filter { it.id in ids },
+                        metrics.widthPixels,
+                        metrics.heightPixels,
+                        state.documentWidth,
+                        state.documentHeight,
+                        backgroundColor = android.graphics.Color.WHITE,
+                    )
+                }
+                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+                if (written > 0) {
+                    saveAnimationToDownloads(file)
+                } else {
+                    file.delete()
+                    withContext(dispatchers.main) {
+                        Toast.makeText(context, "Animation export produced no frames", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    Toast.makeText(context, "Animation export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun saveAnimationToDownloads(file: File) =
+        copyGifToDownloads(file, "Animation saved to Downloads", "Animation export failed")
+
     // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
 
     fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
+    fun onSetSymmetryMode(mode: SymmetryMode) = dispatch(EditorIntent.SetSymmetryMode(mode))
 
     fun onToggleAlphaLock(id: String) {
         pushHistory()
@@ -3253,7 +3586,7 @@ class EditorViewModel @Inject constructor(
         strokePaint = null
         strokePrevBitmapPoint = null
         strokeDynamics = null
-        strokeSymmetry = false
+        strokeSymmetry = SymmetryMode.NONE
         strokeAlphaLock = false
         strokeSelection = null
         lastSampleMs = 0L
@@ -3471,10 +3804,375 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Vector node editing ──────────────────────────────────────────────────────────────────
+    //
+    // Node edits are undoable and persisted, but NOT emitted to co-op peers: no Op carries vector
+    // geometry (LayerProps has no `shapes`), so emitting LayerPropsChange would announce a change
+    // it cannot actually transmit. A geometry-carrying op is the honest fix, and is follow-up work.
+
+    /**
+     * Enters node-edit mode on [layerId], or leaves it with null. Only a layer whose single shape
+     * is a PATH has nodes to edit; anything else silently declines rather than entering a mode with
+     * nothing to show.
+     */
+    fun onSetPathEditLayer(layerId: String?) {
+        if (layerId == null) {
+            dispatch(EditorIntent.SetPathEditLayer(null))
+            return
+        }
+        val shape = pathShapeOf(layerId)
+        if (shape == null) {
+            Toast.makeText(context, "That layer has no editable path", Toast.LENGTH_SHORT).show()
+            return
+        }
+        dispatch(EditorIntent.SetPathEditLayer(layerId))
+        setActiveTool(Tool.NONE)
+    }
+
+    /** Toggles node editing for the active layer — the rail's single "Edit Path" action. */
+    fun onToggleActivePathEdit() {
+        val current = _uiState.value.pathEditLayerId
+        if (current != null) onSetPathEditLayer(null) else onSetPathEditLayer(_uiState.value.activeLayerId)
+    }
+
+    fun onSelectPathNode(index: Int?) = dispatch(EditorIntent.SelectPathNode(index))
+
+    /**
+     * Brackets a node/handle drag so the whole drag is one undo step rather than one per frame —
+     * the same pattern the layer-opacity slider uses (see [onLayerEditStart]).
+     */
+    fun onPathEditStart() = pushHistory()
+
+    fun onPathEditEnd() = saveProject()
+
+    fun onMovePathNode(index: Int, dx: Float, dy: Float) =
+        editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveNode(it, index, dx, dy) }
+
+    fun onMovePathHandle(index: Int, outgoing: Boolean, x: Float, y: Float, mirror: Boolean) =
+        editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveHandle(it, index, outgoing, x, y, mirror) }
+
+    /** Each of these is a discrete action, so it brackets its own history entry and saves. */
+    fun onInsertPathNode(segmentIndex: Int, t: Float) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t)
+    }
+
+    fun onDeletePathNode(index: Int) {
+        discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.deleteNode(it, index) }
+        // The deleted node's index no longer refers to what the user selected.
+        dispatch(EditorIntent.SelectPathNode(null))
+    }
+
+    fun onMakePathNodeCorner(index: Int) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.makeCorner(it, index)
+    }
+
+    fun onMakePathNodeSmooth(index: Int) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.makeSmooth(it, index)
+    }
+
+    fun onTogglePathClosed() = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.toggleClosed(it)
+    }
+
+    /** The single PATH shape on [layerId], or null when the layer isn't an editable path. */
+    private fun pathShapeOf(layerId: String): com.hereliesaz.graffitixr.common.model.VectorShape? =
+        _uiState.value.layers.firstOrNull { it.id == layerId }
+            ?.shapes?.singleOrNull()
+            ?.takeIf { it.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.PATH }
+
+    /** Applies [transform] to the edited path. Used by drags, which bracket their own history. */
+    private fun editPath(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
+        val layerId = _uiState.value.pathEditLayerId ?: return
+        val shape = pathShapeOf(layerId) ?: return
+        dispatch(EditorIntent.SetPathShape(layerId, transform(shape)))
+    }
+
+    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
+        val layerId = _uiState.value.pathEditLayerId ?: return
+        val shape = pathShapeOf(layerId) ?: return
+        val next = transform(shape)
+        if (next == shape) return
+        pushHistory()
+        dispatch(EditorIntent.SetPathShape(layerId, next))
+        saveProject()
+    }
+
+    // ── Figma import ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Figma import panel state, shaped like [StoreUiState] — same load/error/results rhythm, so the
+     * window can be built the same way the Store window is.
+     */
+    data class FigmaUiState(
+        val isConnected: Boolean = false,
+        val fileInput: String = "",
+        val fileName: String? = null,
+        val fileKey: String? = null,
+        val frames: List<com.hereliesaz.graffitixr.data.figma.FigmaFrame> = emptyList(),
+        val selectedIds: Set<String> = emptySet(),
+        val isLoading: Boolean = false,
+        val error: String? = null,
+    )
+
+    private val _figmaState = MutableStateFlow(FigmaUiState())
+    val figmaState: StateFlow<FigmaUiState> = _figmaState.asStateFlow()
+
+    init {
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.isAuthenticated.collect { connected ->
+                _figmaState.update { it.copy(isConnected = connected) }
+            }
+        }
+    }
+
+    fun onFigmaFileInputChanged(value: String) = _figmaState.update { it.copy(fileInput = value) }
+
+    /** Validates and stores a Figma personal access token. */
+    fun connectFigma(token: String) {
+        if (token.isBlank()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.connect(token)
+                .onSuccess { user ->
+                    _figmaState.update { it.copy(isLoading = false, error = null) }
+                    Toast.makeText(context, "Connected to Figma as ${user.handle}", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { e ->
+                    _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't verify that token") }
+                }
+        }
+    }
+
+    fun disconnectFigma() {
+        figmaRepository.disconnect()
+        _figmaState.update { FigmaUiState(isConnected = false) }
+    }
+
+    /** Resolves the pasted link/key and lists that file's importable frames. */
+    fun loadFigmaFile() {
+        val input = _figmaState.value.fileInput
+        if (input.isBlank()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.loadFile(input)
+                .onSuccess { contents ->
+                    _figmaState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = if (contents.frames.isEmpty()) "No importable frames in that file" else null,
+                            fileKey = contents.fileKey,
+                            fileName = contents.name,
+                            frames = contents.frames,
+                            selectedIds = emptySet(),
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't load that file") }
+                }
+        }
+    }
+
+    fun toggleFigmaFrame(id: String) = _figmaState.update {
+        it.copy(selectedIds = if (id in it.selectedIds) it.selectedIds - id else it.selectedIds + id)
+    }
+
+    /**
+     * Renders the selected frames server-side, downloads each PNG, and adds it as a layer. Frames
+     * import newest-last so the picker's order is the stacking order.
+     */
+    fun importFigmaFrames() {
+        val state = _figmaState.value
+        val fileKey = state.fileKey ?: return
+        val ids = state.frames.map { it.id }.filter { it in state.selectedIds }
+        if (ids.isEmpty()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.default) {
+            figmaRepository.renderFrames(fileKey, ids)
+                .onSuccess { rendered ->
+                    var imported = 0
+                    for (id in ids) {
+                        val bytes = rendered[id] ?: continue
+                        val bitmap = runCatching { decodeBoundedBitmap(bytes, 4096) }.getOrNull() ?: continue
+                        val name = state.frames.firstOrNull { it.id == id }?.name ?: "Figma frame"
+                        importSingleBitmap(bitmap, name)
+                        imported++
+                    }
+                    withContext(dispatchers.main) {
+                        _figmaState.update { it.copy(isLoading = false, selectedIds = emptySet()) }
+                        val missed = ids.size - imported
+                        val message = when {
+                            imported == 0 -> "Couldn't import any of those frames"
+                            missed > 0 -> "Imported $imported of ${ids.size} frames"
+                            else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .onFailure { e ->
+                    withContext(dispatchers.main) {
+                        _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Import failed") }
+                    }
+                }
+        }
+    }
+
+    /**
+     * Writes a bundle the Graffux companion Figma plugin can open, preserving each layer separately
+     * with its name, opacity, blend mode, and visibility rather than flattening to one PNG.
+     *
+     * Every layer is composited ALONE at document size with its opacity, blend, and clip neutralised.
+     * That bakes the layer's geometry into the image — so the plugin can place every layer full-bleed
+     * at the origin and reproduce the composition exactly — while leaving opacity and blend as live
+     * Figma properties instead of burning them into pixels. Compositing them here as well would apply
+     * both, so the layer copy passed to the compositor deliberately has them reset.
+     */
+    fun exportForFigma() {
+        val state = _uiState.value
+        val layers = state.layers
+        if (layers.isEmpty()) {
+            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val metrics = context.resources.displayMetrics
+                val docW = state.documentWidth.coerceAtLeast(1)
+                val docH = state.documentHeight.coerceAtLeast(1)
+                val bundleLayers = layers.map { layer ->
+                    val flat = layer.copy(
+                        opacity = 1f,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
+                        clipToLayerBelow = false,
+                        isVisible = true,
+                    )
+                    val bitmap = exportManager.compositeToDocument(
+                        listOf(flat), metrics.widthPixels, metrics.heightPixels, docW, docH,
+                        backgroundColor = android.graphics.Color.TRANSPARENT,
+                    )
+                    val png = ImageUtils.bitmapToByteArray(bitmap)
+                    bitmap.recycle()
+                    com.hereliesaz.graffitixr.data.figma.FigmaBundleLayer(
+                        name = layer.name.ifBlank { "Layer" },
+                        pngBase64 = android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP),
+                        opacity = layer.opacity,
+                        blendMode = com.hereliesaz.graffitixr.data.figma.figmaBlendMode(layer.blendMode),
+                        visible = layer.isVisible,
+                    )
+                }
+                val projectName = projectRepository.currentProject.value?.name ?: "Graffux"
+                val bundle = com.hereliesaz.graffitixr.data.figma.FigmaBundle(
+                    name = projectName,
+                    documentWidth = docW,
+                    documentHeight = docH,
+                    layers = bundleLayers,
+                )
+                val json = com.hereliesaz.graffitixr.data.figma.FigmaBundle.encode(bundle)
+
+                val dir = File(context.cacheDir, "figma").apply { mkdirs() }
+                val safeName = projectName.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                val file = File(dir, "$safeName${com.hereliesaz.graffitixr.data.figma.FigmaBundle.FILE_SUFFIX}")
+                file.writeText(json)
+
+                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+                copyToDownloads(file, "application/json", "Figma bundle saved to Downloads", "Figma export failed")
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    Toast.makeText(context, "Figma export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
+
+    /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
+    val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
+        customBrushRepository.brushes
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Selects a saved custom brush. Custom brushes are param-only, so there's no tip image to load. */
+    fun selectCustomBrush(id: String) {
+        val brush = customBrushRepository.load(id)
+        if (brush == null) {
+            Toast.makeText(context, "That brush is no longer available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        activeStampBrush = brush
+        activeStampShape = null   // null → StampBrushRenderer draws its generated round tip
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
+    /**
+     * Opens Brush Studio. With no [id] it starts from the brush currently in hand (or the built-in
+     * round defaults), so "tweak what I'm painting with" is one tap rather than a rebuild from zero.
+     */
+    fun onOpenBrushStudio(id: String? = null) {
+        val existing = id?.let { customBrushRepository.load(it) }
+        val seed = existing
+            ?: activeStampBrush?.copy(name = "${activeStampBrush?.name} copy")
+            ?: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Custom Brush")
+        dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
+        applyBrushDraft(seed)
+    }
+
+    fun onCloseBrushStudio() = dispatch(EditorIntent.SetBrushStudioDraft(null))
+
+    /**
+     * Updates the draft and immediately makes it the live brush, so the next test stroke paints with
+     * the values on screen — the whole point of a brush editor is seeing the change, not imagining it.
+     */
+    fun onEditBrushDraft(edit: (com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) -> com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        val current = _uiState.value.brushStudioDraft ?: return
+        val next = edit(current).sanitized()
+        dispatch(EditorIntent.SetBrushStudioDraft(next, editingId = _uiState.value.brushStudioEditingId))
+        applyBrushDraft(next)
+    }
+
+    private fun applyBrushDraft(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        activeStampBrush = brush
+        // A draft brush is params-only; drop any tip image the previously-selected brush had, or the
+        // new settings would render against the old brush's shape.
+        activeStampShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+    }
+
+    /** Saves the draft, overwriting the brush it was opened from or creating a new one. */
+    fun onSaveBrushDraft() {
+        val draft = _uiState.value.brushStudioDraft ?: return
+        val id = _uiState.value.brushStudioEditingId ?: UUID.randomUUID().toString()
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.save(id, draft)
+            withContext(dispatchers.main) {
+                if (ok) {
+                    // Keep the studio open but bound to the saved id, so further tweaks update this
+                    // brush rather than silently creating a second copy on the next Save.
+                    dispatch(EditorIntent.SetBrushStudioDraft(draft, editingId = id))
+                    Toast.makeText(context, "Saved \"${draft.name}\"", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Couldn't save that brush", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun onDeleteCustomBrush(id: String) {
+        viewModelScope.launch(dispatchers.io) {
+            customBrushRepository.delete(id)
+            withContext(dispatchers.main) {
+                if (_uiState.value.brushStudioEditingId == id) {
+                    dispatch(EditorIntent.SetBrushStudioDraft(null))
+                }
+            }
+        }
+    }
+
     /**
      * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
-     * round brush. Loads the brush's declarative definition to confirm it parses (rendering wiring is a
-     * follow-up); the active-brush name drives the UI and switches the size control's second axis to flow.
+     * round brush. The active-brush name drives the UI and switches the size control's second axis to flow.
      */
     fun selectBrushExtension(id: String?) {
         if (id == null) {

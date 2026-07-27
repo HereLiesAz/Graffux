@@ -72,4 +72,47 @@ class AzphaltBrushTest {
         val b = AzphaltBrush.fromParams("D", params("""{"spacing":"lots"}"""))
         assertEquals(0.1f, b.spacing, 0f)
     }
+
+    // ── sanitized(): the Brush Studio construction path ──────────────────────────────────────
+
+    @Test
+    fun sanitizedClampsEveryParameter() {
+        val wild = AzphaltBrush(
+            name = "  ",
+            spacing = 99f,
+            opacity = 5f,
+            hardness = -3f,
+            sizeJitter = 2f,
+            opacityJitter = -1f,
+            scatter = -4f,
+        ).sanitized()
+
+        assertEquals("Custom Brush", wild.name)
+        assertEquals(4f, wild.spacing, 0f)
+        assertEquals(1f, wild.opacity, 0f)
+        assertEquals(0f, wild.hardness, 0f)
+        assertEquals(1f, wild.sizeJitter, 0f)
+        assertEquals(0f, wild.opacityJitter, 0f)
+        assertEquals(0f, wild.scatter, 0f)
+    }
+
+    @Test
+    fun sanitizedAgreesWithFromParamsOnTheSameInputs() {
+        // The two construction paths must not drift: a brush dialled in Brush Studio and the same
+        // brush arriving as an installed extension have to land on identical values.
+        val viaParser = AzphaltBrush.fromParams(
+            "P",
+            params("""{"spacing":9.0,"opacity":2.0,"hardness":-1.0,"sizeJitter":3.0,"scatter":-4.0}"""),
+        )
+        val viaStudio = AzphaltBrush(
+            name = "P", spacing = 9f, opacity = 2f, hardness = -1f, sizeJitter = 3f, scatter = -4f,
+        ).sanitized()
+        assertEquals(viaParser, viaStudio)
+    }
+
+    @Test
+    fun sanitizedLeavesAnAlreadyValidBrushUntouched() {
+        val ok = AzphaltBrush(name = "Inker", spacing = 0.05f, opacity = 0.9f, hardness = 0.8f)
+        assertEquals(ok, ok.sanitized())
+    }
 }

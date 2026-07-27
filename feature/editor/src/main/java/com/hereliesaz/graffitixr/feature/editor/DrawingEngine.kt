@@ -116,7 +116,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         return ImageProcessor.applyToolToBitmap(
             bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
             replaceExisting, stroke.feathering,
-            alphaLock = stroke.alphaLock, symmetry = stroke.symmetry,
+            alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
             clipPath = clipPath,
         )
     }

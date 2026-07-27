@@ -15,6 +15,7 @@ import kotlinx.serialization.Transient
 /**
  * Defines the functional role of a layer in the scene graph.
  */
+@Serializable
 enum class LayerType {
     RASTER,
     VECTOR,
@@ -51,6 +52,12 @@ data class Layer(
      * have alpha — strokes recolour existing content and never extend its silhouette.
      */
     val alphaLock: Boolean = false,
+    /**
+     * Procreate's Clipping Mask: while set, this layer only paints where the layer(s) below it
+     * (down to the next non-clipped layer, or the stack's base) already have alpha — same idea as
+     * Alpha Lock, but clipping to what's *underneath* rather than to the layer's own existing pixels.
+     */
+    val clipToLayerBelow: Boolean = false,
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
@@ -140,6 +147,8 @@ data class EditorUiState(
     val isRightHanded: Boolean = true,
     /** Mirrors the persisted Settings "Imperial units" toggle — see EditorViewModel's init collector. */
     val isImperialUnits: Boolean = false,
+    /** Mirrors the persisted per-gesture action mapping — see EditorViewModel's init collector. */
+    val gestureMapping: Map<GestureSlot, GestureAction> = DEFAULT_GESTURE_MAPPING,
     val gestureInProgress: Boolean = false,
     val showRotationAxisFeedback: Boolean = false,
     val activeRotationAxis: RotationAxis = RotationAxis.Z,
@@ -164,7 +173,32 @@ data class EditorUiState(
     val wrapAroundMode: Boolean = false,
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.
-    val symmetryEnabled: Boolean = false,
+    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
+    // Procreate's time-lapse: while true, EditorViewModel streams a downsampled canvas snapshot to
+    // a GIF file after every committed stroke (see TimeLapseRecorder). Transient UI state, not history.
+    val isTimeLapseRecording: Boolean = false,
+    // Procreate's Animation Assist: each top-level layer is a frame (see AnimationFrames). Entering
+    // this mode doesn't touch any layer's persisted isVisible — the canvas renderer computes a
+    // per-frame opacity override instead, so turning it off leaves every layer exactly as it was.
+    val isAnimationMode: Boolean = false,
+    val isAnimationPlaying: Boolean = false,
+    val activeFrameIndex: Int = 0,
+    val onionSkinEnabled: Boolean = false,
+    // Frames shown faded on each side of the active one when onion skinning is on.
+    val onionSkinFrameCount: Int = 1,
+    val animationFrameDurationMs: Int = 100,
+    val animationLoopMode: AnimationLoopMode = AnimationLoopMode.LOOP,
+    // Brush Studio's working copy. Non-null means the editor is open; the draft is applied to the
+    // live brush on every edit (so the canvas previews it), and only written to disk on Save.
+    val brushStudioDraft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
+    // Set when the draft came from an existing saved brush, so Save overwrites it instead of
+    // forking a near-duplicate every time it's reopened.
+    val brushStudioEditingId: String? = null,
+    // Vector node editing (Figma's vector pen): the id of the PATH layer whose nodes are being
+    // edited, or null when not in node-edit mode. Transient UI state — the *edits* are undoable,
+    // entering the mode isn't.
+    val pathEditLayerId: String? = null,
+    val selectedNodeIndex: Int? = null,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

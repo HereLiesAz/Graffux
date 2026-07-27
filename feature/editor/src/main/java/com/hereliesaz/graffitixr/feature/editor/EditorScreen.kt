@@ -50,8 +50,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -103,14 +107,16 @@ fun EditorScreen(
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
             // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger
-            // tap redoes. A pure observer — consumes nothing, so painting and navigation are unaffected.
+            // tap redoes by default — but every slot is user-reassignable (Settings), so each fires
+            // through performGestureAction against the live mapping rather than a fixed call. A pure
+            // observer — consumes nothing, so painting and navigation are unaffected.
             .multiFingerTaps(
                 gate = strokeGate,
-                onTwoFingerTap = { vm.onUndoClicked() },
-                onThreeFingerTap = { vm.onRedoClicked() },
-                onFourFingerTap = { vm.toggleHideUi() },
-                onFourFingerHold = { at -> vm.onOpenQuickMenu(at) },
-                onThreeFingerScrub = { vm.onClearLayer() },
+                onTwoFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.TWO_FINGER_TAP, vm) },
+                onThreeFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_TAP, vm) },
+                onFourFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_TAP, vm) },
+                onFourFingerHold = { at -> performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_HOLD, vm, at) },
+                onThreeFingerScrub = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_SCRUB, vm) },
             )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
@@ -159,8 +165,22 @@ fun EditorScreen(
                         }
                         // 1. Layer stack render.
                         val layerTree = remember(uiState.layers) { buildLayerTree(uiState.layers) }
+                        // Animation Assist: every top-level layer is a frame, so only the active
+                        // frame draws at full strength and neighbours fade in as onion skins. Off
+                        // (the normal editor), every frame stays at 1 and this is a no-op.
+                        val frameAlphas = remember(
+                            uiState.layers, uiState.isAnimationMode, uiState.activeFrameIndex,
+                            uiState.onionSkinEnabled, uiState.onionSkinFrameCount,
+                        ) {
+                            if (!uiState.isAnimationMode) emptyMap() else AnimationFrames.effectiveOpacities(
+                                uiState.layers,
+                                uiState.activeFrameIndex,
+                                uiState.onionSkinEnabled,
+                                uiState.onionSkinFrameCount,
+                            )
+                        }
                         layerTree.forEach { node ->
-                            LayerStackNode(node, uiState)
+                            LayerStackNode(node, uiState, frameAlpha = frameAlphas[node.layer.id] ?: 1f)
                         }
                     }
                 }
@@ -343,6 +363,30 @@ fun EditorScreen(
             )
         }
 
+        // 3b-bis. Vector node editor — anchors and bezier handles for the path layer being edited.
+        // Above the transform/gesture layers so a drag on a node is claimed here rather than moving
+        // the whole layer, and only mounted while node editing is actually on.
+        uiState.pathEditLayerId?.let { editId ->
+            uiState.layers.firstOrNull { it.id == editId }?.let { pathLayer ->
+                PathEditOverlay(
+                    layer = pathLayer,
+                    uiState = uiState,
+                    onEditStart = { vm.onPathEditStart() },
+                    onMoveNode = { i, dx, dy -> vm.onMovePathNode(i, dx, dy) },
+                    onMoveHandle = { i, out, x, y -> vm.onMovePathHandle(i, out, x, y, mirror = true) },
+                    onEditEnd = { vm.onPathEditEnd() },
+                    onSelectNode = { vm.onSelectPathNode(it) },
+                    onInsertNode = { seg, t -> vm.onInsertPathNode(seg, t) },
+                    onToggleCornerSmooth = { index ->
+                        val node = pathLayer.shapes.singleOrNull()
+                            ?.let { PathEditing.nodes(it).getOrNull(index) }
+                        if (node?.isCorner == false) vm.onMakePathNodeCorner(index) else vm.onMakePathNodeSmooth(index)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
         // with the colour currently under it; screen-space overlay, purely visual.
         if (uiState.isEyedropping) {
@@ -392,7 +436,7 @@ fun EditorScreen(
                     QuickAction("Alpha", enabled = activeId != null) {
                         activeId?.let { vm.onToggleAlphaLock(it) }
                     },
-                    QuickAction(if (uiState.symmetryEnabled) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
+                    QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
                     QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
                     QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
                 ),
@@ -443,10 +487,15 @@ fun EditorScreen(
 private fun LayerStackNode(
     node: LayerNode,
     uiState: EditorUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Animation Assist's per-frame opacity override, applied on top of the layer's own opacity.
+    // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha
+    // already covers its whole subtree — recursive calls take the 1f default so it isn't squared.
+    frameAlpha: Float = 1f,
 ) {
     val layer = node.layer
     if (!layer.isVisible) return
+    if (frameAlpha <= 0f) return
 
     key(layer.id) {
         if (layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP) {
@@ -461,7 +510,7 @@ private fun LayerStackNode(
                         rotationX = layer.rotationX
                         rotationY = layer.rotationY
                         rotationZ = layer.rotationZ
-                        alpha = layer.opacity
+                        alpha = layer.opacity * frameAlpha
                         transformOrigin = TransformOrigin.Center
                         blendMode = layer.blendMode
                         compositingStrategy = if (layer.blendMode != BlendMode.SrcOver)
@@ -478,7 +527,7 @@ private fun LayerStackNode(
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)
             if (layer.shapes.isNotEmpty()) {
-                VectorLayerContent(layer, modifier = Modifier.fillMaxSize())
+                VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha)
             }
             val isLive = layer.id == uiState.liveStrokeLayerId
             val bmp = if (isLive) uiState.liveStrokeBitmap ?: layer.bitmap else layer.bitmap
@@ -508,9 +557,13 @@ private fun LayerStackNode(
                         )
                     )
                 }
-                // Offscreen compositing is only needed to isolate a non-default blend mode; for
-                // normal (SrcOver) layers, Auto avoids the extra full-screen pass per frame.
-                val needsOffscreen = layer.blendMode != BlendMode.SrcOver
+                // Offscreen compositing is only needed to isolate a non-default blend mode (or a
+                // clip); for a normal (SrcOver, unclipped) layer, Auto avoids the extra full-screen
+                // pass per frame. Clip-to-below (Procreate's Clipping Mask) masks against whatever
+                // this Box has already drawn beneath it via BlendMode.SrcIn — see ExportManager's
+                // matching PorterDuff.Mode.SRC_IN for why it takes priority over a custom blend mode
+                // rather than combining both.
+                val needsOffscreen = layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow
                 Image(
                     bitmap = imageBitmap,
                     contentDescription = null,
@@ -525,9 +578,9 @@ private fun LayerStackNode(
                             rotationX = layer.rotationX
                             rotationY = layer.rotationY
                             rotationZ = layer.rotationZ
-                            alpha = layer.opacity
+                            alpha = layer.opacity * frameAlpha
                             transformOrigin = TransformOrigin.Center
-                            blendMode = layer.blendMode
+                            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
                             compositingStrategy = if (needsOffscreen)
                                 CompositingStrategy.Offscreen
                             else
@@ -823,6 +876,27 @@ private fun InfiniteGrid(
  * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
  * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
  */
+/**
+ * Looks up what [slot] is currently assigned to in [mapping] (falling back to the slot's own
+ * historical default if the map is somehow missing an entry) and fires it. [at] is only meaningful
+ * for [GestureAction.QUICK_MENU] (opens where the gesture landed); every other action ignores it.
+ */
+private fun performGestureAction(
+    mapping: Map<GestureSlot, GestureAction>,
+    slot: GestureSlot,
+    vm: EditorViewModel,
+    at: Offset = Offset.Zero,
+) {
+    when (mapping[slot] ?: slot.defaultAction) {
+        GestureAction.NONE -> {}
+        GestureAction.UNDO -> vm.onUndoClicked()
+        GestureAction.REDO -> vm.onRedoClicked()
+        GestureAction.HIDE_UI -> vm.toggleHideUi()
+        GestureAction.QUICK_MENU -> vm.onOpenQuickMenu(at)
+        GestureAction.CLEAR_LAYER -> vm.onClearLayer()
+    }
+}
+
 /** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
  *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
 private const val PX_PER_INCH = 96f
@@ -966,7 +1040,7 @@ private fun ArtboardFrame(
  * bitmap. Shapes are defined in the layer's local pixel space centered on the origin.
  */
 @Composable
-private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier) {
+private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier, frameAlpha: Float = 1f) {
     Canvas(
         modifier = modifier.graphicsLayer {
             translationX = layer.offset.x
@@ -976,9 +1050,10 @@ private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier) {
             rotationX = layer.rotationX
             rotationY = layer.rotationY
             rotationZ = layer.rotationZ
-            alpha = layer.opacity
+            alpha = layer.opacity * frameAlpha
             transformOrigin = TransformOrigin.Center
-            blendMode = layer.blendMode
+            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
+            if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
         }
     ) {
         val cx = size.width / 2f
@@ -1021,7 +1096,7 @@ private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) 
             if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
         }
         ShapeKind.PATH -> {
-            val path = pointsPath(shape.points, cx, cy, shape.closed) ?: return
+            val path = pathFigure(shape, cx, cy) ?: return
             if (shape.hasFill) drawPath(path, Color(shape.fillArgb.toInt()))
             if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
         }
@@ -1043,6 +1118,35 @@ private fun pointsPath(points: List<Float>, cx: Float, cy: Float, close: Boolean
             i += 2
         }
         if (close) close()
+    }
+}
+
+/**
+ * The figure for a [ShapeKind.PATH], curving through each node's bezier handles where it has them
+ * and falling back to straight segments where it doesn't. A path with no handles at all takes the
+ * poly-line path above unchanged, so nothing about existing pen strokes or imported paths shifts.
+ * ExportManager builds the identical figure with an android.graphics.Path.
+ */
+private fun pathFigure(shape: VectorShape, cx: Float, cy: Float): Path? {
+    if (!shape.hasCurves) return pointsPath(shape.points, cx, cy, shape.closed)
+    val nodes = PathEditing.nodes(shape)
+    if (nodes.size < 2) return null
+    return Path().apply {
+        moveTo(cx + nodes[0].x, cy + nodes[0].y)
+        for (s in 0 until PathEditing.segmentCount(nodes.size, shape.closed)) {
+            val a = nodes[s]
+            val b = nodes[(s + 1) % nodes.size]
+            if (a.isCorner && b.isCorner) {
+                lineTo(cx + b.x, cy + b.y)
+            } else {
+                cubicTo(
+                    cx + a.x + a.outDx, cy + a.y + a.outDy,
+                    cx + b.x + b.inDx, cy + b.y + b.inDy,
+                    cx + b.x, cy + b.y,
+                )
+            }
+        }
+        if (shape.closed) close()
     }
 }
 

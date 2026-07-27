@@ -41,7 +41,22 @@ data class VectorShape(
     val points: List<Float> = emptyList(),
     /** Whether a [ShapeKind.PATH] is closed (joins end→start, fillable); ignored otherwise. */
     val closed: Boolean = false,
+    /**
+     * Per-node bezier control offsets for [ShapeKind.PATH], interleaved `[dx0,dy0,dx1,dy1,…]` and
+     * **relative to their own node**, so moving a node carries its handles without touching these.
+     * [handlesIn] is the control point on the incoming side of each node, [handlesOut] the outgoing.
+     *
+     * Empty (the default) means a straight poly-line, which is exactly what the path was before
+     * handles existed — so every stored path, imported path, and pen stroke keeps rendering as it
+     * did. A node whose two handles are both zero is a corner regardless.
+     */
+    val handlesIn: List<Float> = emptyList(),
+    val handlesOut: List<Float> = emptyList(),
 ) {
+    /** True when this path has any curvature — i.e. anything but a straight poly-line. */
+    val hasCurves: Boolean
+        get() = kind == ShapeKind.PATH &&
+            (handlesIn.any { it != 0f } || handlesOut.any { it != 0f })
     val hasFill: Boolean
         get() = (fillArgb ushr 24) != 0L && kind != ShapeKind.LINE &&
             (kind != ShapeKind.PATH || closed)

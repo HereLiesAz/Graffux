@@ -1,0 +1,80 @@
+<style>
+  body {
+    font-family: Inter, -apple-system, system-ui, sans-serif;
+    font-size: 12px;
+    margin: 0;
+    padding: 16px;
+    color: #333;
+  }
+  h2 { font-size: 13px; margin: 0 0 6px; }
+  p { margin: 0 0 12px; color: #666; line-height: 1.4; }
+  #drop {
+    border: 1px dashed #b0b0b0;
+    border-radius: 6px;
+    padding: 20px 12px;
+    text-align: center;
+    cursor: pointer;
+    color: #666;
+  }
+  #drop.over { border-color: #18a0fb; color: #18a0fb; }
+  #status { margin-top: 12px; min-height: 16px; }
+  #status.error { color: #d33; }
+  input[type=file] { display: none; }
+</style>
+
+<h2>Import from Graffux</h2>
+<p>Open the <code>.graffux-figma.json</code> bundle exported from the Graffux app. Each layer comes in
+separately, keeping its name, opacity, and blend mode.</p>
+
+<div id="drop">Choose a file, or drop one here</div>
+<input id="file" type="file" accept=".json,application/json" />
+<div id="status"></div>
+
+<script>
+  const drop = document.getElementById('drop');
+  const input = document.getElementById('file');
+  const status = document.getElementById('status');
+
+  drop.onclick = () => input.click();
+  input.onchange = () => { if (input.files[0]) read(input.files[0]); };
+
+  // Dragging a file onto the window would otherwise navigate the iframe away from the plugin.
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = (e) => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    const file = e.dataTransfer.files[0];
+    if (file) read(file);
+  };
+
+  function read(file) {
+    setStatus('Reading ' + file.name + '…');
+    const reader = new FileReader();
+    reader.onerror = () => setStatus("Couldn't read that file.", true);
+    reader.onload = () => {
+      let bundle;
+      try {
+        bundle = JSON.parse(reader.result);
+      } catch (err) {
+        setStatus("That doesn't look like a Graffux bundle.", true);
+        return;
+      }
+      setStatus('Importing ' + (bundle.layers ? bundle.layers.length : 0) + ' layer(s)…');
+      parent.postMessage({ pluginMessage: { type: 'import-bundle', bundle: bundle } }, '*');
+    };
+    reader.readAsText(file);
+  }
+
+  function setStatus(text, isError) {
+    status.textContent = text;
+    status.className = isError ? 'error' : '';
+  }
+
+  onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'done') setStatus('Imported ' + msg.count + ' layer(s).');
+    if (msg.type === 'error') setStatus(msg.message, true);
+  };
+</script>

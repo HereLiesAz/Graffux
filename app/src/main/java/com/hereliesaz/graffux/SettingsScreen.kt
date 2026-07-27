@@ -42,6 +42,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.common.model.AppLanguage
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 
 /**
  * Graffux settings — the design-relevant preferences, shown as a full-bleed overlay over the editor.
@@ -63,6 +65,7 @@ fun SettingsScreen(
     val language by vm.language.collectAsStateWithLifecycle()
     val sampleRate by vm.inputSampleRateHz.collectAsStateWithLifecycle()
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
+    val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
 
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
         Column(
@@ -125,6 +128,24 @@ fun SettingsScreen(
                 onSelect = vm::setCanvasRenderScale,
             )
             HorizontalDivider()
+
+            Text(
+                "Gestures",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+            )
+            GestureSlot.entries.forEach { slot ->
+                ChoiceRow(
+                    title = slot.label,
+                    subtitle = "Off disables this gesture.",
+                    options = GestureAction.entries,
+                    selected = gestureMapping[slot] ?: slot.defaultAction,
+                    label = { it.label },
+                    onSelect = { action -> vm.setGestureAction(slot, action) },
+                )
+                HorizontalDivider()
+            }
 
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = vm::resetTutorials) {

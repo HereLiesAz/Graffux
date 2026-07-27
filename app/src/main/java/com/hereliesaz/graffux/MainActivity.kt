@@ -47,10 +47,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.model.*
+import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.design.theme.AppStrings
@@ -60,14 +64,18 @@ import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
+import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
+import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
+import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
+import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
@@ -124,6 +132,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val uiState by vm.uiState.collectAsState()
     val storeState by vm.storeState.collectAsState()
     val installedExtensionIds by vm.installedExtensionIds.collectAsState()
+    val figmaState by vm.figmaState.collectAsState()
     val projects by vm.projects.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
@@ -146,7 +155,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
+    var showFigmaDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
+    // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
+    // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
+    // undo-tracked, and shouldn't survive into a save file the way a layer does.
+    var showReferenceWindow by remember { mutableStateOf(false) }
+    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
@@ -170,11 +185,16 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.onImportDocument(it) } }
 
+    val referencePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let { referenceImageUri = it } }
+
     val brushPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
 
     val brushes by vm.installedBrushes.collectAsState()
+    val customBrushes by vm.customBrushes.collectAsState()
 
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -203,6 +223,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             vm = vm,
             uiState = uiState,
             brushes = brushes,
+            customBrushes = customBrushes,
             strings = strings,
             navItemColor = navItemColor,
             activeColor = activeRailColor, // Pass down to DSL builder
@@ -233,6 +254,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Add…", onClick = { showAddDialog = true })
+                azItem(text = "Reference", onClick = { showReferenceWindow = true })
                 azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
@@ -267,6 +289,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 })
                 azDivider()
                 azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
+                azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
+                azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
@@ -500,12 +524,45 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 )
             }
 
+            if (showFigmaDialog) {
+                FigmaWindow(
+                    state = figmaState,
+                    onTokenSubmit = { vm.connectFigma(it) },
+                    onDisconnect = { vm.disconnectFigma() },
+                    onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
+                    onLoadFile = { vm.loadFigmaFile() },
+                    onToggleFrame = { vm.toggleFigmaFrame(it) },
+                    onImport = { vm.importFigmaFrames() },
+                    onDismiss = { showFigmaDialog = false },
+                )
+            }
+
             if (showSettings) {
                 SettingsScreen(
                     vm = settingsVm,
                     appVersion = BuildConfig.VERSION_NAME,
                     onClose = { showSettings = false },
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            if (showReferenceWindow) {
+                ReferenceWindow(
+                    imageUri = referenceImageUri,
+                    onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onDismiss = { showReferenceWindow = false },
+                )
+            }
+
+            uiState.brushStudioDraft?.let { draft ->
+                BrushStudioWindow(
+                    draft = draft,
+                    brushColor = uiState.activeColor,
+                    isSaved = uiState.brushStudioEditingId != null,
+                    onEdit = { edit -> vm.onEditBrushDraft(edit) },
+                    onSave = { vm.onSaveBrushDraft() },
+                    onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
+                    onDismiss = { vm.onCloseBrushStudio() },
                 )
             }
         }
@@ -571,6 +628,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
+    customBrushes: List<CustomBrush>,
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
@@ -686,15 +744,56 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
-    // Symmetry guide: strokes mirror across the vertical centre while it's on.
+    // Symmetry guide: strokes mirror across one or more axes while it's on. The toggle is the quick
+    // on/off (vertical, matching its old behaviour exactly); the picker beside it reaches every mode,
+    // including turning it off from there too.
     azRailToggle(
         id = "tool.symmetry",
-        isChecked = uiState.symmetryEnabled,
+        isChecked = uiState.symmetryMode != SymmetryMode.NONE,
         toggleOnText = "Sym On",
         toggleOffText = "Sym Off",
-        color = if (uiState.symmetryEnabled) activeColor else navItemColor,
+        color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    // Vector node editing (Figma's vector pen). Shown only for a layer that actually has an
+    // editable path, so it isn't a permanently-dead item on a raster document.
+    run {
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
+        if (editable || uiState.pathEditLayerId != null) {
+            azRailToggle(
+                id = "tool.nodeEdit",
+                isChecked = uiState.pathEditLayerId != null,
+                toggleOnText = "Nodes On",
+                toggleOffText = "Edit Nodes",
+                color = if (uiState.pathEditLayerId != null) activeColor else navItemColor,
+                onClick = { vm.onToggleActivePathEdit() },
+            )
+        }
+        if (uiState.pathEditLayerId != null) {
+            azRailItem(
+                id = "tool.nodeClose", text = "Close Path",
+                content = DesignR.drawable.ic_ps_circle, color = navItemColor,
+                onClick = { vm.onTogglePathClosed() },
+            )
+            uiState.selectedNodeIndex?.let { index ->
+                azRailItem(
+                    id = "tool.nodeDelete", text = "Delete Node",
+                    content = DesignR.drawable.ic_ps_deselect, color = navItemColor,
+                    onClick = { vm.onDeletePathNode(index) },
+                )
+            }
+        }
+    }
+    azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = DesignR.drawable.ic_ps_symmetry, color = navItemColor)
+    SymmetryMode.entries.forEach { mode ->
+        azRailSubItem(
+            id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label, shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_symmetry,
+            color = if (uiState.symmetryMode == mode) activeColor else navItemColor,
+            onClick = { vm.onSetSymmetryMode(mode) },
+        )
+    }
     // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
     // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
     // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
@@ -722,6 +821,106 @@ private fun AzNavHostScope.ConfigureRailItems(
         valueFormatter = { "${it.roundToInt()}%" },
         onValueChange = { vm.setStabilizerLevel(it.roundToInt()) },
     )
+    // Time-lapse: streams a downsampled snapshot to a GIF after every committed stroke while on,
+    // then saves the finished clip to Downloads the moment it's turned back off.
+    azRailToggle(
+        id = "tool.timelapse",
+        isChecked = uiState.isTimeLapseRecording,
+        toggleOnText = "Lapse On",
+        toggleOffText = "Lapse Off",
+        color = if (uiState.isTimeLapseRecording) activeColor else navItemColor,
+        onClick = { vm.onToggleTimeLapseRecording() },
+    )
+    // Animation Assist. Every top-level layer is a frame (see AnimationFrames), so the layer group
+    // above doubles as the frame timeline — this group is the transport, onion-skin, and export
+    // controls that turn that stack into an animation.
+    azRailToggle(
+        id = "tool.animation",
+        isChecked = uiState.isAnimationMode,
+        toggleOnText = "Anim On",
+        toggleOffText = "Anim Off",
+        color = if (uiState.isAnimationMode) activeColor else navItemColor,
+        onClick = { vm.onToggleAnimationMode() },
+    )
+    if (uiState.isAnimationMode) {
+        val frameCount = uiState.layers.count { it.parentId == null }
+        azRailHostItem(
+            id = "grp.animation",
+            text = "Frame ${(uiState.activeFrameIndex + 1).coerceAtMost(frameCount.coerceAtLeast(1))}/$frameCount",
+            content = DesignR.drawable.ic_ps_animation,
+            color = navItemColor,
+        )
+        azRailSubItem(
+            id = "anim.play", hostId = "grp.animation",
+            text = if (uiState.isAnimationPlaying) "Pause" else "Play", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_animation,
+            color = if (uiState.isAnimationPlaying) activeColor else navItemColor,
+            onClick = { vm.onToggleAnimationPlayback() },
+        )
+        azRailSubItem(
+            id = "anim.prev", hostId = "grp.animation", text = "Previous", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_undo, color = navItemColor,
+            onClick = { vm.onPreviousFrame() },
+        )
+        azRailSubItem(
+            id = "anim.next", hostId = "grp.animation", text = "Next", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_redo, color = navItemColor,
+            onClick = { vm.onNextFrame() },
+        )
+        azRailSubItem(
+            id = "anim.add", hostId = "grp.animation", text = "Add Frame", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_layers, color = navItemColor,
+            onClick = { vm.onAddFrame() },
+        )
+        azRailSubItem(
+            id = "anim.onion", hostId = "grp.animation",
+            text = if (uiState.onionSkinEnabled) "Onion On" else "Onion Off", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_layers,
+            color = if (uiState.onionSkinEnabled) activeColor else navItemColor,
+            onClick = { vm.onToggleOnionSkin() },
+        )
+        AnimationLoopMode.entries.forEach { mode ->
+            azRailSubItem(
+                id = "anim.loop.${mode.name}", hostId = "grp.animation", text = mode.label, shape = AzButtonShape.NONE,
+                content = DesignR.drawable.ic_ps_animation,
+                color = if (uiState.animationLoopMode == mode) activeColor else navItemColor,
+                onClick = { vm.onSetAnimationLoopMode(mode) },
+            )
+        }
+        azRailSubItem(
+            id = "anim.export", hostId = "grp.animation", text = "Export GIF", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_image, color = navItemColor,
+            onClick = { vm.exportAnimation() },
+        )
+        // Onion-skin depth and frame duration as sliders, since both are "dial it in while watching"
+        // values rather than discrete picks.
+        azRailSlider(
+            id = "anim.onionCount",
+            text = "Onion",
+            value = uiState.onionSkinFrameCount.toFloat(),
+            config = AzSliderConfig(
+                orientation = AzSliderOrientation.VERTICAL,
+                valueFrom = 1f,
+                valueTo = 5f,
+            ),
+            color = navItemColor,
+            valueFormatter = { "${it.roundToInt()}" },
+            onValueChange = { vm.onSetOnionSkinFrameCount(it.roundToInt()) },
+        )
+        azRailSlider(
+            id = "anim.speed",
+            text = "Speed",
+            value = uiState.animationFrameDurationMs.toFloat(),
+            config = AzSliderConfig(
+                orientation = AzSliderOrientation.VERTICAL,
+                valueFrom = 20f,
+                valueTo = 500f,
+            ),
+            color = navItemColor,
+            valueFormatter = { "${it.roundToInt()}ms" },
+            onValueChange = { vm.onSetAnimationFrameDurationMs(it.roundToInt()) },
+        )
+    }
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
     // its own read-out while dragging, so it's obvious which is which and what value you're on.
@@ -761,61 +960,56 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.showColorPicker) activeColor else navItemColor,
         onClick = { vm.onColorClicked() },
     )
-    if (brushes.isNotEmpty()) {
-        azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
+    // The brush group is now unconditional: Brush Studio means there's always something to do here
+    // (make one), where previously the whole group vanished unless a brush extension was installed.
+    azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
+    azRailSubItem(
+        id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_circle,
+        color = if (uiState.activeBrushName == null) activeColor else navItemColor,
+        onClick = { vm.selectBrushExtension(null) },
+    )
+    brushes.forEach { (id, name) ->
         azRailSubItem(
-            id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
-            content = DesignR.drawable.ic_ps_circle,
-            color = if (uiState.activeBrushName == null) activeColor else navItemColor,
-            onClick = { vm.selectBrushExtension(null) },
+            id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_brush,
+            color = if (uiState.activeBrushName == name) activeColor else navItemColor,
+            onClick = { vm.selectBrushExtension(id) },
         )
-        brushes.forEach { (id, name) ->
-            azRailSubItem(
-                id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
-                content = DesignR.drawable.ic_ps_brush,
-                color = if (uiState.activeBrushName == name) activeColor else navItemColor,
-                onClick = { vm.selectBrushExtension(id) },
-            )
-        }
     }
+    customBrushes.forEach { custom ->
+        azRailSubItem(
+            id = "brush.custom.${custom.id}", hostId = "grp.brushes", text = custom.brush.name,
+            shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_brush,
+            color = if (uiState.activeBrushName == custom.brush.name) activeColor else navItemColor,
+            onClick = { vm.selectCustomBrush(custom.id) },
+        )
+    }
+    // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when one is
+    // selected and "make a new one" when it isn't — Procreate's own behaviour.
+    azRailSubItem(
+        id = "brush.studio", hostId = "grp.brushes", text = "Brush Studio", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_adjust,
+        color = if (uiState.brushStudioDraft != null) activeColor else navItemColor,
+        onClick = {
+            val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
+            vm.onOpenBrushStudio(editing)
+        },
+    )
 
     // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
     // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
     // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
     // paints first, underneath everything); declared here top-first (reversed) so the item at
     // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
-    // convention and Photoshop/Procreate's own. onRelocate's newOrder comes back in that same
-    // top-first rail order, so it's reversed again before reaching onLayerReordered, which
-    // expects bottom-first (it becomes the new uiState.layers verbatim).
+    // convention and Photoshop/Procreate's own. A group layer's children render inside its own
+    // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
+    // indented stand-in — so reordering stays scoped to siblings at each level.
     if (uiState.layers.isNotEmpty()) {
         azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = DesignR.drawable.ic_ps_layers, color = navItemColor)
-        uiState.layers.reversed().forEach { layer ->
-            azRailRelocItem(
-                id = "layer.${layer.id}",
-                hostId = "grp.layers",
-                text = layer.name,
-                content = layer.bitmap ?: DesignR.drawable.ic_ps_layers,
-                shape = AzButtonShape.NONE,
-                color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
-                onClick = { vm.onLayerActivated(layer.id) },
-                // newOrder comes back as this rail item's own ids ("layer.<uuid>"), not the raw
-                // layer ids LayerListOps.reorder matches against — every entry used to miss,
-                // silently reordering the layer list down to empty and saving that. Filtering to
-                // "layer."-prefixed entries also protects against newOrder carrying ids from other
-                // rail groups, if the library's relocate scope is ever wider than this host.
-                onRelocate = { _, _, newOrder ->
-                    val layerOrder = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
-                    vm.onLayerReordered(layerOrder.reversed())
-                },
-            ) {
-                inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
-                listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
-                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
-                listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
-                listItem("Merge Down") { vm.onMergeDown(layer.id) }
-                listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
-                listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
-            }
+        uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
+            renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings)
         }
     }
 
@@ -865,5 +1059,63 @@ private fun AzNavHostScope.ConfigureRailItems(
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
         azRailItem(id = "edit", text = "Edit", content = DesignR.drawable.ic_ps_more, color = navItemColor, onClick = { onEditClicked() })
+    }
+}
+
+/**
+ * Renders one layer row under [hostId] and, if it's a [LayerType.GROUP], recurses into its own
+ * nested rail for its children (their own host scope, so drag-reordering a group's contents never
+ * touches a sibling group or the top level). onRelocate's newOrder comes back in this rail's own
+ * top-first display order restricted to this host's items; reversed to bottom-first and applied via
+ * [LayerListOps.reorderSubset], which — unlike the plain [LayerListOps.reorder] the rest of the
+ * app's history assumed — only touches the named layers' own slots, since a scoped relocate no
+ * longer covers the whole flat list the way the single flat "grp.layers" host used to.
+ */
+private fun AzNavHostScope.renderLayerRailItem(
+    layer: Layer,
+    uiState: EditorUiState,
+    hostId: String,
+    vm: EditorViewModel,
+    activeColor: Color,
+    navItemColor: Color,
+    strings: AppStrings,
+) {
+    val isGroup = layer.type == LayerType.GROUP
+    val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
+    azRailRelocItem(
+        id = "layer.${layer.id}",
+        hostId = hostId,
+        text = layer.name,
+        content = if (isGroup) DesignR.drawable.ic_ps_folder else (layer.bitmap ?: DesignR.drawable.ic_ps_layers),
+        shape = AzButtonShape.NONE,
+        color = if (!isGroup && layer.id == uiState.activeLayerId) activeColor else navItemColor,
+        onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
+        onRelocate = { _, _, newOrder ->
+            val ids = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
+            vm.onLayerReordered(ids.reversed())
+        },
+        keepNestedRailOpen = isGroup,
+        nestedContent = if (isGroup) {
+            {
+                children.reversed().forEach { child ->
+                    renderLayerRailItem(child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings)
+                }
+            }
+        } else null,
+    ) {
+        inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+        listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+        if (isGroup) {
+            listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
+            listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
+        } else {
+            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
+            listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+            listItem("Merge Down") { vm.onMergeDown(layer.id) }
+            listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
+            listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
+            listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+        }
     }
 }

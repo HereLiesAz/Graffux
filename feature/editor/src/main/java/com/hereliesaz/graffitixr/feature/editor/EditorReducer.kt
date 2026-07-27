@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 
 /**
@@ -47,9 +48,16 @@ internal object EditorReducer {
             state.copy(activeRotationAxis = next, showRotationAxisFeedback = true)
         }
 
-        is EditorIntent.ReorderLayers -> state.copy(layers = LayerListOps.reorder(state.layers, intent.order))
+        is EditorIntent.ReorderLayers -> state.copy(layers = LayerListOps.reorderSubset(state.layers, intent.order))
         is EditorIntent.RenameLayer -> state.copy(layers = LayerListOps.rename(state.layers, intent.id, intent.name))
         is EditorIntent.ToggleVisibility -> state.copy(layers = LayerListOps.toggleVisibility(state.layers, intent.id))
+        is EditorIntent.GroupLayers -> state.copy(
+            layers = LayerListOps.group(state.layers, intent.aId, intent.bId, intent.newGroupId, intent.groupName),
+        )
+        is EditorIntent.UngroupLayer -> state.copy(layers = LayerListOps.ungroup(state.layers, intent.groupId))
+        is EditorIntent.ToggleClipToLayerBelow -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(clipToLayerBelow = !it.clipToLayerBelow) },
+        )
         is EditorIntent.ActivateLayer -> state.copy(activeLayerId = intent.id, activeTool = Tool.NONE)
         is EditorIntent.AddLayer -> state.copy(
             layers = state.layers + intent.layer,
@@ -92,6 +100,7 @@ internal object EditorReducer {
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
         is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
+        is EditorIntent.SetGestureMapping -> state.copy(gestureMapping = intent.mapping)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
@@ -105,7 +114,51 @@ internal object EditorReducer {
         // already 94% of what any scale can save.
         is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
-        EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        EditorIntent.ToggleSymmetry -> state.copy(
+            symmetryMode = if (state.symmetryMode == SymmetryMode.NONE) SymmetryMode.VERTICAL else SymmetryMode.NONE,
+        )
+        is EditorIntent.SetSymmetryMode -> state.copy(symmetryMode = intent.mode)
+        EditorIntent.ToggleTimeLapseRecording -> state.copy(isTimeLapseRecording = !state.isTimeLapseRecording)
+        EditorIntent.ToggleAnimationMode -> state.copy(
+            isAnimationMode = !state.isAnimationMode,
+            activeFrameIndex = if (!state.isAnimationMode) {
+                AnimationFrames.frameIndexForLayer(state.layers, state.activeLayerId)
+            } else {
+                state.activeFrameIndex
+            },
+        )
+        is EditorIntent.SetAnimationPlaying -> state.copy(isAnimationPlaying = intent.playing)
+        is EditorIntent.SetActiveFrameIndex -> {
+            val index = intent.index.coerceAtLeast(0)
+            // Unlike ActivateLayer this deliberately leaves activeTool alone: stepping frames with a
+            // brush in hand must not put the brush down.
+            val activeId = if (intent.followActiveLayer) {
+                AnimationFrames.drawableLayerForFrame(state.layers, index) ?: state.activeLayerId
+            } else {
+                state.activeLayerId
+            }
+            state.copy(activeFrameIndex = index, activeLayerId = activeId)
+        }
+        EditorIntent.ToggleOnionSkin -> state.copy(onionSkinEnabled = !state.onionSkinEnabled)
+        is EditorIntent.SetOnionSkinFrameCount -> state.copy(onionSkinFrameCount = intent.count.coerceIn(1, 5))
+        is EditorIntent.SetAnimationFrameDurationMs -> state.copy(animationFrameDurationMs = intent.ms.coerceIn(20, 2000))
+        is EditorIntent.SetAnimationLoopMode -> state.copy(animationLoopMode = intent.mode)
+        is EditorIntent.SetBrushStudioDraft -> state.copy(
+            brushStudioDraft = intent.draft?.sanitized(),
+            brushStudioEditingId = intent.editingId,
+        )
+        is EditorIntent.SetPathEditLayer -> state.copy(
+            pathEditLayerId = intent.layerId,
+            // A node index belongs to the path it indexes; carrying it across would point at a
+            // node in a different shape, or none at all.
+            selectedNodeIndex = null,
+        )
+        is EditorIntent.SelectPathNode -> state.copy(selectedNodeIndex = intent.index)
+        is EditorIntent.SetPathShape -> state.copy(
+            layers = state.layers.map { layer ->
+                if (layer.id == intent.layerId) layer.copy(shapes = listOf(intent.shape)) else layer
+            },
+        )
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

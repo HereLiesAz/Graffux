@@ -3,8 +3,12 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerProps
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -77,6 +81,8 @@ internal sealed interface EditorIntent {
     data class SetHandedness(val value: Boolean) : EditorIntent
     /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
     data class SetImperialUnits(val value: Boolean) : EditorIntent
+    /** Mirrors the persisted per-gesture action mapping into live UiState. */
+    data class SetGestureMapping(val mapping: Map<GestureSlot, GestureAction>) : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
@@ -89,7 +95,38 @@ internal sealed interface EditorIntent {
     data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
     /** Toggles the vertical-mirror symmetry guide for painting. */
+    /** Flips between [SymmetryMode.NONE] and [SymmetryMode.VERTICAL] — the rail toggle's simple on/off. */
     data object ToggleSymmetry : EditorIntent
+    /** Directly selects any symmetry mode (including NONE) — the mode picker's each-option action. */
+    data class SetSymmetryMode(val mode: SymmetryMode) : EditorIntent
+    /** Flips time-lapse recording on/off; the actual GIF encoder lives in EditorViewModel. */
+    data object ToggleTimeLapseRecording : EditorIntent
+    /** Enters/exits Animation Assist — see AnimationFrames for how frames map onto layers. */
+    data object ToggleAnimationMode : EditorIntent
+    data class SetAnimationPlaying(val playing: Boolean) : EditorIntent
+    /**
+     * Moves the animation frame cursor. [followActiveLayer] also points the active layer at that
+     * frame so the next stroke lands on the frame being looked at — playback passes false, since
+     * retargeting the active layer dozens of times a second would clobber the user's selection.
+     */
+    data class SetActiveFrameIndex(val index: Int, val followActiveLayer: Boolean = false) : EditorIntent
+    data object ToggleOnionSkin : EditorIntent
+    data class SetOnionSkinFrameCount(val count: Int) : EditorIntent
+    data class SetAnimationFrameDurationMs(val ms: Int) : EditorIntent
+    data class SetAnimationLoopMode(val mode: AnimationLoopMode) : EditorIntent
+    /**
+     * Opens Brush Studio on [draft] (null closes it). [editingId] is the saved-brush id being
+     * edited, or null for a brand-new brush.
+     */
+    data class SetBrushStudioDraft(
+        val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
+        val editingId: String? = null,
+    ) : EditorIntent
+    /** Enters node-edit mode on a PATH layer, or leaves it with null. */
+    data class SetPathEditLayer(val layerId: String?) : EditorIntent
+    data class SelectPathNode(val index: Int?) : EditorIntent
+    /** Replaces the edited layer's single path shape — the result of any node operation. */
+    data class SetPathShape(val layerId: String, val shape: com.hereliesaz.graffitixr.common.model.VectorShape) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */
@@ -117,6 +154,13 @@ internal sealed interface EditorIntent {
     data class RemoveLayerById(val id: String) : EditorIntent
     data class SetLayerTransformById(val id: String, val scale: Float, val offset: Offset, val rx: Float, val ry: Float, val rz: Float) : EditorIntent
     data class SetLayerProps(val id: String, val props: LayerProps) : EditorIntent
+
+    /** Groups [aId] and [bId] under a new group layer — see LayerListOps.group. */
+    data class GroupLayers(val aId: String, val bId: String, val newGroupId: String, val groupName: String) : EditorIntent
+    /** Dissolves group [groupId], reparenting its children up one level — see LayerListOps.ungroup. */
+    data class UngroupLayer(val groupId: String) : EditorIntent
+    /** Flips a layer's "clip to layer below" flag (Procreate's Clipping Mask). */
+    data class ToggleClipToLayerBelow(val id: String) : EditorIntent
 
     // ── Panels / gestures / layer set / project lifecycle ─────────────────────
     data object ToggleColorPanel : EditorIntent

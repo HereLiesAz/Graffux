@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.domain.repository
 
 import com.hereliesaz.graffitixr.common.model.ArScanMode
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.MuralMethod
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import kotlinx.coroutines.flow.Flow
@@ -130,4 +132,12 @@ interface SettingsRepository {
      */
     val canvasRenderScale: Flow<Float>
     suspend fun setCanvasRenderScale(scale: Float)
+
+    /**
+     * Which action each customizable multi-finger gesture triggers (see [GestureSlot]);
+     * [GestureAction.NONE] disables that gesture. Missing entries fall back to the slot's own
+     * [GestureSlot.defaultAction] — the historical hardcoded behaviour.
+     */
+    val gestureMapping: Flow<Map<GestureSlot, GestureAction>>
+    suspend fun setGestureAction(slot: GestureSlot, action: GestureAction)
 }

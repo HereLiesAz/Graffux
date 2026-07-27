@@ -56,11 +56,16 @@ class EditorViewModelTest {
     private val slamManager: SlamManager = mockk(relaxed = true)
     private val opEmitter: OpEmitter = mockk(relaxed = true)
     private val extensionRepository: ExtensionRepository = mockk(relaxed = true)
+    private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository = mockk(relaxed = true)
+    private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        // A relaxed mock returns a mocked Flow whose collect never completes normally, and the
+        // view-model collects this one in its init block — give it a real flow to collect.
+        every { figmaRepository.isAuthenticated } returns kotlinx.coroutines.flow.MutableStateFlow(false)
         // The OpenCV-backed singletons (ImageProcessor, SketchProcessor, StencilProcessor, …) call
         // NativeLibLoader.loadAll() in their init blocks; on a host JVM that throws (the .so is
         // Android-arm only). No-op it so those objects can initialise and have their methods mocked.
@@ -123,7 +128,8 @@ class EditorViewModelTest {
 
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
-            slamManager, testDispatcherProvider, opEmitter, extensionRepository
+            slamManager, testDispatcherProvider, opEmitter, extensionRepository, customBrushRepository,
+            figmaRepository,
         )
     }
 
