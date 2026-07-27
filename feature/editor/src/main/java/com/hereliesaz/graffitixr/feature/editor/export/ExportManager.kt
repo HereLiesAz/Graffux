@@ -5,12 +5,17 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.BlendMode as NativeBlendMode
 import androidx.compose.ui.graphics.BlendMode
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerNode
+import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
+import com.hereliesaz.graffitixr.common.model.buildLayerTree
 import com.hereliesaz.graffitixr.feature.editor.createColorMatrix
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -78,34 +83,59 @@ class ExportManager @Inject constructor() {
             canvas.drawBitmap(bg, matrix, null)
         }
 
-        layers.filter { it.isVisible }.forEach { layer ->
-            if (layer.shapes.isNotEmpty()) {
-                drawVectorLayer(canvas, layer, screenWidth, screenHeight)
-                return@forEach
-            }
-            layer.bitmap?.let { b ->
-                val cm = createColorMatrix(
-                    saturation = layer.saturation,
-                    contrast = layer.contrast,
-                    brightness = layer.brightness,
-                    colorBalanceR = layer.colorBalanceR,
-                    colorBalanceG = layer.colorBalanceG,
-                    colorBalanceB = layer.colorBalanceB,
-                    isInverted = layer.isInverted
-                )
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                    blendMode = layer.blendMode.toNativeBlendMode()
-                    colorFilter = android.graphics.ColorMatrixColorFilter(
-                        android.graphics.ColorMatrix(cm.values)
-                    )
-                }
-
-                val matrix = getLayerScreenMatrix(layer, screenWidth, screenHeight)
-                canvas.drawBitmap(b, matrix, paint)
-            }
-        }
+        // buildLayerTree so a LayerType.GROUP composites as one unit (its own opacity/blend applied
+        // to the whole child stack, matching the live Compose LayerStackNode) rather than each child
+        // painting individually at full strength straight onto the export — the flat forEach this
+        // replaced didn't know groups existed at all.
+        drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight)
         return result
+    }
+
+    private fun drawNodes(canvas: Canvas, nodes: List<LayerNode>, w: Int, h: Int) {
+        for (node in nodes) drawNode(canvas, node, w, h)
+    }
+
+    private fun drawNode(canvas: Canvas, node: LayerNode, w: Int, h: Int) {
+        val layer = node.layer
+        if (!layer.isVisible) return
+        if (layer.type == LayerType.GROUP) {
+            val groupBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            drawNodes(Canvas(groupBmp), node.children, w, h)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                blendMode = layer.blendMode.toNativeBlendMode()
+            }
+            canvas.drawBitmap(groupBmp, 0f, 0f, paint)
+            groupBmp.recycle()
+            return
+        }
+        if (layer.shapes.isNotEmpty()) {
+            drawVectorLayer(canvas, layer, w, h, clipToBelow = layer.clipToLayerBelow)
+            return
+        }
+        val b = layer.bitmap ?: return
+        val cm = createColorMatrix(
+            saturation = layer.saturation,
+            contrast = layer.contrast,
+            brightness = layer.brightness,
+            colorBalanceR = layer.colorBalanceR,
+            colorBalanceG = layer.colorBalanceG,
+            colorBalanceB = layer.colorBalanceB,
+            isInverted = layer.isInverted
+        )
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+            colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
+            // Clip-to-below masks against whatever's already painted beneath it in this same canvas
+            // (SRC_IN keeps only the overlap) — Procreate's Clipping Mask. This takes priority over
+            // the layer's own blend mode rather than combining both, since doing both correctly needs
+            // its own two-pass offscreen composite; a clipped layer with a custom blend is the rare
+            // case, and clip-wins is the honest v1 rather than silently dropping the clip instead.
+            xfermode = if (layer.clipToLayerBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_IN) else null
+            if (!layer.clipToLayerBelow) blendMode = layer.blendMode.toNativeBlendMode()
+        }
+        val matrix = getLayerScreenMatrix(layer, w, h)
+        canvas.drawBitmap(b, matrix, paint)
     }
 
     /**
@@ -221,7 +251,7 @@ class ExportManager @Inject constructor() {
      * a vector layer exports with exactly the parity a raster layer gets — a pen layer set to
      * Multiply no longer flattens back to SrcOver.
      */
-    private fun drawVectorLayer(canvas: Canvas, layer: Layer, screenWidth: Int, screenHeight: Int) {
+    private fun drawVectorLayer(canvas: Canvas, layer: Layer, screenWidth: Int, screenHeight: Int, clipToBelow: Boolean = false) {
         val cx = screenWidth / 2f
         val cy = screenHeight / 2f
         val matrix = Matrix().apply {
@@ -240,8 +270,10 @@ class ExportManager @Inject constructor() {
         )
         val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
-            blendMode = layer.blendMode.toNativeBlendMode()
             colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
+            // See drawNode's identical raster-layer comment: clip wins over a custom blend mode.
+            xfermode = if (clipToBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_IN) else null
+            if (!clipToBelow) blendMode = layer.blendMode.toNativeBlendMode()
         }
         val saveCount = canvas.saveLayer(null, layerPaint)
         canvas.concat(matrix)

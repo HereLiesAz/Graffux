@@ -118,6 +118,13 @@ internal sealed interface EditorIntent {
     data class SetLayerTransformById(val id: String, val scale: Float, val offset: Offset, val rx: Float, val ry: Float, val rz: Float) : EditorIntent
     data class SetLayerProps(val id: String, val props: LayerProps) : EditorIntent
 
+    /** Groups [aId] and [bId] under a new group layer — see LayerListOps.group. */
+    data class GroupLayers(val aId: String, val bId: String, val newGroupId: String, val groupName: String) : EditorIntent
+    /** Dissolves group [groupId], reparenting its children up one level — see LayerListOps.ungroup. */
+    data class UngroupLayer(val groupId: String) : EditorIntent
+    /** Flips a layer's "clip to layer below" flag (Procreate's Clipping Mask). */
+    data class ToggleClipToLayerBelow(val id: String) : EditorIntent
+
     // ── Panels / gestures / layer set / project lifecycle ─────────────────────
     data object ToggleColorPanel : EditorIntent
     /** Opens/closes the installed-extensions panel (run a code extension's filter/tool). */

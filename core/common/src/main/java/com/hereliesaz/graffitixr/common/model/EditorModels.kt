@@ -15,6 +15,7 @@ import kotlinx.serialization.Transient
 /**
  * Defines the functional role of a layer in the scene graph.
  */
+@Serializable
 enum class LayerType {
     RASTER,
     VECTOR,
@@ -51,6 +52,12 @@ data class Layer(
      * have alpha — strokes recolour existing content and never extend its silhouette.
      */
     val alphaLock: Boolean = false,
+    /**
+     * Procreate's Clipping Mask: while set, this layer only paints where the layer(s) below it
+     * (down to the next non-clipped layer, or the stack's base) already have alpha — same idea as
+     * Alpha Lock, but clipping to what's *underneath* rather than to the layer's own existing pixels.
+     */
+    val clipToLayerBelow: Boolean = false,
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,

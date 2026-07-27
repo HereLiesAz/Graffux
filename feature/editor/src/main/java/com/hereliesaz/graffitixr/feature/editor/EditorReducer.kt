@@ -47,9 +47,16 @@ internal object EditorReducer {
             state.copy(activeRotationAxis = next, showRotationAxisFeedback = true)
         }
 
-        is EditorIntent.ReorderLayers -> state.copy(layers = LayerListOps.reorder(state.layers, intent.order))
+        is EditorIntent.ReorderLayers -> state.copy(layers = LayerListOps.reorderSubset(state.layers, intent.order))
         is EditorIntent.RenameLayer -> state.copy(layers = LayerListOps.rename(state.layers, intent.id, intent.name))
         is EditorIntent.ToggleVisibility -> state.copy(layers = LayerListOps.toggleVisibility(state.layers, intent.id))
+        is EditorIntent.GroupLayers -> state.copy(
+            layers = LayerListOps.group(state.layers, intent.aId, intent.bId, intent.newGroupId, intent.groupName),
+        )
+        is EditorIntent.UngroupLayer -> state.copy(layers = LayerListOps.ungroup(state.layers, intent.groupId))
+        is EditorIntent.ToggleClipToLayerBelow -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(clipToLayerBelow = !it.clipToLayerBelow) },
+        )
         is EditorIntent.ActivateLayer -> state.copy(activeLayerId = intent.id, activeTool = Tool.NONE)
         is EditorIntent.AddLayer -> state.copy(
             layers = state.layers + intent.layer,

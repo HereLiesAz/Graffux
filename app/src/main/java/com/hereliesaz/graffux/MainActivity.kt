@@ -50,6 +50,8 @@ import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.R as DesignR
@@ -784,38 +786,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
     // paints first, underneath everything); declared here top-first (reversed) so the item at
     // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
-    // convention and Photoshop/Procreate's own. onRelocate's newOrder comes back in that same
-    // top-first rail order, so it's reversed again before reaching onLayerReordered, which
-    // expects bottom-first (it becomes the new uiState.layers verbatim).
+    // convention and Photoshop/Procreate's own. A group layer's children render inside its own
+    // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
+    // indented stand-in — so reordering stays scoped to siblings at each level.
     if (uiState.layers.isNotEmpty()) {
         azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = DesignR.drawable.ic_ps_layers, color = navItemColor)
-        uiState.layers.reversed().forEach { layer ->
-            azRailRelocItem(
-                id = "layer.${layer.id}",
-                hostId = "grp.layers",
-                text = layer.name,
-                content = layer.bitmap ?: DesignR.drawable.ic_ps_layers,
-                shape = AzButtonShape.NONE,
-                color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
-                onClick = { vm.onLayerActivated(layer.id) },
-                // newOrder comes back as this rail item's own ids ("layer.<uuid>"), not the raw
-                // layer ids LayerListOps.reorder matches against — every entry used to miss,
-                // silently reordering the layer list down to empty and saving that. Filtering to
-                // "layer."-prefixed entries also protects against newOrder carrying ids from other
-                // rail groups, if the library's relocate scope is ever wider than this host.
-                onRelocate = { _, _, newOrder ->
-                    val layerOrder = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
-                    vm.onLayerReordered(layerOrder.reversed())
-                },
-            ) {
-                inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
-                listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
-                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
-                listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
-                listItem("Merge Down") { vm.onMergeDown(layer.id) }
-                listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
-                listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
-            }
+        uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
+            renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings)
         }
     }
 
@@ -865,5 +842,63 @@ private fun AzNavHostScope.ConfigureRailItems(
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
         azRailItem(id = "edit", text = "Edit", content = DesignR.drawable.ic_ps_more, color = navItemColor, onClick = { onEditClicked() })
+    }
+}
+
+/**
+ * Renders one layer row under [hostId] and, if it's a [LayerType.GROUP], recurses into its own
+ * nested rail for its children (their own host scope, so drag-reordering a group's contents never
+ * touches a sibling group or the top level). onRelocate's newOrder comes back in this rail's own
+ * top-first display order restricted to this host's items; reversed to bottom-first and applied via
+ * [LayerListOps.reorderSubset], which — unlike the plain [LayerListOps.reorder] the rest of the
+ * app's history assumed — only touches the named layers' own slots, since a scoped relocate no
+ * longer covers the whole flat list the way the single flat "grp.layers" host used to.
+ */
+private fun AzNavHostScope.renderLayerRailItem(
+    layer: Layer,
+    uiState: EditorUiState,
+    hostId: String,
+    vm: EditorViewModel,
+    activeColor: Color,
+    navItemColor: Color,
+    strings: AppStrings,
+) {
+    val isGroup = layer.type == LayerType.GROUP
+    val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
+    azRailRelocItem(
+        id = "layer.${layer.id}",
+        hostId = hostId,
+        text = layer.name,
+        content = if (isGroup) DesignR.drawable.ic_ps_folder else (layer.bitmap ?: DesignR.drawable.ic_ps_layers),
+        shape = AzButtonShape.NONE,
+        color = if (!isGroup && layer.id == uiState.activeLayerId) activeColor else navItemColor,
+        onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
+        onRelocate = { _, _, newOrder ->
+            val ids = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
+            vm.onLayerReordered(ids.reversed())
+        },
+        keepNestedRailOpen = isGroup,
+        nestedContent = if (isGroup) {
+            {
+                children.reversed().forEach { child ->
+                    renderLayerRailItem(child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings)
+                }
+            }
+        } else null,
+    ) {
+        inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+        listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+        if (isGroup) {
+            listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
+            listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
+        } else {
+            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
+            listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+            listItem("Merge Down") { vm.onMergeDown(layer.id) }
+            listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
+            listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
+            listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+        }
     }
 }

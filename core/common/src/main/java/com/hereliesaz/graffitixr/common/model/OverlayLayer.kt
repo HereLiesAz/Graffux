@@ -50,6 +50,11 @@ data class OverlayLayer(
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
     val alphaLock: Boolean = false,
+    val clipToLayerBelow: Boolean = false,
+    // Layer hierarchy — Layer already carried these at runtime, but this mapping never persisted
+    // them, so a group (or a group membership) silently reset to flat/RASTER on reload.
+    val parentId: String? = null,
+    val layerType: LayerType = LayerType.RASTER,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,

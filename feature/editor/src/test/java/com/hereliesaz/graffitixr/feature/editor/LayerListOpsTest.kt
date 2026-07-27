@@ -46,6 +46,28 @@ class LayerListOpsTest {
     }
 
     @Test
+    fun `reorderSubset reorders only the named layers, leaving the rest in place`() {
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"), lyr("d"))
+        // Reorder just b and d (a group's children scattered through the flat list) to d, b.
+        val out = LayerListOps.reorderSubset(layers, listOf("d", "b"))
+        assertEquals(listOf("a", "d", "c", "b"), out.map { it.id })
+    }
+
+    @Test
+    fun `reorderSubset covering the whole list behaves like a full reorder`() {
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        val out = LayerListOps.reorderSubset(layers, listOf("c", "a", "b"))
+        assertEquals(listOf("c", "a", "b"), out.map { it.id })
+    }
+
+    @Test
+    fun `reorderSubset is a no-op on a duplicate or unknown id`() {
+        val layers = listOf(lyr("a"), lyr("b"))
+        assertEquals(layers, LayerListOps.reorderSubset(layers, listOf("a", "a")))
+        assertEquals(layers, LayerListOps.reorderSubset(layers, listOf("a", "ghost")))
+    }
+
+    @Test
     fun `mapLayer transforms only the matching layer`() {
         val layers = listOf(lyr("a"), lyr("b"))
         val out = LayerListOps.mapLayer(layers, "a") { it.copy(opacity = 0.5f) }
@@ -73,5 +95,41 @@ class LayerListOpsTest {
         val out = LayerListOps.toggleVisibility(layers, "a")
         assertFalse(out.first { it.id == "a" }.isVisible)
         assertTrue(out.first { it.id == "b" }.isVisible)
+    }
+
+    @Test
+    fun `group creates a group layer and reparents both members onto it`() {
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        val out = LayerListOps.group(layers, "a", "b", "g1", "Group")
+        val group = out.first { it.id == "g1" }
+        assertEquals(com.hereliesaz.graffitixr.common.model.LayerType.GROUP, group.type)
+        assertEquals("g1", out.first { it.id == "a" }.parentId)
+        assertEquals("g1", out.first { it.id == "b" }.parentId)
+        assertEquals(null, out.first { it.id == "c" }.parentId)
+        assertEquals(4, out.size)
+    }
+
+    @Test
+    fun `group is a no-op when either id is missing or the group id collides`() {
+        val layers = listOf(lyr("a"), lyr("b"))
+        assertEquals(layers, LayerListOps.group(layers, "a", "ghost", "g1", "Group"))
+        assertEquals(layers, LayerListOps.group(layers, "a", "b", "a", "Group"))
+    }
+
+    @Test
+    fun `ungroup reparents children onto the group's own parent and removes the group`() {
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        val grouped = LayerListOps.group(layers, "a", "b", "g1", "Group")
+        val out = LayerListOps.ungroup(grouped, "g1")
+        assertEquals(null, out.first { it.id == "a" }.parentId)
+        assertEquals(null, out.first { it.id == "b" }.parentId)
+        assertEquals(3, out.size) // the group layer itself is gone
+        assertTrue(out.none { it.id == "g1" })
+    }
+
+    @Test
+    fun `ungroup is a no-op for an id that isn't a group`() {
+        val layers = listOf(lyr("a"), lyr("b"))
+        assertEquals(layers, LayerListOps.ungroup(layers, "a"))
     }
 }

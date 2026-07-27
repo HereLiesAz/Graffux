@@ -3067,6 +3067,52 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Groups [layerId] with the layer immediately above it into a new [LayerType.GROUP] — the rail
+     * equivalent of Procreate's pinch-to-group gesture, which AzNavRail's drag-to-reorder has no way
+     * to express directly.
+     */
+    fun onGroupWithLayerAbove(layerId: String) {
+        val layers = _uiState.value.layers
+        val index = layers.indexOfFirst { it.id == layerId }
+        if (index < 0 || index >= layers.lastIndex) {
+            Toast.makeText(context, "Nothing above this layer to group with", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val above = layers[index + 1]
+        pushHistory()
+        dispatch(EditorIntent.GroupLayers(layerId, above.id, UUID.randomUUID().toString(), "Group"))
+        saveProject()
+    }
+
+    fun onUngroupLayer(groupId: String) {
+        pushHistory()
+        dispatch(EditorIntent.UngroupLayer(groupId))
+        saveProject()
+    }
+
+    /** Deletes group [groupId] AND its contents — unlike [onUngroupLayer], nothing survives it. */
+    fun onDeleteGroup(groupId: String) {
+        val layers = _uiState.value.layers
+        if (layers.none { it.id == groupId }) return
+        pushHistory()
+        val toRemove = descendantIds(layers, groupId) + groupId
+        dispatch(EditorIntent.SetLayers(layers.filterNot { it.id in toRemove }))
+        saveProject()
+    }
+
+    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> {
+        val direct = layers.filter { it.parentId == parentId }.map { it.id }
+        return direct.toSet() + direct.flatMap { descendantIds(layers, it) }
+    }
+
+    fun onToggleClipToLayerBelow(id: String) {
+        pushHistory()
+        dispatch(EditorIntent.ToggleClipToLayerBelow(id))
+        saveProject()
+        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+    }
+
     // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
 
     /** Opens the radial menu centred on [at] (screen space) — normally the summoning centroid. */

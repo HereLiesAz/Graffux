@@ -508,9 +508,13 @@ private fun LayerStackNode(
                         )
                     )
                 }
-                // Offscreen compositing is only needed to isolate a non-default blend mode; for
-                // normal (SrcOver) layers, Auto avoids the extra full-screen pass per frame.
-                val needsOffscreen = layer.blendMode != BlendMode.SrcOver
+                // Offscreen compositing is only needed to isolate a non-default blend mode (or a
+                // clip); for a normal (SrcOver, unclipped) layer, Auto avoids the extra full-screen
+                // pass per frame. Clip-to-below (Procreate's Clipping Mask) masks against whatever
+                // this Box has already drawn beneath it via BlendMode.SrcIn — see ExportManager's
+                // matching PorterDuff.Mode.SRC_IN for why it takes priority over a custom blend mode
+                // rather than combining both.
+                val needsOffscreen = layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow
                 Image(
                     bitmap = imageBitmap,
                     contentDescription = null,
@@ -527,7 +531,7 @@ private fun LayerStackNode(
                             rotationZ = layer.rotationZ
                             alpha = layer.opacity
                             transformOrigin = TransformOrigin.Center
-                            blendMode = layer.blendMode
+                            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
                             compositingStrategy = if (needsOffscreen)
                                 CompositingStrategy.Offscreen
                             else
@@ -978,7 +982,8 @@ private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier) {
             rotationZ = layer.rotationZ
             alpha = layer.opacity
             transformOrigin = TransformOrigin.Center
-            blendMode = layer.blendMode
+            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
+            if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
         }
     ) {
         val cx = size.width / 2f
