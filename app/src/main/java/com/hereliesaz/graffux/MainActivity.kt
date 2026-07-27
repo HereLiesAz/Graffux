@@ -755,6 +755,16 @@ private fun AzNavHostScope.ConfigureRailItems(
         valueFormatter = { "${it.roundToInt()}%" },
         onValueChange = { vm.setStabilizerLevel(it.roundToInt()) },
     )
+    // Time-lapse: streams a downsampled snapshot to a GIF after every committed stroke while on,
+    // then saves the finished clip to Downloads the moment it's turned back off.
+    azRailToggle(
+        id = "tool.timelapse",
+        isChecked = uiState.isTimeLapseRecording,
+        toggleOnText = "Lapse On",
+        toggleOffText = "Lapse Off",
+        color = if (uiState.isTimeLapseRecording) activeColor else navItemColor,
+        onClick = { vm.onToggleTimeLapseRecording() },
+    )
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
     // its own read-out while dragging, so it's obvious which is which and what value you're on.

@@ -98,6 +98,8 @@ internal sealed interface EditorIntent {
     data object ToggleSymmetry : EditorIntent
     /** Directly selects any symmetry mode (including NONE) — the mode picker's each-option action. */
     data class SetSymmetryMode(val mode: SymmetryMode) : EditorIntent
+    /** Flips time-lapse recording on/off; the actual GIF encoder lives in EditorViewModel. */
+    data object ToggleTimeLapseRecording : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */

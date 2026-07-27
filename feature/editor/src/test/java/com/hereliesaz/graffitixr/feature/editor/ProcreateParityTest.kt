@@ -126,6 +126,13 @@ class ProcreateParityTest {
     }
 
     @Test
+    fun `ToggleTimeLapseRecording flips the recording flag`() {
+        val on = EditorReducer.reduce(EditorUiState(), EditorIntent.ToggleTimeLapseRecording)
+        assertTrue(on.isTimeLapseRecording)
+        assertFalse(EditorReducer.reduce(on, EditorIntent.ToggleTimeLapseRecording).isTimeLapseRecording)
+    }
+
+    @Test
     fun `ToggleAlphaLock flips only the addressed layer`() {
         val s = EditorUiState(layers = listOf(layer("a"), layer("b")))
         val out = EditorReducer.reduce(s, EditorIntent.ToggleAlphaLock("b"))

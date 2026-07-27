@@ -60,7 +60,9 @@ import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
+import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
+import kotlin.math.roundToInt
 
 data class StrokeCommand(
     val path: List<Offset>,
@@ -104,6 +106,9 @@ data class StrokeCommand(
  * deeper than the strokes kept, an undo would silently restore the wrong pixels.
  */
 internal const val HISTORY_DEPTH = 20
+
+/** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
+private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
@@ -256,6 +261,9 @@ class EditorViewModel @Inject constructor(
     private val stampMappedPoints = ArrayList<Float>()
 
     private val strokeStabilizer = StrokeStabilizer()
+
+    // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
+    private val timeLapseRecorder = TimeLapseRecorder()
 
     init {
         viewModelScope.launch(dispatchers.main) {
@@ -652,7 +660,106 @@ class EditorViewModel @Inject constructor(
             }
 
             scheduleDiskSave(layerId, newBitmap, layer.uri)
+            if (_uiState.value.isTimeLapseRecording) captureTimeLapseFrame()
         }
+    }
+
+    /**
+     * Composites the current canvas down to a small [TIME_LAPSE_FRAME_MAX_DIM]-ish snapshot and
+     * hands it to [timeLapseRecorder]. Called off the main thread — see [processNewStroke].
+     */
+    private fun captureTimeLapseFrame() {
+        val state = _uiState.value
+        val docW = state.documentWidth
+        val docH = state.documentHeight
+        if (docW <= 0 || docH <= 0) return
+        val metrics = context.resources.displayMetrics
+        val longestDoc = maxOf(docW, docH)
+        val scale = TIME_LAPSE_FRAME_MAX_DIM.toFloat() / longestDoc
+        val targetW = (docW * scale).roundToInt().coerceAtLeast(1)
+        val targetH = (docH * scale).roundToInt().coerceAtLeast(1)
+        val frame = exportManager.compositeToDocument(
+            state.layers,
+            metrics.widthPixels,
+            metrics.heightPixels,
+            targetW,
+            targetH,
+            backgroundColor = android.graphics.Color.WHITE,
+        )
+        val consumed = timeLapseRecorder.captureFrame(frame, System.currentTimeMillis())
+        if (!consumed) frame.recycle()
+    }
+
+    /** Starts or stops time-lapse recording, saving the finished GIF to Downloads on stop. */
+    fun onToggleTimeLapseRecording() {
+        if (_uiState.value.isTimeLapseRecording) {
+            dispatch(EditorIntent.ToggleTimeLapseRecording)
+            viewModelScope.launch(dispatchers.default) {
+                val file = timeLapseRecorder.finish()
+                if (file != null) {
+                    saveTimeLapseToDownloads(file)
+                } else {
+                    withContext(dispatchers.main) {
+                        Toast.makeText(context, "No time-lapse frames captured", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            return
+        }
+        viewModelScope.launch(dispatchers.default) {
+            val dir = File(context.cacheDir, "timelapse").apply { mkdirs() }
+            val file = File(dir, "timelapse_${System.currentTimeMillis()}.gif")
+            val started = timeLapseRecorder.start(file)
+            if (started) {
+                captureTimeLapseFrame()
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.ToggleTimeLapseRecording)
+                    Toast.makeText(context, "Time-lapse recording started", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Couldn't start time-lapse recording", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun saveTimeLapseToDownloads(file: File) {
+        try {
+            val filename = file.name
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/gif")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    ?: throw java.io.IOException("Failed to create MediaStore entry")
+                context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Time-lapse saved to Downloads", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val dest = File(downloadsDir, filename)
+                file.copyTo(dest, overwrite = true)
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Time-lapse saved to ${dest.absolutePath}", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            withContext(dispatchers.main) {
+                Toast.makeText(context, "Time-lapse export failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    override fun onCleared() {
+        // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
+        timeLapseRecorder.finish()
+        super.onCleared()
     }
 
     private val sandboxHost = object : com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost {

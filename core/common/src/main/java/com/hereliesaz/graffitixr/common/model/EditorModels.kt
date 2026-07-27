@@ -174,6 +174,9 @@ data class EditorUiState(
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.
     val symmetryMode: SymmetryMode = SymmetryMode.NONE,
+    // Procreate's time-lapse: while true, EditorViewModel streams a downsampled canvas snapshot to
+    // a GIF file after every committed stroke (see TimeLapseRecorder). Transient UI state, not history.
+    val isTimeLapseRecording: Boolean = false,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

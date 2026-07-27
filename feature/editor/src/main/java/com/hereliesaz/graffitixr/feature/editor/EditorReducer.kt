@@ -118,6 +118,7 @@ internal object EditorReducer {
             symmetryMode = if (state.symmetryMode == SymmetryMode.NONE) SymmetryMode.VERTICAL else SymmetryMode.NONE,
         )
         is EditorIntent.SetSymmetryMode -> state.copy(symmetryMode = intent.mode)
+        EditorIntent.ToggleTimeLapseRecording -> state.copy(isTimeLapseRecording = !state.isTimeLapseRecording)
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.
