@@ -160,4 +160,54 @@ class LayerStoreTest {
             assertEquals("round $round lost a stroke", 2, store.strokes(layer).size)
         }
     }
+
+    // ── Stroke baking: bounding replay cost and retained memory ──────────────────────────────
+
+    @Test
+    fun `takeOldestStrokes removes and returns the oldest, keeping the newest queued`() {
+        val store = LayerStore()
+        val strokes = (0 until 5).map { stroke(it.toFloat()) }
+        strokes.forEach { store.addStroke("a", it) }
+
+        val taken = store.takeOldestStrokes("a", 2)
+
+        assertEquals(listOf(strokes[0], strokes[1]), taken)
+        assertEquals(listOf(strokes[2], strokes[3], strokes[4]), store.strokes("a"))
+    }
+
+    @Test
+    fun `takeOldestStrokes is a no-op for a non-positive count`() {
+        val store = LayerStore()
+        store.addStroke("a", stroke(1f))
+        assertTrue(store.takeOldestStrokes("a", 0).isEmpty())
+        assertTrue(store.takeOldestStrokes("a", -3).isEmpty())
+        assertEquals(1, store.strokeCount("a"))
+    }
+
+    @Test
+    fun `takeOldestStrokes caps at what is there rather than overrunning`() {
+        val store = LayerStore()
+        store.addStroke("a", stroke(1f))
+        assertEquals(1, store.takeOldestStrokes("a", 99).size)
+        assertEquals(0, store.strokeCount("a"))
+    }
+
+    @Test
+    fun `takeOldestStrokes on an unknown layer returns empty`() {
+        assertTrue(LayerStore().takeOldestStrokes("nope", 5).isEmpty())
+    }
+
+    @Test
+    fun `strokeCount reports zero for an unknown layer`() {
+        assertEquals(0, LayerStore().strokeCount("nope"))
+    }
+
+    private fun stroke(x: Float) = StrokeCommand(
+        path = listOf(androidx.compose.ui.geometry.Offset(x, 0f)),
+        canvasSize = androidx.compose.ui.unit.IntSize(10, 10),
+        tool = com.hereliesaz.graffitixr.common.model.Tool.BRUSH,
+        brushSize = 1f,
+        brushColor = 0,
+        intensity = 0f,
+    )
 }

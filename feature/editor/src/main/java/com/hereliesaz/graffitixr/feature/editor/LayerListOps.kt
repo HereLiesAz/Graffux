@@ -9,10 +9,20 @@ import com.hereliesaz.graffitixr.common.model.Layer
  */
 internal object LayerListOps {
 
-    /** Reorders [layers] to match [newOrder] (by id). Ids not present in [layers] are dropped. */
+    /**
+     * Reorders [layers] to match [newOrder] (by id).
+     *
+     * Falls back to the original [layers] unchanged if [newOrder] doesn't account for every
+     * layer — e.g. an id-scheme mismatch between the caller and this list (the rail's own item
+     * ids carry a prefix this doesn't) previously matched nothing and this returned an empty
+     * list, which the caller then persisted, permanently deleting every layer from a single
+     * drag. A mismatched reorder request is far more likely than an artwork with zero layers, so
+     * refusing it — a no-op the user can simply try again — is the safe default.
+     */
     fun reorder(layers: List<Layer>, newOrder: List<String>): List<Layer> {
         val byId = layers.associateBy { it.id }
-        return newOrder.mapNotNull { byId[it] }
+        val reordered = newOrder.mapNotNull { byId[it] }
+        return if (reordered.size == layers.size) reordered else layers
     }
 
     /** Applies [transform] to the layer with [id], leaving every other layer untouched. */

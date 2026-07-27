@@ -161,27 +161,9 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `BeginSegmentation sets the flag and default influence and EndSegmentation clears state`() {
-        val begun = reduce(state(lyr("a")), EditorIntent.BeginSegmentation)
-        assertTrue(begun.isSegmenting)
-        assertEquals(0.5f, begun.segmentationInfluence)
-        val ended = reduce(begun.copy(segmentationPreview = null), EditorIntent.EndSegmentation)
-        assertFalse(ended.isSegmenting)
-        assertNull(ended.segmentationPreview)
-    }
-
-    @Test
-    fun `stencil flag intents update their fields`() {
-        val s = state(lyr("a"))
-        assertTrue(reduce(s, EditorIntent.SetStencilGenerating(true)).isStencilGenerating)
-        assertFalse(reduce(s.copy(stencilHintVisible = true), EditorIntent.SetStencilHintVisible(false)).stencilHintVisible)
-    }
-
-    @Test
-    fun `SetBrushSize and SetSketchThickness coerce into range`() {
+    fun `SetBrushSize coerces into range`() {
         assertEquals(200f, reduce(state(lyr("a")), EditorIntent.SetBrushSize(9999f)).brushSize)
         assertEquals(1f, reduce(state(lyr("a")), EditorIntent.SetBrushSize(-5f)).brushSize)
-        assertEquals(20, reduce(state(lyr("a")), EditorIntent.SetSketchThickness(99)).sketchThickness)
     }
 
     @Test

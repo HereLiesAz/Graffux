@@ -11,9 +11,6 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.imgproc.Imgproc
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 
 /**
@@ -128,13 +125,20 @@ object ImageProcessor {
                         // centre line. Both must be honoured here so undo/redo replay matches
                         // exactly what was painted live.
                         alphaLock: Boolean = false,
-                        symmetry: Boolean = false
+                        symmetry: Boolean = false,
+                        // Bitmap-space lasso selection, if one is active: every tool below is
+                        // confined to it. Built by SelectionMask so the live paint, the commit and
+                        // the history replay all clip to the identical boundary.
+                        clipPath: android.graphics.Path? = null
                     ): Bitmap = withContext(Dispatchers.Default) {
                         if (stroke.isEmpty()) return@withContext originalBitmap
 
                         val resultBitmap = if (mutateInPlace) originalBitmap
                         else originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
                                 val canvas = Canvas(resultBitmap)
+                                // Clip once, up front: applies to every branch below, including the
+                                // symmetry twin and the BLUR composite.
+                                if (clipPath != null) canvas.clipPath(clipPath)
 
                                         when (tool) {
                                                         Tool.BRUSH -> {
@@ -322,14 +326,28 @@ object ImageProcessor {
                  * [bitmap] in place; a no-op when the seed already matches the fill colour or the
                  * seed lies outside the bitmap. Stack-based, so pathological regions can't recurse out.
                  */
-                fun floodFill(bitmap: Bitmap, x: Int, y: Int, fillColor: Int, tolerance: Int = 32) {
+                fun floodFill(
+                    bitmap: Bitmap,
+                    x: Int,
+                    y: Int,
+                    fillColor: Int,
+                    tolerance: Int = 32,
+                    // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline
+                    // fill, so containment is tested per pixel instead — the fill spreads only
+                    // within the selection, and a seed tapped outside it fills nothing.
+                    clipRegion: android.graphics.Region? = null,
+                ) {
                     val w = bitmap.width
                     val h = bitmap.height
                     if (x !in 0 until w || y !in 0 until h) return
+                    if (clipRegion != null && !clipRegion.contains(x, y)) return
                     val pixels = IntArray(w * h)
                     bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
                     val seed = pixels[y * w + x]
                     if (seed == fillColor) return
+
+                    fun allowed(px: Int, py: Int): Boolean =
+                        clipRegion == null || clipRegion.contains(px, py)
 
                     fun matches(c: Int): Boolean {
                         val da = kotlin.math.abs(((c ushr 24) and 0xFF) - ((seed ushr 24) and 0xFF))
@@ -339,6 +357,12 @@ object ImageProcessor {
                         return da <= tolerance && dr <= tolerance && dg <= tolerance && db <= tolerance
                     }
 
+                    // A pixel joins the fill only if it both matches the seed colour and lies inside
+                    // the selection — so the selection edge stops the spread exactly like a colour
+                    // boundary does.
+                    fun fillable(px: Int, py: Int): Boolean =
+                        matches(pixels[py * w + px]) && allowed(px, py)
+
                     val stack = ArrayDeque<Int>()
                     stack.addLast(y * w + x)
                     while (stack.isNotEmpty()) {
@@ -346,19 +370,19 @@ object ImageProcessor {
                         val py = idx / w
                         var left = idx % w
                         // Walk to the left edge of this run.
-                        while (left > 0 && matches(pixels[py * w + left - 1])) left--
+                        while (left > 0 && fillable(left - 1, py)) left--
                         var spanUp = false
                         var spanDown = false
                         var i = left
-                        while (i < w && matches(pixels[py * w + i])) {
+                        while (i < w && fillable(i, py)) {
                             pixels[py * w + i] = fillColor
                             if (py > 0) {
-                                val up = matches(pixels[(py - 1) * w + i])
+                                val up = fillable(i, py - 1)
                                 if (up && !spanUp) { stack.addLast((py - 1) * w + i); spanUp = true }
                                 else if (!up) spanUp = false
                             }
                             if (py < h - 1) {
-                                val down = matches(pixels[(py + 1) * w + i])
+                                val down = fillable(i, py + 1)
                                 if (down && !spanDown) { stack.addLast((py + 1) * w + i); spanDown = true }
                                 else if (!down) spanDown = false
                             }
@@ -381,44 +405,4 @@ object ImageProcessor {
                     if (small !== up) small.recycle()
                     return up
                 }
-
-            /**
-             * Applies Canny Edge Detection to the entire bitmap and returns a new transparent bitmap
-             * containing the extracted stroke outlines.
-             */
-            suspend fun applyCannyEdgeDetection(
-                originalBitmap: Bitmap,
-                threshold1: Double = 100.0,
-                threshold2: Double = 200.0,
-                apertureSize: Int = 3
-            ): Bitmap = withContext(Dispatchers.Default) {
-                val mat = Mat()
-                Utils.bitmapToMat(originalBitmap, mat)
-
-                val gray = Mat()
-                Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-
-                val edges = Mat()
-                Imgproc.Canny(gray, edges, threshold1, threshold2, apertureSize, false)
-
-                // Convert grayscale edges to an ARGB mask (white edges, transparent background)
-                val argbEdges = Mat(edges.rows(), edges.cols(), org.opencv.core.CvType.CV_8UC4)
-                
-                // Create a completely transparent base
-                argbEdges.setTo(org.opencv.core.Scalar(0.0, 0.0, 0.0, 0.0))
-                
-                // Copy the white edges to the transparent base using the edges as a mask
-                val whiteColor = org.opencv.core.Scalar(255.0, 255.0, 255.0, 255.0)
-                argbEdges.setTo(whiteColor, edges)
-
-                val resultBitmap = Bitmap.createBitmap(originalBitmap.width, originalBitmap.height, Bitmap.Config.ARGB_8888)
-                Utils.matToBitmap(argbEdges, resultBitmap)
-                
-                mat.release()
-                gray.release()
-                edges.release()
-                argbEdges.release()
-                
-                resultBitmap
-            }
 }

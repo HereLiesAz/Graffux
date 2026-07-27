@@ -56,6 +56,15 @@ class RepositoryApiTest {
     }
 
     @Test
+    fun `search encodes mediaDomains as a comma-joined query param`() {
+        val fake = FakeHttp(mapOf("/packages" to """{ "packages": [], "total": 0, "page": 1, "pages": 1 }"""))
+        RepositoryClient("https://reg.example", fake::get).search(mediaDomains = listOf("image", "3d"))
+
+        val url = fake.requested.single()
+        assertTrue(url.contains("mediaDomains=image%2C3d"))
+    }
+
+    @Test
     fun `official store base url targets the repository root, not the storefront's api namespace`() {
         // No `/api`: the store mounts repository-api.md at the domain root. Pointing at `/api` only
         // ever resolved `/api/packages` (a storefront-internal route); detail, download and
@@ -251,5 +260,23 @@ class RepositoryApiTest {
         assertTrue(resolved.entries[2].paid)               // member's own gate, even in a free pack
         assertFalse(resolved.entries[2].required)          // recommended, not base set
         assertEquals(listOf("com.missing.member"), resolved.unresolved)
+    }
+
+    @Test
+    fun `resolvePack prefers the detail's latest field over versions order for an unpinned member`() {
+        // spec/repository-api.md doesn't guarantee `versions[]` is ordered — `latest` is the
+        // normative way to name the newest installable version, so an unpinned member must resolve
+        // to it even when it disagrees with versions[0] (here deliberately out of order).
+        val fake = FakeHttp(mapOf(
+            "/packages/com.example.paint-starter" to """
+                { "id":"com.example.paint-starter","name":"Paint Starter","kind":"pack","versions":["1.0.0"],
+                  "pack":{ "entries":[ {"id":"com.brushery.inkbrushes"} ] } }
+            """.trimIndent(),
+            "/packages/com.brushery.inkbrushes" to
+                """{ "id":"com.brushery.inkbrushes","name":"Ink Brushes","latest":"3.1.0","versions":["3.0.0","3.1.0"] }""",
+        ))
+        val resolved = RepositoryClient("https://reg.example", fake::get).resolvePack("com.example.paint-starter")
+
+        assertEquals("3.1.0", resolved.entries.single().version)
     }
 }
