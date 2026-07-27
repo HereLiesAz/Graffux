@@ -77,13 +77,6 @@ internal object EditorReducer {
 
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
-        EditorIntent.BeginSegmentation -> state.copy(isSegmenting = true, segmentationInfluence = 0.5f)
-        EditorIntent.EndSegmentation -> state.copy(isSegmenting = false, segmentationPreview = null)
-        is EditorIntent.SetSegmentationInfluence -> state.copy(segmentationInfluence = intent.value)
-        is EditorIntent.SetSegmentationPreview -> state.copy(segmentationPreview = intent.preview)
-        is EditorIntent.SetStencilGenerating -> state.copy(isStencilGenerating = intent.generating)
-        is EditorIntent.SetStencilHintVisible -> state.copy(stencilHintVisible = intent.visible)
-        is EditorIntent.SetStencilButtonPosition -> state.copy(stencilButtonPosition = intent.position)
 
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
         is EditorIntent.SetDocumentSize -> state.copy(
@@ -99,13 +92,27 @@ internal object EditorReducer {
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
-        is EditorIntent.SetSketchThickness -> state.copy(sketchThickness = intent.value.coerceIn(1, 20))
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
+        // 240 Hz is above any panel's report rate, so it doubles as "unthrottled" without a
+        // special case; 0 means the same thing explicitly.
+        is EditorIntent.SetInputSampleRateHz -> state.copy(inputSampleRateHz = intent.hz.coerceIn(0, 240))
+        // Floored at a quarter: below that the artwork is visibly soft, and the memory saved is
+        // already 94% of what any scale can save.
+        is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
         EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
+        // A polygon too small to enclose anything is a deselect, not a selection that silently
+        // clips every subsequent stroke to nothing.
+        is EditorIntent.SetSelection -> state.copy(
+            selection = intent.selection?.takeIf { it.isUsable }
+        )
+        EditorIntent.InvertSelection -> state.copy(
+            selection = state.selection?.let { it.copy(inverted = !it.inverted) }
+        )
         is EditorIntent.SetEyedrop -> state.copy(
             isEyedropping = intent.active,
             eyedropColor = if (intent.active) intent.color else null,

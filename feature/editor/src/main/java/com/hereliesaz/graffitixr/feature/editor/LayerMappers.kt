@@ -31,8 +31,6 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
-        stencilType = stencilType,
-        stencilSourceId = stencilSourceId,
         shapes = shapes
     )
 }
@@ -63,8 +61,6 @@ fun OverlayLayer.toLayer(): Layer {
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
-        stencilType = stencilType,
-        stencilSourceId = stencilSourceId,
         shapes = shapes
     )
 }

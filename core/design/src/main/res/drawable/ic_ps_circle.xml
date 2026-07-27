@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style round-brush swatch: a plain filled dot. -->
+    <path android:fillColor="@android:color/white"
+        android:pathData="M5,12A7,7 0 1,1 19,12A7,7 0 1,1 5,12Z"/>
+</vector>

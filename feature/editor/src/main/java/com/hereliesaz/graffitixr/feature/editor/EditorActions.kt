@@ -16,11 +16,6 @@ interface EditorActions {
 
     fun onUndoClicked()
     fun onRedoClicked()
-    fun onMagicClicked()
-    fun onRemoveBackgroundClicked()
-    fun onSketchClicked()
-    fun onApplyCannyEdgeClicked()
-    fun onSketchThicknessChanged(thickness: Int)
     fun onCycleBlendMode()
 
     fun toggleImageLock()
@@ -83,9 +78,4 @@ interface EditorActions {
     fun onTextColorChanged(layerId: String, colorArgb: Int)
     fun onTextKerningChanged(layerId: String, letterSpacingEm: Float)
     fun onTextStyleChanged(layerId: String, isBold: Boolean, isItalic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean)
-    fun onGenerateStencil(layerId: String)
-    fun onGeneratePoster(layerId: String)
-
-    fun onCancelSegmentation()
-    fun onConfirmSegmentation()
 }

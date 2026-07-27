@@ -56,9 +56,6 @@ data class OverlayLayer(
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
     val isInverted: Boolean = false,
-    // Persisted so stencil metadata survives save/load (LayerMappers used to drop these).
-    val stencilType: StencilLayerType? = null,
-    val stencilSourceId: String? = null,
     // Vector content — non-empty for a vector layer (uri is Uri.EMPTY in that case). Defaulted for
     // back-compat with projects saved before vector layers existed.
     val shapes: List<VectorShape> = emptyList()

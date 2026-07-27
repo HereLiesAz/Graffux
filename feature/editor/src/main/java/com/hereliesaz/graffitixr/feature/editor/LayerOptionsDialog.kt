@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
@@ -29,8 +33,6 @@ fun LayerOptionsDialog(
     overlay: Layer,
     navStrings: NavStrings,
     onEditText: () -> Unit,
-    onOutline: () -> Unit,
-    onEdges: () -> Unit,
     onInvert: () -> Unit,
     onShapeSize: () -> Unit,
     onStrokeWidth: () -> Unit,
@@ -38,11 +40,21 @@ fun LayerOptionsDialog(
     onPolygonSides: () -> Unit,
     onToggleFill: () -> Unit,
     onOpacityChange: (Float) -> Unit,
+    // Brackets the opacity slider's drag so each drag pushes one undo checkpoint and persists on
+    // release — see EditorViewModel.onLayerEditStart/onLayerEditEnd. Mirrors the Adjust panel's
+    // opacity Knob (onValueChangeStart/onValueChangeFinished); the stock Material Slider used here
+    // has no drag-start callback, so [isDraggingOpacity] below detects it manually.
+    onOpacityStart: () -> Unit,
+    onOpacityCommit: () -> Unit,
     onBlendMode: () -> Unit,
     onToggleAlphaLock: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val hasFill = overlay.shapes.any { it.hasFill }
+    // True from the first onValueChange of a drag until onValueChangeFinished — a stock Slider
+    // reports neither "drag started" nor how many fingers are still down, so this is the only way
+    // to fire onOpacityStart exactly once per drag instead of once per emitted value.
+    var isDraggingOpacity by remember { mutableStateOf(false) }
     FloatingWindow(title = "Edit", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -53,7 +65,11 @@ fun LayerOptionsDialog(
             Text("Opacity ${(overlay.opacity * 100).roundToInt()}%")
             Slider(
                 value = overlay.opacity,
-                onValueChange = onOpacityChange,
+                onValueChange = {
+                    if (!isDraggingOpacity) { isDraggingOpacity = true; onOpacityStart() }
+                    onOpacityChange(it)
+                },
+                onValueChangeFinished = { isDraggingOpacity = false; onOpacityCommit() },
                 valueRange = 0f..1f,
             )
             AzButton(text = "Blend mode", onClick = { onBlendMode(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
@@ -67,8 +83,6 @@ fun LayerOptionsDialog(
             if (overlay.textParams != null) {
                 AzButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             }
-            AzButton(text = navStrings.outline, onClick = { onOutline(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
-            AzButton(text = navStrings.edges, onClick = { onEdges(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             AzButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             if (overlay.shapes.isNotEmpty()) {
                 AzButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
