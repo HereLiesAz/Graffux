@@ -18,10 +18,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +40,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -226,15 +223,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         onscreen(alignment = Alignment.TopEnd) {
             if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                 azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
-                azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-                azItem(text = strings.nav.open, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                azItem(text = "Open File", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                azItem(text = strings.nav.new, onClick = { vm.onAddBlankLayer() })
+                // New/Open/Import/Save/Export map onto distinct actions rather than overloading one
+                // another: New starts a blank project; Open browses the saved ones (the Gallery IS
+                // that browser, so it lives under this single entry rather than a separate duplicate);
+                // Import brings an image or another design file INTO the current project, which is
+                // what the old "Open"/"Open File" pair actually did despite their names.
+                azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
+                azItem(text = strings.nav.open, onClick = { showGalleryDialog = true })
+                azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Add…", onClick = { showAddDialog = true })
                 azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
-                azItem(text = strings.nav.save, onClick = { vm.saveProject() })
+                // saveProject(name) both persists (like every autosave elsewhere) AND exports a
+                // portable .gxr copy to Downloads when name is non-null — passing the project's own
+                // current name does both at once without renaming it, i.e. Save and Save As in one tap.
+                azItem(text = strings.nav.save, onClick = { vm.saveProject(name = projects.find { it.id == uiState.projectId }?.name) })
                 azItem(text = strings.nav.export, onClick = { vm.exportImage() })
                 azItem(text = strings.nav.share, onClick = {
                     scope.launch {
@@ -276,17 +281,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     uiState.viewportRotation != 0f
                 if (viewMoved) {
                     FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                        Icon(Icons.Filled.FitScreen, contentDescription = "Fit to screen")
+                        Icon(painterResource(DesignR.drawable.ic_ps_fit), contentDescription = "Fit to screen")
                     }
                 }
                 if (uiState.undoCount > 0) {
                     FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        Icon(painterResource(DesignR.drawable.ic_ps_undo), contentDescription = "Undo")
                     }
                 }
                 if (uiState.redoCount > 0) {
                     FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                        Icon(painterResource(DesignR.drawable.ic_ps_redo), contentDescription = "Redo")
                     }
                 }
             }
@@ -606,7 +611,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     azRailItem(
         id = "tool.fill", text = "Fill",
-        content = Icons.Filled.FormatColorFill,
+        content = DesignR.drawable.ic_ps_fill,
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
     )
@@ -614,7 +619,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it's cleared. Dragging inside the marquee moves the selected pixels.
     azRailItem(
         id = "tool.select", text = "Select",
-        content = Icons.Filled.Gesture,
+        content = DesignR.drawable.ic_ps_select,
         color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
     )
@@ -623,13 +628,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     if (uiState.selection != null) {
         azRailItem(
             id = "tool.selectInvert", text = "Invert",
-            content = Icons.Filled.FlipCameraAndroid,
+            content = DesignR.drawable.ic_ps_invert,
             color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
             onClick = { vm.onInvertSelection() },
         )
         azRailItem(
             id = "tool.deselect", text = "Deselect",
-            content = Icons.Filled.Deselect,
+            content = DesignR.drawable.ic_ps_deselect,
             color = navItemColor,
             onClick = { vm.onClearSelection() },
         )
@@ -639,7 +644,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
     azRailItem(
         id = "tool.quick", text = "Quick",
-        content = Icons.Filled.DonutLarge,
+        content = DesignR.drawable.ic_ps_quickmenu,
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
@@ -695,7 +700,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
         azRailSubItem(
             id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
-            content = Icons.Filled.Circle,
+            content = DesignR.drawable.ic_ps_circle,
             color = if (uiState.activeBrushName == null) activeColor else navItemColor,
             onClick = { vm.selectBrushExtension(null) },
         )
@@ -757,19 +762,19 @@ private fun AzNavHostScope.ConfigureRailItems(
     // across launches, the way Procreate's panels stay where you leave them.
     azUnattachedHostItem(
         id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
-        content = Icons.Filled.Tune, color = navItemColor,
+        content = DesignR.drawable.ic_ps_adjust, color = navItemColor,
     )
     azRailSubItem(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Tune,
+        content = DesignR.drawable.ic_ps_adjust,
         color = if (uiState.activePanel == EditorPanel.ADJUST) activeColor else navItemColor, onClick = { vm.onAdjustClicked() },
     )
     azRailSubItem(
         id = "adj.transform", hostId = "grp.adjust", text = "Transform", shape = AzButtonShape.NONE,
-        content = Icons.Filled.OpenWith,
+        content = DesignR.drawable.ic_ps_transform,
         color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
     )
-    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = Icons.Filled.Gradient, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = DesignR.drawable.ic_ps_blend, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
     // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
     // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
     azRailSubItem(
@@ -779,6 +784,6 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
-        azRailItem(id = "edit", text = "Edit", content = Icons.Filled.MoreHoriz, color = navItemColor, onClick = { onEditClicked() })
+        azRailItem(id = "edit", text = "Edit", content = DesignR.drawable.ic_ps_more, color = navItemColor, onClick = { onEditClicked() })
     }
 }

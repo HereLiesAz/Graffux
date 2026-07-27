@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style radial menu: six slots around the finger, matching the app's own QuickMenu. -->
+    <path android:fillColor="@android:color/white"
+        android:pathData="M12,10.8L13.2,12L12,13.2L10.8,12Z M19,10.8L20.2,12L19,13.2L17.8,12Z M15.5,17L16.7,18.2L15.5,19.4L14.3,18.2Z M8.5,17L9.7,18.2L8.5,19.4L7.3,18.2Z M5,10.8L6.2,12L5,13.2L3.8,12Z M8.5,4.6L9.7,5.8L8.5,7L7.3,5.8Z M15.5,4.6L16.7,5.8L15.5,7L14.3,5.8Z"/>
+</vector>

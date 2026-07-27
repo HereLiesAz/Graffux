@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style free transform: a bounding box with its eight drag handles. -->
+    <path android:fillColor="@android:color/white" android:fillType="evenOdd"
+        android:pathData="M4,4H20V20H4Z M5.2,5.2H18.8V18.8H5.2Z"/>
+    <path android:fillColor="@android:color/white"
+        android:pathData="M3.1,3.1h1.8v1.8h-1.8z M19.1,3.1h1.8v1.8h-1.8z M3.1,19.1h1.8v1.8h-1.8z M19.1,19.1h1.8v1.8h-1.8z M11.1,3.1h1.8v1.8h-1.8z M3.1,11.1h1.8v1.8h-1.8z M19.1,11.1h1.8v1.8h-1.8z M11.1,19.1h1.8v1.8h-1.8z"/>
+</vector>

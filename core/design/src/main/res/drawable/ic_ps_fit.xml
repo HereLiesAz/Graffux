@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style fit-to-screen: four corner crop marks. -->
+    <path android:fillColor="@android:color/white"
+        android:pathData="M4,4H8.5V5.6H5.6V8.5H4Z M20,4V8.5H18.4V5.6H15.5V4Z M4,20V15.5H5.6V18.4H8.5V20Z M20,20H15.5V18.4H18.4V15.5H20Z"/>
+</vector>
