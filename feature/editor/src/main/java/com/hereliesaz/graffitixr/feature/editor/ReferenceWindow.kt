@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Photo
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,7 +49,7 @@ fun ReferenceWindow(
                 modifier = Modifier.fillMaxWidth().height(160.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Image, contentDescription = null, tint = Color.Gray)
+                Icon(TablerIcons.Photo, contentDescription = null, tint = Color.Gray)
             }
             Text(
                 "No reference image",

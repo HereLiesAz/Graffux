@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
+import compose.icons.TablerIcons
+import compose.icons.tablericons.X
+import compose.icons.tablericons.ChevronDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -77,7 +77,7 @@ fun SettingsScreen(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text("Settings", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close settings")
+                    Icon(TablerIcons.X, contentDescription = "Close settings")
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -247,7 +247,7 @@ private fun LanguageRow(current: AppLanguage, onSelect: (AppLanguage) -> Unit) {
         Box {
             OutlinedButton(onClick = { expanded = true }) {
                 Text(current.displayName)
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                Icon(TablerIcons.ChevronDown, contentDescription = null)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 AppLanguage.entries.forEach { lang ->

@@ -41,6 +41,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -309,17 +314,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     uiState.viewportRotation != 0f
                 if (viewMoved) {
                     FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                        Icon(painterResource(DesignR.drawable.ic_ps_fit), contentDescription = "Fit to screen")
+                        Icon(rememberVectorPainter(TablerIcons.Maximize), contentDescription = "Fit to screen")
                     }
                 }
                 if (uiState.undoCount > 0) {
                     FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(painterResource(DesignR.drawable.ic_ps_undo), contentDescription = "Undo")
+                        Icon(rememberVectorPainter(TablerIcons.ArrowBackUp), contentDescription = "Undo")
                     }
                 }
                 if (uiState.redoCount > 0) {
                     FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(painterResource(DesignR.drawable.ic_ps_redo), contentDescription = "Redo")
+                        Icon(rememberVectorPainter(TablerIcons.ArrowForwardUp), contentDescription = "Redo")
                     }
                 }
             }
@@ -650,31 +655,31 @@ private fun AzNavHostScope.ConfigureRailItems(
     // so nothing in it was identifiable at a glance.
     azRailItem(
         id = "tool.brush", text = uiState.activeBrushName ?: navStrings.brush,
-        content = DesignR.drawable.ic_ps_brush,
+        content = TablerIcons.Brush,
         color = if (uiState.activeTool == Tool.BRUSH) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
     azRailItem(
         id = "tool.smudge", text = "Smudge",
-        content = DesignR.drawable.ic_ps_blur,
+        content = TablerIcons.HandFinger,
         color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
     azRailItem(
         id = "tool.eraser", text = "Eraser",
-        content = DesignR.drawable.ic_ps_eraser,
+        content = TablerIcons.Eraser,
         color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
     )
     azRailItem(
         id = "tool.pen", text = "Pen",
-        content = DesignR.drawable.ic_ps_pencil,
+        content = TablerIcons.Pencil,
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
     )
     azRailItem(
         id = "tool.liquify", text = "Liquify",
-        content = DesignR.drawable.ic_ps_liquify,
+        content = TablerIcons.Ripple,
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
@@ -682,32 +687,32 @@ private fun AzNavHostScope.ConfigureRailItems(
     // just had no rail entry, so a user could never actually select them.
     azRailItem(
         id = "tool.heal", text = "Heal",
-        content = DesignR.drawable.ic_ps_heal,
+        content = TablerIcons.Bandage,
         color = if (uiState.activeTool == Tool.HEAL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.HEAL) Tool.NONE else Tool.HEAL) },
     )
     azRailItem(
         id = "tool.burn", text = navStrings.burn,
-        content = DesignR.drawable.ic_ps_burn,
+        content = TablerIcons.Flame,
         color = if (uiState.activeTool == Tool.BURN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BURN) Tool.NONE else Tool.BURN) },
     )
     azRailItem(
         id = "tool.dodge", text = navStrings.dodge,
-        content = DesignR.drawable.ic_ps_dodge,
+        content = TablerIcons.Sun,
         color = if (uiState.activeTool == Tool.DODGE) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.DODGE) Tool.NONE else Tool.DODGE) },
     )
     azRailItem(
         id = "tool.colorize", text = "Colorize",
-        content = DesignR.drawable.ic_ps_color,
+        content = TablerIcons.Palette,
         color = if (uiState.activeTool == Tool.COLOR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.COLOR) Tool.NONE else Tool.COLOR) },
     )
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     azRailItem(
         id = "tool.fill", text = "Fill",
-        content = DesignR.drawable.ic_ps_fill,
+        content = TablerIcons.Bucket,
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
     )
@@ -715,7 +720,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it's cleared. Dragging inside the marquee moves the selected pixels.
     azRailItem(
         id = "tool.select", text = "Select",
-        content = DesignR.drawable.ic_ps_select,
+        content = TablerIcons.Focus,
         color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
     )
@@ -724,13 +729,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     if (uiState.selection != null) {
         azRailItem(
             id = "tool.selectInvert", text = "Invert",
-            content = DesignR.drawable.ic_ps_invert,
+            content = TablerIcons.Exchange,
             color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
             onClick = { vm.onInvertSelection() },
         )
         azRailItem(
             id = "tool.deselect", text = "Deselect",
-            content = DesignR.drawable.ic_ps_deselect,
+            content = TablerIcons.X,
             color = navItemColor,
             onClick = { vm.onClearSelection() },
         )
@@ -740,7 +745,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
     azRailItem(
         id = "tool.quick", text = "Quick",
-        content = DesignR.drawable.ic_ps_quickmenu,
+        content = TablerIcons.Bolt,
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
@@ -773,23 +778,23 @@ private fun AzNavHostScope.ConfigureRailItems(
         if (uiState.pathEditLayerId != null) {
             azRailItem(
                 id = "tool.nodeClose", text = "Close Path",
-                content = DesignR.drawable.ic_ps_circle, color = navItemColor,
+                content = TablerIcons.Circle, color = navItemColor,
                 onClick = { vm.onTogglePathClosed() },
             )
             uiState.selectedNodeIndex?.let { index ->
                 azRailItem(
                     id = "tool.nodeDelete", text = "Delete Node",
-                    content = DesignR.drawable.ic_ps_deselect, color = navItemColor,
+                    content = TablerIcons.X, color = navItemColor,
                     onClick = { vm.onDeletePathNode(index) },
                 )
             }
         }
     }
-    azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = DesignR.drawable.ic_ps_symmetry, color = navItemColor)
+    azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = TablerIcons.LayersLinked, color = navItemColor)
     SymmetryMode.entries.forEach { mode ->
         azRailSubItem(
             id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label, shape = AzButtonShape.NONE,
-            content = DesignR.drawable.ic_ps_symmetry,
+            content = TablerIcons.LayersLinked,
             color = if (uiState.symmetryMode == mode) activeColor else navItemColor,
             onClick = { vm.onSetSymmetryMode(mode) },
         )
@@ -962,17 +967,17 @@ private fun AzNavHostScope.ConfigureRailItems(
     )
     // The brush group is now unconditional: Brush Studio means there's always something to do here
     // (make one), where previously the whole group vanished unless a brush extension was installed.
-    azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
+    azRailHostItem(id = "grp.brushes", text = "Brushes", content = TablerIcons.Brush, color = navItemColor)
     azRailSubItem(
         id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
-        content = DesignR.drawable.ic_ps_circle,
+        content = TablerIcons.Circle,
         color = if (uiState.activeBrushName == null) activeColor else navItemColor,
         onClick = { vm.selectBrushExtension(null) },
     )
     brushes.forEach { (id, name) ->
         azRailSubItem(
             id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
-            content = DesignR.drawable.ic_ps_brush,
+            content = TablerIcons.Brush,
             color = if (uiState.activeBrushName == name) activeColor else navItemColor,
             onClick = { vm.selectBrushExtension(id) },
         )
@@ -981,7 +986,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailSubItem(
             id = "brush.custom.${custom.id}", hostId = "grp.brushes", text = custom.brush.name,
             shape = AzButtonShape.NONE,
-            content = DesignR.drawable.ic_ps_brush,
+            content = TablerIcons.Brush,
             color = if (uiState.activeBrushName == custom.brush.name) activeColor else navItemColor,
             onClick = { vm.selectCustomBrush(custom.id) },
         )

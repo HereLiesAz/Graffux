@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
+import compose.icons.TablerIcons
+import compose.icons.tablericons.X
+import compose.icons.tablericons.ChevronDown
+import compose.icons.tablericons.ChevronUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,12 +83,12 @@ fun FloatingWindow(
             )
             IconButton(onClick = { collapsed = !collapsed }, modifier = Modifier.size(28.dp)) {
                 Icon(
-                    imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    imageVector = if (collapsed) TablerIcons.ChevronDown else TablerIcons.ChevronUp,
                     contentDescription = if (collapsed) "Expand" else "Collapse",
                 )
             }
             IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Close")
+                Icon(TablerIcons.X, contentDescription = "Close")
             }
         }
         AnimatedVisibility(visible = !collapsed) {

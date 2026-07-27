@@ -19,106 +19,106 @@ val Typography = Typography(
     bodyLarge = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 20.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 16.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 0.9.sp
     ),
     titleLarge = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.sp
+        fontSize = 17.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 9.sp
     ),
     labelSmall = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        letterSpacing = 0.9.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.25.sp
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.20.sp
     ),
     labelLarge = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
-        lineHeight = 18.sp,
-        letterSpacing = 0.1.sp
+        fontSize = 17.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.9.sp
     ),
     displayLarge = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 40.sp,
-        lineHeight = 45.sp,
+        fontSize = 32.sp,
+        lineHeight = 36.sp,
         letterSpacing = (-0.25).sp
     ),
     displayMedium = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 32.sp,
-        lineHeight = 36.sp,
-        letterSpacing = 0.sp
+        fontSize = 25.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 9.sp
     ),
     displaySmall = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 25.sp,
-        lineHeight = 31.sp,
-        letterSpacing = 0.sp
+        fontSize = 20.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 9.sp
     ),
     headlineLarge = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 32.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp
+        fontSize = 25.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 9.sp
     ),
     headlineMedium = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 20.sp,
-        lineHeight = 25.sp,
-        letterSpacing = 0.sp
+        fontSize = 16.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 9.sp
     ),
     headlineSmall = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
-        letterSpacing = 0.sp
+        fontSize = 13.sp,
+        lineHeight = 17.sp,
+        letterSpacing = 9.sp
     ),
     titleMedium = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
-        lineHeight = 22.sp,
-        letterSpacing = 0.15.sp
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        letterSpacing = 0.12.sp
     ),
     titleSmall = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
-        letterSpacing = 0.1.sp
+        fontSize = 10.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.9.sp
     ),
     bodySmall = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.4.sp
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        letterSpacing = 0.9.sp
     ),
     labelMedium = TextStyle(
         fontFamily = BlackoutFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        letterSpacing = 0.9.sp
     )
 )
