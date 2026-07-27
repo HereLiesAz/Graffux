@@ -291,6 +291,11 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetImperialUnits(imperial))
             }
         }
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.gestureMapping.collect { mapping ->
+                dispatch(EditorIntent.SetGestureMapping(mapping))
+            }
+        }
 
         // Bootstrap a project. Nothing else in the app ever loads or creates one, so without this
         // `projectId` stays null for the whole session — and every content entry point guards on it

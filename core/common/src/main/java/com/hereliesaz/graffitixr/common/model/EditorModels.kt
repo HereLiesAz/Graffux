@@ -147,6 +147,8 @@ data class EditorUiState(
     val isRightHanded: Boolean = true,
     /** Mirrors the persisted Settings "Imperial units" toggle — see EditorViewModel's init collector. */
     val isImperialUnits: Boolean = false,
+    /** Mirrors the persisted per-gesture action mapping — see EditorViewModel's init collector. */
+    val gestureMapping: Map<GestureSlot, GestureAction> = DEFAULT_GESTURE_MAPPING,
     val gestureInProgress: Boolean = false,
     val showRotationAxisFeedback: Boolean = false,
     val activeRotationAxis: RotationAxis = RotationAxis.Z,

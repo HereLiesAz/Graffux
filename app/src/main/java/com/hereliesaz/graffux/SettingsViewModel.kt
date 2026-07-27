@@ -6,6 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.model.AppLanguage
+import com.hereliesaz.graffitixr.common.model.DEFAULT_GESTURE_MAPPING
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -85,5 +88,13 @@ class SettingsViewModel @Inject constructor(
 
     fun resetTutorials() = viewModelScope.launch(dispatchers.io) {
         settings.clearCompletedTutorials()
+    }
+
+    /** Which action each customizable multi-finger gesture triggers — see [GestureSlot]. */
+    val gestureMapping: StateFlow<Map<GestureSlot, GestureAction>> =
+        settings.gestureMapping.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_GESTURE_MAPPING)
+
+    fun setGestureAction(slot: GestureSlot, action: GestureAction) = viewModelScope.launch(dispatchers.io) {
+        settings.setGestureAction(slot, action)
     }
 }

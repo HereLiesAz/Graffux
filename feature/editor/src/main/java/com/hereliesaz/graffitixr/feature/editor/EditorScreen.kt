@@ -50,6 +50,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -103,14 +105,16 @@ fun EditorScreen(
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
             // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger
-            // tap redoes. A pure observer — consumes nothing, so painting and navigation are unaffected.
+            // tap redoes by default — but every slot is user-reassignable (Settings), so each fires
+            // through performGestureAction against the live mapping rather than a fixed call. A pure
+            // observer — consumes nothing, so painting and navigation are unaffected.
             .multiFingerTaps(
                 gate = strokeGate,
-                onTwoFingerTap = { vm.onUndoClicked() },
-                onThreeFingerTap = { vm.onRedoClicked() },
-                onFourFingerTap = { vm.toggleHideUi() },
-                onFourFingerHold = { at -> vm.onOpenQuickMenu(at) },
-                onThreeFingerScrub = { vm.onClearLayer() },
+                onTwoFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.TWO_FINGER_TAP, vm) },
+                onThreeFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_TAP, vm) },
+                onFourFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_TAP, vm) },
+                onFourFingerHold = { at -> performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_HOLD, vm, at) },
+                onThreeFingerScrub = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_SCRUB, vm) },
             )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
@@ -827,6 +831,27 @@ private fun InfiniteGrid(
  * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
  * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
  */
+/**
+ * Looks up what [slot] is currently assigned to in [mapping] (falling back to the slot's own
+ * historical default if the map is somehow missing an entry) and fires it. [at] is only meaningful
+ * for [GestureAction.QUICK_MENU] (opens where the gesture landed); every other action ignores it.
+ */
+private fun performGestureAction(
+    mapping: Map<GestureSlot, GestureAction>,
+    slot: GestureSlot,
+    vm: EditorViewModel,
+    at: Offset = Offset.Zero,
+) {
+    when (mapping[slot] ?: slot.defaultAction) {
+        GestureAction.NONE -> {}
+        GestureAction.UNDO -> vm.onUndoClicked()
+        GestureAction.REDO -> vm.onRedoClicked()
+        GestureAction.HIDE_UI -> vm.toggleHideUi()
+        GestureAction.QUICK_MENU -> vm.onOpenQuickMenu(at)
+        GestureAction.CLEAR_LAYER -> vm.onClearLayer()
+    }
+}
+
 /** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
  *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
 private const val PX_PER_INCH = 96f

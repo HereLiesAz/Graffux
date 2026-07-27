@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.ArScanMode
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.MuralMethod
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -51,6 +53,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
     private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
     private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
+    private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -249,5 +252,18 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setCanvasRenderScale(scale: Float) {
         context.dataStore.edit { it[CANVAS_RENDER_SCALE] = scale.coerceIn(0.25f, 1f) }
+    }
+
+    override val gestureMapping: Flow<Map<GestureSlot, GestureAction>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences ->
+            GestureSlot.entries.associateWith { slot ->
+                val raw = preferences[GESTURE_KEYS.getValue(slot)]
+                GestureAction.entries.find { it.name == raw } ?: slot.defaultAction
+            }
+        }
+
+    override suspend fun setGestureAction(slot: GestureSlot, action: GestureAction) {
+        context.dataStore.edit { it[GESTURE_KEYS.getValue(slot)] = action.name }
     }
 }

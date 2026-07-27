@@ -70,6 +70,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
+import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
@@ -149,6 +150,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
+    // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
+    // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
+    // undo-tracked, and shouldn't survive into a save file the way a layer does.
+    var showReferenceWindow by remember { mutableStateOf(false) }
+    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
@@ -171,6 +177,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val documentPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.onImportDocument(it) } }
+
+    val referencePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let { referenceImageUri = it } }
 
     val brushPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -235,6 +245,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Add…", onClick = { showAddDialog = true })
+                azItem(text = "Reference", onClick = { showReferenceWindow = true })
                 azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
@@ -508,6 +519,14 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     appVersion = BuildConfig.VERSION_NAME,
                     onClose = { showSettings = false },
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            if (showReferenceWindow) {
+                ReferenceWindow(
+                    imageUri = referenceImageUri,
+                    onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onDismiss = { showReferenceWindow = false },
                 )
             }
         }

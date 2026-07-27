@@ -3,6 +3,8 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import com.hereliesaz.graffitixr.common.model.GestureAction
+import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerProps
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
@@ -77,6 +79,8 @@ internal sealed interface EditorIntent {
     data class SetHandedness(val value: Boolean) : EditorIntent
     /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
     data class SetImperialUnits(val value: Boolean) : EditorIntent
+    /** Mirrors the persisted per-gesture action mapping into live UiState. */
+    data class SetGestureMapping(val mapping: Map<GestureSlot, GestureAction>) : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
