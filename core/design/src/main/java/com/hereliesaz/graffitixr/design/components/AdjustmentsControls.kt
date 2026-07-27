@@ -4,96 +4,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.design.theme.HotPink
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import kotlin.math.roundToInt
 
-@Composable
-fun UndoRedoRow(
-    canUndo: Boolean,
-    canRedo: Boolean,
-    undoCount: Int,
-    redoCount: Int,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    strings: AppStrings,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Aligned with the first knob (Red/Opacity)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = CircleShape,
-                // Light background when enabled, dark when disabled
-                color = if (canUndo) HotPink else HotPink.copy(alpha = 0.3f),
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onUndo, enabled = canUndo) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Undo,
-                        contentDescription = strings.adj.undo,
-                        tint = if (canUndo) Color.White else Color.White.copy(alpha = 0.38f)
-                    )
-                }
-            }
-            if (undoCount > 0) {
-                Text(
-                    text = undoCount.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-            }
-        }
-
-        // Aligned with the third knob (Blue/Contrast)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (redoCount > 0) {
-                Text(
-                    text = redoCount.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-            }
-            Surface(
-                shape = CircleShape,
-                // Light background when enabled, dark when disabled
-                color = if (canRedo) HotPink else HotPink.copy(alpha = 0.3f),
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onRedo, enabled = canRedo) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Redo,
-                        contentDescription = strings.adj.redo,
-                        tint = if (canRedo) Color.White else Color.White.copy(alpha = 0.38f)
-                    )
-                }
-            }
-        }
-    }
-}
+// Undo/redo used to live here as UndoRedoRow, duplicating the AzNavRail onscreen composable's
+// buttons (MainActivity.GraffuxApp) — removed in favor of that single copy.
 
 @Composable
 // Renders all adjustment knobs in a single row

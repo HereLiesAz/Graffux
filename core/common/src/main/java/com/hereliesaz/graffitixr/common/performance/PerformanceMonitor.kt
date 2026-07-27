@@ -24,6 +24,12 @@ object PerformanceMonitor {
     private var frameCount = 0
     private var lastFpsUpdateTime = 0L
 
+    // lastFrameTime/frameCount/lastFpsUpdateTime are plain fields read-then-written across several
+    // statements; if onFrame() is ever called from more than one thread (e.g. an AR render thread
+    // and a Compose measure/recomposition pass) concurrently, those reads/writes can interleave and
+    // produce garbled fps/frame-time readings. Not a crash, but silently wrong diagnostics —
+    // @Synchronized is cheap at this call frequency (at most one call per rendered frame).
+    @Synchronized
     fun onFrame() {
         val now = SystemClock.elapsedRealtimeNanos()
         if (lastFrameTime > 0) {

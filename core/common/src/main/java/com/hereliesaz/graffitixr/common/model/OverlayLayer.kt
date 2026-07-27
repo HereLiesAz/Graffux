@@ -49,15 +49,13 @@ data class OverlayLayer(
     val colorBalanceG: Float = 1.0f,
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
+    val alphaLock: Boolean = false,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
     val isInverted: Boolean = false,
-    // Persisted so stencil metadata survives save/load (LayerMappers used to drop these).
-    val stencilType: StencilLayerType? = null,
-    val stencilSourceId: String? = null,
     // Vector content — non-empty for a vector layer (uri is Uri.EMPTY in that case). Defaulted for
     // back-compat with projects saved before vector layers existed.
     val shapes: List<VectorShape> = emptyList()

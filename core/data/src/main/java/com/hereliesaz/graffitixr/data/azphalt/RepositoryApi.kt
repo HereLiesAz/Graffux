@@ -14,10 +14,16 @@ import java.net.URLEncoder
 object AzphaltStore {
     /**
      * Registry API base for the official store. The apex `azphalt.store` 308-redirects to `www`, so we
-     * target `www` directly. The store currently serves a bare package array at `GET /packages`
-     * (see [RepositoryClient.listPackages]); the richer repository-api.md endpoints may not exist yet.
+     * target `www` directly.
+     *
+     * No `/api` suffix: the store mounts the normative repository-api.md surface at the **domain root**
+     * (`/.well-known/azphalt-repository.json`, `/packages`, `/packages/{id}/versions/{v}/download`, …)
+     * via `beforeFiles` rewrites. The `/api` prefix is Next's own storefront-internal namespace, where
+     * only `/api/packages` happens to exist — so browsing appeared to work while every other call fell
+     * through the SPA fallback and came back as `index.html`, which the installer then rejected as
+     * "Package has no manifest.json".
      */
-    const val REGISTRY_BASE_URL: String = "https://www.azphalt.store/api"
+    const val REGISTRY_BASE_URL: String = "https://www.azphalt.store"
 }
 
 /**
@@ -45,18 +51,23 @@ class RepositoryClient(
 
     /**
      * GET /packages — paginated search. [types] filters by contribution type (e.g. "lut", "shader",
-     * "code"); [tags] by free-form tag. Empty filters return the full catalog page.
+     * "code"); [tags] by free-form tag. [mediaDomains] restricts to packages whose domains intersect
+     * the set (spec/repository-api.md § Media domains) — a host passes the domains it can actually
+     * run so it never surfaces, say, an audio SFX pack to a paint-only editor. Empty filters return
+     * the full catalog page.
      */
     fun search(
         q: String? = null,
         types: List<String> = emptyList(),
         tags: List<String> = emptyList(),
+        mediaDomains: List<String> = emptyList(),
         page: Int = 1,
     ): SearchResponse {
         val params = buildList {
             if (!q.isNullOrBlank()) add("q=" + enc(q))
             if (types.isNotEmpty()) add("types=" + enc(types.joinToString(",")))
             if (tags.isNotEmpty()) add("tags=" + enc(tags.joinToString(",")))
+            if (mediaDomains.isNotEmpty()) add("mediaDomains=" + enc(mediaDomains.joinToString(",")))
             add("page=$page")
         }.joinToString("&")
         return AzphaltJson.decodeFromString(httpGet("$base/packages?$params", emptyMap()))
@@ -116,7 +127,7 @@ class RepositoryClient(
                 unresolved.add(entry.id)
                 continue
             }
-            val version = entry.version ?: memberDetail.versions.firstOrNull()
+            val version = entry.version ?: memberDetail.latest ?: memberDetail.versions.firstOrNull()
             if (version == null) {
                 unresolved.add(entry.id)
                 continue
@@ -239,6 +250,11 @@ data class RepositoryPackage(
     val name: String,
     val author: String? = null,
     val version: String,
+    /**
+     * The newest installable version's semver (spec/repository-api.md § `latest`) — equals [version]
+     * in a summary, but present so callers don't have to special-case summary vs. detail objects.
+     */
+    val latest: String? = null,
     /** Declared package kind when the registry provides it; otherwise inferred from [types]. */
     val kind: ExtensionKind? = null,
     val types: List<String> = emptyList(),
@@ -249,8 +265,12 @@ data class RepositoryPackage(
     /** Official store's price: `null` (or JSON null) means free; any other value means paid. */
     val price: JsonElement? = null,
     val downloads: Int = 0,
+    /** Present only when the registry tracks ratings (spec § Search Packages). */
+    val rating: Double? = null,
     val ratingCount: Int = 0,
     val updatedAt: String? = null,
+    /** Payload size in bytes, when the registry reports it — helps a card show download size upfront. */
+    val byteSize: Long? = null,
     val mediaDomains: List<String> = emptyList(),
     val targetApps: List<String> = emptyList(),
     /** Store-card preview (spec/extension-manifest.md § preview) — a browse grid without downloading. */
@@ -277,6 +297,12 @@ data class PackageDetail(
     val types: List<String> = emptyList(),
     val priceStatus: String? = null,
     val preview: Preview? = null,
+    /**
+     * The newest installable version's semver (spec/repository-api.md § `latest`), disambiguating
+     * [versions]' full history — callers should prefer this over `versions.firstOrNull()`, since the
+     * spec doesn't guarantee [versions] is ordered.
+     */
+    val latest: String? = null,
     val versions: List<String> = emptyList(),
     /**
      * For a `kind: "pack"` package, its member manifest (spec/pack.md). Absent/null for a normal
@@ -338,7 +364,7 @@ fun RepositoryPackage.toMarketplaceEntry(downloadUrl: String): MarketplaceEntry 
         description = description ?: "",
         priceLabel = if (isPaid) "Paid" else "Free",
         downloads = downloads,
-        rating = null,
+        rating = rating?.toFloat(),
         tags = tags,
         source = downloadUrl,
         previewImage = preview?.image,

@@ -46,6 +46,11 @@ data class Layer(
     val colorBalanceG: Float = 1.0f,
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
+    /**
+     * Procreate's Alpha Lock: while set, painting on this layer only lands where pixels already
+     * have alpha — strokes recolour existing content and never extend its silhouette.
+     */
+    val alphaLock: Boolean = false,
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
@@ -59,8 +64,6 @@ data class Layer(
     val rotationZ: Float = 0f,
     val scale: Float = 1.0f,
     val isInverted: Boolean = false,
-    val stencilType: StencilLayerType? = null,
-    val stencilSourceId: String? = null,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
     // when empty the layer is the usual raster layer backed by [bitmap]. Defaulted for back-compat.
     val shapes: List<VectorShape> = emptyList()
@@ -81,6 +84,7 @@ data class LayerProps(
     val colorBalanceG: Float = 1.0f,
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
+    val alphaLock: Boolean = false,
     val isInverted: Boolean = false,
     @Serializable(with = BlendModeSerializer::class)
     val blendMode: BlendMode = BlendMode.SrcOver
@@ -134,6 +138,8 @@ data class EditorUiState(
     val activeTool: Tool = Tool.NONE,
     val hideUiForCapture: Boolean = false,
     val isRightHanded: Boolean = true,
+    /** Mirrors the persisted Settings "Imperial units" toggle — see EditorViewModel's init collector. */
+    val isImperialUnits: Boolean = false,
     val gestureInProgress: Boolean = false,
     val showRotationAxisFeedback: Boolean = false,
     val activeRotationAxis: RotationAxis = RotationAxis.Z,
@@ -148,9 +154,33 @@ data class EditorUiState(
     val activeBrushName: String? = null,
     // Flow [0..1] for an azphalt stamp brush: per-dab paint build-up. Ignored by the built-in brush.
     val brushFlow: Float = 1f,
-    val sketchThickness: Int = 5,
     val stabilizerLevel: Int = 0,
+    // Ceiling on touch samples rendered per second while drawing (0 = unthrottled). The editor
+    // renders a frame per recorded sample, so this is the main lever on drawing's power draw.
+    val inputSampleRateHz: Int = 60,
+    // Fraction of screen resolution new layers allocate at. Every layer is a full ARGB_8888 bitmap,
+    // so halving this quarters the bytes per layer — the main lever on memory.
+    val canvasRenderScale: Float = 1f,
     val wrapAroundMode: Boolean = false,
+    // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
+    // vertical centre line as they're painted.
+    val symmetryEnabled: Boolean = false,
+    // Procreate's freehand selection: while set, every raster tool is confined to this region and
+    // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
+    // a selection are undoable, the act of selecting isn't.
+    val selection: Selection? = null,
+    // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
+    // the colour currently under the finger (committed to activeColor on lift) and
+    // [eyedropPosition] the screen point for the loupe overlay.
+    val isEyedropping: Boolean = false,
+    val eyedropColor: Color? = null,
+    val eyedropPosition: Offset = Offset.Zero,
+    // Transient HUD confirmations, Procreate-style: a short-lived pill ("Undo", "Redo") at the top
+    // of the canvas, and a brush-diameter preview circle while the size slider moves.
+    // Procreate's QuickMenu: the screen point the radial menu is open at, or null when closed.
+    val quickMenuAt: Offset? = null,
+    val hudMessage: String? = null,
+    val brushHudVisible: Boolean = false,
     val activeColor: Color = Color.White,
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,
@@ -165,12 +195,6 @@ data class EditorUiState(
     // Artboard / document dimensions in pixels (the fixed design/output size).
     val documentWidth: Int = 1080,
     val documentHeight: Int = 1080,
-    val isSegmenting: Boolean = false,
-    val segmentationInfluence: Float = 0.5f,
-    val segmentationPreview: Bitmap? = null,
-    val isStencilGenerating: Boolean = false,
-    val stencilButtonPosition: Offset = Offset.Zero,
-    val stencilHintVisible: Boolean = false,
     // One-shot: set to a freshly-created text layer's id so the UI can immediately open its
     // edit-text box. Cleared once consumed.
     val autoEditTextLayerId: String? = null,

@@ -161,27 +161,9 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `BeginSegmentation sets the flag and default influence and EndSegmentation clears state`() {
-        val begun = reduce(state(lyr("a")), EditorIntent.BeginSegmentation)
-        assertTrue(begun.isSegmenting)
-        assertEquals(0.5f, begun.segmentationInfluence)
-        val ended = reduce(begun.copy(segmentationPreview = null), EditorIntent.EndSegmentation)
-        assertFalse(ended.isSegmenting)
-        assertNull(ended.segmentationPreview)
-    }
-
-    @Test
-    fun `stencil flag intents update their fields`() {
-        val s = state(lyr("a"))
-        assertTrue(reduce(s, EditorIntent.SetStencilGenerating(true)).isStencilGenerating)
-        assertFalse(reduce(s.copy(stencilHintVisible = true), EditorIntent.SetStencilHintVisible(false)).stencilHintVisible)
-    }
-
-    @Test
-    fun `SetBrushSize and SetSketchThickness coerce into range`() {
+    fun `SetBrushSize coerces into range`() {
         assertEquals(200f, reduce(state(lyr("a")), EditorIntent.SetBrushSize(9999f)).brushSize)
         assertEquals(1f, reduce(state(lyr("a")), EditorIntent.SetBrushSize(-5f)).brushSize)
-        assertEquals(20, reduce(state(lyr("a")), EditorIntent.SetSketchThickness(99)).sketchThickness)
     }
 
     @Test
@@ -280,6 +262,23 @@ class EditorReducerTest {
         val cleared = reduce(loaded, EditorIntent.ClearProject)
         assertNull(cleared.projectId)
         assertTrue(cleared.layers.isEmpty())
+    }
+
+    @Test
+    fun `LoadedProject activates a layer so reopening a project leaves something selected`() {
+        // Regression: LoadedProject used to leave activeLayerId null and lean on the SetLayers that
+        // follows it, but the view model only dispatches that when a layer still needs its bitmap
+        // read off disk. A vector-only project (pen paths, shapes) has neither bitmap nor uri, so
+        // nothing reconciled the id and every layer-scoped control came back inert on reopen.
+        val loaded = reduce(state(), EditorIntent.LoadedProject("p1", listOf(lyr("a"), lyr("b"))))
+        assertEquals("a", loaded.activeLayerId)
+    }
+
+    @Test
+    fun `LoadedProject keeps the active layer when the reloaded set still contains it`() {
+        val before = state(lyr("a"), lyr("b")).copy(activeLayerId = "b")
+        val loaded = reduce(before, EditorIntent.LoadedProject("p1", listOf(lyr("a"), lyr("b"))))
+        assertEquals("b", loaded.activeLayerId)
     }
 
     @Test

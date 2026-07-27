@@ -36,6 +36,8 @@ internal object EditorReducer {
         }
         EditorIntent.ToggleInvert -> state.mapActive { it.copy(isInverted = !it.isInverted) }
         EditorIntent.ToggleImageLock -> state.mapActive { it.copy(isImageLocked = !it.isImageLocked) }
+        is EditorIntent.ToggleAlphaLock ->
+            state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(alphaLock = !it.alphaLock) })
         EditorIntent.CycleRotationAxis -> {
             val next = when (state.activeRotationAxis) {
                 RotationAxis.X -> RotationAxis.Y
@@ -70,20 +72,11 @@ internal object EditorReducer {
             state.copy(activePanel = if (state.activePanel == EditorPanel.ADJUST) EditorPanel.NONE else EditorPanel.ADJUST)
         EditorIntent.ToggleTransformPanel ->
             state.copy(activePanel = if (state.activePanel == EditorPanel.TRANSFORM) EditorPanel.NONE else EditorPanel.TRANSFORM)
-        EditorIntent.ToggleLayersPanel ->
-            state.copy(activePanel = if (state.activePanel == EditorPanel.LAYERS) EditorPanel.NONE else EditorPanel.LAYERS)
         EditorIntent.DismissPanel -> state.copy(activePanel = EditorPanel.NONE)
         is EditorIntent.SetGestureInProgress -> state.copy(gestureInProgress = intent.inProgress)
 
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
-        EditorIntent.BeginSegmentation -> state.copy(isSegmenting = true, segmentationInfluence = 0.5f)
-        EditorIntent.EndSegmentation -> state.copy(isSegmenting = false, segmentationPreview = null)
-        is EditorIntent.SetSegmentationInfluence -> state.copy(segmentationInfluence = intent.value)
-        is EditorIntent.SetSegmentationPreview -> state.copy(segmentationPreview = intent.preview)
-        is EditorIntent.SetStencilGenerating -> state.copy(isStencilGenerating = intent.generating)
-        is EditorIntent.SetStencilHintVisible -> state.copy(stencilHintVisible = intent.visible)
-        is EditorIntent.SetStencilButtonPosition -> state.copy(stencilButtonPosition = intent.position)
 
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
         is EditorIntent.SetDocumentSize -> state.copy(
@@ -97,14 +90,36 @@ internal object EditorReducer {
         )
         is EditorIntent.SetSnapGuides -> state.copy(snapGuidesX = intent.x, snapGuidesY = intent.y)
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
+        is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
+        is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
-        is EditorIntent.SetSketchThickness -> state.copy(sketchThickness = intent.value.coerceIn(1, 20))
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
+        // 240 Hz is above any panel's report rate, so it doubles as "unthrottled" without a
+        // special case; 0 means the same thing explicitly.
+        is EditorIntent.SetInputSampleRateHz -> state.copy(inputSampleRateHz = intent.hz.coerceIn(0, 240))
+        // Floored at a quarter: below that the artwork is visibly soft, and the memory saved is
+        // already 94% of what any scale can save.
+        is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
+        EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
+        // A polygon too small to enclose anything is a deselect, not a selection that silently
+        // clips every subsequent stroke to nothing.
+        is EditorIntent.SetSelection -> state.copy(
+            selection = intent.selection?.takeIf { it.isUsable }
+        )
+        EditorIntent.InvertSelection -> state.copy(
+            selection = state.selection?.let { it.copy(inverted = !it.inverted) }
+        )
+        is EditorIntent.SetEyedrop -> state.copy(
+            isEyedropping = intent.active,
+            eyedropColor = if (intent.active) intent.color else null,
+            eyedropPosition = intent.position,
+        )
         is EditorIntent.SetActiveBrush -> state.copy(activeBrushName = intent.name)
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)
@@ -137,8 +152,23 @@ internal object EditorReducer {
 
         EditorIntent.ToggleColorPanel ->
             state.copy(activePanel = if (state.activePanel == EditorPanel.COLOR) EditorPanel.NONE else EditorPanel.COLOR)
+        EditorIntent.ToggleExtensionsPanel ->
+            state.copy(activePanel = if (state.activePanel == EditorPanel.EXTENSIONS) EditorPanel.NONE else EditorPanel.EXTENSIONS)
         EditorIntent.BeginGesture -> state.copy(gestureInProgress = true, activePanel = EditorPanel.NONE)
-        is EditorIntent.SetLayers -> state.copy(layers = intent.layers)
+        is EditorIntent.SetLayers -> state.copy(
+            layers = intent.layers,
+            // Reconcile activeLayerId against the new list: undo/redo can swap in a layer set
+            // that no longer contains the previously-active id (e.g. undoing an AddLayer, or
+            // redoing a RemoveLayer), which otherwise leaves activeLayerId dangling — the
+            // Transform panel, selection outline, and every adjustment control key off
+            // `layers.find { it.id == activeLayerId }` and silently no-op once that lookup
+            // misses. Mirrors RemoveLayer's fallback below.
+            activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
+                state.activeLayerId
+            } else {
+                intent.layers.firstOrNull()?.id
+            },
+        )
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
             it.copy(
                 opacity = intent.source.opacity,
@@ -152,7 +182,22 @@ internal object EditorReducer {
                 warpMesh = intent.source.warpMesh,
             )
         })
-        is EditorIntent.LoadedProject -> state.copy(projectId = intent.projectId, layers = intent.layers, activeTool = Tool.NONE)
+        is EditorIntent.LoadedProject -> state.copy(
+            projectId = intent.projectId,
+            layers = intent.layers,
+            activeTool = Tool.NONE,
+            // Activate a layer on load, for the same reason SetLayers does above. LoadedProject used
+            // to leave activeLayerId null and rely on the SetLayers that follows it — but the view
+            // model only dispatches that when some layer still needs its bitmap read off disk. A
+            // project made of vector layers (pen paths, shapes) has no bitmap and no uri, so nothing
+            // reconciled the id and reopening such a project left every layer-scoped control inert:
+            // no selection outline, no Transform, no Adjust, and the Edit rail item hidden outright.
+            activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
+                state.activeLayerId
+            } else {
+                intent.layers.firstOrNull()?.id
+            },
+        )
         EditorIntent.ClearProject -> state.copy(projectId = null, layers = emptyList(), backgroundBitmap = null, activeTool = Tool.NONE)
     }
 

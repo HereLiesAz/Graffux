@@ -34,6 +34,8 @@ internal sealed interface EditorIntent {
     data class SetLayerTransform(val scale: Float, val offset: Offset, val rx: Float, val ry: Float, val rz: Float) : EditorIntent
     data object ToggleInvert : EditorIntent
     data object ToggleImageLock : EditorIntent
+    /** Toggles Procreate-style Alpha Lock on layer [id] (paint only lands on existing alpha). */
+    data class ToggleAlphaLock(val id: String) : EditorIntent
     data object CycleRotationAxis : EditorIntent
 
     // ── Layer list ────────────────────────────────────────────────────────────
@@ -54,20 +56,12 @@ internal sealed interface EditorIntent {
     data class SetActiveTool(val tool: Tool) : EditorIntent
     data object ToggleAdjustPanel : EditorIntent
     data object ToggleTransformPanel : EditorIntent
-    data object ToggleLayersPanel : EditorIntent
     data object DismissPanel : EditorIntent
     data class SetGestureInProgress(val inProgress: Boolean) : EditorIntent
 
     // ── Effect-result / transient flags (dispatched by the VM around async work) ───
     data class SetLoading(val loading: Boolean) : EditorIntent
     data class SetBackgroundBitmap(val bitmap: Bitmap?) : EditorIntent
-    data object BeginSegmentation : EditorIntent
-    data object EndSegmentation : EditorIntent
-    data class SetSegmentationInfluence(val value: Float) : EditorIntent
-    data class SetSegmentationPreview(val preview: Bitmap?) : EditorIntent
-    data class SetStencilGenerating(val generating: Boolean) : EditorIntent
-    data class SetStencilHintVisible(val visible: Boolean) : EditorIntent
-    data class SetStencilButtonPosition(val position: Offset) : EditorIntent
 
     // ── Settings / tool / brush / color ───────────────────────────────────────
     data class SetCanvasBackground(val color: Color) : EditorIntent
@@ -78,14 +72,32 @@ internal sealed interface EditorIntent {
     /** Sets the active snap guide lines (world-space) shown while dragging; empty clears them. */
     data class SetSnapGuides(val x: List<Float>, val y: List<Float>) : EditorIntent
     data object ToggleHandedness : EditorIntent
+    /** Mirrors the persisted Settings "Right-handed" toggle into live UiState — see EditorViewModel's
+     *  init collector. Distinct from [ToggleHandedness] (an in-session flip with no [value] to pass). */
+    data class SetHandedness(val value: Boolean) : EditorIntent
+    /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
+    data class SetImperialUnits(val value: Boolean) : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
-    data class SetSketchThickness(val value: Int) : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
+    /** Ceiling on rendered touch samples per second while drawing; 0 is unthrottled. */
+    data class SetInputSampleRateHz(val hz: Int) : EditorIntent
+    /** Fraction of screen resolution new layers allocate at. */
+    data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
+    /** Toggles the vertical-mirror symmetry guide for painting. */
+    data object ToggleSymmetry : EditorIntent
+    /** Opens the radial QuickMenu at a screen point, or closes it with null. */
+    data class SetQuickMenu(val at: Offset?) : EditorIntent
+    /** Replaces the freehand selection, or clears it with null (deselect). */
+    data class SetSelection(val selection: com.hereliesaz.graffitixr.common.model.Selection?) : EditorIntent
+    /** Flips the active selection inside-out; a no-op when nothing is selected. */
+    data object InvertSelection : EditorIntent
+    /** Live eyedropper state: sampling in progress, current colour + loupe position. */
+    data class SetEyedrop(val active: Boolean, val color: Color? = null, val position: Offset = Offset.Zero) : EditorIntent
     /** Selects an azphalt stamp brush by name, or clears back to the built-in round brush (null). */
     data class SetActiveBrush(val name: String?) : EditorIntent
     data object ShowColorPicker : EditorIntent
@@ -108,6 +120,8 @@ internal sealed interface EditorIntent {
 
     // ── Panels / gestures / layer set / project lifecycle ─────────────────────
     data object ToggleColorPanel : EditorIntent
+    /** Opens/closes the installed-extensions panel (run a code extension's filter/tool). */
+    data object ToggleExtensionsPanel : EditorIntent
     /** A transform gesture begins: flags it and dismisses any open panel. */
     data object BeginGesture : EditorIntent
     /** Replaces just the layer list, leaving active id / tool untouched (undo restore, reload). */

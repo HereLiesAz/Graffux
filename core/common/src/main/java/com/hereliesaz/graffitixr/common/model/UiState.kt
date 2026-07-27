@@ -7,7 +7,14 @@ package com.hereliesaz.graffitixr.common.model
 enum class Tool {
     NONE, BRUSH, ERASER, BLUR, HEAL, BURN, DODGE, LIQUIFY, COLOR,
     /** Vector pen: a freeform drag traces an open PATH vector shape on a new layer. */
-    PEN
+    PEN,
+    /** Flood fill (Procreate's ColorDrop): a tap fills the contiguous region under the finger. */
+    FILL,
+    /**
+     * Freehand selection (Procreate's lasso). A drag traces a region; every raster tool is then
+     * confined to it until it is cleared. Dragging inside an existing selection moves its pixels.
+     */
+    SELECT
 }
 
 enum class ArScanMode {

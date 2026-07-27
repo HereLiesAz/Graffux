@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -11,22 +12,13 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
@@ -34,7 +26,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -50,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -97,12 +92,26 @@ fun EditorScreen(
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
 
+    // Coordinates the drawing surface with the multi-finger tap observer below, so a two-finger
+    // tap that cancelled an in-flight stroke doesn't also undo the previous action.
+    val strokeGate = remember { StrokeGate() }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             // Fixed dark workspace so the artboard (the document, its own fill) reads as a distinct
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
+            // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger
+            // tap redoes. A pure observer — consumes nothing, so painting and navigation are unaffected.
+            .multiFingerTaps(
+                gate = strokeGate,
+                onTwoFingerTap = { vm.onUndoClicked() },
+                onThreeFingerTap = { vm.onRedoClicked() },
+                onFourFingerTap = { vm.toggleHideUi() },
+                onFourFingerHold = { at -> vm.onOpenQuickMenu(at) },
+                onThreeFingerScrub = { vm.onClearLayer() },
+            )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
         // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
@@ -279,18 +288,46 @@ fun EditorScreen(
         // space back to bitmap pixels). Active only when a RASTER tool is selected on an unlocked
         // layer — the vector PEN has its own capture layer below.
         if (activeLayer != null && !activeLayerLocked &&
-            uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN
+            uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN &&
+            uiState.activeTool != Tool.SELECT
         ) {
             DrawingCanvas(
                 activeTool = uiState.activeTool,
                 brushSize = uiState.brushSize,
                 activeColor = uiState.activeColor,
                 layerBitmapKey = activeLayer.bitmap,
+                gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { offset, size -> vm.onStrokeStart(offset, size) },
                 onStrokePoint = { offset -> vm.onStrokePoint(offset) },
-                onStrokeEnd = { vm.onStrokeEnd() }
+                onStrokeEnd = { vm.onStrokeEnd() },
+                onStrokeCancel = { vm.onStrokeCancel() },
+                onFillTap = { offset, size -> vm.onFillTap(offset, size) },
+                onEyedropStart = { size -> vm.onEyedropStart(size) },
+                onEyedropSample = { offset -> vm.onEyedropSample(offset) },
+                onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
             )
+        }
+
+        // 3a-bis. Lasso capture layer — traces a new selection, or moves the pixels of the current
+        // one when the drag starts inside it. Screen space, like the brush layer, so the polygon it
+        // records maps into any layer through the same screen→bitmap transform the paint uses.
+        if (uiState.activeTool == Tool.SELECT) {
+            SelectionCanvas(
+                selection = uiState.selection,
+                gate = strokeGate,
+                modifier = Modifier.fillMaxSize(),
+                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
+                onSelectionMove = { delta -> vm.onSelectionMove(delta) },
+                onClearSelection = { vm.onClearSelection() },
+            )
+        }
+
+        // 3a-ter. Marching ants for the committed selection. Purely visual, and shown under every
+        // tool — the selection keeps clipping the brush after you switch back to it, so hiding the
+        // outline would leave strokes mysteriously stopping at an invisible edge.
+        uiState.selection?.let { sel ->
+            SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
         }
 
         // 3b. Pen (vector) capture layer — a freeform drag traces a live poly-line that is committed
@@ -301,7 +338,64 @@ fun EditorScreen(
                 color = uiState.activeColor,
                 strokeWidthPx = uiState.brushSize,
                 onCommit = { pts, cw, ch -> vm.onCommitPenPath(pts, cw, ch) },
+                onCommitEllipse = { c, rx, ry, cw, ch -> vm.onCommitPenEllipse(c, rx, ry, cw, ch) },
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
+        // with the colour currently under it; screen-space overlay, purely visual.
+        if (uiState.isEyedropping) {
+            EyedropLoupe(
+                color = uiState.eyedropColor,
+                position = uiState.eyedropPosition,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // 3d. Brush-size HUD — while the size slider moves, the ACTUAL brush diameter previews as
+        // a circle at canvas centre, the way Procreate shows what you're about to paint with.
+        if (uiState.brushHudVisible) {
+            Canvas(Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val r = uiState.brushSize / 2f
+                drawCircle(uiState.activeColor, radius = r, center = center)
+                drawCircle(Color.White.copy(alpha = 0.9f), radius = r, center = center, style = Stroke(width = 1.5.dp.toPx()))
+            }
+        }
+
+        // 3e. HUD pill — Procreate's transient confirmation ("Undo", "Redo") at the top of the canvas.
+        uiState.hudMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
+            ) {
+                Text(message, color = Color.White)
+            }
+        }
+
+        // 3f. QuickMenu — Procreate's radial six-slot, opened by holding four fingers and centred
+        // where they landed. Drawn above the canvas overlays and below the panels: it is modal over
+        // the artwork (its scrim swallows touches) but should never cover a panel it just opened.
+        uiState.quickMenuAt?.let { at ->
+            val activeId = uiState.activeLayerId
+            QuickMenu(
+                center = at,
+                onDismiss = { vm.onDismissQuickMenu() },
+                modifier = Modifier.fillMaxSize(),
+                actions = listOf(
+                    QuickAction("Undo", enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
+                    QuickAction("Layer") { vm.onAddBlankLayer() },
+                    QuickAction("Alpha", enabled = activeId != null) {
+                        activeId?.let { vm.onToggleAlphaLock(it) }
+                    },
+                    QuickAction(if (uiState.symmetryEnabled) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
+                    QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
+                    QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
+                ),
             )
         }
 
@@ -333,16 +427,7 @@ fun EditorScreen(
             zoom = uiState.viewportZoom,
             offset = uiState.viewportOffset,
             rotationDeg = uiState.viewportRotation,
-        )
-
-        // 4c. Viewport controls — floating canvas controls in the bottom corners (out of the rail, the
-        // way GraffitiXR anchors them): fit/reset the view on the left, undo/redo on the right. Each
-        // button shows only when it can act, so a clean canvas stays uncluttered.
-        ViewportControls(
-            uiState = uiState,
-            onReset = { vm.resetViewport() },
-            onUndo = { vm.onUndoClicked() },
-            onRedo = { vm.onRedoClicked() },
+            imperial = uiState.isImperialUnits,
         )
 
         // 5. Loading indicator.
@@ -566,45 +651,109 @@ private fun SelectionHandles(
 }
 
 /**
- * Freeform vector pen capture. A single-finger drag traces a poly-line, previewed live in the brush
- * colour; on release the traced screen points are handed to [onCommit] (with the canvas size) to be
- * turned into an open PATH vector layer. Full-screen and in screen space — the camera mapping happens
- * in the view-model. A stroke of fewer than two points is ignored.
+ * Freeform vector pen capture with **QuickShape**. A single-finger drag traces a poly-line,
+ * previewed live in the brush colour; on release the traced screen points are handed to [onCommit]
+ * (with the canvas size) to be turned into an open PATH vector layer.
+ *
+ * QuickShape (Procreate): stop moving and HOLD at the end of the stroke and the wobbly trace snaps
+ * to the ideal shape it approximates — the preview switches to the snapped shape while still held,
+ * and lifting commits it: a recognized line commits as a clean two-point path, a recognized
+ * circle/ellipse goes through [onCommitEllipse] instead.
+ *
+ * A second finger cancels the trace (it's a gesture, not drawing). Strokes of fewer than two
+ * points are ignored.
  */
 @Composable
 private fun PenCanvas(
     color: Color,
     strokeWidthPx: Float,
     onCommit: (points: List<Offset>, canvasWidth: Float, canvasHeight: Float) -> Unit,
+    onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val points = remember { mutableStateListOf<Offset>() }
+    var snapped by remember { mutableStateOf<QuickShape.Shape?>(null) }
     Canvas(
         modifier = modifier.pointerInput(Unit) {
             awaitEachGesture {
                 points.clear()
+                snapped = null
                 val down = awaitFirstDown(requireUnconsumed = false)
                 points.add(down.position)
                 down.consume()
+                var lastMove = down.position
+                var cancelled = false
                 while (true) {
-                    val event = awaitPointerEvent()
+                    // Timed wait: a finger holding still emits no events, and the timeout is what
+                    // triggers QuickShape recognition mid-hold.
+                    // AwaitPointerEventScope's own withTimeoutOrNull — the restricted-suspension-safe one.
+                    val event = withTimeoutOrNull(QuickShape.HOLD_MS) { awaitPointerEvent() }
+                    if (event == null) {
+                        if (snapped == null && points.size >= 2) {
+                            snapped = QuickShape.recognize(points.toList())
+                        }
+                        continue
+                    }
+                    if (event.changes.count { it.pressed } > 1) {
+                        cancelled = true
+                        break
+                    }
                     val change = event.changes.firstOrNull() ?: break
                     if (!change.pressed) break
                     points.add(change.position)
+                    if ((change.position - lastMove).getDistance() > QuickShape.HOLD_SLOP_PX) {
+                        lastMove = change.position
+                        snapped = null // real movement resumes freehand; the hold timer restarts
+                    }
                     change.consume()
                 }
-                if (points.size >= 2) onCommit(points.toList(), size.width.toFloat(), size.height.toFloat())
+                val w = size.width.toFloat()
+                val h = size.height.toFloat()
+                if (!cancelled && points.size >= 2) {
+                    when (val shape = snapped) {
+                        is QuickShape.Line -> onCommit(listOf(shape.start, shape.end), w, h)
+                        is QuickShape.Ellipse -> onCommitEllipse(shape.center, shape.radiusX, shape.radiusY, w, h)
+                        null -> onCommit(points.toList(), w, h)
+                    }
+                }
                 points.clear()
+                snapped = null
             }
         },
     ) {
-        if (points.size >= 2) {
-            val path = Path().apply {
-                moveTo(points[0].x, points[0].y)
-                for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+        when (val shape = snapped) {
+            is QuickShape.Line -> drawLine(color, shape.start, shape.end, strokeWidth = strokeWidthPx)
+            is QuickShape.Ellipse -> drawOval(
+                color = color,
+                topLeft = Offset(shape.center.x - shape.radiusX, shape.center.y - shape.radiusY),
+                size = Size(shape.radiusX * 2, shape.radiusY * 2),
+                style = Stroke(width = strokeWidthPx),
+            )
+            null -> if (points.size >= 2) {
+                val path = Path().apply {
+                    moveTo(points[0].x, points[0].y)
+                    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+                }
+                drawPath(path, color, style = Stroke(width = strokeWidthPx))
             }
-            drawPath(path, color, style = Stroke(width = strokeWidthPx))
         }
+    }
+}
+
+/**
+ * The eyedropper's loupe: a colour-filled ring floated above the sampling finger so the picked
+ * colour is visible while the fingertip covers the pixel. Purely visual.
+ */
+@Composable
+private fun EyedropLoupe(color: Color?, position: Offset, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val center = position - Offset(0f, 56.dp.toPx())
+        val radius = 26.dp.toPx()
+        drawCircle(color = Color.Black.copy(alpha = 0.35f), radius = radius + 4.dp.toPx(), center = center)
+        drawCircle(color = color ?: Color.Transparent, radius = radius, center = center)
+        drawCircle(color = Color.White, radius = radius, center = center, style = Stroke(width = 2.dp.toPx()))
+        // Crosshair at the actual sample point.
+        drawCircle(color = Color.White, radius = 4.dp.toPx(), center = position, style = Stroke(width = 1.5f.dp.toPx()))
     }
 }
 
@@ -620,52 +769,6 @@ private fun SnapGuides(guidesX: List<Float>, guidesY: List<Float>, modifier: Mod
         val stroke = 1.dp.toPx()
         guidesX.forEach { x -> drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = stroke) }
         guidesY.forEach { y -> drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = stroke) }
-    }
-}
-
-/**
- * Floating canvas controls anchored in the bottom corners (out of the nav rail, the way GraffitiXR
- * places them): fit/reset the infinite-canvas view on the bottom-left, undo and redo on the bottom-
- * right. Each button appears only when it can do something — reset only off the identity view, undo/
- * redo only with history — so a fresh, un-panned canvas shows nothing. Placed directly in the editor's
- * root [Box] so only the buttons themselves capture touches; the rest of the canvas keeps its gestures.
- */
-@Composable
-private fun BoxScope.ViewportControls(
-    uiState: EditorUiState,
-    onReset: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-) {
-    val chip = Color.Black.copy(alpha = 0.35f)
-    val viewMoved = uiState.viewportZoom != 1f ||
-        uiState.viewportOffset != Offset.Zero ||
-        uiState.viewportRotation != 0f
-    if (viewMoved) {
-        IconButton(
-            onClick = onReset,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(16.dp)
-                .background(chip, CircleShape),
-        ) {
-            Icon(Icons.Filled.FitScreen, contentDescription = "Fit view to screen", tint = Color.White)
-        }
-    }
-    Row(
-        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (uiState.undoCount > 0) {
-            IconButton(onClick = onUndo, modifier = Modifier.background(chip, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = Color.White)
-            }
-        }
-        if (uiState.redoCount > 0) {
-            IconButton(onClick = onRedo, modifier = Modifier.background(chip, CircleShape)) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = Color.White)
-            }
-        }
     }
 }
 
@@ -720,14 +823,28 @@ private fun InfiniteGrid(
  * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
  * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
  */
+/** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
+ *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
+private const val PX_PER_INCH = 96f
+private fun pxToUnit(px: Float, imperial: Boolean): Float = if (imperial) px / PX_PER_INCH else px / PX_PER_INCH * 2.54f
+
 @Composable
 private fun BoxScope.Rulers(
     zoom: Float,
     offset: Offset,
     rotationDeg: Float,
+    imperial: Boolean,
     spacing: Float = 48f,
 ) {
     val thickness = with(LocalDensity.current) { 14.dp.toPx() }
+    val labelPx = with(LocalDensity.current) { 9.dp.toPx() }
+    val labelPaint = remember(labelPx) {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(0xB0, 0xB0, 0xB0)
+            textSize = labelPx
+            isAntiAlias = true
+        }
+    }
     Canvas(Modifier.fillMaxSize()) {
         val barColor = Color(0xCC1A1A1A)
         val tickColor = Color(0xFFB0B0B0)
@@ -747,7 +864,18 @@ private fun BoxScope.Rulers(
             val kHi = ceil(maxOf(b, a * w + b) / spacing).toInt()
             if (kHi - kLo <= 1000) for (k in kLo..kHi) {
                 val x = (k * spacing - b) / a
-                if (x in 0f..w) drawLine(tickColor, Offset(x, 0f), Offset(x, thickness), strokeWidth = 1f)
+                if (x in 0f..w) {
+                    drawLine(tickColor, Offset(x, 0f), Offset(x, thickness), strokeWidth = 1f)
+                    // Every 5th tick gets a value, so the bar reads as a scale rather than just ticks —
+                    // labelling every tick would overlap at any spacing tight enough to be useful.
+                    if (k % 5 == 0) {
+                        val value = pxToUnit(k * spacing, imperial)
+                        drawContext.canvas.nativeCanvas.drawText(
+                            "${"%.1f".format(value)}${if (imperial) "\"" else "cm"}",
+                            x + 2f, thickness - 3f, labelPaint,
+                        )
+                    }
+                }
             }
         }
         // Left ruler: worldY = A'·y + B' along x = 0.

@@ -11,9 +11,6 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.imgproc.Imgproc
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 
 /**
@@ -122,13 +119,26 @@ object ImageProcessor {
                         intensity: Float = 0.5f,
                         mutateInPlace: Boolean = false,
                         feathering: Float = 0f,
-                        wrapAroundMode: Boolean = false
+                        wrapAroundMode: Boolean = false,
+                        // Procreate parity flags: alphaLock confines paint to existing alpha
+                        // (SRC_ATOP); symmetry mirrors the stroke across the bitmap's vertical
+                        // centre line. Both must be honoured here so undo/redo replay matches
+                        // exactly what was painted live.
+                        alphaLock: Boolean = false,
+                        symmetry: Boolean = false,
+                        // Bitmap-space lasso selection, if one is active: every tool below is
+                        // confined to it. Built by SelectionMask so the live paint, the commit and
+                        // the history replay all clip to the identical boundary.
+                        clipPath: android.graphics.Path? = null
                     ): Bitmap = withContext(Dispatchers.Default) {
                         if (stroke.isEmpty()) return@withContext originalBitmap
 
                         val resultBitmap = if (mutateInPlace) originalBitmap
                         else originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
                                 val canvas = Canvas(resultBitmap)
+                                // Clip once, up front: applies to every branch below, including the
+                                // symmetry twin and the BLUR composite.
+                                if (clipPath != null) canvas.clipPath(clipPath)
 
                                         when (tool) {
                                                         Tool.BRUSH -> {
@@ -139,11 +149,17 @@ object ImageProcessor {
                                                                                                     strokeCap = Paint.Cap.ROUND
                                                                                                     strokeJoin = Paint.Join.ROUND
                                                                                                     isAntiAlias = true
+                                                                                                    if (alphaLock) {
+                                                                                                        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+                                                                                                    }
                                                                                                     if (feathering > 0f) {
                                                                                                         maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                                                                                                     }
                                                                             }
-                                                                                            drawStroke(canvas, stroke, paint, wrapAroundMode)
+                                                                                            // The brush is dynamic (velocity width + start taper);
+                                                                                            // BrushDynamics is deterministic from the points, so this
+                                                                                            // replay renders exactly what the live stroke painted.
+                                                                                            drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetry)
                                                         }
 
                                                                     Tool.ERASER -> {
@@ -158,7 +174,7 @@ object ImageProcessor {
                                                                                                                     maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                                                                                                                 }
                                                                                         }
-                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode)
+                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
                                                                     }
 
                                 Tool.BLUR -> {
@@ -178,7 +194,7 @@ object ImageProcessor {
                                         isAntiAlias = true
                                         if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                                     }
-                                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode)
+                                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetry)
                                     // Keep the blurred pixels only where the stroke drew, then composite onto the layer.
                                     maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
                                     canvas.drawBitmap(maskBmp, 0f, 0f, null)
@@ -196,7 +212,7 @@ object ImageProcessor {
                                                                                                                                                     isAntiAlias = true
                                                                                                                                                     alpha = 128
                                                                                                                             }
-                                                                                                                                            drawStroke(canvas, stroke, paint, wrapAroundMode)
+                                                                                                                                            drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
                                                                                                         }
                                                                                                         
                                                                                                                     Tool.BURN -> {
@@ -209,7 +225,7 @@ object ImageProcessor {
                                                                                                                                                                 alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                                                                                                                                                                                     xfermode = PorterDuffXfermode(PorterDuff.Mode.DARKEN)
                                                                                                                                         }
-                                                                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode)
+                                                                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
                                                                                                                     }
                                                                                                                     
                                                                                                                                 Tool.DODGE -> {
@@ -222,16 +238,40 @@ object ImageProcessor {
                                                                                                                                                                             alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                                                                                                                                                                                                 xfermode = PorterDuffXfermode(PorterDuff.Mode.LIGHTEN)
                                                                                                                                                                                 }
-                                                                                                                                                                    drawStroke(canvas, stroke, paint, wrapAroundMode)
+                                                                                                                                                                    drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
                                                                                                                                 }
-                                                                                                                                
+
+                                                                                                                                            Tool.COLOR -> {
+                                                                                                                                                // Approximates Photoshop's Color tool: washes the active colour over the
+                                                                                                                                                // stroke. SRC_ATOP (unlike BRUSH's default SRC_OVER) confines it to
+                                                                                                                                                // pixels the layer already has, so it tints existing artwork instead of
+                                                                                                                                                // painting solid colour over blank canvas.
+                                                                                                                                                val paint = Paint().apply {
+                                                                                                                                                    color = brushColor
+                                                                                                                                                    strokeWidth = brushSize
+                                                                                                                                                    style = Paint.Style.STROKE
+                                                                                                                                                    strokeCap = Paint.Cap.ROUND
+                                                                                                                                                    strokeJoin = Paint.Join.ROUND
+                                                                                                                                                    isAntiAlias = true
+                                                                                                                                                    alpha = (255 * intensity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+                                                                                                                                                    xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+                                                                                                                                                }
+                                                                                                                                                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                            }
+
                                                                                                                                             else -> {}
                                         }
 
                                                 resultBitmap
             }
 
-                private fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false) {
+                private fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetry: Boolean = false) {
+                            if (symmetry) {
+                                // Draw the mirrored twin first with symmetry off, then fall through
+                                // to the normal draw — keeps the mirror logic in exactly one place.
+                                val w = canvas.width.toFloat()
+                                drawStroke(canvas, stroke.map { Offset(w - it.x, it.y) }, paint, wrapAroundMode, symmetry = false)
+                            }
                             if (stroke.size == 1) {
                                 val cx = stroke.first().x
                                 val cy = stroke.first().y
@@ -273,6 +313,104 @@ object ImageProcessor {
                 }
 
                 /**
+                 * Variable-width stroke for the dynamic brush: each segment is drawn as its own
+                 * round-capped line at the width [com.hereliesaz.graffitixr.feature.editor.BrushDynamics]
+                 * computes for it, giving velocity thinning and a start taper. The round caps make
+                 * adjacent segments of different widths join seamlessly.
+                 */
+                private fun drawStrokeDynamic(
+                    canvas: Canvas,
+                    stroke: List<Offset>,
+                    paint: Paint,
+                    baseWidth: Float,
+                    wrapAroundMode: Boolean = false,
+                    symmetry: Boolean = false,
+                ) {
+                    if (stroke.size == 1) {
+                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                        return
+                    }
+                    val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth)
+                    for (i in 0 until stroke.size - 1) {
+                        paint.strokeWidth = widths[i]
+                        drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetry)
+                    }
+                    paint.strokeWidth = baseWidth
+                }
+
+                /**
+                 * Scanline flood fill (Procreate's ColorDrop): recolours the contiguous region around
+                 * (x, y) whose pixels are within [tolerance] per-channel of the seed pixel. Mutates
+                 * [bitmap] in place; a no-op when the seed already matches the fill colour or the
+                 * seed lies outside the bitmap. Stack-based, so pathological regions can't recurse out.
+                 */
+                fun floodFill(
+                    bitmap: Bitmap,
+                    x: Int,
+                    y: Int,
+                    fillColor: Int,
+                    tolerance: Int = 32,
+                    // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline
+                    // fill, so containment is tested per pixel instead — the fill spreads only
+                    // within the selection, and a seed tapped outside it fills nothing.
+                    clipRegion: android.graphics.Region? = null,
+                ) {
+                    val w = bitmap.width
+                    val h = bitmap.height
+                    if (x !in 0 until w || y !in 0 until h) return
+                    if (clipRegion != null && !clipRegion.contains(x, y)) return
+                    val pixels = IntArray(w * h)
+                    bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                    val seed = pixels[y * w + x]
+                    if (seed == fillColor) return
+
+                    fun allowed(px: Int, py: Int): Boolean =
+                        clipRegion == null || clipRegion.contains(px, py)
+
+                    fun matches(c: Int): Boolean {
+                        val da = kotlin.math.abs(((c ushr 24) and 0xFF) - ((seed ushr 24) and 0xFF))
+                        val dr = kotlin.math.abs(((c ushr 16) and 0xFF) - ((seed ushr 16) and 0xFF))
+                        val dg = kotlin.math.abs(((c ushr 8) and 0xFF) - ((seed ushr 8) and 0xFF))
+                        val db = kotlin.math.abs((c and 0xFF) - (seed and 0xFF))
+                        return da <= tolerance && dr <= tolerance && dg <= tolerance && db <= tolerance
+                    }
+
+                    // A pixel joins the fill only if it both matches the seed colour and lies inside
+                    // the selection — so the selection edge stops the spread exactly like a colour
+                    // boundary does.
+                    fun fillable(px: Int, py: Int): Boolean =
+                        matches(pixels[py * w + px]) && allowed(px, py)
+
+                    val stack = ArrayDeque<Int>()
+                    stack.addLast(y * w + x)
+                    while (stack.isNotEmpty()) {
+                        val idx = stack.removeLast()
+                        val py = idx / w
+                        var left = idx % w
+                        // Walk to the left edge of this run.
+                        while (left > 0 && fillable(left - 1, py)) left--
+                        var spanUp = false
+                        var spanDown = false
+                        var i = left
+                        while (i < w && fillable(i, py)) {
+                            pixels[py * w + i] = fillColor
+                            if (py > 0) {
+                                val up = fillable(i, py - 1)
+                                if (up && !spanUp) { stack.addLast((py - 1) * w + i); spanUp = true }
+                                else if (!up) spanUp = false
+                            }
+                            if (py < h - 1) {
+                                val down = fillable(i, py + 1)
+                                if (down && !spanDown) { stack.addLast((py + 1) * w + i); spanDown = true }
+                                else if (!down) spanDown = false
+                            }
+                            i++
+                        }
+                    }
+                    bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+                }
+
+                /**
                  * A cheap separable-ish blur via downscale→upscale with bilinear filtering, scaled by
                  * [factor] (larger = blurrier). Used by the BLUR tool to soften the region under a
                  * stroke without RenderScript (removed in API 31) or a native dependency.
@@ -285,44 +423,4 @@ object ImageProcessor {
                     if (small !== up) small.recycle()
                     return up
                 }
-
-            /**
-             * Applies Canny Edge Detection to the entire bitmap and returns a new transparent bitmap
-             * containing the extracted stroke outlines.
-             */
-            suspend fun applyCannyEdgeDetection(
-                originalBitmap: Bitmap,
-                threshold1: Double = 100.0,
-                threshold2: Double = 200.0,
-                apertureSize: Int = 3
-            ): Bitmap = withContext(Dispatchers.Default) {
-                val mat = Mat()
-                Utils.bitmapToMat(originalBitmap, mat)
-
-                val gray = Mat()
-                Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-
-                val edges = Mat()
-                Imgproc.Canny(gray, edges, threshold1, threshold2, apertureSize, false)
-
-                // Convert grayscale edges to an ARGB mask (white edges, transparent background)
-                val argbEdges = Mat(edges.rows(), edges.cols(), org.opencv.core.CvType.CV_8UC4)
-                
-                // Create a completely transparent base
-                argbEdges.setTo(org.opencv.core.Scalar(0.0, 0.0, 0.0, 0.0))
-                
-                // Copy the white edges to the transparent base using the edges as a mask
-                val whiteColor = org.opencv.core.Scalar(255.0, 255.0, 255.0, 255.0)
-                argbEdges.setTo(whiteColor, edges)
-
-                val resultBitmap = Bitmap.createBitmap(originalBitmap.width, originalBitmap.height, Bitmap.Config.ARGB_8888)
-                Utils.matToBitmap(argbEdges, resultBitmap)
-                
-                mat.release()
-                gray.release()
-                edges.release()
-                argbEdges.release()
-                
-                resultBitmap
-            }
 }

@@ -37,20 +37,17 @@ data class AdjustmentsState(
     val isTouchLocked: Boolean = false,
     val hasImage: Boolean = false,
     val isArMode: Boolean = false,
-    val hasHistory: Boolean = false,
-    val undoCount: Int = 0,
-    val redoCount: Int = 0,
     val isRightHanded: Boolean = true,
     val isCapturingTarget: Boolean = false,
     val activeLayer: OverlayLayer? = null,
-    // Undo/redo belongs to the Design screen only; Modes show the finished design (no history controls).
-    val showUndoRedo: Boolean = true
 )
 
 /**
- * Integrated panel for image adjustments, color balance, and undo/redo controls.
- * This panel handles the visibility of the adjustment knobs and the persistent
- * action row (Undo, Redo, Magic Wand).
+ * Integrated panel for image adjustments and color balance controls. This panel handles the
+ * visibility of the adjustment knobs and the persistent action row.
+ *
+ * Undo/redo used to live here too (as [UndoRedoRow]), duplicating the AzNavRail onscreen
+ * composable's buttons (MainActivity.GraffuxApp) — removed in favor of that single copy.
  */
 @Composable
 fun AdjustmentsPanel(
@@ -66,16 +63,9 @@ fun AdjustmentsPanel(
     onColorBalanceRChange: (Float) -> Unit,
     onColorBalanceGChange: (Float) -> Unit,
     onColorBalanceBChange: (Float) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
     onAdjustmentStart: () -> Unit,
     onAdjustmentEnd: () -> Unit,
     strings: AppStrings,
-    showSegmentationSlider: Boolean = false,
-    segmentationInfluence: Float = 0.5f,
-    onSegmentationInfluenceChange: (Float) -> Unit = {},
-    onSegmentationDismiss: () -> Unit = {},
-    onSegmentationCancel: () -> Unit = {},
     // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of
     // the active layer's values.
     modeOpacity: Float? = null,
@@ -89,14 +79,12 @@ fun AdjustmentsPanel(
 
     val hasImage = state.hasImage
     val isArMode = state.isArMode
-    val hasHistory = state.hasHistory
 
     // The panel should be visible if we are adjusting an image, or if we have an image active,
-    // or if we are in AR mode (to provide access to the Magic Wand for anchoring),
-    // or if there's any history to undo/redo.
-    // HOWEVER, we hide the action row (Undo, Redo, Magic) during Target Creation.
+    // or if we are in AR mode (to provide access to the Magic Wand for anchoring).
+    // HOWEVER, we hide the action row during Target Creation.
     val canShowActionRow = !state.isCapturingTarget
-    val isVisible = showKnobs || showColorBalance || showSegmentationSlider || (canShowActionRow && (hasImage || isArMode || hasHistory))
+    val isVisible = showKnobs || showColorBalance || (canShowActionRow && (hasImage || isArMode))
 
     if (!isVisible) return
 
@@ -122,21 +110,6 @@ fun AdjustmentsPanel(
         // Image-specific adjustment knobs
         // These are only shown if an image is actually present to adjust.
         if (hasImage) {
-            AnimatedVisibility(
-                visible = showSegmentationSlider,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-            ) {
-                SegmentationInfluenceRow(
-                    influence = segmentationInfluence,
-                    onInfluenceChange = onSegmentationInfluenceChange,
-                    onDismiss = onSegmentationDismiss,
-                    onCancel = onSegmentationCancel,
-                    strings = strings,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
             AnimatedVisibility(
                 visible = showColorBalance,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -177,88 +150,6 @@ fun AdjustmentsPanel(
                 )
             }
         }
-
-        if (canShowActionRow && state.showUndoRedo) {
-            UndoRedoRow(
-                canUndo = true, // Logic handled by ViewModel, but we can pass state if needed
-                canRedo = true, // Logic handled by ViewModel
-                undoCount = state.undoCount,
-                redoCount = state.redoCount,
-                onUndo = onUndo,
-                onRedo = onRedo,
-                strings = strings,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
     }
 }
 
-@Composable
-fun SegmentationInfluenceRow(
-    influence: Float,
-    onInfluenceChange: (Float) -> Unit,
-    onDismiss: () -> Unit,
-    onCancel: () -> Unit,
-    strings: AppStrings,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Cancel button
-            Surface(
-                shape = CircleShape,
-                color = HotPink,
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, contentDescription = strings.common.cancel, tint = Color.White)
-                }
-            }
-
-            // Confirm button
-            Surface(
-                shape = CircleShape,
-                color = HotPink,
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Check, contentDescription = strings.common.done, tint = Color.White)
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                strings.adj.detail,
-                color = Color.White,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.width(36.dp)
-            )
-            Slider(
-                value = influence,
-                onValueChange = onInfluenceChange,
-                valueRange = 0f..1f,
-                modifier = Modifier.weight(1f),
-                colors = SliderDefaults.colors(
-                    thumbColor = HotPink,
-                    activeTrackColor = HotPink,
-                    inactiveTrackColor = Color.DarkGray
-                )
-            )
-        }
-    }
-}

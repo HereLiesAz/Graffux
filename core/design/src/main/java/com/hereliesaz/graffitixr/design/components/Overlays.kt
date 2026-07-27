@@ -69,8 +69,10 @@ fun StatusOverlay(qualityWarning: String?, arState: ArState, isPlanesDetected: B
             !isTargetCreated -> "Create a Grid to start."
             arState == ArState.SEARCHING && !isPlanesDetected -> "Scan surfaces around you."
             arState == ArState.SEARCHING && isPlanesDetected -> "Tap a surface to place anchor."
-            arState == ArState.LOCKED -> "Looking for your Grid..."
-            arState == ArState.PLACED -> "Ready. ($splatCount pts)"
+            // Per ArState's own KDoc: PLACED is the intermediate "still adjusting" state, LOCKED is
+            // the final settled state — these were swapped (see feature/editor/ui/StatusOverlay.kt).
+            arState == ArState.PLACED -> "Looking for your Grid..."
+            arState == ArState.LOCKED -> "Ready. ($splatCount pts)"
             else -> ""
         }
         if (txt.isNotEmpty()) {

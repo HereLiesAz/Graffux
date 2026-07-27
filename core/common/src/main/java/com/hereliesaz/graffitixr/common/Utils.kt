@@ -7,6 +7,10 @@ import android.graphics.Bitmap
 
 fun resizeBitmapForArCore(bitmap: Bitmap): Bitmap {
     val MAX_DIMENSION = 1024
+    // A degenerate (zero-width/height) bitmap can't be meaningfully resized; falling through would
+    // divide by zero below, producing an Infinity/NaN ratio and a 0-sized target that
+    // Bitmap.createScaledBitmap rejects with IllegalArgumentException.
+    if (bitmap.width <= 0 || bitmap.height <= 0) return bitmap
     if (bitmap.width <= MAX_DIMENSION && bitmap.height <= MAX_DIMENSION) return bitmap
 
     val ratio = Math.min(

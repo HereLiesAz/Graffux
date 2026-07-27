@@ -34,7 +34,23 @@ class WasmSandbox(
             .withImportValues(imports)
             .build()
     }
-    
+
+    /**
+     * Invokes the module's per-invocation entry point, if it declares one under the conventional
+     * "run" export (mirrors JsSandbox.eval() for the JS runtime). A module that relies solely on
+     * WASM start-section side effects during instantiation — already run by
+     * Instance.builder().build() above — exports nothing here; the azphalt spec doesn't mandate a
+     * "run" export, so a missing one is a no-op rather than a hard failure.
+     */
+    fun run() {
+        val entry = try {
+            instance.export("run")
+        } catch (_: Exception) {
+            null
+        } ?: return
+        entry.apply()
+    }
+
     private fun bindCapabilities(grantedCapabilities: Set<String>) {
         if ("canvas" in grantedCapabilities) {
             hostFunctions.add(
@@ -198,11 +214,17 @@ class WasmSandbox(
             hostFunctions.add(
                 HostFunction(
                     "env", "selectionRead",
-                    FunctionType.of(listOf(ValType.I32), emptyList()),
+                    // Takes an explicit outCap, like paramString/assetRead above: without one, a
+                    // guest that calls selectionSize() once and then allocates a stale/mismatched
+                    // buffer would have the full mask written unconditionally, overrunning its own
+                    // linear-memory buffer and corrupting adjacent guest heap/data.
+                    FunctionType.of(listOf(ValType.I32, ValType.I32), emptyList()),
                     { _: Instance, args: LongArray ->
                         val outPtr = args[0].toInt()
+                        val outCap = args[1].toInt()
                         val mask = host.selectionRead()
-                        instance.memory().write(outPtr, mask)
+                        val toCopy = Math.min(mask.size, outCap)
+                        instance.memory().write(outPtr, mask, 0, toCopy)
                         null
                     }
                 )

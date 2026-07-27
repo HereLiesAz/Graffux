@@ -24,14 +24,13 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         colorBalanceG = colorBalanceG,
         colorBalanceB = colorBalanceB,
         isImageLocked = isImageLocked,
+        alphaLock = alphaLock,
         isVisible = isVisible,
         warpMesh = warpMesh,
         isSketch = isSketch,
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
-        stencilType = stencilType,
-        stencilSourceId = stencilSourceId,
         shapes = shapes
     )
 }
@@ -55,14 +54,13 @@ fun OverlayLayer.toLayer(): Layer {
         colorBalanceG = colorBalanceG,
         colorBalanceB = colorBalanceB,
         isImageLocked = isImageLocked,
+        alphaLock = alphaLock,
         isVisible = isVisible,
         warpMesh = warpMesh ?: emptyList(),
         isSketch = isSketch,
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
-        stencilType = stencilType,
-        stencilSourceId = stencilSourceId,
         shapes = shapes
     )
 }

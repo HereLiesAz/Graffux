@@ -9,7 +9,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
@@ -25,19 +24,46 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.toArgb
+import com.hereliesaz.graffitixr.common.util.ColorHarmony
+import com.hereliesaz.graffitixr.common.util.HarmonyMode
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.*
 
+/** The colour picker's three faces, mirroring Procreate's Disc / Harmony / Palettes tabs. */
+enum class ColorPickerMode(val label: String) {
+    DISC("Disc"), HARMONY("Harmony"), PALETTES("Palettes")
+}
+
+/**
+ * The colour picker. Three modes over one shared hue/saturation/brightness state, so switching tabs
+ * never loses the colour you were building:
+ *
+ *  - **Disc** — the hue/saturation wheel with a brightness slider.
+ *  - **Harmony** — the same wheel, with the classical partners of the current hue marked on it;
+ *    tapping a marker adopts that hue at the current saturation and brightness.
+ *  - **Palettes** — the saved swatches, with the working colour addable and any swatch removable.
+ *
+ * [savedPalette] and its callbacks are hoisted rather than read here so the picker stays a pure
+ * composable over its inputs; persistence belongs to the view-model.
+ */
 @Composable
 fun ColorPickerDialog(
     currentColor: Color,
     history: List<Color>,
     onSelectColor: (Color) -> Unit,
     onDismiss: () -> Unit,
-    strings: AppStrings
+    strings: AppStrings,
+    savedPalette: List<Color> = emptyList(),
+    onSavePaletteColor: (Color) -> Unit = {},
+    onRemovePaletteColor: (Color) -> Unit = {},
 ) {
     // Decompose current color into HSV
     val initHsv = FloatArray(3)
@@ -57,67 +83,223 @@ fun ColorPickerDialog(
         Color(argb).copy(alpha = currentColor.alpha)
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Color preview
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .background(selectedColor, CircleShape)
-                        .border(2.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-                )
+    var mode by remember { mutableStateOf(ColorPickerMode.DISC) }
+    var harmony by remember { mutableStateOf(HarmonyMode.COMPLEMENTARY) }
+    val partners = remember(hue, harmony, mode) {
+        if (mode == ColorPickerMode.HARMONY) ColorHarmony.partners(hue, harmony) else emptyList()
+    }
 
-                Spacer(Modifier.height(16.dp))
+    FloatingWindow(title = "Color", onDismiss = onDismiss) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Color preview
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .background(selectedColor, CircleShape)
+                    .border(2.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+            )
 
-                // Color wheel
-                ColorWheel(
-                    hue = hue,
-                    saturation = saturation,
-                    brightness = brightness,
-                    modifier = Modifier.size(240.dp),
-                    onHueSaturationChanged = { h, s ->
-                        hue = h
-                        saturation = s
-                    }
-                )
+            Spacer(Modifier.height(12.dp))
 
-                Spacer(Modifier.height(12.dp))
-
-                // Brightness slider
-                Text(
-                    strings.adj.brightness,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                Slider(
-                    value = brightness,
-                    onValueChange = { brightness = it },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    AzButton(text = strings.common.cancel, onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-                    Spacer(Modifier.width(8.dp))
-                    AzButton(text = strings.common.apply, onClick = { onSelectColor(selectedColor) }, shape = AzButtonShape.RECTANGLE)
+            // Mode tabs. All three drive the same hue/saturation/brightness, so switching between
+            // them never discards the colour being built.
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ColorPickerMode.entries.forEach { m ->
+                    PickerChip(text = m.label, selected = mode == m) { mode = m }
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            when (mode) {
+                ColorPickerMode.DISC, ColorPickerMode.HARMONY -> {
+                    ColorWheel(
+                        hue = hue,
+                        saturation = saturation,
+                        brightness = brightness,
+                        markerHues = partners,
+                        modifier = Modifier.size(240.dp),
+                        onHueSaturationChanged = { h, s ->
+                            hue = h
+                            saturation = s
+                        }
+                    )
+
+                    if (mode == ColorPickerMode.HARMONY) {
+                        Spacer(Modifier.height(10.dp))
+                        // Wrapped: five relationship names don't fit one row on a phone.
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            HarmonyMode.entries.forEach { h ->
+                                PickerChip(text = h.label, selected = harmony == h) { harmony = h }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Tap a marker on the wheel to take that hue.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray,
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // Brightness slider
+                    Text(
+                        strings.adj.brightness,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Slider(
+                        value = brightness,
+                        onValueChange = { brightness = it },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                ColorPickerMode.PALETTES -> {
+                    PalettesTab(
+                        savedPalette = savedPalette,
+                        history = history,
+                        working = selectedColor,
+                        onPick = { picked ->
+                            val hsv = FloatArray(3)
+                            android.graphics.Color.RGBToHSV(
+                                (picked.red * 255).toInt(),
+                                (picked.green * 255).toInt(),
+                                (picked.blue * 255).toInt(),
+                                hsv,
+                            )
+                            hue = hsv[0]; saturation = hsv[1]; brightness = hsv[2]
+                        },
+                        onSave = { onSavePaletteColor(selectedColor) },
+                        onRemove = onRemovePaletteColor,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            AzButton(
+                text = strings.common.apply,
+                onClick = { onSelectColor(selectedColor) },
+                shape = AzButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/** A small selectable label — the picker's mode and harmony choosers. */
+@Composable
+private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .background(
+                if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                RoundedCornerShape(12.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) Color.White else Color.Gray,
+        )
+    }
+}
+
+/**
+ * The saved swatches, plus the recent-colour row. Tapping a swatch loads it as the working colour
+ * (it is not applied until Apply, so a mis-tap costs nothing); long-pressing a *saved* swatch
+ * removes it. Recents aren't removable — they are a rolling view, not something the user curates.
+ */
+@Composable
+private fun PalettesTab(
+    savedPalette: List<Color>,
+    history: List<Color>,
+    working: Color,
+    onPick: (Color) -> Unit,
+    onSave: () -> Unit,
+    onRemove: (Color) -> Unit,
+) {
+    Column(Modifier.width(240.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Saved", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            AzButton(text = "Save current", onClick = onSave, shape = AzButtonShape.RECTANGLE)
+        }
+        Spacer(Modifier.height(6.dp))
+        if (savedPalette.isEmpty()) {
+            Text(
+                "No saved colours yet — Save current adds the one you're mixing.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                savedPalette.forEach { swatch ->
+                    Swatch(
+                        color = swatch,
+                        selected = swatch.toArgb() == working.toArgb(),
+                        onClick = { onPick(swatch) },
+                        onLongClick = { onRemove(swatch) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Long-press a swatch to remove it.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Text("Recent", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Spacer(Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            history.forEach { swatch ->
+                Swatch(color = swatch, selected = false, onClick = { onPick(swatch) })
             }
         }
     }
 }
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Swatch(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    Box(
+        Modifier
+            .size(32.dp)
+            .background(color, RoundedCornerShape(6.dp))
+            .border(
+                if (selected) 2.dp else 1.dp,
+                if (selected) Color.White else Color.White.copy(alpha = 0.35f),
+                RoundedCornerShape(6.dp),
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    )
+}
+
+/** How far off a harmony marker a pick can land and still snap to it. */
+private const val HARMONY_SNAP_DEGREES = 12f
 
 @Composable
 private fun ColorWheel(
@@ -125,6 +307,9 @@ private fun ColorWheel(
     saturation: Float,
     brightness: Float,
     modifier: Modifier = Modifier,
+    // Harmony partners of the current hue, drawn as secondary rings. Picking near one snaps to it
+    // exactly, so a relationship you chose stays the relationship you get.
+    markerHues: List<Float> = emptyList(),
     onHueSaturationChanged: (hue: Float, saturation: Float) -> Unit
 ) {
     var wheelSize by remember { mutableStateOf(IntSize.Zero) }
@@ -153,8 +338,17 @@ private fun ColorWheel(
         val dy = offset.y - radius
         val dist = sqrt(dx * dx + dy * dy)
         val newSat = (dist / radius).coerceIn(0f, 1f)
-        val newHue = ((Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360).toFloat()
-        onHueSaturationChanged(newHue, newSat)
+        val rawHue = ((Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360).toFloat()
+        // Snap to a harmony marker when the pick lands close to one: the point of the Harmony tab
+        // is the exact relationship, and a finger is nowhere near degree-accurate.
+        val snapped = markerHues.minByOrNull { m ->
+            val d = abs(m - rawHue)
+            min(d, 360f - d)
+        }?.takeIf { m ->
+            val d = abs(m - rawHue)
+            min(d, 360f - d) <= HARMONY_SNAP_DEGREES
+        }
+        onHueSaturationChanged(snapped ?: rawHue, newSat)
     }
 
     Canvas(
@@ -177,6 +371,19 @@ private fun ColorWheel(
         // Draw wheel bitmap
         wheelBitmap?.let { bmp ->
             drawImage(bmp)
+        }
+
+        // Harmony partners: same ring treatment as the selector but thinner, so the relationship
+        // is visible at a glance without competing with the colour you are actually setting.
+        markerHues.forEach { m ->
+            val a = Math.toRadians(m.toDouble())
+            val r = wheelSize.width / 2f
+            val pos = Offset(
+                x = (r + cos(a) * saturation * r).toFloat(),
+                y = (r + sin(a) * saturation * r).toFloat(),
+            )
+            drawCircle(Color.Black, radius = 9f, center = pos, style = Stroke(width = 2f))
+            drawCircle(Color.White, radius = 7f, center = pos, style = Stroke(width = 1.5f))
         }
 
         // Draw selector ring
@@ -230,20 +437,15 @@ fun SizePickerDialog(
     onDismiss: () -> Unit,
     strings: AppStrings
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
-            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(strings.editor.brushSize, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(32.dp))
-
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.height(100.dp)) {
-                    Box(Modifier.size((currentSize).dp).background(Color.White, CircleShape))
-                }
-
-                Slider(value = currentSize, onValueChange = onSizeChange, valueRange = 5f..150f)
-
-                AzButton(text = strings.common.done, onClick = onDismiss, modifier = Modifier.padding(top = 16.dp), shape = AzButtonShape.RECTANGLE)
+    FloatingWindow(title = strings.editor.brushSize, onDismiss = onDismiss) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(100.dp)) {
+                Box(Modifier.size((currentSize).dp).background(Color.White, CircleShape))
             }
+
+            Slider(value = currentSize, onValueChange = onSizeChange, valueRange = 5f..150f)
+
+            AzButton(text = strings.common.done, onClick = onDismiss, modifier = Modifier.padding(top = 16.dp), shape = AzButtonShape.RECTANGLE)
         }
     }
 }

@@ -29,8 +29,18 @@ class WearableManager @Inject constructor(
 
     fun listProviders(): List<SmartGlassProvider> = providers.toList()
 
+    // Synchronized: activate()/deactivate() each mutate activeProvider + connectionJob across
+    // several steps. Without a lock, a fast switch (e.g. two activate() calls, or activate()
+    // racing deactivate()) could interleave — e.g. deactivate() reading a stale connectionJob, or
+    // overwriting activeProvider after a newer activate() already wrote it — leaving a live
+    // collector routing state for a provider that was just told to disconnect.
+    @Synchronized
     fun activate(provider: SmartGlassProvider) {
         connectionJob?.cancel()
+        // Previously missing: switching providers without an intervening deactivate() left the old
+        // provider's connection (USB polling, IMU stream, spatial display) open indefinitely while
+        // _activeSensorSource now pointed at the new one — two live hardware sessions at once.
+        activeProvider?.disconnect()
         activeProvider = provider
         provider.connect()
         connectionJob = scope.launch {
@@ -45,6 +55,7 @@ class WearableManager @Inject constructor(
         }
     }
 
+    @Synchronized
     fun deactivate() {
         connectionJob?.cancel()
         connectionJob = null

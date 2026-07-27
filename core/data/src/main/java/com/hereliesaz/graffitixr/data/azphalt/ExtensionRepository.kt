@@ -70,13 +70,27 @@ class ExtensionRepository @Inject constructor(
     private val storeRegistry = RepositoryClient(AzphaltStore.REGISTRY_BASE_URL, ::httpGetString)
 
     /**
+     * The media domains (spec/repository-api.md § Media domains) this host can actually use, passed
+     * as `mediaDomains` on every search so the catalog never surfaces what it structurally can't run —
+     * a pure audio SFX or font pack doesn't match. `image` covers the 2D paint tools today; `3d` and
+     * `video` are included too since layered 3D assets (mesh/material/hdri) and animated/motion assets
+     * are on the roadmap even though nothing installs them yet — narrowing to `image` alone would hide
+     * exactly the packages that work would need to browse for.
+     */
+    private val supportedMediaDomains = listOf("image", "3d", "video")
+
+    /**
      * Browse the official azphalt store (https://azphalt.store) — the live catalog, not a bundled seed.
      * Fetches the store's package list and maps each to a catalog card whose [MarketplaceEntry.source]
-     * is its resolved `.azp` download URL, so the existing [install] path works unchanged once the store
-     * serves downloads. Blocking IO — call from a background dispatcher.
+     * is its resolved `.azp` download URL, which [install] then fetches. Blocking IO — call from a
+     * background dispatcher.
+     *
+     * Uses [RepositoryClient.search], not [RepositoryClient.listPackages]: at its canonical root path
+     * the store answers with the repository-api.md envelope (`{packages,total,page,pages}`). The bare
+     * array is what its storefront-internal `/api/packages` returns, which is a different surface.
      */
     fun browseStore(query: String? = null): List<MarketplaceEntry> =
-        storeRegistry.listPackages(query).map { pkg ->
+        storeRegistry.search(q = query, mediaDomains = supportedMediaDomains).packages.map { pkg ->
             pkg.toMarketplaceEntry(storeRegistry.downloadUrl(pkg.id, pkg.version))
         }
 
@@ -90,7 +104,7 @@ class ExtensionRepository @Inject constructor(
         query: String? = null,
         page: Int = 1,
     ): List<MarketplaceEntry> =
-        client.search(q = query, page = page).packages.map { pkg ->
+        client.search(q = query, mediaDomains = supportedMediaDomains, page = page).packages.map { pkg ->
             pkg.toMarketplaceEntry(client.downloadUrl(pkg.id, pkg.version))
         }
 
@@ -108,6 +122,7 @@ class ExtensionRepository @Inject constructor(
             openSource(entry.source).use { input ->
                 tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
             }
+            requireAzpPackage(tempFile, entry)
             return synchronized(lock) {
                 val installed = tempFile.inputStream().use { installer.install(it, nowMs) }
                 _installed.value = scanInstalled()
@@ -135,6 +150,25 @@ class ExtensionRepository @Inject constructor(
             }
         } finally {
             tempFile.delete()
+        }
+    }
+
+    /**
+     * Reject anything that isn't actually an `.azp` before the installer opens it. A registry that
+     * doesn't implement `/download` can still answer 200 — the azphalt store currently serves its
+     * single-page-app `index.html` for every unmatched API path — and feeding that to the unpacker
+     * surfaced as the baffling "Package has no manifest.json". An `.azp` is a zip, so check the local
+     * file header magic and say plainly what arrived instead.
+     */
+    private fun requireAzpPackage(file: File, entry: MarketplaceEntry) {
+        val header = ByteArray(4)
+        val read = file.inputStream().use { it.read(header) }
+        val isZip = read == 4 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte() &&
+            header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
+        if (!isZip) {
+            throw AzpInstaller.InstallException(
+                "${entry.name} isn't downloadable yet — ${entry.source} returned a web page, not a package."
+            )
         }
     }
 
@@ -252,22 +286,32 @@ class ExtensionRepository @Inject constructor(
         
         when (ext.manifest.runtime) {
             com.hereliesaz.graffitixr.common.azphalt.Runtime.WASM -> {
-                com.hereliesaz.graffitixr.data.azphalt.sandbox.WasmSandbox(
-                    file.inputStream(),
-                    host,
-                    caps
-                )
+                // WasmSandbox's constructor fully consumes the stream while parsing the module
+                // (synchronously, inside its init block), so it's safe to close right after
+                // construction — .use{} was previously skipped here, leaking a file descriptor per
+                // invocation. The sandbox was also being built and immediately discarded with no
+                // way to invoke it: .run() actually executes the module's entry point now.
+                file.inputStream().use { stream ->
+                    val wasmSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.WasmSandbox(
+                        stream,
+                        host,
+                        caps
+                    )
+                    wasmSandbox.run()
+                }
             }
             com.hereliesaz.graffitixr.common.azphalt.Runtime.JS -> {
                 val jsCode = file.readText()
-                val qjsWasmStream = context.assets.open("wasm/quickjs.wasm")
-                val jsSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.JsSandbox(
-                    jsCode,
-                    qjsWasmStream,
-                    host,
-                    caps
-                )
-                jsSandbox.eval()
+                // Same leak as above: this asset stream was never closed.
+                context.assets.open("wasm/quickjs.wasm").use { qjsWasmStream ->
+                    val jsSandbox = com.hereliesaz.graffitixr.data.azphalt.sandbox.JsSandbox(
+                        jsCode,
+                        qjsWasmStream,
+                        host,
+                        caps
+                    )
+                    jsSandbox.eval()
+                }
             }
             else -> {
                 // Unsupported runtime

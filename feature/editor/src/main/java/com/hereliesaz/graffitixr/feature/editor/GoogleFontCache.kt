@@ -33,9 +33,17 @@ object GoogleFontCache {
         return@withContext try {
             val result = FontsContractCompat.fetchFonts(context, null, request)
             val typeface = if (result.statusCode == FontsContractCompat.FontFamilyResult.STATUS_OK) {
-                FontsContractCompat.buildTypeface(context, null, result.fonts) ?: Typeface.DEFAULT
+                FontsContractCompat.buildTypeface(context, null, result.fonts)
             } else {
-                Typeface.DEFAULT
+                null
+            }
+            if (typeface == null) {
+                // A transient failure (network blip, GMS not ready yet) must not poison the cache:
+                // caching Typeface.DEFAULT here made every later request for this exact font key
+                // return the fallback for the rest of the process, even after connectivity/GMS
+                // recovered — never retrying the real fetch. Fall back WITHOUT caching so the next
+                // call tries again.
+                return@withContext Typeface.DEFAULT
             }
             val styled = when {
                 bold && italic -> Typeface.create(typeface, Typeface.BOLD_ITALIC)

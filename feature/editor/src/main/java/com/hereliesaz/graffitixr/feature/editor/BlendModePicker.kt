@@ -7,16 +7,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.BlendMode
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
  * The compositing modes offered by the picker, with human labels. This is the standard
@@ -54,28 +52,21 @@ fun BlendModePicker(
     onSelect: (BlendMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Blend mode") },
-        text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                items(BLEND_MODE_CHOICES) { (mode, label) ->
-                    val selected = mode == current
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(mode) }
-                            .padding(vertical = 12.dp),
-                    )
-                }
+    FloatingWindow(title = "Blend mode", onDismiss = onDismiss) {
+        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+            items(BLEND_MODE_CHOICES) { (mode, label) ->
+                val selected = mode == current
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(mode) }
+                        .padding(vertical = 12.dp),
+                )
             }
-        },
-        confirmButton = {
-            AzButton(text = "Close", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

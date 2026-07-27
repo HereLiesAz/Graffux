@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -20,8 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /** Canvas-background swatch palette: neutrals plus a few tints. */
 private val BACKGROUND_COLORS = listOf(
@@ -49,53 +46,46 @@ fun BackgroundColorDialog(
     onSelect: (Color) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Background") },
-        text = {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                BACKGROUND_COLORS.forEach { swatch ->
-                    val selected = swatch == current
-                    val isTransparent = swatch.alpha == 0f
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .then(
-                                // Transparent → paint a checkerboard so the swatch reads as "see-through".
-                                if (isTransparent) Modifier.drawBehind {
-                                    drawRect(Color(0xFFCFCFCF))
-                                    val c = 9f
-                                    var yy = 0
-                                    while (yy * c < size.height) {
-                                        var xx = 0
-                                        while (xx * c < size.width) {
-                                            if ((xx + yy) % 2 == 0) drawRect(
-                                                Color(0xFF9E9E9E),
-                                                topLeft = Offset(xx * c, yy * c),
-                                                size = Size(c, c),
-                                            )
-                                            xx++
-                                        }
-                                        yy++
+    FloatingWindow(title = "Background", onDismiss = onDismiss) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BACKGROUND_COLORS.forEach { swatch ->
+                val selected = swatch == current
+                val isTransparent = swatch.alpha == 0f
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .then(
+                            // Transparent → paint a checkerboard so the swatch reads as "see-through".
+                            if (isTransparent) Modifier.drawBehind {
+                                drawRect(Color(0xFFCFCFCF))
+                                val c = 9f
+                                var yy = 0
+                                while (yy * c < size.height) {
+                                    var xx = 0
+                                    while (xx * c < size.width) {
+                                        if ((xx + yy) % 2 == 0) drawRect(
+                                            Color(0xFF9E9E9E),
+                                            topLeft = Offset(xx * c, yy * c),
+                                            size = Size(c, c),
+                                        )
+                                        xx++
                                     }
-                                } else Modifier.background(swatch, RoundedCornerShape(6.dp))
-                            )
-                            .border(
-                                width = if (selected) 3.dp else 1.dp,
-                                color = if (selected) Color(0xFF00E5FF) else Color.Gray,
-                                shape = RoundedCornerShape(6.dp),
-                            )
-                            .clickable { onSelect(swatch) },
-                    )
-                }
+                                    yy++
+                                }
+                            } else Modifier.background(swatch, RoundedCornerShape(6.dp))
+                        )
+                        .border(
+                            width = if (selected) 3.dp else 1.dp,
+                            color = if (selected) Color(0xFF00E5FF) else Color.Gray,
+                            shape = RoundedCornerShape(6.dp),
+                        )
+                        .clickable { onSelect(swatch) },
+                )
             }
-        },
-        confirmButton = {
-            AzButton(text = "Close", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
-        },
-    )
+        }
+    }
 }

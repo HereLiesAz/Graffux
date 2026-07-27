@@ -401,7 +401,7 @@ class ProjectManager @Inject constructor(
      * Resolves [entryName] to a file under [destDir], or null if the name (via ".." components,
      * absolute paths, etc.) would escape it — the Zip-Slip attack. Canonical-path prefix check.
      */
-    private fun resolveInside(destDir: File, entryName: String): File? {
+    internal fun resolveInside(destDir: File, entryName: String): File? {
         val candidate = File(destDir, entryName)
         val canonical = candidate.canonicalPath
         return if (canonical.startsWith(destDir.canonicalPath + File.separator)) candidate else null
@@ -411,7 +411,7 @@ class ProjectManager @Inject constructor(
      * Project ids become a path segment under filesDir/projects; ids parsed out of imported or
      * peer-received archives must not be able to traverse out of it.
      */
-    private fun isSafeProjectId(id: String): Boolean =
+    internal fun isSafeProjectId(id: String): Boolean =
         id.isNotEmpty() && id.length <= 128 && id.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
     private fun ComposeBlendMode.toModelBlendMode(): ModelBlendMode = when (this) {

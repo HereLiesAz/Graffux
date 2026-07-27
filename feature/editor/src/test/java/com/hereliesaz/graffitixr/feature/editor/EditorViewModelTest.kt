@@ -16,8 +16,7 @@ import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import com.hereliesaz.graffitixr.common.coop.OpEmitter
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilProcessor
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilPrintEngine
+import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.*
@@ -52,13 +51,11 @@ class EditorViewModelTest {
     private val settingsRepository: SettingsRepository = mockk(relaxed = true)
     private val currentProjectFlow = kotlinx.coroutines.flow.MutableStateFlow<GraffitiProject?>(null)
     private val context: Context = mockk(relaxed = true)
-    private val subjectIsolator: SubjectIsolator = mockk(relaxed = true)
-    private val stencilProcessor: StencilProcessor = mockk(relaxed = true)
-    private val stencilPrintEngine: StencilPrintEngine = mockk(relaxed = true)
     private val projectManager: ProjectManager = mockk(relaxed = true)
     private val exportManager: com.hereliesaz.graffitixr.feature.editor.export.ExportManager = mockk(relaxed = true)
     private val slamManager: SlamManager = mockk(relaxed = true)
     private val opEmitter: OpEmitter = mockk(relaxed = true)
+    private val extensionRepository: ExtensionRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
@@ -126,8 +123,7 @@ class EditorViewModelTest {
 
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
-            subjectIsolator, stencilProcessor, stencilPrintEngine, slamManager,
-            testDispatcherProvider, opEmitter, mockk(relaxed = true)
+            slamManager, testDispatcherProvider, opEmitter, extensionRepository
         )
     }
 
@@ -201,60 +197,6 @@ class EditorViewModelTest {
         val newOffset = Offset(10f, 20f)
         viewModel.onOffsetChanged(newOffset)
         assertEquals(newOffset, viewModel.uiState.value.layers.first().offset)
-    }
-
-    @Test
-    fun `onRemoveBackgroundClicked calls subjectIsolator and saves artifact`() = runTest {
-        mockkObject(com.hereliesaz.graffitixr.common.util.PerspectiveProcessor)
-        val uri = Uri.parse("content://test/image.png")
-        viewModel.onAddLayer(uri)
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        val layerId = viewModel.uiState.value.layers.first().id
-        viewModel.onLayerActivated(layerId)
-        
-        val processedBitmap = mockk<Bitmap>(relaxed = true)
-        every { processedBitmap.width } returns 100
-        every { processedBitmap.height } returns 100
-        val isolationResult = IsolationResult(
-            isolatedBitmap = processedBitmap,
-            rawConfidence = FloatArray(100 * 100) { 0.8f },
-            width = 100,
-            height = 100
-        )
-        coEvery { subjectIsolator.isolate(any()) } returns Result.success(isolationResult)
-
-        viewModel.onRemoveBackgroundClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify { subjectIsolator.isolate(any()) }
-        coVerify { projectRepository.saveArtifact(any(), any(), any()) }
-        unmockkObject(com.hereliesaz.graffitixr.common.util.PerspectiveProcessor)
-    }
-
-    @Test
-    fun `onSketchClicked calls SketchProcessor and creates linked sketch layer`() = runTest {
-        mockkObject(com.hereliesaz.graffitixr.common.util.SketchProcessor)
-        val uri = Uri.parse("content://test/image.png")
-        viewModel.onAddLayer(uri)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        val layerId = viewModel.uiState.value.layers.first().id
-        viewModel.onLayerActivated(layerId)
-
-        val sketchBitmap = mockk<Bitmap>(relaxed = true)
-        every { com.hereliesaz.graffitixr.common.util.SketchProcessor.sketchEffect(any(), any(), any()) } returns sketchBitmap
-
-        viewModel.onSketchClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        verify { com.hereliesaz.graffitixr.common.util.SketchProcessor.sketchEffect(any(), any(), any()) }
-        coVerify { projectRepository.saveArtifact(any(), any(), any()) }
-        // A new sketch layer should have been inserted above the source layer
-        val layers = viewModel.uiState.value.layers
-        assertTrue(layers.size >= 2)
-        assertTrue(layers.any { it.isSketch })
-        unmockkObject(com.hereliesaz.graffitixr.common.util.SketchProcessor)
     }
 
     @Test
@@ -392,14 +334,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `setSegmentationInfluence updates state and does not crash when no confidence stored`() = runTest {
-        viewModel.setSegmentationInfluence(0.3f)
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(0.3f, viewModel.uiState.value.segmentationInfluence, 0.001f)
-    }
-
-    @Test
-    fun `Stencil visibility condition is correct`() = runTest {
+    fun `layers with textParams null are the image-bearing ones through add and remove`() = runTest {
         // Allow init coroutines to run so projectId is populated before any layer operations.
         testDispatcher.scheduler.advanceUntilIdle()
 

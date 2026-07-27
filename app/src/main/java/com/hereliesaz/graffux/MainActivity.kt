@@ -14,11 +14,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,10 +34,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,9 +52,12 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
+import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
+import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
@@ -59,13 +65,17 @@ import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
+import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
+import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
@@ -100,11 +110,21 @@ private fun incomingImageUri(intent: Intent?): Uri? {
     }
 }
 
+/** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
+private const val MIN_BRUSH_SIZE = 1f
+private const val MAX_BRUSH_SIZE = 200f
+
+/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */
+private const val MIN_BRUSH_ALPHA = 0.05f
+
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?) {
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val storeState by vm.storeState.collectAsState()
+    val installedExtensionIds by vm.installedExtensionIds.collectAsState()
+    val projects by vm.projects.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
 
@@ -120,10 +140,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showSidesDialog by remember { mutableStateOf(false) }
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
     var showBgDialog by remember { mutableStateOf(false) }
+    // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
+    // live behind a single rail item that opens one of these instead.
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showAlignDialog by remember { mutableStateOf(false) }
+    var showLayerOptionsDialog by remember { mutableStateOf(false) }
+    var showStoreDialog by remember { mutableStateOf(false) }
+    var showGalleryDialog by remember { mutableStateOf(false) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
+    // at the middle of the screen — the canvas is full-bleed, so that is the middle of the artwork.
+    val screenConfig = LocalConfiguration.current
+    val screenCenter = with(LocalDensity.current) {
+        Offset(screenConfig.screenWidthDp.dp.toPx() / 2f, screenConfig.screenHeightDp.dp.toPx() / 2f)
+    }
 
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
@@ -160,8 +193,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             noMenu = true,
             packButtons = true,
             dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
-            railItemWidth = 56.dp 
+            railItemWidth = 44.dp
         )
+        // Four-finger tap (see EditorScreen's multiFingerTaps): full-screen art. Folding the rail
+        // is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the same flag.
+        isFoldedUp = uiState.hideUiForCapture
 
         ConfigureRailItems(
             vm = vm,
@@ -170,14 +206,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             strings = strings,
             navItemColor = navItemColor,
             activeColor = activeRailColor, // Pass down to DSL builder
+            screenCenter = screenCenter,
             onBlendMode = { showBlendDialog = true },
-            onStrokeWidth = { showStrokeDialog = true },
-            onCornerRadius = { showCornerDialog = true },
-            onShapeSize = { showShapeSizeDialog = true },
-            onPolygonSides = { showSidesDialog = true },
-            onEditText = { id -> manualEditTextId = id },
-            onSettings = { showSettings = true },
-            onInstallBrush = { brushPicker.launch(arrayOf("*/*")) }
+            onAddClicked = { showAddDialog = true },
+            onAlignClicked = { showAlignDialog = true },
+            onEditClicked = { showLayerOptionsDialog = true },
         )
 
         background(weight = 0) {
@@ -186,16 +219,31 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             }
         }
         
-        // Standalone Top-Right File Operations Dropdown[span_5](start_span)[span_5](end_span)
+        // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
         onscreen(alignment = Alignment.TopEnd) {
-            AzDropdownMenu(navController = navController) {
+            if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                 azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
-                azItem(text = strings.nav.open, onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                azItem(text = "Open File", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                azItem(text = strings.nav.new, onClick = { vm.onAddBlankLayer() })
+                // New/Open/Import/Save/Export map onto distinct actions rather than overloading one
+                // another: New starts a blank project; Open browses the saved ones (the Gallery IS
+                // that browser, so it lives under this single entry rather than a separate duplicate);
+                // Import brings an image or another design file INTO the current project, which is
+                // what the old "Open"/"Open File" pair actually did despite their names.
+                azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
+                azItem(text = strings.nav.open, onClick = { showGalleryDialog = true })
+                azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
+                azItem(text = "Add…", onClick = { showAddDialog = true })
+                azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
-                azItem(text = strings.nav.save, onClick = { vm.saveProject() })
+                // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
+                // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
+                // per-layer equivalent this complements at the whole-project level.
+                azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
+                // saveProject(name) both persists (like every autosave elsewhere) AND exports a
+                // portable .gxr copy to Downloads when name is non-null — passing the project's own
+                // current name does both at once without renaming it, i.e. Save and Save As in one tap.
+                azItem(text = strings.nav.save, onClick = { vm.saveProject(name = projects.find { it.id == uiState.projectId }?.name) })
                 azItem(text = strings.nav.export, onClick = { vm.exportImage() })
                 azItem(text = strings.nav.share, onClick = {
                     scope.launch {
@@ -217,26 +265,38 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     }
                 })
+                azDivider()
+                azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
+                azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
+                azItem(text = "Settings", onClick = { showSettings = true })
             }
         }
 
-        // Onscreen Foreground Elements explicitly pinned over the canvas
+        // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
+        // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
+        // landing on top of their fields.
         onscreen(alignment = Alignment.BottomCenter) {
-            Row(
-                modifier = Modifier.padding(bottom = 24.dp),
+            if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
+                modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen view reset */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.RestartAlt, contentDescription = "Reset Canvas")
+                val viewMoved = uiState.viewportZoom != 1f ||
+                    uiState.viewportOffset != Offset.Zero ||
+                    uiState.viewportRotation != 0f
+                if (viewMoved) {
+                    FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
+                        Icon(painterResource(DesignR.drawable.ic_ps_fit), contentDescription = "Fit to screen")
+                    }
                 }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen fit logic */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.FitScreen, contentDescription = "Fit to Screen")
+                if (uiState.undoCount > 0) {
+                    FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
+                        Icon(painterResource(DesignR.drawable.ic_ps_undo), contentDescription = "Undo")
+                    }
                 }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen undo */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.Undo, contentDescription = "Undo")
-                }
-                FloatingActionButton(onClick = { /* TODO: Bind to EditorScreen redo */ }, containerColor = surfaceVariantColor) {
-                    Icon(Icons.Filled.Redo, contentDescription = "Redo")
+                if (uiState.redoCount > 0) {
+                    FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
+                        Icon(painterResource(DesignR.drawable.ic_ps_redo), contentDescription = "Redo")
+                    }
                 }
             }
         }
@@ -327,23 +387,43 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             if (editTextId != null) {
                 val params = uiState.layers.find { it.id == editTextId }?.textParams
                 if (params != null) {
-                    TextEditDialog(
-                        initialText = params.text,
-                        initialSizeDp = params.fontSizeDp,
-                        initialColorArgb = params.colorArgb,
-                        initialBold = params.isBold,
-                        initialItalic = params.isItalic,
-                        onTextChange = { vm.onTextContentChanged(editTextId, it) },
-                        onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
-                        onColorChange = { vm.onTextColorChanged(editTextId, it) },
-                        onStyleChange = { b, i ->
-                            vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
-                        },
-                        onDismiss = {
-                            vm.consumeAutoEditTextLayer()
-                            manualEditTextId = null
-                        },
-                    )
+                    // key() on the layer id: without it, if editTextId flips to a different layer
+                    // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
+                    // layer while the dialog is already open for a previous one), TextEditDialog's
+                    // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
+                    // shows stale values and further edits get sent out tagged with the new id but
+                    // carrying the old id's field values. key() forces a fresh composable instance
+                    // (and fresh `remember`s) whenever the id changes, while recomposition for the
+                    // SAME id (e.g. every keystroke) still preserves in-progress local state.
+                    key(editTextId) {
+                        TextEditDialog(
+                            initialText = params.text,
+                            initialFontName = params.fontName,
+                            initialSizeDp = params.fontSizeDp,
+                            initialKerningEm = params.letterSpacingEm,
+                            initialColorArgb = params.colorArgb,
+                            initialBold = params.isBold,
+                            initialItalic = params.isItalic,
+                            initialHasOutline = params.hasOutline,
+                            initialHasDropShadow = params.hasDropShadow,
+                            onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                            onFontChange = { vm.onTextFontChanged(editTextId, it) },
+                            onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                            onSizeStart = { vm.onLayerEditStart() },
+                            onSizeCommit = { vm.onLayerEditEnd() },
+                            onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
+                            onKerningStart = { vm.onLayerEditStart() },
+                            onKerningCommit = { vm.onLayerEditEnd() },
+                            onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                            onStyleChange = { b, i, o, s ->
+                                vm.onTextStyleChanged(editTextId, b, i, o, s)
+                            },
+                            onDismiss = {
+                                vm.consumeAutoEditTextLayer()
+                                manualEditTextId = null
+                            },
+                        )
+                    }
                 }
             }
 
@@ -352,6 +432,71 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     current = uiState.canvasBackground,
                     onSelect = { vm.setCanvasBackground(it) },
                     onDismiss = { showBgDialog = false },
+                )
+            }
+
+            if (showAddDialog) {
+                AddContentDialog(
+                    onAddText = { vm.onAddTextLayer() },
+                    onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
+                    onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
+                    onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
+                    onAddTriangle = { vm.onAddPolygonLayer(3) },
+                    onAddPentagon = { vm.onAddPolygonLayer(5) },
+                    onAddHexagon = { vm.onAddPolygonLayer(6) },
+                    onDismiss = { showAddDialog = false },
+                )
+            }
+
+            if (showAlignDialog) {
+                AlignDialog(
+                    onAlign = { mode -> vm.alignActiveLayer(mode) },
+                    onDismiss = { showAlignDialog = false },
+                )
+            }
+
+            if (showLayerOptionsDialog) {
+                val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
+                if (overlay != null) {
+                    LayerOptionsDialog(
+                        overlay = overlay,
+                        navStrings = strings.nav,
+                        onEditText = { manualEditTextId = overlay.id },
+                        onInvert = { vm.onToggleInvert() },
+                        onShapeSize = { showShapeSizeDialog = true },
+                        onStrokeWidth = { showStrokeDialog = true },
+                        onCornerRadius = { showCornerDialog = true },
+                        onPolygonSides = { showSidesDialog = true },
+                        onToggleFill = { vm.toggleVectorFill() },
+                        onOpacityChange = { vm.onOpacityChanged(it) },
+                        onOpacityStart = { vm.onLayerEditStart() },
+                        onOpacityCommit = { vm.onLayerEditEnd() },
+                        onBlendMode = { showBlendDialog = true },
+                        onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
+                        onDismiss = { showLayerOptionsDialog = false },
+                    )
+                }
+            }
+
+            if (showGalleryDialog) {
+                GalleryWindow(
+                    projects = projects,
+                    currentProjectId = uiState.projectId,
+                    onOpen = { vm.openProject(it) },
+                    onNew = { vm.createNewProject() },
+                    onDelete = { vm.deleteProjectById(it) },
+                    onDismiss = { showGalleryDialog = false },
+                )
+            }
+
+            if (showStoreDialog) {
+                StoreWindow(
+                    state = storeState,
+                    installedIds = installedExtensionIds,
+                    onSearch = { vm.searchStore(it) },
+                    onInstall = { vm.installFromStore(it) },
+                    onUninstall = { vm.uninstallStoreExtension(it) },
+                    onDismiss = { showStoreDialog = false },
                 )
             }
 
@@ -415,7 +560,12 @@ private fun BrushSizePad(vm: EditorViewModel) {
 
 /**
  * ConfigureRailItems builder block.
- * Icons are strictly enforced alongside text for all rail items.
+ *
+ * Procreate-shaped: the rail is only the tools you reach for mid-stroke — brush, smudge, eraser,
+ * pen, colour, layers — each with its own glyph. Brush size and opacity live on the edge sliders
+ * beside the rail; Adjust/Transform/Blend float as a draggable palette; and everything
+ * document-level (open/new/add/align/save/export/share/background/store/settings) is in the
+ * drop-down, Procreate's Actions menu — see the `AzDropdownMenu` block in [GraffuxApp].
  */
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
@@ -424,129 +574,296 @@ private fun AzNavHostScope.ConfigureRailItems(
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
+    // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't
+    // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in).
+    screenCenter: Offset,
     onBlendMode: () -> Unit,
-    onStrokeWidth: () -> Unit,
-    onCornerRadius: () -> Unit,
-    onShapeSize: () -> Unit,
-    onPolygonSides: () -> Unit,
-    onEditText: (String) -> Unit,
-    onSettings: () -> Unit,
-    onInstallBrush: () -> Unit,
+    onAddClicked: () -> Unit,
+    onAlignClicked: () -> Unit,
+    onEditClicked: () -> Unit,
 ) {
     val navStrings = strings.nav
 
-    azRailHostItem(
-        id = "grp.design", text = "Design", content = Icons.Filled.Brush, color = navItemColor,
-        initiallyExpanded = true,
-    )
-    azRailSubItem(
-        id = "tool.brush", hostId = "grp.design", text = uiState.activeBrushName ?: navStrings.brush,
-        shape = AzButtonShape.NONE,
-        content = Icons.Filled.Brush,
+    // Procreate's tool strip: a flat row of the tools you paint with, not an accordion you have to
+    // open first, drawn with the app's own Photoshop-style vector set (core/design's ic_ps_*) rather
+    // than stock Material glyphs — a broom stood in for the eraser and a squiggle for smudge.
+    // Every item gets its own glyph — the old rail drew Icons.Filled.Brush for the group,
+    // the brush tool, the round brush AND every installed brush, and the same pencil for Pen and Edit,
+    // so nothing in it was identifiable at a glance.
+    azRailItem(
+        id = "tool.brush", text = uiState.activeBrushName ?: navStrings.brush,
+        content = DesignR.drawable.ic_ps_brush,
         color = if (uiState.activeTool == Tool.BRUSH) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
-    azRailSubItem(
-        id = "tool.size", hostId = "grp.design", text = "Size", shape = AzButtonShape.NONE,
-        content = AzComposableContent { BrushSizePad(vm) },
+    azRailItem(
+        id = "tool.smudge", text = "Smudge",
+        content = DesignR.drawable.ic_ps_blur,
+        color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
-    azRailSubItem(
-        id = "tool.pen", hostId = "grp.design", text = "Pen", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Edit,
+    azRailItem(
+        id = "tool.eraser", text = "Eraser",
+        content = DesignR.drawable.ic_ps_eraser,
+        color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
+    )
+    azRailItem(
+        id = "tool.pen", text = "Pen",
+        content = DesignR.drawable.ic_ps_pencil,
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
     )
-    azRailSubItem(
-        id = "tool.color", hostId = "grp.design", text = navStrings.color, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Palette,
+    azRailItem(
+        id = "tool.liquify", text = "Liquify",
+        content = DesignR.drawable.ic_ps_liquify,
+        color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
+    )
+    // Heal/Burn/Dodge/Color: ImageProcessor and buildStrokePaint already implement all four — they
+    // just had no rail entry, so a user could never actually select them.
+    azRailItem(
+        id = "tool.heal", text = "Heal",
+        content = DesignR.drawable.ic_ps_heal,
+        color = if (uiState.activeTool == Tool.HEAL) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.HEAL) Tool.NONE else Tool.HEAL) },
+    )
+    azRailItem(
+        id = "tool.burn", text = navStrings.burn,
+        content = DesignR.drawable.ic_ps_burn,
+        color = if (uiState.activeTool == Tool.BURN) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BURN) Tool.NONE else Tool.BURN) },
+    )
+    azRailItem(
+        id = "tool.dodge", text = navStrings.dodge,
+        content = DesignR.drawable.ic_ps_dodge,
+        color = if (uiState.activeTool == Tool.DODGE) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.DODGE) Tool.NONE else Tool.DODGE) },
+    )
+    azRailItem(
+        id = "tool.colorize", text = "Colorize",
+        content = DesignR.drawable.ic_ps_color,
+        color = if (uiState.activeTool == Tool.COLOR) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.COLOR) Tool.NONE else Tool.COLOR) },
+    )
+    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
+    azRailItem(
+        id = "tool.fill", text = "Fill",
+        content = DesignR.drawable.ic_ps_fill,
+        color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
+    )
+    // Procreate's freehand selection: lasso a region, and every raster tool is confined to it until
+    // it's cleared. Dragging inside the marquee moves the selected pixels.
+    azRailItem(
+        id = "tool.select", text = "Select",
+        content = DesignR.drawable.ic_ps_select,
+        color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
+    )
+    // Only meaningful with something selected, so they appear with the selection rather than
+    // sitting permanently greyed in the strip.
+    if (uiState.selection != null) {
+        azRailItem(
+            id = "tool.selectInvert", text = "Invert",
+            content = DesignR.drawable.ic_ps_invert,
+            color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
+            onClick = { vm.onInvertSelection() },
+        )
+        azRailItem(
+            id = "tool.deselect", text = "Deselect",
+            content = DesignR.drawable.ic_ps_deselect,
+            color = navItemColor,
+            onClick = { vm.onClearSelection() },
+        )
+    }
+    // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
+    // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
+    // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
+    azRailItem(
+        id = "tool.quick", text = "Quick",
+        content = DesignR.drawable.ic_ps_quickmenu,
+        color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
+        onClick = { vm.onOpenQuickMenu(screenCenter) },
+    )
+    // Symmetry guide: strokes mirror across the vertical centre while it's on.
+    azRailToggle(
+        id = "tool.symmetry",
+        isChecked = uiState.symmetryEnabled,
+        toggleOnText = "Sym On",
+        toggleOffText = "Sym Off",
+        color = if (uiState.symmetryEnabled) activeColor else navItemColor,
+        onClick = { vm.onToggleSymmetry() },
+    )
+    // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
+    // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
+    // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
+    azRailToggle(
+        id = "tool.wraparound",
+        isChecked = uiState.wrapAroundMode,
+        toggleOnText = "Wrap On",
+        toggleOffText = "Wrap Off",
+        color = if (uiState.wrapAroundMode) activeColor else navItemColor,
+        onClick = { vm.toggleWrapAroundMode() },
+    )
+    // Stroke stabilizer: smooths jitter out of a drag before it becomes a stroke point. Same gap as
+    // wrap-around — StrokeStabilizer and setStabilizerLevel() were both wired ViewModel-side with
+    // nothing in the rail ever calling it, so every stroke stayed unstabilized regardless of level.
+    azRailSlider(
+        id = "tool.stabilizer",
+        text = "Stabilize",
+        value = uiState.stabilizerLevel.toFloat(),
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = 0f,
+            valueTo = 100f,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${it.roundToInt()}%" },
+        onValueChange = { vm.setStabilizerLevel(it.roundToInt()) },
+    )
+    // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
+    // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
+    // its own read-out while dragging, so it's obvious which is which and what value you're on.
+    azRailSlider(
+        id = "tool.size",
+        text = "Size",
+        value = uiState.brushSize,
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = MIN_BRUSH_SIZE,
+            valueTo = MAX_BRUSH_SIZE,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${it.roundToInt()} px" },
+        onValueChange = { vm.setBrushSize(it) },
+    )
+    // Brush opacity is the active colour's alpha — the value buildStrokePaint actually samples, so
+    // this moves the stroke itself rather than a proxy for it.
+    azRailSlider(
+        id = "tool.opacity",
+        text = "Opacity",
+        value = uiState.activeColor.alpha,
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = MIN_BRUSH_ALPHA,
+            valueTo = 1f,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${(it * 100).roundToInt()}%" },
+        onValueChange = { vm.setActiveColor(uiState.activeColor.copy(alpha = it)) },
+    )
+    // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
+    // palette glyph that says nothing about what you're about to paint with.
+    azRailItem(
+        id = "tool.color", text = navStrings.color,
+        content = uiState.activeColor,
         color = if (uiState.showColorPicker) activeColor else navItemColor,
         onClick = { vm.onColorClicked() },
     )
-    azRailSubItem(
-        id = "panel.layers", hostId = "grp.design", text = strings.editor.layers, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Layers,
-        color = if (uiState.activePanel == EditorPanel.LAYERS) activeColor else navItemColor,
-        onClick = { vm.onLayersClicked() },
-    )
-    azRailSubItem(
-        id = "brush.install", hostId = "grp.design", text = "Install brush…", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Add,
-        onClick = { onInstallBrush() },
-    )
     if (brushes.isNotEmpty()) {
+        azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
         azRailSubItem(
-            id = "brush.round", hostId = "grp.design", text = "Round", shape = AzButtonShape.NONE,
-            content = Icons.Filled.Brush,
+            id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_circle,
             color = if (uiState.activeBrushName == null) activeColor else navItemColor,
             onClick = { vm.selectBrushExtension(null) },
         )
         brushes.forEach { (id, name) ->
             azRailSubItem(
-                id = "brush.$id", hostId = "grp.design", text = name, shape = AzButtonShape.NONE,
-                content = Icons.Filled.Brush,
+                id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
+                content = DesignR.drawable.ic_ps_brush,
                 color = if (uiState.activeBrushName == name) activeColor else navItemColor,
                 onClick = { vm.selectBrushExtension(id) },
             )
         }
     }
 
-    azRailHostItem(id = "grp.add", text = "Add", content = Icons.Filled.Add, color = navItemColor)
-    azRailSubItem(id = "add.text", hostId = "grp.add", text = "Text", content = Icons.Filled.TextFields, shape = AzButtonShape.NONE, onClick = { vm.onAddTextLayer() })
-    azRailSubItem(id = "add.rect", hostId = "grp.add", text = "Rectangle", content = Icons.Filled.CropSquare, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) })
-    azRailSubItem(id = "add.ellipse", hostId = "grp.add", text = "Ellipse", content = Icons.Filled.Lens, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) })
-    azRailSubItem(id = "add.line", hostId = "grp.add", text = "Line", content = Icons.Filled.HorizontalRule, shape = AzButtonShape.NONE, onClick = { vm.onAddShapeLayer(ShapeKind.LINE) })
-    azRailSubItem(id = "add.triangle", hostId = "grp.add", text = "Triangle", content = Icons.Filled.ChangeHistory, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(3) })
-    azRailSubItem(id = "add.pentagon", hostId = "grp.add", text = "Pentagon", content = Icons.Filled.Details, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(5) })
-    azRailSubItem(id = "add.hexagon", hostId = "grp.add", text = "Hexagon", content = Icons.Filled.Settings, shape = AzButtonShape.NONE, onClick = { vm.onAddPolygonLayer(6) })
+    // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
+    // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
+    // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
+    // paints first, underneath everything); declared here top-first (reversed) so the item at
+    // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
+    // convention and Photoshop/Procreate's own. onRelocate's newOrder comes back in that same
+    // top-first rail order, so it's reversed again before reaching onLayerReordered, which
+    // expects bottom-first (it becomes the new uiState.layers verbatim).
+    if (uiState.layers.isNotEmpty()) {
+        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = DesignR.drawable.ic_ps_layers, color = navItemColor)
+        uiState.layers.reversed().forEach { layer ->
+            azRailRelocItem(
+                id = "layer.${layer.id}",
+                hostId = "grp.layers",
+                text = layer.name,
+                content = layer.bitmap ?: DesignR.drawable.ic_ps_layers,
+                shape = AzButtonShape.NONE,
+                color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
+                onClick = { vm.onLayerActivated(layer.id) },
+                // newOrder comes back as this rail item's own ids ("layer.<uuid>"), not the raw
+                // layer ids LayerListOps.reorder matches against — every entry used to miss,
+                // silently reordering the layer list down to empty and saving that. Filtering to
+                // "layer."-prefixed entries also protects against newOrder carrying ids from other
+                // rail groups, if the library's relocate scope is ever wider than this host.
+                onRelocate = { _, _, newOrder ->
+                    val layerOrder = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
+                    vm.onLayerReordered(layerOrder.reversed())
+                },
+            ) {
+                inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+                listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+                listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+                listItem("Merge Down") { vm.onMergeDown(layer.id) }
+                listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
+                listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+            }
+        }
+    }
 
-    azRailHostItem(id = "grp.align", text = "Align", content = Icons.Filled.FormatAlignCenter, color = navItemColor)
-    azRailSubItem(id = "align.left", hostId = "grp.align", text = "Left", content = Icons.Filled.FormatAlignLeft, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.LEFT) })
-    azRailSubItem(id = "align.hcenter", hostId = "grp.align", text = "Center", content = Icons.Filled.FormatAlignCenter, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.H_CENTER) })
-    azRailSubItem(id = "align.right", hostId = "grp.align", text = "Right", content = Icons.Filled.FormatAlignRight, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.RIGHT) })
-    azRailSubItem(id = "align.top", hostId = "grp.align", text = "Top", content = Icons.Filled.VerticalAlignTop, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.TOP) })
-    azRailSubItem(id = "align.vcenter", hostId = "grp.align", text = "Middle", content = Icons.Filled.VerticalAlignCenter, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.V_CENTER) })
-    azRailSubItem(id = "align.bottom", hostId = "grp.align", text = "Bottom", content = Icons.Filled.VerticalAlignBottom, shape = AzButtonShape.NONE, onClick = { vm.alignActiveLayer(AlignMode.BOTTOM) })
+    // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
+    // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
-    azRailHostItem(id = "grp.adjust", text = navStrings.adjust, content = Icons.Filled.Tune, color = navItemColor)
+    // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
+    // unattached host): the user parks it wherever it suits the artwork and the position persists
+    // across launches, the way Procreate's panels stay where you leave them.
+    azUnattachedHostItem(
+        id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
+        content = DesignR.drawable.ic_ps_adjust, color = navItemColor,
+    )
     azRailSubItem(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
-        content = Icons.Filled.Tune,
+        content = DesignR.drawable.ic_ps_adjust,
         color = if (uiState.activePanel == EditorPanel.ADJUST) activeColor else navItemColor, onClick = { vm.onAdjustClicked() },
     )
     azRailSubItem(
         id = "adj.transform", hostId = "grp.adjust", text = "Transform", shape = AzButtonShape.NONE,
-        content = Icons.Filled.Transform,
+        content = DesignR.drawable.ic_ps_transform,
         color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
     )
-    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = Icons.Filled.Gradient, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = DesignR.drawable.ic_ps_blend, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+    // Color Balance: onBalanceClicked()/ToggleColorPanel and the panel it opens (ColorBalanceKnobsRow,
+    // rendered by EditorUi.kt when activePanel == EditorPanel.COLOR) were both already fully wired —
+    // this was the only piece missing, an entry point to actually call onBalanceClicked().
+    azRailSubItem(
+        id = "adj.balance", hostId = "grp.adjust", text = "Balance", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_balance,
+        color = if (uiState.activePanel == EditorPanel.COLOR) activeColor else navItemColor, onClick = { vm.onBalanceClicked() },
+    )
+    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
+    // already worked end to end once selected, but nothing ever opened the panel to select from.
+    azRailSubItem(
+        id = "adj.extensions", hostId = "grp.adjust", text = "Extensions", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_extension,
+        color = if (uiState.activePanel == EditorPanel.EXTENSIONS) activeColor else navItemColor, onClick = { vm.onExtensionsClicked() },
+    )
+    // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
+    // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
+    azRailSubItem(
+        id = "adj.brush", hostId = "grp.adjust", text = "Brush", shape = AzButtonShape.NONE,
+        content = AzComposableContent { BrushSizePad(vm) },
+    )
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
-        azRailHostItem(id = "grp.edit", text = "Edit", content = Icons.Filled.Edit, color = navItemColor)
-        if (overlay.textParams != null) {
-            azRailSubItem(id = "edit.text", hostId = "grp.edit", text = "Edit Text", content = Icons.Filled.TextFields, shape = AzButtonShape.NONE, onClick = { onEditText(overlay.id) })
-        }
-        azRailSubItem(id = "edit.outline", hostId = "grp.edit", text = navStrings.outline, content = Icons.Filled.BorderOuter, shape = AzButtonShape.NONE, onClick = { vm.onSketchClicked() })
-        azRailSubItem(id = "edit.edges", hostId = "grp.edit", text = navStrings.edges, content = Icons.Filled.FilterCenterFocus, shape = AzButtonShape.NONE, onClick = { vm.onApplyCannyEdgeClicked() })
-        azRailSubItem(id = "edit.invert", hostId = "grp.edit", text = navStrings.invert, content = Icons.Filled.InvertColors, shape = AzButtonShape.NONE, onClick = { vm.onToggleInvert() })
-        if (overlay.shapes.isNotEmpty()) {
-            azRailSubItem(id = "edit.size", hostId = "grp.edit", text = "Size", content = Icons.Filled.AspectRatio, shape = AzButtonShape.NONE, onClick = { onShapeSize() })
-            azRailSubItem(id = "edit.stroke", hostId = "grp.edit", text = "Stroke", content = Icons.Filled.LineWeight, shape = AzButtonShape.NONE, onClick = { onStrokeWidth() })
-        }
-        if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
-            azRailSubItem(id = "edit.corners", hostId = "grp.edit", text = "Corners", content = Icons.Filled.RoundedCorner, shape = AzButtonShape.NONE, onClick = { onCornerRadius() })
-        }
-        if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
-            azRailSubItem(id = "edit.sides", hostId = "grp.edit", text = "Sides", content = Icons.Filled.Hexagon, shape = AzButtonShape.NONE, onClick = { onPolygonSides() })
-        }
-        if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
-            azRailSubItem(
-                id = "edit.fill", hostId = "grp.edit", text = "Fill", shape = AzButtonShape.NONE,
-                content = Icons.Filled.FormatColorFill,
-                color = if (overlay.shapes.any { it.hasFill }) activeColor else navItemColor, onClick = { vm.toggleVectorFill() },
-            )
-        }
+        azRailItem(id = "edit", text = "Edit", content = DesignR.drawable.ic_ps_more, color = navItemColor, onClick = { onEditClicked() })
     }
-
-    azRailItem(id = "settings", text = "Settings", content = Icons.Filled.Settings, color = navItemColor) { onSettings() }
 }

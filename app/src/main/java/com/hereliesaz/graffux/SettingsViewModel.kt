@@ -1,5 +1,7 @@
 package com.hereliesaz.graffux
 
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.graffitixr.common.DispatcherProvider
@@ -34,6 +36,22 @@ class SettingsViewModel @Inject constructor(
     val language: StateFlow<AppLanguage> =
         settings.language.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLanguage.SYSTEM)
 
+    init {
+        // The persisted language was written by setLanguage() but nothing ever applied it to the
+        // running process — AppCompatDelegate.setApplicationLocales is the actual per-app language
+        // switch. This ViewModel is created unconditionally at app start (GraffuxApp always calls
+        // hiltViewModel() for it, whether or not Settings is ever opened), so collecting here both
+        // restores the saved language on cold start and re-applies it live if changed.
+        viewModelScope.launch(dispatchers.main) {
+            settings.language.collect { lang ->
+                AppCompatDelegate.setApplicationLocales(
+                    if (lang == AppLanguage.SYSTEM) LocaleListCompat.getEmptyLocaleList()
+                    else LocaleListCompat.forLanguageTags(lang.code)
+                )
+            }
+        }
+    }
+
     fun setRightHanded(isRight: Boolean) = viewModelScope.launch(dispatchers.io) {
         settings.setRightHanded(isRight)
     }
@@ -47,6 +65,24 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Re-arm the first-run tutorial/hint flows. */
+    /**
+     * Performance settings. Both trade fidelity for power and memory, which is a judgement only the
+     * person holding the device can make — hence exposed rather than tuned to a fixed guess.
+     */
+    val inputSampleRateHz: StateFlow<Int> =
+        settings.inputSampleRateHz.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 60)
+
+    val canvasRenderScale: StateFlow<Float> =
+        settings.canvasRenderScale.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1f)
+
+    fun setInputSampleRateHz(hz: Int) = viewModelScope.launch(dispatchers.io) {
+        settings.setInputSampleRateHz(hz)
+    }
+
+    fun setCanvasRenderScale(scale: Float) = viewModelScope.launch(dispatchers.io) {
+        settings.setCanvasRenderScale(scale)
+    }
+
     fun resetTutorials() = viewModelScope.launch(dispatchers.io) {
         settings.clearCompletedTutorials()
     }
