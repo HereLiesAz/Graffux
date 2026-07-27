@@ -114,23 +114,20 @@ jobs:
 
       - name: Build signed AAB
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # versionCode = VERSION_CODE_OFFSET + git rev-list --count HEAD (see app/build.gradle.kts).
-          # The Play AAB is the `play` flavor: AdMob enabled, no self-updater (Play delivers updates).
-          ./gradlew bundlePlayRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/keystore.jks \
-            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+          ./gradlew bundleRelease
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v7
         with:
           name: release-aab
-          path: app/build/Release/*.aab
+          path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
 
       # Publish runs by default (including on push) so a build that doesn't actually push FAILS the job —
@@ -167,10 +164,10 @@ jobs:
           SA_JSON="$(mktemp)"
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$SA_JSON"
           trap 'rm -f "$SA_JSON"' EXIT
-          AAB="$(ls app/build/Release/*.aab | head -n1)"
+          AAB="$(ls app/build/outputs/bundle/release/*.aab | head -n1)"
           set +e
           python .github/scripts/publish_play.py \
-            --package com.hereliesaz.guillotine \
+            --package com.hereliesaz.graffux \
             --aab "$AAB" \
             --sa-json "$SA_JSON"
           CODE=$?
