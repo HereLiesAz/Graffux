@@ -760,6 +760,53 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    // Components and instances (Figma). The actions offered depend on what the active layer already
+    // is, so the rail never shows a control that would no-op — "Detach" only on an instance,
+    // "Release" only on a main, "Make Component" only on a plain layer.
+    run {
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val components = uiState.layers.filter { it.componentId != null }
+        if (active != null || components.isNotEmpty()) {
+            azRailHostItem(
+                id = "grp.components", text = "Components",
+                content = DesignR.drawable.ic_ps_extension, color = navItemColor,
+            )
+            if (active != null && active.componentId == null && active.instanceOf == null) {
+                azRailSubItem(
+                    id = "cmp.make", hostId = "grp.components", text = "Make Component",
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_extension,
+                    color = navItemColor,
+                    onClick = { vm.onMakeComponent() },
+                )
+            }
+            if (active?.instanceOf != null) {
+                azRailSubItem(
+                    id = "cmp.detach", hostId = "grp.components", text = "Detach Instance",
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
+                    color = activeColor,
+                    onClick = { vm.onDetachInstance() },
+                )
+            }
+            if (active?.componentId != null) {
+                azRailSubItem(
+                    id = "cmp.release", hostId = "grp.components", text = "Release Component",
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
+                    color = activeColor,
+                    onClick = { vm.onReleaseComponent() },
+                )
+            }
+            // One "place" entry per defined component — the library, derived from the stack.
+            components.forEach { main ->
+                azRailSubItem(
+                    id = "cmp.place.${main.componentId}", hostId = "grp.components",
+                    text = "Place ${main.name}", shape = AzButtonShape.NONE,
+                    content = DesignR.drawable.ic_ps_layers, color = navItemColor,
+                    onClick = { main.componentId?.let { vm.onPlaceInstance(it) } },
+                )
+            }
+        }
+    }
+
     // Vector node editing (Figma's vector pen). Shown only for a layer that actually has an
     // editable path, so it isn't a permanently-dead item on a raster document.
     run {

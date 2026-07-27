@@ -73,7 +73,15 @@ data class Layer(
     val isInverted: Boolean = false,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
     // when empty the layer is the usual raster layer backed by [bitmap]. Defaulted for back-compat.
-    val shapes: List<VectorShape> = emptyList()
+    val shapes: List<VectorShape> = emptyList(),
+    /**
+     * Figma's components. When set, this layer is a MAIN component with this id — the definition
+     * instances copy their content from. When [instanceOf] is set instead, this layer is an INSTANCE
+     * of that component id. A layer is never both; see [ComponentOps] for the rules and for which
+     * fields an instance inherits versus owns.
+     */
+    val componentId: String? = null,
+    val instanceOf: String? = null,
 )
 
 /**

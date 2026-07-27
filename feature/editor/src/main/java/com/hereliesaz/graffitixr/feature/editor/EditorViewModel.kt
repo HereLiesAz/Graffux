@@ -659,6 +659,11 @@ class EditorViewModel @Inject constructor(
                 _uiState.update { state ->
                     state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = newBitmap) else it })
                 }
+                // Painting on a main component has to reach its instances. Idempotent and a no-op
+                // when the document has no components, so it can run on every stroke unconditionally.
+                if (_uiState.value.layers.any { it.componentId != null }) {
+                    dispatch(EditorIntent.SyncComponents)
+                }
             }
 
             scheduleDiskSave(layerId, newBitmap, layer.uri)
@@ -3802,6 +3807,59 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ── Components and instances ─────────────────────────────────────────────────────────────
+    //
+    // Like node editing, these are undoable and persisted but NOT emitted to co-op peers — no Op
+    // carries the component link, so a LayerPropsChange would announce a change it can't transmit.
+
+    /** Promotes the active layer to a main component. */
+    fun onMakeComponent() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val layer = _uiState.value.layers.firstOrNull { it.id == layerId } ?: return
+        if (layer.instanceOf != null) {
+            Toast.makeText(context, "An instance can't become a component", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (layer.componentId != null) return
+        pushHistory()
+        dispatch(EditorIntent.MakeComponent(layerId, UUID.randomUUID().toString()))
+        saveProject()
+        Toast.makeText(context, "\"${layer.name}\" is now a component", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Places a new instance of [componentId] on top of the stack, ready to be dragged into place. */
+    fun onPlaceInstance(componentId: String) {
+        val instance = com.hereliesaz.graffitixr.common.model.ComponentOps
+            .buildInstance(_uiState.value.layers, componentId) ?: return
+        pushHistory()
+        // The instance shares the main's bitmap reference, so it needs its own stroke-store entries
+        // or painting on it would be replayed against the main's base.
+        instance.bitmap?.let { bmp ->
+            layerStore.putBase(instance.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            layerStore.initStrokes(instance.id)
+        }
+        dispatch(EditorIntent.PlaceInstance(instance))
+        saveProject()
+    }
+
+    /** Breaks the active layer's link to its main, keeping what it currently shows. */
+    fun onDetachInstance() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        if (_uiState.value.layers.firstOrNull { it.id == layerId }?.instanceOf == null) return
+        pushHistory()
+        dispatch(EditorIntent.DetachInstance(layerId))
+        saveProject()
+    }
+
+    /** Demotes the active layer from being a component, detaching its instances. */
+    fun onReleaseComponent() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val componentId = _uiState.value.layers.firstOrNull { it.id == layerId }?.componentId ?: return
+        pushHistory()
+        dispatch(EditorIntent.ReleaseComponent(componentId))
+        saveProject()
     }
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────

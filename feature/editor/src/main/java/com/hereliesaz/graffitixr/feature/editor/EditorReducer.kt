@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.ComponentOps
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -155,10 +156,25 @@ internal object EditorReducer {
         )
         is EditorIntent.SelectPathNode -> state.copy(selectedNodeIndex = intent.index)
         is EditorIntent.SetPathShape -> state.copy(
-            layers = state.layers.map { layer ->
-                if (layer.id == intent.layerId) layer.copy(shapes = listOf(intent.shape)) else layer
-            },
+            // Synced here rather than by the caller: editing a path IS a content edit, so if the
+            // edited layer is a main component its instances have to follow in the same transition.
+            layers = ComponentOps.syncInstances(
+                state.layers.map { layer ->
+                    if (layer.id == intent.layerId) layer.copy(shapes = listOf(intent.shape)) else layer
+                },
+            ),
         )
+        is EditorIntent.MakeComponent ->
+            state.copy(layers = ComponentOps.makeComponent(state.layers, intent.layerId, intent.componentId))
+        is EditorIntent.PlaceInstance -> state.copy(
+            layers = state.layers + intent.instance,
+            activeLayerId = intent.instance.id,
+        )
+        is EditorIntent.DetachInstance ->
+            state.copy(layers = ComponentOps.detachInstance(state.layers, intent.instanceId))
+        is EditorIntent.ReleaseComponent ->
+            state.copy(layers = ComponentOps.releaseComponent(state.layers, intent.componentId))
+        EditorIntent.SyncComponents -> state.copy(layers = ComponentOps.syncInstances(state.layers))
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

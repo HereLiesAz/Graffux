@@ -122,6 +122,20 @@ internal sealed interface EditorIntent {
         val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
         val editingId: String? = null,
     ) : EditorIntent
+    /** Promotes a layer to a main component (Figma's "create component"). */
+    data class MakeComponent(val layerId: String, val componentId: String) : EditorIntent
+    /** Adds a new instance layer of a component to the top of the stack. */
+    data class PlaceInstance(val instance: Layer) : EditorIntent
+    /** Breaks an instance's link to its main, keeping the content it currently shows. */
+    data class DetachInstance(val instanceId: String) : EditorIntent
+    /** Removes a component definition, detaching its instances so none are left dangling. */
+    data class ReleaseComponent(val componentId: String) : EditorIntent
+    /**
+     * Re-propagates every main component's content onto its instances. Fired after edits that could
+     * have touched a main — running it unconditionally is cheaper and safer than trying to work out
+     * which edits qualify, and it's idempotent.
+     */
+    data object SyncComponents : EditorIntent
     /** Enters node-edit mode on a PATH layer, or leaves it with null. */
     data class SetPathEditLayer(val layerId: String?) : EditorIntent
     data class SelectPathNode(val index: Int?) : EditorIntent

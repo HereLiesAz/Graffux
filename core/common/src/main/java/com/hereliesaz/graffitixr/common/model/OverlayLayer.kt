@@ -55,6 +55,10 @@ data class OverlayLayer(
     // them, so a group (or a group membership) silently reset to flat/RASTER on reload.
     val parentId: String? = null,
     val layerType: LayerType = LayerType.RASTER,
+    // Component links, persisted for the same reason as the hierarchy above: without them a main
+    // component and its instances would reload as unrelated copies that no longer track each other.
+    val componentId: String? = null,
+    val instanceOf: String? = null,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,
