@@ -1,65 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
   <title>Graffux</title>
-  <!--
-    The Graffux mark, in Android's 108x108 adaptive-icon viewport.
+  <!-- The original mark. Paths transcribed verbatim from app/src/main/res/drawable/ic_launcher_monochrome.xml. -->
 
-    Two round-capped strokes cross as an X: magenta top-left to bottom-right, cyan top-right to
-    bottom-left. The magenta passes OVER the cyan with a knocked-out gap (a mask, not a painted-in
-    separator) so the weave reads on any background.
-
-    A drip runs down from the top of the cyan arm. Its rounded top sits INSIDE that arm's cap, so it
-    beads out of the X rather than starting in mid-air.
-
-    The cyan arm's top cap and the magenta arm's bottom cap share the same x (64.75), so a vertical
-    drip necessarily crosses the magenta arm. The drip is therefore also gapped against the magenta
-    it runs over — without that, two magenta shapes would merge into one blob and the X would be
-    lost.
-
-    Geometry: centre (54, 51) — the X sits high because the drip adds weight below. Arms reach 10.75
-    along each diagonal from centre; stroke width 18 (radius 9); crossing gap 2.1 per side.
-  -->
-
-  <defs>
-    <!-- The drip outline, reused for both the shape and the gap cut beneath it. -->
-    <path id="drip" d="
-      M 60.55,38.70
-      C 60.55,36.40 62.43,34.50 64.75,34.50
-      C 67.07,34.50 68.95,36.40 68.95,38.70
-      C 68.95,45.00 66.45,48.00 66.45,54.00
-      C 66.45,60.00 68.75,64.00 68.75,71.50
-      C 68.75,76.00 67.00,78.20 64.75,78.20
-      C 62.50,78.20 60.75,76.00 60.75,71.50
-      C 60.75,64.00 63.05,60.00 63.05,54.00
-      C 63.05,48.00 60.55,45.00 60.55,38.70
-      Z"/>
-
-    <!-- Everything except a widened magenta stroke, so the cyan beneath it is cut away. -->
-    <mask id="cut-magenta">
-      <rect width="108" height="108" fill="#fff"/>
-      <line x1="43.25" y1="40.25" x2="64.75" y2="61.75"
-            stroke="#000" stroke-width="22.2" stroke-linecap="round"/>
-    </mask>
-
-    <!-- Everything except a widened drip, so the magenta arm it crosses is cut away. -->
-    <mask id="cut-drip">
-      <rect width="108" height="108" fill="#fff"/>
-      <use href="#drip" fill="#000" stroke="#000" stroke-width="4.2" stroke-linejoin="round"/>
-    </mask>
-  </defs>
-
-  <!-- Background. Delete this rect for the transparent adaptive-icon foreground layer. -->
+  <!-- Delete this rect for a transparent foreground layer. -->
   <rect id="background" width="108" height="108" fill="#14161D"/>
 
-  <!-- Cyan arm: top-right to bottom-left, cut where the magenta crosses over it. -->
-  <line x1="64.75" y1="40.25" x2="43.25" y2="61.75"
-        stroke="#00E0D0" stroke-width="18" stroke-linecap="round"
-        mask="url(#cut-magenta)"/>
-
-  <!-- Magenta arm: top-left to bottom-right, cut where the drip runs down over it. -->
-  <line x1="43.25" y1="40.25" x2="64.75" y2="61.75"
-        stroke="#FF2D78" stroke-width="18" stroke-linecap="round"
-        mask="url(#cut-drip)"/>
-
-  <!-- The drip, on top of everything. -->
-  <use href="#drip" fill="#FF2D78"/>
+  <line x1="70.56" y1="37.44" x2="37.44" y2="70.56"
+        stroke="#00E0D0" stroke-width="19.44" stroke-linecap="round"/>
+  <line x1="37.44" y1="37.44" x2="70.56" y2="70.56"
+        stroke="#FF2D78" stroke-width="19.44" stroke-linecap="round"/>
+  <path fill="#FFFFFF" d="M68.04,41.04 C69.48,49.68 69.70,55.44 69.70,59.76 C69.70,66.24 65.52,67.68 65.52,72.72 A5.04,5.04 0 1 0 75.60,72.72 C75.60,67.68 71.42,66.24 71.42,59.76 C71.42,55.44 71.64,49.68 73.08,41.04 Z"/>
 </svg>
