@@ -47,6 +47,24 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Re-arm the first-run tutorial/hint flows. */
+    /**
+     * Performance settings. Both trade fidelity for power and memory, which is a judgement only the
+     * person holding the device can make — hence exposed rather than tuned to a fixed guess.
+     */
+    val inputSampleRateHz: StateFlow<Int> =
+        settings.inputSampleRateHz.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 60)
+
+    val canvasRenderScale: StateFlow<Float> =
+        settings.canvasRenderScale.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1f)
+
+    fun setInputSampleRateHz(hz: Int) = viewModelScope.launch(dispatchers.io) {
+        settings.setInputSampleRateHz(hz)
+    }
+
+    fun setCanvasRenderScale(scale: Float) = viewModelScope.launch(dispatchers.io) {
+        settings.setCanvasRenderScale(scale)
+    }
+
     fun resetTutorials() = viewModelScope.launch(dispatchers.io) {
         settings.clearCompletedTutorials()
     }

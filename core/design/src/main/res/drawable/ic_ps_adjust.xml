@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style adjustments: three sliders, each parked at a different value. -->
+    <path android:fillColor="@android:color/white"
+        android:pathData="M3,5.4H21V6.6H3Z M9,3.8L11.2,6L9,8.2L6.8,6Z
+        M3,11.4H21V12.6H3Z M15,9.8L17.2,12L15,14.2L12.8,12Z
+        M3,17.4H21V18.6H3Z M7,15.8L9.2,18L7,20.2L4.8,18Z"/>
+</vector>

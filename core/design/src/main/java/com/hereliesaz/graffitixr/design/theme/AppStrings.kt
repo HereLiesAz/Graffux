@@ -84,7 +84,6 @@ fun rememberAppStrings(): AppStrings {
             editTextHint = stringResource(R.string.edit_text_hint),
             copyEdits = stringResource(R.string.copy_edits),
             pasteEdits = stringResource(R.string.paste_edits),
-            generatePoster = stringResource(R.string.generate_poster),
             duplicate = stringResource(R.string.duplicate),
             unlinkLayer = stringResource(R.string.unlink_layer),
             linkLayer = stringResource(R.string.link_layer),
@@ -96,10 +95,6 @@ fun rememberAppStrings(): AppStrings {
             freeze = stringResource(R.string.freeze_button),
             saveProjectHint = stringResource(R.string.save_project_hint),
             chooseFont = stringResource(R.string.choose_font),
-            posterTitle = stringResource(R.string.poster_title),
-            posterSelectLayers = stringResource(R.string.poster_select_layers),
-            posterPhysicalSize = stringResource(R.string.poster_physical_size),
-            posterGeneratePdf = stringResource(R.string.poster_generate_pdf)
         ),
         ar = AppStrings.Ar(
             depthUnsupported = stringResource(R.string.depth_unsupported),
@@ -164,7 +159,6 @@ fun rememberAppStrings(): AppStrings {
             italic = R.string.help_italic,
             outline = R.string.help_outline,
             shadow = R.string.help_shadow,
-            stencilGen = R.string.help_stencil_gen,
             blend = R.string.help_blend,
             adj = R.string.help_adj,
             invert = R.string.help_invert,
@@ -278,7 +272,6 @@ data class AppStrings(
         val editTextHint: String,
         val copyEdits: String,
         val pasteEdits: String,
-        val generatePoster: String,
         val duplicate: String,
         val unlinkLayer: String,
         val linkLayer: String,
@@ -290,10 +283,6 @@ data class AppStrings(
         val freeze: String,
         val saveProjectHint: String,
         val chooseFont: String,
-        val posterTitle: String,
-        val posterSelectLayers: String,
-        val posterPhysicalSize: String,
-        val posterGeneratePdf: String
     )
     data class Ar(
         val depthUnsupported: String,
@@ -358,7 +347,6 @@ data class AppStrings(
         val italic: Int,
         val outline: Int,
         val shadow: Int,
-        val stencilGen: Int,
         val blend: Int,
         val adj: Int,
         val invert: Int,

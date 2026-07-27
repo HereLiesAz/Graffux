@@ -23,6 +23,29 @@ class LayerListOpsTest {
     }
 
     @Test
+    fun `reorder falls back to the original list when ids don't cover every layer`() {
+        // Regression test: this is exactly what a caller-side id-scheme mismatch (e.g. a prefixed
+        // rail item id like "layer.a" instead of "a") produces — every entry misses, and the old
+        // behavior silently returned an empty list, which the caller then persisted, permanently
+        // deleting every layer from a single drag.
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        assertEquals(layers, LayerListOps.reorder(layers, listOf("layer.c", "layer.a", "layer.b")))
+    }
+
+    @Test
+    fun `reorder falls back to the original list when only some ids match`() {
+        // A partial match (one real layer's id missing) is just as much data loss as none
+        // matching, and just as much a sign of a mismatch rather than a deliberate 2-of-3 reorder.
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        assertEquals(layers, LayerListOps.reorder(layers, listOf("c", "a")))
+    }
+
+    @Test
+    fun `reorder of an empty layer list is a no-op, not a fallback`() {
+        assertEquals(emptyList<Layer>(), LayerListOps.reorder(emptyList(), listOf("a", "b")))
+    }
+
+    @Test
     fun `mapLayer transforms only the matching layer`() {
         val layers = listOf(lyr("a"), lyr("b"))
         val out = LayerListOps.mapLayer(layers, "a") { it.copy(opacity = 0.5f) }
