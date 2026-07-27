@@ -7,6 +7,7 @@ import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerProps
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -93,7 +94,10 @@ internal sealed interface EditorIntent {
     data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
     /** Toggles the vertical-mirror symmetry guide for painting. */
+    /** Flips between [SymmetryMode.NONE] and [SymmetryMode.VERTICAL] — the rail toggle's simple on/off. */
     data object ToggleSymmetry : EditorIntent
+    /** Directly selects any symmetry mode (including NONE) — the mode picker's each-option action. */
+    data class SetSymmetryMode(val mode: SymmetryMode) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */

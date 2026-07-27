@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 
 /**
@@ -113,7 +114,10 @@ internal object EditorReducer {
         // already 94% of what any scale can save.
         is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
-        EditorIntent.ToggleSymmetry -> state.copy(symmetryEnabled = !state.symmetryEnabled)
+        EditorIntent.ToggleSymmetry -> state.copy(
+            symmetryMode = if (state.symmetryMode == SymmetryMode.NONE) SymmetryMode.VERTICAL else SymmetryMode.NONE,
+        )
+        is EditorIntent.SetSymmetryMode -> state.copy(symmetryMode = intent.mode)
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

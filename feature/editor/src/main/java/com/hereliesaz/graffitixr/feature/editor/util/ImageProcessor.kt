@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.BlurMaskFilter
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -121,11 +122,11 @@ object ImageProcessor {
                         feathering: Float = 0f,
                         wrapAroundMode: Boolean = false,
                         // Procreate parity flags: alphaLock confines paint to existing alpha
-                        // (SRC_ATOP); symmetry mirrors the stroke across the bitmap's vertical
-                        // centre line. Both must be honoured here so undo/redo replay matches
-                        // exactly what was painted live.
+                        // (SRC_ATOP); symmetryMode mirrors the stroke across one or more axes
+                        // through the bitmap's centre. Both must be honoured here so undo/redo
+                        // replay matches exactly what was painted live.
                         alphaLock: Boolean = false,
-                        symmetry: Boolean = false,
+                        symmetryMode: SymmetryMode = SymmetryMode.NONE,
                         // Bitmap-space lasso selection, if one is active: every tool below is
                         // confined to it. Built by SelectionMask so the live paint, the commit and
                         // the history replay all clip to the identical boundary.
@@ -159,7 +160,7 @@ object ImageProcessor {
                                                                                             // The brush is dynamic (velocity width + start taper);
                                                                                             // BrushDynamics is deterministic from the points, so this
                                                                                             // replay renders exactly what the live stroke painted.
-                                                                                            drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetry)
+                                                                                            drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode)
                                                         }
 
                                                                     Tool.ERASER -> {
@@ -174,7 +175,7 @@ object ImageProcessor {
                                                                                                                     maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                                                                                                                 }
                                                                                         }
-                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                                                                     }
 
                                 Tool.BLUR -> {
@@ -194,7 +195,7 @@ object ImageProcessor {
                                         isAntiAlias = true
                                         if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                                     }
-                                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetry)
+                                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetryMode)
                                     // Keep the blurred pixels only where the stroke drew, then composite onto the layer.
                                     maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
                                     canvas.drawBitmap(maskBmp, 0f, 0f, null)
@@ -212,7 +213,7 @@ object ImageProcessor {
                                                                                                                                                     isAntiAlias = true
                                                                                                                                                     alpha = 128
                                                                                                                             }
-                                                                                                                                            drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                            drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                                                                                                         }
                                                                                                         
                                                                                                                     Tool.BURN -> {
@@ -225,7 +226,7 @@ object ImageProcessor {
                                                                                                                                                                 alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                                                                                                                                                                                     xfermode = PorterDuffXfermode(PorterDuff.Mode.DARKEN)
                                                                                                                                         }
-                                                                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                                                                                                                     }
                                                                                                                     
                                                                                                                                 Tool.DODGE -> {
@@ -238,7 +239,7 @@ object ImageProcessor {
                                                                                                                                                                             alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                                                                                                                                                                                                 xfermode = PorterDuffXfermode(PorterDuff.Mode.LIGHTEN)
                                                                                                                                                                                 }
-                                                                                                                                                                    drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                                                    drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                                                                                                                                 }
 
                                                                                                                                             Tool.COLOR -> {
@@ -256,7 +257,7 @@ object ImageProcessor {
                                                                                                                                                     alpha = (255 * intensity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
                                                                                                                                                     xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
                                                                                                                                                 }
-                                                                                                                                                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                                                                                                                                             }
 
                                                                                                                                             else -> {}
@@ -265,12 +266,46 @@ object ImageProcessor {
                                                 resultBitmap
             }
 
-                private fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetry: Boolean = false) {
-                            if (symmetry) {
-                                // Draw the mirrored twin first with symmetry off, then fall through
-                                // to the normal draw — keeps the mirror logic in exactly one place.
-                                val w = canvas.width.toFloat()
-                                drawStroke(canvas, stroke.map { Offset(w - it.x, it.y) }, paint, wrapAroundMode, symmetry = false)
+                /**
+                 * The point transforms [mode] mirrors/rotates a stroke through, one per twin drawn —
+                 * excludes the identity (the caller already draws the untransformed stroke itself).
+                 * [VERTICAL]/[HORIZONTAL] reflect across the centre line on that axis; [QUADRANT] is
+                 * both reflections plus their combination (4-fold total including the original);
+                 * [RADIAL_6] rotates the stroke five more times at 60° steps around the canvas centre.
+                 */
+                private fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
+                    val cx = w / 2f
+                    val cy = h / 2f
+                    return when (mode) {
+                        SymmetryMode.NONE -> emptyList()
+                        SymmetryMode.VERTICAL -> listOf({ p: Offset -> Offset(w - p.x, p.y) })
+                        SymmetryMode.HORIZONTAL -> listOf({ p: Offset -> Offset(p.x, h - p.y) })
+                        SymmetryMode.QUADRANT -> listOf(
+                            { p: Offset -> Offset(w - p.x, p.y) },
+                            { p: Offset -> Offset(p.x, h - p.y) },
+                            { p: Offset -> Offset(w - p.x, h - p.y) },
+                        )
+                        SymmetryMode.RADIAL_6 -> (1..5).map { k ->
+                            val rad = Math.toRadians((60.0 * k))
+                            val cos = kotlin.math.cos(rad).toFloat()
+                            val sin = kotlin.math.sin(rad).toFloat()
+                            val transform: (Offset) -> Offset = { p: Offset ->
+                                val dx = p.x - cx
+                                val dy = p.y - cy
+                                Offset(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+                            }
+                            transform
+                        }
+                    }
+                }
+
+                private fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetryMode: SymmetryMode = SymmetryMode.NONE) {
+                            if (symmetryMode != SymmetryMode.NONE) {
+                                // Draw each mirrored/rotated twin first with symmetry off, then fall
+                                // through to the normal draw — keeps the mirror math in exactly one place.
+                                for (transform in symmetryTransforms(symmetryMode, canvas.width.toFloat(), canvas.height.toFloat())) {
+                                    drawStroke(canvas, stroke.map(transform), paint, wrapAroundMode, symmetryMode = SymmetryMode.NONE)
+                                }
                             }
                             if (stroke.size == 1) {
                                 val cx = stroke.first().x
@@ -324,16 +359,16 @@ object ImageProcessor {
                     paint: Paint,
                     baseWidth: Float,
                     wrapAroundMode: Boolean = false,
-                    symmetry: Boolean = false,
+                    symmetryMode: SymmetryMode = SymmetryMode.NONE,
                 ) {
                     if (stroke.size == 1) {
-                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                        drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
                         return
                     }
                     val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth)
                     for (i in 0 until stroke.size - 1) {
                         paint.strokeWidth = widths[i]
-                        drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetry)
+                        drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetryMode)
                     }
                     paint.strokeWidth = baseWidth
                 }

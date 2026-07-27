@@ -173,7 +173,7 @@ data class EditorUiState(
     val wrapAroundMode: Boolean = false,
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.
-    val symmetryEnabled: Boolean = false,
+    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

@@ -54,6 +54,7 @@ import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -396,7 +397,7 @@ fun EditorScreen(
                     QuickAction("Alpha", enabled = activeId != null) {
                         activeId?.let { vm.onToggleAlphaLock(it) }
                     },
-                    QuickAction(if (uiState.symmetryEnabled) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
+                    QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
                     QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
                     QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
                 ),

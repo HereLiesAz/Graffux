@@ -81,9 +81,9 @@ data class StrokeCommand(
     val seed: Long = 0L,
     val stampShape: Bitmap? = null,
     // Procreate parity, recorded per stroke so undo/redo replay reproduces the paint exactly:
-    // [symmetry] mirrors the stroke across the layer's vertical centre; [alphaLock] confines the
-    // paint to pixels that already have alpha.
-    val symmetry: Boolean = false,
+    // [symmetryMode] mirrors the stroke across one or more axes through the canvas centre;
+    // [alphaLock] confines the paint to pixels that already have alpha.
+    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
     val alphaLock: Boolean = false,
     // The lasso selection in force when the stroke was drawn, if any. Recorded per stroke (rather
     // than read from live state at replay time) so an undo/redo re-composites against the same
@@ -194,7 +194,7 @@ class EditorViewModel @Inject constructor(
     private var strokePrevBitmapPoint: Offset? = null
     // Captured at stroke start so mid-stroke toggles can't desync the live paint from the recorded
     // StrokeCommand (which is what undo/redo replays).
-    private var strokeSymmetry: Boolean = false
+    private var strokeSymmetry: SymmetryMode = SymmetryMode.NONE
     private var strokeAlphaLock: Boolean = false
     /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
@@ -2129,7 +2129,7 @@ class EditorViewModel @Inject constructor(
         strokeLayerRotationZ = layer.rotationZ
         // Captured once per stroke: mid-stroke toggles must not desync live paint from the
         // recorded command that undo/redo replays.
-        strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
+        strokeSymmetry = if (state.activeTool != Tool.LIQUIFY) state.symmetryMode else SymmetryMode.NONE
         strokeAlphaLock = layer.alphaLock
         strokeSelection = state.selection
         lastSampleMs = 0L
@@ -2236,7 +2236,7 @@ class EditorViewModel @Inject constructor(
 
             val bw = workBitmap.width.toFloat()
             val bh = workBitmap.height.toFloat()
-            val mirrored = strokeSymmetry
+            val mirrored = strokeSymmetry != SymmetryMode.NONE
 
             // Draws [seg] with wrap-around tiling, plus its vertical-mirror twin when symmetry is on.
             fun drawPathAll(seg: android.graphics.Path) {
@@ -2434,7 +2434,7 @@ class EditorViewModel @Inject constructor(
 
         val segs = ArrayList<Path>(2)
         segs.add(seg)
-        if (strokeSymmetry) {
+        if (strokeSymmetry != SymmetryMode.NONE) {
             val m = android.graphics.Matrix().apply { setScale(-1f, 1f, workBitmap.width / 2f, 0f) }
             segs.add(Path(seg).apply { transform(m) })
         }
@@ -2504,7 +2504,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
@@ -2521,7 +2521,7 @@ class EditorViewModel @Inject constructor(
                 val blurred = ImageProcessor.applyToolToBitmap(
                     base, mapped, Tool.BLUR, state.brushSize * brushScale,
                     state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
-                    symmetry = command.symmetry,
+                    symmetryMode = command.symmetryMode,
                     // Read off the command, not `strokeSelection`: this runs after the caller has
                     // already cleared the transient stroke state.
                     clipPath = SelectionMask.bitmapPath(
@@ -2602,7 +2602,7 @@ class EditorViewModel @Inject constructor(
                     fun drawPathAll(seg: android.graphics.Path) {
                         val targets = ArrayList<android.graphics.Path>(2)
                         targets.add(seg)
-                        if (strokeSymmetry) {
+                        if (strokeSymmetry != SymmetryMode.NONE) {
                             val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bw / 2f, 0f) }
                             targets.add(android.graphics.Path(seg).apply { transform(m) })
                         }
@@ -2619,7 +2619,7 @@ class EditorViewModel @Inject constructor(
                     }
 
                     if (mapped.size == 1) {
-                        val xs = if (strokeSymmetry) floatArrayOf(mapped[0].x, bw - mapped[0].x) else floatArrayOf(mapped[0].x)
+                        val xs = if (strokeSymmetry != SymmetryMode.NONE) floatArrayOf(mapped[0].x, bw - mapped[0].x) else floatArrayOf(mapped[0].x)
                         for (x in xs) {
                             if (state.wrapAroundMode) {
                                 for (dx in -1..1) for (dy in -1..1) canvas.drawPoint(x + dx * bw, mapped[0].y + dy * bh, paint)
@@ -2658,7 +2658,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
             )
@@ -2691,7 +2691,7 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetry = strokeSymmetry,
+                symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
             )
@@ -3209,6 +3209,7 @@ class EditorViewModel @Inject constructor(
     // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
 
     fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
+    fun onSetSymmetryMode(mode: SymmetryMode) = dispatch(EditorIntent.SetSymmetryMode(mode))
 
     fun onToggleAlphaLock(id: String) {
         pushHistory()
@@ -3304,7 +3305,7 @@ class EditorViewModel @Inject constructor(
         strokePaint = null
         strokePrevBitmapPoint = null
         strokeDynamics = null
-        strokeSymmetry = false
+        strokeSymmetry = SymmetryMode.NONE
         strokeAlphaLock = false
         strokeSelection = null
         lastSampleMs = 0L

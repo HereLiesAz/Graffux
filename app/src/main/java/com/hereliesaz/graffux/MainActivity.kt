@@ -53,6 +53,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.design.theme.AppStrings
@@ -707,15 +708,26 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
-    // Symmetry guide: strokes mirror across the vertical centre while it's on.
+    // Symmetry guide: strokes mirror across one or more axes while it's on. The toggle is the quick
+    // on/off (vertical, matching its old behaviour exactly); the picker beside it reaches every mode,
+    // including turning it off from there too.
     azRailToggle(
         id = "tool.symmetry",
-        isChecked = uiState.symmetryEnabled,
+        isChecked = uiState.symmetryMode != SymmetryMode.NONE,
         toggleOnText = "Sym On",
         toggleOffText = "Sym Off",
-        color = if (uiState.symmetryEnabled) activeColor else navItemColor,
+        color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = DesignR.drawable.ic_ps_symmetry, color = navItemColor)
+    SymmetryMode.entries.forEach { mode ->
+        azRailSubItem(
+            id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label, shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_symmetry,
+            color = if (uiState.symmetryMode == mode) activeColor else navItemColor,
+            onClick = { vm.onSetSymmetryMode(mode) },
+        )
+    }
     // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
     // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
     // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
