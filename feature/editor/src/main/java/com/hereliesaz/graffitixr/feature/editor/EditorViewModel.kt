@@ -337,7 +337,11 @@ class EditorViewModel @Inject constructor(
                             }
                         }
 
-                        dispatch(EditorIntent.LoadedProject(project.id, layers))
+                        dispatch(
+                            EditorIntent.LoadedProject(
+                                project.id, layers, project.colorStyles, project.textStyles,
+                            ),
+                        )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -1378,6 +1382,8 @@ class EditorViewModel @Inject constructor(
                     id = projectId,
                     name = name ?: "New Project",
                     layers = updatedLayers,
+                    colorStyles = _uiState.value.colorStyles,
+                    textStyles = _uiState.value.textStyles,
                     mapPath = mapPath,
                     cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
@@ -1392,6 +1398,8 @@ class EditorViewModel @Inject constructor(
                     current.copy(
                         name = name ?: current.name,
                         layers = updatedLayers,
+                        colorStyles = _uiState.value.colorStyles,
+                        textStyles = _uiState.value.textStyles,
                         lastModified = System.currentTimeMillis(),
                         mapPath = mapPath,
                         cloudPointsPath = cloudPointsPath,
@@ -3807,6 +3815,74 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ── Shared styles ────────────────────────────────────────────────────────────────────────
+
+    /** Creates a colour token from the active shape's fill and links that shape to it. */
+    fun onCreateColorStyleFromActive(name: String) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val shape = _uiState.value.layers.firstOrNull { it.id == layerId }?.shapes?.firstOrNull()
+        if (shape == null) {
+            Toast.makeText(context, "Select a shape layer first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val style = com.hereliesaz.graffitixr.common.model.StyleOps.colorStyleFromShape(shape, name)
+        pushHistory()
+        dispatch(EditorIntent.AddColorStyle(style))
+        dispatch(EditorIntent.SetShapeFillStyle(layerId, style.id))
+        saveProject()
+    }
+
+    /** Creates a text token from the active text layer and links that layer to it. */
+    fun onCreateTextStyleFromActive(name: String) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val params = _uiState.value.layers.firstOrNull { it.id == layerId }?.textParams
+        if (params == null) {
+            Toast.makeText(context, "Select a text layer first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val style = com.hereliesaz.graffitixr.common.model.StyleOps.textStyleFromParams(params, name)
+        pushHistory()
+        dispatch(EditorIntent.AddTextStyle(style))
+        dispatch(EditorIntent.SetLayerTextStyle(layerId, style.id))
+        saveProject()
+    }
+
+    /** Re-points the active layer at an existing token (or unlinks it with null). */
+    fun onApplyColorStyle(styleId: String?) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetShapeFillStyle(layerId, styleId))
+        saveProject()
+    }
+
+    fun onApplyTextStyle(styleId: String?) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetLayerTextStyle(layerId, styleId))
+        saveProject()
+    }
+
+    /** Repoints a colour token at the current colour — every shape using it follows. */
+    fun onUpdateColorStyleToActiveColor(styleId: String) {
+        val existing = _uiState.value.colorStyles.firstOrNull { it.id == styleId } ?: return
+        val argb = _uiState.value.activeColor.toArgb().toLong() and 0xFFFFFFFFL
+        pushHistory()
+        dispatch(EditorIntent.UpdateColorStyle(existing.copy(argb = argb)))
+        saveProject()
+    }
+
+    fun onDeleteColorStyle(styleId: String) {
+        pushHistory()
+        dispatch(EditorIntent.DeleteColorStyle(styleId))
+        saveProject()
+    }
+
+    fun onDeleteTextStyle(styleId: String) {
+        pushHistory()
+        dispatch(EditorIntent.DeleteTextStyle(styleId))
+        saveProject()
     }
 
     // ── Components and instances ─────────────────────────────────────────────────────────────

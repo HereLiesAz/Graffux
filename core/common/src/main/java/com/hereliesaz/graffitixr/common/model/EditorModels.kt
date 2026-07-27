@@ -207,6 +207,10 @@ data class EditorUiState(
     // entering the mode isn't.
     val pathEditLayerId: String? = null,
     val selectedNodeIndex: Int? = null,
+    // Shared styles (see StyleOps). Unlike components, which are derived from the layer stack,
+    // a style has no layer to live on — these ARE the definitions, and the artwork stores only ids.
+    val colorStyles: List<ColorStyle> = emptyList(),
+    val textStyles: List<TextStyle> = emptyList(),
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

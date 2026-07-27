@@ -760,6 +760,55 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    // Shared styles (Figma tokens). The library is a real registry on UiState, so the group shows
+    // whenever a token exists or the active layer is something a token could be lifted from.
+    run {
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val hasShape = active?.shapes?.isNotEmpty() == true
+        val hasText = active?.textParams != null
+        if (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) {
+            azRailHostItem(
+                id = "grp.styles", text = "Styles",
+                content = DesignR.drawable.ic_ps_color, color = navItemColor,
+            )
+            if (hasShape) {
+                azRailSubItem(
+                    id = "sty.newColor", hostId = "grp.styles", text = "New Colour Style",
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
+                    color = navItemColor,
+                    onClick = { vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}") },
+                )
+            }
+            if (hasText) {
+                azRailSubItem(
+                    id = "sty.newText", hostId = "grp.styles", text = "New Text Style",
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
+                    color = navItemColor,
+                    onClick = { vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}") },
+                )
+            }
+            // Applying a token to the active layer, and re-pointing a token at the current colour.
+            uiState.colorStyles.forEach { style ->
+                val linked = active?.shapes?.any { it.fillStyleId == style.id } == true
+                azRailSubItem(
+                    id = "sty.color.${style.id}", hostId = "grp.styles", text = style.name,
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
+                    color = if (linked) activeColor else navItemColor,
+                    onClick = { vm.onApplyColorStyle(if (linked) null else style.id) },
+                )
+            }
+            uiState.textStyles.forEach { style ->
+                val linked = active?.textParams?.styleId == style.id
+                azRailSubItem(
+                    id = "sty.text.${style.id}", hostId = "grp.styles", text = style.name,
+                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
+                    color = if (linked) activeColor else navItemColor,
+                    onClick = { vm.onApplyTextStyle(if (linked) null else style.id) },
+                )
+            }
+        }
+    }
+
     // Components and instances (Figma). The actions offered depend on what the active layer already
     // is, so the rail never shows a control that would no-op — "Detach" only on an instance,
     // "Release" only on a main, "Make Component" only on a plain layer.

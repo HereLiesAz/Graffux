@@ -136,6 +136,18 @@ internal sealed interface EditorIntent {
      * which edits qualify, and it's idempotent.
      */
     data object SyncComponents : EditorIntent
+    // ── Shared styles ────────────────────────────────────────────────────────────────────────
+    data class AddColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent
+    data class UpdateColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent
+    data class DeleteColorStyle(val styleId: String) : EditorIntent
+    data class AddTextStyle(val style: com.hereliesaz.graffitixr.common.model.TextStyle) : EditorIntent
+    data class UpdateTextStyle(val style: com.hereliesaz.graffitixr.common.model.TextStyle) : EditorIntent
+    data class DeleteTextStyle(val styleId: String) : EditorIntent
+    /** Links (or with null, unlinks) a layer's shape fill / stroke / text to a token. */
+    data class SetShapeFillStyle(val layerId: String, val styleId: String?) : EditorIntent
+    data class SetShapeStrokeStyle(val layerId: String, val styleId: String?) : EditorIntent
+    data class SetLayerTextStyle(val layerId: String, val styleId: String?) : EditorIntent
+
     /** Enters node-edit mode on a PATH layer, or leaves it with null. */
     data class SetPathEditLayer(val layerId: String?) : EditorIntent
     data class SelectPathNode(val index: Int?) : EditorIntent
@@ -186,6 +198,11 @@ internal sealed interface EditorIntent {
     data class SetLayers(val layers: List<Layer>) : EditorIntent
     /** Copies a source layer's aesthetic modifications (incl. warp mesh) onto [id]. */
     data class PasteLayerModifications(val id: String, val source: Layer) : EditorIntent
-    data class LoadedProject(val projectId: String, val layers: List<Layer>) : EditorIntent
+    data class LoadedProject(
+        val projectId: String,
+        val layers: List<Layer>,
+        val colorStyles: List<com.hereliesaz.graffitixr.common.model.ColorStyle> = emptyList(),
+        val textStyles: List<com.hereliesaz.graffitixr.common.model.TextStyle> = emptyList(),
+    ) : EditorIntent
     data object ClearProject : EditorIntent
 }

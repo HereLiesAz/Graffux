@@ -116,6 +116,12 @@ data class GraffitiProject(
     // Multi-layer support
     val layers: List<OverlayLayer> = emptyList(),
 
+    // Shared styles (see StyleOps). The layers above store only style IDs, so the definitions have
+    // to live with the project — without them a reopened document would keep the values it last
+    // resolved to but lose every link, silently turning shared styles into one-off colours.
+    val colorStyles: List<ColorStyle> = emptyList(),
+    val textStyles: List<TextStyle> = emptyList(),
+
     // Neural Scan ID
     val cloudAnchorId: String? = null,
 

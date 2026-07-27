@@ -23,7 +23,13 @@ data class TextLayerParams(
     val shadowRadiusDp: Float = 8f,
     val shadowDxDp: Float = 4f,
     val shadowDyDp: Float = 4f,
-    val shadowColorArgb: Int = 0x88000000.toInt()
+    val shadowColorArgb: Int = 0x88000000.toInt(),
+    /**
+     * Shared text-style reference (see [StyleOps]). When set, the typography below is owned by the
+     * named token; [StyleOps.resolve] writes its values into these fields. [text] is never part of
+     * a style — content stays per-layer.
+     */
+    val styleId: String? = null,
 )
 
 @Serializable

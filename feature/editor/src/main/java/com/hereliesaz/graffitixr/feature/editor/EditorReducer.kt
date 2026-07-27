@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.StyleOps
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -175,6 +176,32 @@ internal object EditorReducer {
         is EditorIntent.ReleaseComponent ->
             state.copy(layers = ComponentOps.releaseComponent(state.layers, intent.componentId))
         EditorIntent.SyncComponents -> state.copy(layers = ComponentOps.syncInstances(state.layers))
+
+        // Shared styles. Every branch re-resolves, so a token edit reaches the artwork in the same
+        // transition — the artwork stores ids, and resolve() writes the current values into the
+        // concrete colour/typography fields the renderers already read.
+        is EditorIntent.AddColorStyle -> state.restyled(colorStyles = state.colorStyles + intent.style)
+        is EditorIntent.UpdateColorStyle -> state.restyled(
+            colorStyles = state.colorStyles.map { if (it.id == intent.style.id) intent.style else it },
+        )
+        is EditorIntent.DeleteColorStyle -> {
+            val (layers, styles) = StyleOps.deleteColorStyle(state.layers, state.colorStyles, intent.styleId)
+            state.copy(layers = layers, colorStyles = styles).restyled()
+        }
+        is EditorIntent.AddTextStyle -> state.restyled(textStyles = state.textStyles + intent.style)
+        is EditorIntent.UpdateTextStyle -> state.restyled(
+            textStyles = state.textStyles.map { if (it.id == intent.style.id) intent.style else it },
+        )
+        is EditorIntent.DeleteTextStyle -> {
+            val (layers, styles) = StyleOps.deleteTextStyle(state.layers, state.textStyles, intent.styleId)
+            state.copy(layers = layers, textStyles = styles).restyled()
+        }
+        is EditorIntent.SetShapeFillStyle ->
+            state.copy(layers = StyleOps.setShapeFillStyle(state.layers, intent.layerId, intent.styleId)).restyled()
+        is EditorIntent.SetShapeStrokeStyle ->
+            state.copy(layers = StyleOps.setShapeStrokeStyle(state.layers, intent.layerId, intent.styleId)).restyled()
+        is EditorIntent.SetLayerTextStyle ->
+            state.copy(layers = StyleOps.setTextStyle(state.layers, intent.layerId, intent.styleId)).restyled()
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.
@@ -253,7 +280,12 @@ internal object EditorReducer {
         })
         is EditorIntent.LoadedProject -> state.copy(
             projectId = intent.projectId,
-            layers = intent.layers,
+            // Restore the style registry alongside the artwork, then re-resolve: the saved layers
+            // carry only style ids, so without this a reopened document would keep the values it
+            // last resolved to but silently stop tracking the tokens.
+            colorStyles = intent.colorStyles,
+            textStyles = intent.textStyles,
+            layers = StyleOps.resolve(intent.layers, intent.colorStyles, intent.textStyles),
             activeTool = Tool.NONE,
             // Activate a layer on load, for the same reason SetLayers does above. LoadedProject used
             // to leave activeLayerId null and rely on the SetLayers that follows it — but the view
@@ -271,6 +303,20 @@ internal object EditorReducer {
     }
 
     /** Applies [transform] to the active layer (no-op when there is no active layer). */
+    /**
+     * Applies the style registry to the artwork. Called by every style branch so a token edit lands
+     * on the layers in the same transition that changed the token — the artwork stores only ids, and
+     * this is what turns them back into the concrete values every renderer reads.
+     */
+    private fun EditorUiState.restyled(
+        colorStyles: List<com.hereliesaz.graffitixr.common.model.ColorStyle> = this.colorStyles,
+        textStyles: List<com.hereliesaz.graffitixr.common.model.TextStyle> = this.textStyles,
+    ): EditorUiState = copy(
+        colorStyles = colorStyles,
+        textStyles = textStyles,
+        layers = StyleOps.resolve(layers, colorStyles, textStyles),
+    )
+
     private fun EditorUiState.mapActive(transform: (Layer) -> Layer): EditorUiState {
         val id = activeLayerId ?: return this
         return copy(layers = LayerListOps.mapLayer(layers, id, transform))
