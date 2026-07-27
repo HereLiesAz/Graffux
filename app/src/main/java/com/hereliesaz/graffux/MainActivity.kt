@@ -236,6 +236,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Align…", onClick = { showAlignDialog = true })
                 azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
                 azItem(text = "Background", onClick = { showBgDialog = true })
+                // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
+                // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
+                // per-layer equivalent this complements at the whole-project level.
+                azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
                 // saveProject(name) both persists (like every autosave elsewhere) AND exports a
                 // portable .gxr copy to Downloads when name is non-null — passing the project's own
                 // current name does both at once without renaming it, i.e. Save and Save As in one tap.
@@ -394,17 +398,25 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     key(editTextId) {
                         TextEditDialog(
                             initialText = params.text,
+                            initialFontName = params.fontName,
                             initialSizeDp = params.fontSizeDp,
+                            initialKerningEm = params.letterSpacingEm,
                             initialColorArgb = params.colorArgb,
                             initialBold = params.isBold,
                             initialItalic = params.isItalic,
+                            initialHasOutline = params.hasOutline,
+                            initialHasDropShadow = params.hasDropShadow,
                             onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                            onFontChange = { vm.onTextFontChanged(editTextId, it) },
                             onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
                             onSizeStart = { vm.onLayerEditStart() },
                             onSizeCommit = { vm.onLayerEditEnd() },
+                            onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
+                            onKerningStart = { vm.onLayerEditStart() },
+                            onKerningCommit = { vm.onLayerEditEnd() },
                             onColorChange = { vm.onTextColorChanged(editTextId, it) },
-                            onStyleChange = { b, i ->
-                                vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
+                            onStyleChange = { b, i, o, s ->
+                                vm.onTextStyleChanged(editTextId, b, i, o, s)
                             },
                             onDismiss = {
                                 vm.consumeAutoEditTextLayer()
@@ -608,6 +620,32 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
+    // Heal/Burn/Dodge/Color: ImageProcessor and buildStrokePaint already implement all four — they
+    // just had no rail entry, so a user could never actually select them.
+    azRailItem(
+        id = "tool.heal", text = "Heal",
+        content = DesignR.drawable.ic_ps_heal,
+        color = if (uiState.activeTool == Tool.HEAL) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.HEAL) Tool.NONE else Tool.HEAL) },
+    )
+    azRailItem(
+        id = "tool.burn", text = navStrings.burn,
+        content = DesignR.drawable.ic_ps_burn,
+        color = if (uiState.activeTool == Tool.BURN) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BURN) Tool.NONE else Tool.BURN) },
+    )
+    azRailItem(
+        id = "tool.dodge", text = navStrings.dodge,
+        content = DesignR.drawable.ic_ps_dodge,
+        color = if (uiState.activeTool == Tool.DODGE) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.DODGE) Tool.NONE else Tool.DODGE) },
+    )
+    azRailItem(
+        id = "tool.colorize", text = "Colorize",
+        content = DesignR.drawable.ic_ps_color,
+        color = if (uiState.activeTool == Tool.COLOR) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.COLOR) Tool.NONE else Tool.COLOR) },
+    )
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     azRailItem(
         id = "tool.fill", text = "Fill",
@@ -656,6 +694,33 @@ private fun AzNavHostScope.ConfigureRailItems(
         toggleOffText = "Sym Off",
         color = if (uiState.symmetryEnabled) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
+    )
+    // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
+    // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
+    // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
+    azRailToggle(
+        id = "tool.wraparound",
+        isChecked = uiState.wrapAroundMode,
+        toggleOnText = "Wrap On",
+        toggleOffText = "Wrap Off",
+        color = if (uiState.wrapAroundMode) activeColor else navItemColor,
+        onClick = { vm.toggleWrapAroundMode() },
+    )
+    // Stroke stabilizer: smooths jitter out of a drag before it becomes a stroke point. Same gap as
+    // wrap-around — StrokeStabilizer and setStabilizerLevel() were both wired ViewModel-side with
+    // nothing in the rail ever calling it, so every stroke stayed unstabilized regardless of level.
+    azRailSlider(
+        id = "tool.stabilizer",
+        text = "Stabilize",
+        value = uiState.stabilizerLevel.toFloat(),
+        config = AzSliderConfig(
+            orientation = AzSliderOrientation.VERTICAL,
+            valueFrom = 0f,
+            valueTo = 100f,
+        ),
+        color = navItemColor,
+        valueFormatter = { "${it.roundToInt()}%" },
+        onValueChange = { vm.setStabilizerLevel(it.roundToInt()) },
     )
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
@@ -775,6 +840,21 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
     )
     azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = DesignR.drawable.ic_ps_blend, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
+    // Color Balance: onBalanceClicked()/ToggleColorPanel and the panel it opens (ColorBalanceKnobsRow,
+    // rendered by EditorUi.kt when activePanel == EditorPanel.COLOR) were both already fully wired —
+    // this was the only piece missing, an entry point to actually call onBalanceClicked().
+    azRailSubItem(
+        id = "adj.balance", hostId = "grp.adjust", text = "Balance", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_balance,
+        color = if (uiState.activePanel == EditorPanel.COLOR) activeColor else navItemColor, onClick = { vm.onBalanceClicked() },
+    )
+    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
+    // already worked end to end once selected, but nothing ever opened the panel to select from.
+    azRailSubItem(
+        id = "adj.extensions", hostId = "grp.adjust", text = "Extensions", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_extension,
+        color = if (uiState.activePanel == EditorPanel.EXTENSIONS) activeColor else navItemColor, onClick = { vm.onExtensionsClicked() },
+    )
     // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
     // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
     azRailSubItem(

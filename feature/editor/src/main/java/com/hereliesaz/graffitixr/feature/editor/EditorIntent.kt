@@ -72,6 +72,11 @@ internal sealed interface EditorIntent {
     /** Sets the active snap guide lines (world-space) shown while dragging; empty clears them. */
     data class SetSnapGuides(val x: List<Float>, val y: List<Float>) : EditorIntent
     data object ToggleHandedness : EditorIntent
+    /** Mirrors the persisted Settings "Right-handed" toggle into live UiState — see EditorViewModel's
+     *  init collector. Distinct from [ToggleHandedness] (an in-session flip with no [value] to pass). */
+    data class SetHandedness(val value: Boolean) : EditorIntent
+    /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
+    data class SetImperialUnits(val value: Boolean) : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
@@ -115,6 +120,8 @@ internal sealed interface EditorIntent {
 
     // ── Panels / gestures / layer set / project lifecycle ─────────────────────
     data object ToggleColorPanel : EditorIntent
+    /** Opens/closes the installed-extensions panel (run a code extension's filter/tool). */
+    data object ToggleExtensionsPanel : EditorIntent
     /** A transform gesture begins: flags it and dismisses any open panel. */
     data object BeginGesture : EditorIntent
     /** Replaces just the layer list, leaving active id / tool untouched (undo restore, reload). */

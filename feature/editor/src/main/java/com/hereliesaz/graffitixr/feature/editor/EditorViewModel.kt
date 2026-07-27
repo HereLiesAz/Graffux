@@ -275,6 +275,22 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetCanvasRenderScale(scale))
             }
         }
+        // The Settings screen's "Right-handed" toggle persisted correctly but nothing ever read it
+        // back — MainActivity's rail docking side was driven by uiState.isRightHanded, a field only
+        // ToggleHandedness (itself never called) could change, so it silently stayed at its default
+        // regardless of what the user set in Settings.
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.isRightHanded.collect { isRight ->
+                dispatch(EditorIntent.SetHandedness(isRight))
+            }
+        }
+        // Same gap as handedness: the Settings screen's "Imperial units" toggle persisted correctly
+        // but the rulers (the only place a unit is ever shown) never read it back — see Rulers().
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.isImperialUnits.collect { imperial ->
+                dispatch(EditorIntent.SetImperialUnits(imperial))
+            }
+        }
 
         // Bootstrap a project. Nothing else in the app ever loads or creates one, so without this
         // `projectId` stays null for the whole session — and every content entry point guards on it
@@ -659,6 +675,15 @@ class EditorViewModel @Inject constructor(
     }
 
     fun onExtensionSelected(id: String) {
+        // An asset-only (LUT) extension has no entry/runtime for executeCodeExtension to run — it
+        // silently no-ops on kind != CODE/MIXED, so tapping a LUT in this panel used to just close
+        // it having done nothing. Route it to applyInstalledLut instead, the same payoff the Store's
+        // "install this filter" promise implies.
+        if (extensionRepository.installedLuts().any { it.id == id }) {
+            applyInstalledLut(id)
+            dispatch(EditorIntent.DismissPanel)
+            return
+        }
         viewModelScope.launch(dispatchers.io) {
             try {
                 extensionRepository.executeCodeExtension(id, sandboxHost)
@@ -1528,6 +1553,7 @@ class EditorViewModel @Inject constructor(
     override fun onAdjustClicked() = dispatch(EditorIntent.ToggleAdjustPanel)
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
+    fun onExtensionsClicked() = dispatch(EditorIntent.ToggleExtensionsPanel)
     override fun onDismissPanel() = dispatch(EditorIntent.DismissPanel)
 
     /**
@@ -2105,6 +2131,11 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
+            // ensureInitialized() constructs the native warp engine singleton this whole tool runs
+            // on; nothing else in the app ever called it, so every Liquify stroke used to silently
+            // no-op against a null engine pointer. Idempotent (synchronized + isInitialized guard),
+            // so calling it on every stroke start is cheap after the first.
+            slamManager.ensureInitialized()
             // Store the original bitmap so live-preview warps can be applied from a clean copy.
             liquifyOriginalBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, false)
             slamManager.prepareLiquify(originalBitmap)

@@ -240,7 +240,25 @@ object ImageProcessor {
                                                                                                                                                                                 }
                                                                                                                                                                     drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
                                                                                                                                 }
-                                                                                                                                
+
+                                                                                                                                            Tool.COLOR -> {
+                                                                                                                                                // Approximates Photoshop's Color tool: washes the active colour over the
+                                                                                                                                                // stroke. SRC_ATOP (unlike BRUSH's default SRC_OVER) confines it to
+                                                                                                                                                // pixels the layer already has, so it tints existing artwork instead of
+                                                                                                                                                // painting solid colour over blank canvas.
+                                                                                                                                                val paint = Paint().apply {
+                                                                                                                                                    color = brushColor
+                                                                                                                                                    strokeWidth = brushSize
+                                                                                                                                                    style = Paint.Style.STROKE
+                                                                                                                                                    strokeCap = Paint.Cap.ROUND
+                                                                                                                                                    strokeJoin = Paint.Join.ROUND
+                                                                                                                                                    isAntiAlias = true
+                                                                                                                                                    alpha = (255 * intensity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+                                                                                                                                                    xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+                                                                                                                                                }
+                                                                                                                                                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetry)
+                                                                                                                                            }
+
                                                                                                                                             else -> {}
                                         }
 

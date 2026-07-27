@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <!-- Photoshop-style heal: a medical cross. -->
+    <path android:fillColor="@android:color/white"
+        android:pathData="M9,4H15V9H20V15H15V20H9V15H4V9H9Z"/>
+</vector>

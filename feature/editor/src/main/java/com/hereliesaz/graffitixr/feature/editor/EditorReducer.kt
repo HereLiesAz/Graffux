@@ -90,6 +90,8 @@ internal object EditorReducer {
         )
         is EditorIntent.SetSnapGuides -> state.copy(snapGuidesX = intent.x, snapGuidesY = intent.y)
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
+        is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
+        is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
@@ -150,6 +152,8 @@ internal object EditorReducer {
 
         EditorIntent.ToggleColorPanel ->
             state.copy(activePanel = if (state.activePanel == EditorPanel.COLOR) EditorPanel.NONE else EditorPanel.COLOR)
+        EditorIntent.ToggleExtensionsPanel ->
+            state.copy(activePanel = if (state.activePanel == EditorPanel.EXTENSIONS) EditorPanel.NONE else EditorPanel.EXTENSIONS)
         EditorIntent.BeginGesture -> state.copy(gestureInProgress = true, activePanel = EditorPanel.NONE)
         is EditorIntent.SetLayers -> state.copy(
             layers = intent.layers,
