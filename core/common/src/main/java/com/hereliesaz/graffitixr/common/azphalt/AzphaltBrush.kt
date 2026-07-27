@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -19,6 +20,7 @@ import kotlinx.serialization.json.floatOrNull
  * Pure and Android-free so parsing and the placement maths are unit-testable; an Android renderer that
  * rasterizes each dab lives in the editor layer.
  */
+@Serializable
 data class AzphaltBrush(
     /** Human name for the brush (from the manifest asset, falling back to the package name). */
     val name: String,
@@ -55,6 +57,21 @@ data class AzphaltBrush(
     /** Whether the stamp rotates to follow the stroke direction (Procreate's "Azimuth"/heading). */
     val followStroke: Boolean = false,
 ) {
+    /**
+     * Clamps every value into the same ranges [fromParams] enforces. A brush built in the app's own
+     * Brush Studio never goes through the params parser, so this keeps the one set of legal ranges
+     * shared between the two construction paths instead of letting them drift.
+     */
+    fun sanitized(): AzphaltBrush = copy(
+        name = name.trim().ifBlank { "Custom Brush" },
+        spacing = spacing.coerceIn(0.01f, 4f),
+        opacity = opacity.coerceIn(0f, 1f),
+        hardness = hardness.coerceIn(0f, 1f),
+        sizeJitter = sizeJitter.coerceIn(0f, 1f),
+        opacityJitter = opacityJitter.coerceIn(0f, 1f),
+        scatter = scatter.coerceAtLeast(0f),
+    )
+
     companion object {
         /**
          * Parse a `brush` asset's declarative [params] into an [AzphaltBrush], applying defaults and

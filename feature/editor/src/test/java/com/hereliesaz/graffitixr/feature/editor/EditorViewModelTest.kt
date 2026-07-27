@@ -56,6 +56,7 @@ class EditorViewModelTest {
     private val slamManager: SlamManager = mockk(relaxed = true)
     private val opEmitter: OpEmitter = mockk(relaxed = true)
     private val extensionRepository: ExtensionRepository = mockk(relaxed = true)
+    private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
@@ -123,7 +124,7 @@ class EditorViewModelTest {
 
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
-            slamManager, testDispatcherProvider, opEmitter, extensionRepository
+            slamManager, testDispatcherProvider, opEmitter, extensionRepository, customBrushRepository
         )
     }
 

@@ -143,6 +143,10 @@ internal object EditorReducer {
         is EditorIntent.SetOnionSkinFrameCount -> state.copy(onionSkinFrameCount = intent.count.coerceIn(1, 5))
         is EditorIntent.SetAnimationFrameDurationMs -> state.copy(animationFrameDurationMs = intent.ms.coerceIn(20, 2000))
         is EditorIntent.SetAnimationLoopMode -> state.copy(animationLoopMode = intent.mode)
+        is EditorIntent.SetBrushStudioDraft -> state.copy(
+            brushStudioDraft = intent.draft?.sanitized(),
+            brushStudioEditingId = intent.editingId,
+        )
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

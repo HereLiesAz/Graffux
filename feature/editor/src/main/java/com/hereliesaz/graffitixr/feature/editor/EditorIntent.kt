@@ -114,6 +114,14 @@ internal sealed interface EditorIntent {
     data class SetOnionSkinFrameCount(val count: Int) : EditorIntent
     data class SetAnimationFrameDurationMs(val ms: Int) : EditorIntent
     data class SetAnimationLoopMode(val mode: AnimationLoopMode) : EditorIntent
+    /**
+     * Opens Brush Studio on [draft] (null closes it). [editingId] is the saved-brush id being
+     * edited, or null for a brand-new brush.
+     */
+    data class SetBrushStudioDraft(
+        val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
+        val editingId: String? = null,
+    ) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */

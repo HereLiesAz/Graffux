@@ -188,6 +188,12 @@ data class EditorUiState(
     val onionSkinFrameCount: Int = 1,
     val animationFrameDurationMs: Int = 100,
     val animationLoopMode: AnimationLoopMode = AnimationLoopMode.LOOP,
+    // Brush Studio's working copy. Non-null means the editor is open; the draft is applied to the
+    // live brush on every edit (so the canvas previews it), and only written to disk on Save.
+    val brushStudioDraft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
+    // Set when the draft came from an existing saved brush, so Save overwrites it instead of
+    // forking a near-duplicate every time it's reopened.
+    val brushStudioEditingId: String? = null,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

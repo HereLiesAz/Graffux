@@ -64,7 +64,9 @@ import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
+import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
+import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
@@ -189,6 +191,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
 
     val brushes by vm.installedBrushes.collectAsState()
+    val customBrushes by vm.customBrushes.collectAsState()
 
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -217,6 +220,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             vm = vm,
             uiState = uiState,
             brushes = brushes,
+            customBrushes = customBrushes,
             strings = strings,
             navItemColor = navItemColor,
             activeColor = activeRailColor, // Pass down to DSL builder
@@ -531,6 +535,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onDismiss = { showReferenceWindow = false },
                 )
             }
+
+            uiState.brushStudioDraft?.let { draft ->
+                BrushStudioWindow(
+                    draft = draft,
+                    brushColor = uiState.activeColor,
+                    isSaved = uiState.brushStudioEditingId != null,
+                    onEdit = { edit -> vm.onEditBrushDraft(edit) },
+                    onSave = { vm.onSaveBrushDraft() },
+                    onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
+                    onDismiss = { vm.onCloseBrushStudio() },
+                )
+            }
         }
     }
 }
@@ -594,6 +610,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
+    customBrushes: List<CustomBrush>,
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
@@ -895,23 +912,43 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.showColorPicker) activeColor else navItemColor,
         onClick = { vm.onColorClicked() },
     )
-    if (brushes.isNotEmpty()) {
-        azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
+    // The brush group is now unconditional: Brush Studio means there's always something to do here
+    // (make one), where previously the whole group vanished unless a brush extension was installed.
+    azRailHostItem(id = "grp.brushes", text = "Brushes", content = DesignR.drawable.ic_ps_brush, color = navItemColor)
+    azRailSubItem(
+        id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_circle,
+        color = if (uiState.activeBrushName == null) activeColor else navItemColor,
+        onClick = { vm.selectBrushExtension(null) },
+    )
+    brushes.forEach { (id, name) ->
         azRailSubItem(
-            id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
-            content = DesignR.drawable.ic_ps_circle,
-            color = if (uiState.activeBrushName == null) activeColor else navItemColor,
-            onClick = { vm.selectBrushExtension(null) },
+            id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_brush,
+            color = if (uiState.activeBrushName == name) activeColor else navItemColor,
+            onClick = { vm.selectBrushExtension(id) },
         )
-        brushes.forEach { (id, name) ->
-            azRailSubItem(
-                id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
-                content = DesignR.drawable.ic_ps_brush,
-                color = if (uiState.activeBrushName == name) activeColor else navItemColor,
-                onClick = { vm.selectBrushExtension(id) },
-            )
-        }
     }
+    customBrushes.forEach { custom ->
+        azRailSubItem(
+            id = "brush.custom.${custom.id}", hostId = "grp.brushes", text = custom.brush.name,
+            shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_brush,
+            color = if (uiState.activeBrushName == custom.brush.name) activeColor else navItemColor,
+            onClick = { vm.selectCustomBrush(custom.id) },
+        )
+    }
+    // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when one is
+    // selected and "make a new one" when it isn't — Procreate's own behaviour.
+    azRailSubItem(
+        id = "brush.studio", hostId = "grp.brushes", text = "Brush Studio", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_adjust,
+        color = if (uiState.brushStudioDraft != null) activeColor else navItemColor,
+        onClick = {
+            val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
+            vm.onOpenBrushStudio(editing)
+        },
+    )
 
     // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
     // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each

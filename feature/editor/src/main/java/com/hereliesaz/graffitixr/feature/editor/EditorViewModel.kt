@@ -126,6 +126,7 @@ class EditorViewModel @Inject constructor(
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
+    private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
 ) : ViewModel(), EditorActions {
 
     private val _uiState = MutableStateFlow(EditorUiState())
@@ -3799,6 +3800,90 @@ class EditorViewModel @Inject constructor(
      * round brush. Loads the brush's declarative definition to confirm it parses (rendering wiring is a
      * follow-up); the active-brush name drives the UI and switches the size control's second axis to flow.
      */
+    // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
+
+    /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
+    val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
+        customBrushRepository.brushes
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Selects a saved custom brush. Custom brushes are param-only, so there's no tip image to load. */
+    fun selectCustomBrush(id: String) {
+        val brush = customBrushRepository.load(id)
+        if (brush == null) {
+            Toast.makeText(context, "That brush is no longer available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        activeStampBrush = brush
+        activeStampShape = null   // null → StampBrushRenderer draws its generated round tip
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
+    /**
+     * Opens Brush Studio. With no [id] it starts from the brush currently in hand (or the built-in
+     * round defaults), so "tweak what I'm painting with" is one tap rather than a rebuild from zero.
+     */
+    fun onOpenBrushStudio(id: String? = null) {
+        val existing = id?.let { customBrushRepository.load(it) }
+        val seed = existing
+            ?: activeStampBrush?.copy(name = "${activeStampBrush?.name} copy")
+            ?: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Custom Brush")
+        dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
+        applyBrushDraft(seed)
+    }
+
+    fun onCloseBrushStudio() = dispatch(EditorIntent.SetBrushStudioDraft(null))
+
+    /**
+     * Updates the draft and immediately makes it the live brush, so the next test stroke paints with
+     * the values on screen — the whole point of a brush editor is seeing the change, not imagining it.
+     */
+    fun onEditBrushDraft(edit: (com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) -> com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        val current = _uiState.value.brushStudioDraft ?: return
+        val next = edit(current).sanitized()
+        dispatch(EditorIntent.SetBrushStudioDraft(next, editingId = _uiState.value.brushStudioEditingId))
+        applyBrushDraft(next)
+    }
+
+    private fun applyBrushDraft(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        activeStampBrush = brush
+        // A draft brush is params-only; drop any tip image the previously-selected brush had, or the
+        // new settings would render against the old brush's shape.
+        activeStampShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+    }
+
+    /** Saves the draft, overwriting the brush it was opened from or creating a new one. */
+    fun onSaveBrushDraft() {
+        val draft = _uiState.value.brushStudioDraft ?: return
+        val id = _uiState.value.brushStudioEditingId ?: UUID.randomUUID().toString()
+        viewModelScope.launch(dispatchers.io) {
+            val ok = customBrushRepository.save(id, draft)
+            withContext(dispatchers.main) {
+                if (ok) {
+                    // Keep the studio open but bound to the saved id, so further tweaks update this
+                    // brush rather than silently creating a second copy on the next Save.
+                    dispatch(EditorIntent.SetBrushStudioDraft(draft, editingId = id))
+                    Toast.makeText(context, "Saved \"${draft.name}\"", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Couldn't save that brush", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun onDeleteCustomBrush(id: String) {
+        viewModelScope.launch(dispatchers.io) {
+            customBrushRepository.delete(id)
+            withContext(dispatchers.main) {
+                if (_uiState.value.brushStudioEditingId == id) {
+                    dispatch(EditorIntent.SetBrushStudioDraft(null))
+                }
+            }
+        }
+    }
+
     fun selectBrushExtension(id: String?) {
         if (id == null) {
             activeStampBrush = null
