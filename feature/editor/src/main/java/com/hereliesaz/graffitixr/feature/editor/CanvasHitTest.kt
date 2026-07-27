@@ -114,6 +114,63 @@ internal object CanvasHitTest {
     }
 
     /**
+     * Maps a screen point into [layer]'s local space — the space a [com.hereliesaz.graffitixr.common
+     * .model.VectorShape]'s points live in, centred on the layer origin. This is [topHit]'s inverse
+     * transform without the bounds check, so node editing and hit-testing agree by construction.
+     * Null when the canvas is empty or the layer is degenerate.
+     */
+    fun screenToLayerLocal(
+        layer: Layer,
+        point: Offset,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
+    ): Offset? {
+        if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f || layer.scale <= 0f) return null
+        val d = (point - viewportOffset) / viewportZoom
+        val camRad = Math.toRadians(-viewportRotation.toDouble())
+        val camC = cos(camRad)
+        val camS = sin(camRad)
+        val worldX = (d.x * camC - d.y * camS).toFloat()
+        val worldY = (d.x * camS + d.y * camC).toFloat()
+
+        val dx = worldX - layer.offset.x - canvasWidth / 2f
+        val dy = worldY - layer.offset.y - canvasHeight / 2f
+        val rad = Math.toRadians(layer.rotationZ.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        return Offset(
+            ((dx * c + dy * s) / layer.scale).toFloat(),
+            ((-dx * s + dy * c) / layer.scale).toFloat(),
+        )
+    }
+
+    /** The forward of [screenToLayerLocal] — where a local point lands on screen. */
+    fun layerLocalToScreen(
+        layer: Layer,
+        local: Offset,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
+    ): Offset {
+        val rad = Math.toRadians(layer.rotationZ.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        val wx = canvasWidth / 2f + layer.offset.x + (layer.scale * (local.x * c - local.y * s)).toFloat()
+        val wy = canvasHeight / 2f + layer.offset.y + (layer.scale * (local.x * s + local.y * c)).toFloat()
+        val camRad = Math.toRadians(viewportRotation.toDouble())
+        val camC = cos(camRad)
+        val camS = sin(camRad)
+        val rx = (wx * camC - wy * camS).toFloat()
+        val ry = (wx * camS + wy * camC).toFloat()
+        return Offset(viewportOffset.x + rx * viewportZoom, viewportOffset.y + ry * viewportZoom)
+    }
+
+    /**
      * Index of the corner in [corners] nearest to [point] and within [radius] px, or null if none
      * is close enough. Used to decide whether a drag started on a selection resize handle.
      */

@@ -755,6 +755,36 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    // Vector node editing (Figma's vector pen). Shown only for a layer that actually has an
+    // editable path, so it isn't a permanently-dead item on a raster document.
+    run {
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
+        if (editable || uiState.pathEditLayerId != null) {
+            azRailToggle(
+                id = "tool.nodeEdit",
+                isChecked = uiState.pathEditLayerId != null,
+                toggleOnText = "Nodes On",
+                toggleOffText = "Edit Nodes",
+                color = if (uiState.pathEditLayerId != null) activeColor else navItemColor,
+                onClick = { vm.onToggleActivePathEdit() },
+            )
+        }
+        if (uiState.pathEditLayerId != null) {
+            azRailItem(
+                id = "tool.nodeClose", text = "Close Path",
+                content = DesignR.drawable.ic_ps_circle, color = navItemColor,
+                onClick = { vm.onTogglePathClosed() },
+            )
+            uiState.selectedNodeIndex?.let { index ->
+                azRailItem(
+                    id = "tool.nodeDelete", text = "Delete Node",
+                    content = DesignR.drawable.ic_ps_deselect, color = navItemColor,
+                    onClick = { vm.onDeletePathNode(index) },
+                )
+            }
+        }
+    }
     azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = DesignR.drawable.ic_ps_symmetry, color = navItemColor)
     SymmetryMode.entries.forEach { mode ->
         azRailSubItem(

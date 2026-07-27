@@ -122,6 +122,11 @@ internal sealed interface EditorIntent {
         val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
         val editingId: String? = null,
     ) : EditorIntent
+    /** Enters node-edit mode on a PATH layer, or leaves it with null. */
+    data class SetPathEditLayer(val layerId: String?) : EditorIntent
+    data class SelectPathNode(val index: Int?) : EditorIntent
+    /** Replaces the edited layer's single path shape — the result of any node operation. */
+    data class SetPathShape(val layerId: String, val shape: com.hereliesaz.graffitixr.common.model.VectorShape) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */

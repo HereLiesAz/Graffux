@@ -3804,6 +3804,99 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Vector node editing ──────────────────────────────────────────────────────────────────
+    //
+    // Node edits are undoable and persisted, but NOT emitted to co-op peers: no Op carries vector
+    // geometry (LayerProps has no `shapes`), so emitting LayerPropsChange would announce a change
+    // it cannot actually transmit. A geometry-carrying op is the honest fix, and is follow-up work.
+
+    /**
+     * Enters node-edit mode on [layerId], or leaves it with null. Only a layer whose single shape
+     * is a PATH has nodes to edit; anything else silently declines rather than entering a mode with
+     * nothing to show.
+     */
+    fun onSetPathEditLayer(layerId: String?) {
+        if (layerId == null) {
+            dispatch(EditorIntent.SetPathEditLayer(null))
+            return
+        }
+        val shape = pathShapeOf(layerId)
+        if (shape == null) {
+            Toast.makeText(context, "That layer has no editable path", Toast.LENGTH_SHORT).show()
+            return
+        }
+        dispatch(EditorIntent.SetPathEditLayer(layerId))
+        setActiveTool(Tool.NONE)
+    }
+
+    /** Toggles node editing for the active layer — the rail's single "Edit Path" action. */
+    fun onToggleActivePathEdit() {
+        val current = _uiState.value.pathEditLayerId
+        if (current != null) onSetPathEditLayer(null) else onSetPathEditLayer(_uiState.value.activeLayerId)
+    }
+
+    fun onSelectPathNode(index: Int?) = dispatch(EditorIntent.SelectPathNode(index))
+
+    /**
+     * Brackets a node/handle drag so the whole drag is one undo step rather than one per frame —
+     * the same pattern the layer-opacity slider uses (see [onLayerEditStart]).
+     */
+    fun onPathEditStart() = pushHistory()
+
+    fun onPathEditEnd() = saveProject()
+
+    fun onMovePathNode(index: Int, dx: Float, dy: Float) =
+        editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveNode(it, index, dx, dy) }
+
+    fun onMovePathHandle(index: Int, outgoing: Boolean, x: Float, y: Float, mirror: Boolean) =
+        editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveHandle(it, index, outgoing, x, y, mirror) }
+
+    /** Each of these is a discrete action, so it brackets its own history entry and saves. */
+    fun onInsertPathNode(segmentIndex: Int, t: Float) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t)
+    }
+
+    fun onDeletePathNode(index: Int) {
+        discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.deleteNode(it, index) }
+        // The deleted node's index no longer refers to what the user selected.
+        dispatch(EditorIntent.SelectPathNode(null))
+    }
+
+    fun onMakePathNodeCorner(index: Int) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.makeCorner(it, index)
+    }
+
+    fun onMakePathNodeSmooth(index: Int) = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.makeSmooth(it, index)
+    }
+
+    fun onTogglePathClosed() = discretePathEdit {
+        com.hereliesaz.graffitixr.common.model.PathEditing.toggleClosed(it)
+    }
+
+    /** The single PATH shape on [layerId], or null when the layer isn't an editable path. */
+    private fun pathShapeOf(layerId: String): com.hereliesaz.graffitixr.common.model.VectorShape? =
+        _uiState.value.layers.firstOrNull { it.id == layerId }
+            ?.shapes?.singleOrNull()
+            ?.takeIf { it.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.PATH }
+
+    /** Applies [transform] to the edited path. Used by drags, which bracket their own history. */
+    private fun editPath(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
+        val layerId = _uiState.value.pathEditLayerId ?: return
+        val shape = pathShapeOf(layerId) ?: return
+        dispatch(EditorIntent.SetPathShape(layerId, transform(shape)))
+    }
+
+    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
+        val layerId = _uiState.value.pathEditLayerId ?: return
+        val shape = pathShapeOf(layerId) ?: return
+        val next = transform(shape)
+        if (next == shape) return
+        pushHistory()
+        dispatch(EditorIntent.SetPathShape(layerId, next))
+        saveProject()
+    }
+
     // ── Figma import ─────────────────────────────────────────────────────────────────────────
 
     /**

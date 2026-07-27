@@ -53,6 +53,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -360,6 +361,30 @@ fun EditorScreen(
                 onCommitEllipse = { c, rx, ry, cw, ch -> vm.onCommitPenEllipse(c, rx, ry, cw, ch) },
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+
+        // 3b-bis. Vector node editor — anchors and bezier handles for the path layer being edited.
+        // Above the transform/gesture layers so a drag on a node is claimed here rather than moving
+        // the whole layer, and only mounted while node editing is actually on.
+        uiState.pathEditLayerId?.let { editId ->
+            uiState.layers.firstOrNull { it.id == editId }?.let { pathLayer ->
+                PathEditOverlay(
+                    layer = pathLayer,
+                    uiState = uiState,
+                    onEditStart = { vm.onPathEditStart() },
+                    onMoveNode = { i, dx, dy -> vm.onMovePathNode(i, dx, dy) },
+                    onMoveHandle = { i, out, x, y -> vm.onMovePathHandle(i, out, x, y, mirror = true) },
+                    onEditEnd = { vm.onPathEditEnd() },
+                    onSelectNode = { vm.onSelectPathNode(it) },
+                    onInsertNode = { seg, t -> vm.onInsertPathNode(seg, t) },
+                    onToggleCornerSmooth = { index ->
+                        val node = pathLayer.shapes.singleOrNull()
+                            ?.let { PathEditing.nodes(it).getOrNull(index) }
+                        if (node?.isCorner == false) vm.onMakePathNodeCorner(index) else vm.onMakePathNodeSmooth(index)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
@@ -1071,7 +1096,7 @@ private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) 
             if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
         }
         ShapeKind.PATH -> {
-            val path = pointsPath(shape.points, cx, cy, shape.closed) ?: return
+            val path = pathFigure(shape, cx, cy) ?: return
             if (shape.hasFill) drawPath(path, Color(shape.fillArgb.toInt()))
             if (shape.hasStroke) drawPath(path, Color(shape.strokeArgb.toInt()), style = Stroke(shape.strokeWidth))
         }
@@ -1093,6 +1118,35 @@ private fun pointsPath(points: List<Float>, cx: Float, cy: Float, close: Boolean
             i += 2
         }
         if (close) close()
+    }
+}
+
+/**
+ * The figure for a [ShapeKind.PATH], curving through each node's bezier handles where it has them
+ * and falling back to straight segments where it doesn't. A path with no handles at all takes the
+ * poly-line path above unchanged, so nothing about existing pen strokes or imported paths shifts.
+ * ExportManager builds the identical figure with an android.graphics.Path.
+ */
+private fun pathFigure(shape: VectorShape, cx: Float, cy: Float): Path? {
+    if (!shape.hasCurves) return pointsPath(shape.points, cx, cy, shape.closed)
+    val nodes = PathEditing.nodes(shape)
+    if (nodes.size < 2) return null
+    return Path().apply {
+        moveTo(cx + nodes[0].x, cy + nodes[0].y)
+        for (s in 0 until PathEditing.segmentCount(nodes.size, shape.closed)) {
+            val a = nodes[s]
+            val b = nodes[(s + 1) % nodes.size]
+            if (a.isCorner && b.isCorner) {
+                lineTo(cx + b.x, cy + b.y)
+            } else {
+                cubicTo(
+                    cx + a.x + a.outDx, cy + a.y + a.outDy,
+                    cx + b.x + b.inDx, cy + b.y + b.inDy,
+                    cx + b.x, cy + b.y,
+                )
+            }
+        }
+        if (shape.closed) close()
     }
 }
 

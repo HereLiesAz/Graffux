@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.BlendMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerNode
 import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.buildLayerTree
@@ -338,10 +339,30 @@ class ExportManager @Inject constructor() {
             ShapeKind.PATH -> {
                 val pts = shape.points
                 if (pts.size >= 4) {
+                    // Curves through each node's bezier handles where present, straight segments
+                    // where not — the same figure EditorScreen's pathFigure draws on the canvas.
                     val path = android.graphics.Path().apply {
-                        moveTo(cx + pts[0], cy + pts[1])
-                        var i = 2
-                        while (i + 1 < pts.size) { lineTo(cx + pts[i], cy + pts[i + 1]); i += 2 }
+                        if (shape.hasCurves) {
+                            val nodes = PathEditing.nodes(shape)
+                            moveTo(cx + nodes[0].x, cy + nodes[0].y)
+                            for (s in 0 until PathEditing.segmentCount(nodes.size, shape.closed)) {
+                                val a = nodes[s]
+                                val b = nodes[(s + 1) % nodes.size]
+                                if (a.isCorner && b.isCorner) {
+                                    lineTo(cx + b.x, cy + b.y)
+                                } else {
+                                    cubicTo(
+                                        cx + a.x + a.outDx, cy + a.y + a.outDy,
+                                        cx + b.x + b.inDx, cy + b.y + b.inDy,
+                                        cx + b.x, cy + b.y,
+                                    )
+                                }
+                            }
+                        } else {
+                            moveTo(cx + pts[0], cy + pts[1])
+                            var i = 2
+                            while (i + 1 < pts.size) { lineTo(cx + pts[i], cy + pts[i + 1]); i += 2 }
+                        }
                         if (shape.closed) close()
                     }
                     if (shape.hasFill) {

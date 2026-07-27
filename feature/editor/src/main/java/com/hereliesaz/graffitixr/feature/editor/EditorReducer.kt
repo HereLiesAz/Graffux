@@ -147,6 +147,18 @@ internal object EditorReducer {
             brushStudioDraft = intent.draft?.sanitized(),
             brushStudioEditingId = intent.editingId,
         )
+        is EditorIntent.SetPathEditLayer -> state.copy(
+            pathEditLayerId = intent.layerId,
+            // A node index belongs to the path it indexes; carrying it across would point at a
+            // node in a different shape, or none at all.
+            selectedNodeIndex = null,
+        )
+        is EditorIntent.SelectPathNode -> state.copy(selectedNodeIndex = intent.index)
+        is EditorIntent.SetPathShape -> state.copy(
+            layers = state.layers.map { layer ->
+                if (layer.id == intent.layerId) layer.copy(shapes = listOf(intent.shape)) else layer
+            },
+        )
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

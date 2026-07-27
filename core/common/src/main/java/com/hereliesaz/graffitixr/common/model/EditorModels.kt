@@ -194,6 +194,11 @@ data class EditorUiState(
     // Set when the draft came from an existing saved brush, so Save overwrites it instead of
     // forking a near-duplicate every time it's reopened.
     val brushStudioEditingId: String? = null,
+    // Vector node editing (Figma's vector pen): the id of the PATH layer whose nodes are being
+    // edited, or null when not in node-edit mode. Transient UI state — the *edits* are undoable,
+    // entering the mode isn't.
+    val pathEditLayerId: String? = null,
+    val selectedNodeIndex: Int? = null,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.
