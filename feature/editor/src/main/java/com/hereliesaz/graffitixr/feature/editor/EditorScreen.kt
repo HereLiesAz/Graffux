@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -426,6 +427,7 @@ fun EditorScreen(
             zoom = uiState.viewportZoom,
             offset = uiState.viewportOffset,
             rotationDeg = uiState.viewportRotation,
+            imperial = uiState.isImperialUnits,
         )
 
         // 5. Loading indicator.
@@ -821,14 +823,28 @@ private fun InfiniteGrid(
  * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
  * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
  */
+/** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
+ *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
+private const val PX_PER_INCH = 96f
+private fun pxToUnit(px: Float, imperial: Boolean): Float = if (imperial) px / PX_PER_INCH else px / PX_PER_INCH * 2.54f
+
 @Composable
 private fun BoxScope.Rulers(
     zoom: Float,
     offset: Offset,
     rotationDeg: Float,
+    imperial: Boolean,
     spacing: Float = 48f,
 ) {
     val thickness = with(LocalDensity.current) { 14.dp.toPx() }
+    val labelPx = with(LocalDensity.current) { 9.dp.toPx() }
+    val labelPaint = remember(labelPx) {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(0xB0, 0xB0, 0xB0)
+            textSize = labelPx
+            isAntiAlias = true
+        }
+    }
     Canvas(Modifier.fillMaxSize()) {
         val barColor = Color(0xCC1A1A1A)
         val tickColor = Color(0xFFB0B0B0)
@@ -848,7 +864,18 @@ private fun BoxScope.Rulers(
             val kHi = ceil(maxOf(b, a * w + b) / spacing).toInt()
             if (kHi - kLo <= 1000) for (k in kLo..kHi) {
                 val x = (k * spacing - b) / a
-                if (x in 0f..w) drawLine(tickColor, Offset(x, 0f), Offset(x, thickness), strokeWidth = 1f)
+                if (x in 0f..w) {
+                    drawLine(tickColor, Offset(x, 0f), Offset(x, thickness), strokeWidth = 1f)
+                    // Every 5th tick gets a value, so the bar reads as a scale rather than just ticks —
+                    // labelling every tick would overlap at any spacing tight enough to be useful.
+                    if (k % 5 == 0) {
+                        val value = pxToUnit(k * spacing, imperial)
+                        drawContext.canvas.nativeCanvas.drawText(
+                            "${"%.1f".format(value)}${if (imperial) "\"" else "cm"}",
+                            x + 2f, thickness - 3f, labelPaint,
+                        )
+                    }
+                }
             }
         }
         // Left ruler: worldY = A'·y + B' along x = 0.

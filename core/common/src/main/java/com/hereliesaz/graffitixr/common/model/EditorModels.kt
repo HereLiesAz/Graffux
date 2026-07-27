@@ -138,6 +138,8 @@ data class EditorUiState(
     val activeTool: Tool = Tool.NONE,
     val hideUiForCapture: Boolean = false,
     val isRightHanded: Boolean = true,
+    /** Mirrors the persisted Settings "Imperial units" toggle — see EditorViewModel's init collector. */
+    val isImperialUnits: Boolean = false,
     val gestureInProgress: Boolean = false,
     val showRotationAxisFeedback: Boolean = false,
     val activeRotationAxis: RotationAxis = RotationAxis.Z,
