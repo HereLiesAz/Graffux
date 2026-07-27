@@ -120,7 +120,7 @@ jobs:
         run: |
           # versionCode = VERSION_CODE_OFFSET + git rev-list --count HEAD (see app/build.gradle.kts).
           # The Play AAB is the `play` flavor: AdMob enabled, no self-updater (Play delivers updates).
-          ./gradlew bundlePlayRelease \
+          ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/app/keystore.jks \
             -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
             -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
@@ -130,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-aab
-          path: app/build/outputs/bundle/playRelease/*.aab
+          path: app/build/outputs/bundle/Release/*.aab
           if-no-files-found: error
 
       # Publish runs by default (including on push) so a build that doesn't actually push FAILS the job —
