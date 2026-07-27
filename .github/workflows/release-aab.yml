@@ -130,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-aab
-          path: app/build/outputs/bundle/Release/*.aab
+          path: app/build/outputs/Release/*.aab
           if-no-files-found: error
 
       # Publish runs by default (including on push) so a build that doesn't actually push FAILS the job —
