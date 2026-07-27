@@ -290,6 +290,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azDivider()
                 azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
                 azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
+                azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }

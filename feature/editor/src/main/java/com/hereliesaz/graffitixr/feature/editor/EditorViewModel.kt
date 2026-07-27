@@ -729,17 +729,25 @@ class EditorViewModel @Inject constructor(
     private suspend fun saveTimeLapseToDownloads(file: File) =
         copyGifToDownloads(file, "Time-lapse saved to Downloads", "Time-lapse export failed")
 
+    private suspend fun copyGifToDownloads(file: File, successMessage: String, failurePrefix: String) =
+        copyToDownloads(file, "image/gif", successMessage, failurePrefix)
+
     /**
-     * Copies a cache-dir GIF into Downloads (MediaStore on Q+, the public directory below it, the
+     * Copies a cache-dir file into Downloads (MediaStore on Q+, the public directory below it, the
      * same split [exportProjectInternal] uses) and deletes the cache copy either way.
      */
-    private suspend fun copyGifToDownloads(file: File, successMessage: String, failurePrefix: String) {
+    private suspend fun copyToDownloads(
+        file: File,
+        mimeType: String,
+        successMessage: String,
+        failurePrefix: String,
+    ) {
         try {
             val filename = file.name
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val contentValues = android.content.ContentValues().apply {
                     put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/gif")
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                 }
                 val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -3913,6 +3921,75 @@ class EditorViewModel @Inject constructor(
                         _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Import failed") }
                     }
                 }
+        }
+    }
+
+    /**
+     * Writes a bundle the Graffux companion Figma plugin can open, preserving each layer separately
+     * with its name, opacity, blend mode, and visibility rather than flattening to one PNG.
+     *
+     * Every layer is composited ALONE at document size with its opacity, blend, and clip neutralised.
+     * That bakes the layer's geometry into the image — so the plugin can place every layer full-bleed
+     * at the origin and reproduce the composition exactly — while leaving opacity and blend as live
+     * Figma properties instead of burning them into pixels. Compositing them here as well would apply
+     * both, so the layer copy passed to the compositor deliberately has them reset.
+     */
+    fun exportForFigma() {
+        val state = _uiState.value
+        val layers = state.layers
+        if (layers.isEmpty()) {
+            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val metrics = context.resources.displayMetrics
+                val docW = state.documentWidth.coerceAtLeast(1)
+                val docH = state.documentHeight.coerceAtLeast(1)
+                val bundleLayers = layers.map { layer ->
+                    val flat = layer.copy(
+                        opacity = 1f,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
+                        clipToLayerBelow = false,
+                        isVisible = true,
+                    )
+                    val bitmap = exportManager.compositeToDocument(
+                        listOf(flat), metrics.widthPixels, metrics.heightPixels, docW, docH,
+                        backgroundColor = android.graphics.Color.TRANSPARENT,
+                    )
+                    val png = ImageUtils.bitmapToByteArray(bitmap)
+                    bitmap.recycle()
+                    com.hereliesaz.graffitixr.data.figma.FigmaBundleLayer(
+                        name = layer.name.ifBlank { "Layer" },
+                        pngBase64 = android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP),
+                        opacity = layer.opacity,
+                        blendMode = com.hereliesaz.graffitixr.data.figma.figmaBlendMode(layer.blendMode),
+                        visible = layer.isVisible,
+                    )
+                }
+                val projectName = projectRepository.currentProject.value?.name ?: "Graffux"
+                val bundle = com.hereliesaz.graffitixr.data.figma.FigmaBundle(
+                    name = projectName,
+                    documentWidth = docW,
+                    documentHeight = docH,
+                    layers = bundleLayers,
+                )
+                val json = com.hereliesaz.graffitixr.data.figma.FigmaBundle.encode(bundle)
+
+                val dir = File(context.cacheDir, "figma").apply { mkdirs() }
+                val safeName = projectName.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                val file = File(dir, "$safeName${com.hereliesaz.graffitixr.data.figma.FigmaBundle.FILE_SUFFIX}")
+                file.writeText(json)
+
+                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+                copyToDownloads(file, "application/json", "Figma bundle saved to Downloads", "Figma export failed")
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    Toast.makeText(context, "Figma export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 

@@ -1,0 +1,13 @@
+{
+  "name": "Graffux Import",
+  "id": "graffux-import",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "reasoning": "The plugin only reads a file the user picks from their own computer. It makes no network requests."
+  }
+}
