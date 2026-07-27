@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -100,6 +101,19 @@ internal sealed interface EditorIntent {
     data class SetSymmetryMode(val mode: SymmetryMode) : EditorIntent
     /** Flips time-lapse recording on/off; the actual GIF encoder lives in EditorViewModel. */
     data object ToggleTimeLapseRecording : EditorIntent
+    /** Enters/exits Animation Assist — see AnimationFrames for how frames map onto layers. */
+    data object ToggleAnimationMode : EditorIntent
+    data class SetAnimationPlaying(val playing: Boolean) : EditorIntent
+    /**
+     * Moves the animation frame cursor. [followActiveLayer] also points the active layer at that
+     * frame so the next stroke lands on the frame being looked at — playback passes false, since
+     * retargeting the active layer dozens of times a second would clobber the user's selection.
+     */
+    data class SetActiveFrameIndex(val index: Int, val followActiveLayer: Boolean = false) : EditorIntent
+    data object ToggleOnionSkin : EditorIntent
+    data class SetOnionSkinFrameCount(val count: Int) : EditorIntent
+    data class SetAnimationFrameDurationMs(val ms: Int) : EditorIntent
+    data class SetAnimationLoopMode(val mode: AnimationLoopMode) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
     /** Replaces the freehand selection, or clears it with null (deselect). */

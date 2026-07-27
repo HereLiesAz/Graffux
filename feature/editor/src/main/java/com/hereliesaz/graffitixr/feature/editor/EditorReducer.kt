@@ -119,6 +119,30 @@ internal object EditorReducer {
         )
         is EditorIntent.SetSymmetryMode -> state.copy(symmetryMode = intent.mode)
         EditorIntent.ToggleTimeLapseRecording -> state.copy(isTimeLapseRecording = !state.isTimeLapseRecording)
+        EditorIntent.ToggleAnimationMode -> state.copy(
+            isAnimationMode = !state.isAnimationMode,
+            activeFrameIndex = if (!state.isAnimationMode) {
+                AnimationFrames.frameIndexForLayer(state.layers, state.activeLayerId)
+            } else {
+                state.activeFrameIndex
+            },
+        )
+        is EditorIntent.SetAnimationPlaying -> state.copy(isAnimationPlaying = intent.playing)
+        is EditorIntent.SetActiveFrameIndex -> {
+            val index = intent.index.coerceAtLeast(0)
+            // Unlike ActivateLayer this deliberately leaves activeTool alone: stepping frames with a
+            // brush in hand must not put the brush down.
+            val activeId = if (intent.followActiveLayer) {
+                AnimationFrames.drawableLayerForFrame(state.layers, index) ?: state.activeLayerId
+            } else {
+                state.activeLayerId
+            }
+            state.copy(activeFrameIndex = index, activeLayerId = activeId)
+        }
+        EditorIntent.ToggleOnionSkin -> state.copy(onionSkinEnabled = !state.onionSkinEnabled)
+        is EditorIntent.SetOnionSkinFrameCount -> state.copy(onionSkinFrameCount = intent.count.coerceIn(1, 5))
+        is EditorIntent.SetAnimationFrameDurationMs -> state.copy(animationFrameDurationMs = intent.ms.coerceIn(20, 2000))
+        is EditorIntent.SetAnimationLoopMode -> state.copy(animationLoopMode = intent.mode)
         is EditorIntent.SetQuickMenu -> state.copy(quickMenuAt = intent.at)
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.

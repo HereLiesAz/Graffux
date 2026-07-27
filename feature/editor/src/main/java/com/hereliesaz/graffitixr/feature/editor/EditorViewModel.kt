@@ -724,7 +724,14 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    private suspend fun saveTimeLapseToDownloads(file: File) {
+    private suspend fun saveTimeLapseToDownloads(file: File) =
+        copyGifToDownloads(file, "Time-lapse saved to Downloads", "Time-lapse export failed")
+
+    /**
+     * Copies a cache-dir GIF into Downloads (MediaStore on Q+, the public directory below it, the
+     * same split [exportProjectInternal] uses) and deletes the cache copy either way.
+     */
+    private suspend fun copyGifToDownloads(file: File, successMessage: String, failurePrefix: String) {
         try {
             val filename = file.name
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -737,19 +744,19 @@ class EditorViewModel @Inject constructor(
                     ?: throw java.io.IOException("Failed to create MediaStore entry")
                 context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Time-lapse saved to Downloads", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
                 }
             } else {
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 val dest = File(downloadsDir, filename)
                 file.copyTo(dest, overwrite = true)
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Time-lapse saved to ${dest.absolutePath}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "$successMessage (${dest.absolutePath})", Toast.LENGTH_LONG).show()
                 }
             }
         } catch (e: Exception) {
             withContext(dispatchers.main) {
-                Toast.makeText(context, "Time-lapse export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "$failurePrefix: ${e.message}", Toast.LENGTH_LONG).show()
             }
         } finally {
             file.delete()
@@ -759,6 +766,7 @@ class EditorViewModel @Inject constructor(
     override fun onCleared() {
         // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
         timeLapseRecorder.finish()
+        playbackJob?.cancel()
         super.onCleared()
     }
 
@@ -3312,6 +3320,162 @@ class EditorViewModel @Inject constructor(
             opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
         }
     }
+
+    // ── Animation Assist ─────────────────────────────────────────────────────────────────────
+
+    private var playbackJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Enters/exits Animation Assist. Entering syncs the frame cursor to whichever frame the active
+     * layer already belongs to (see the reducer), so the canvas doesn't jump; exiting stops playback
+     * so a running loop can't keep mutating state from behind a closed panel.
+     */
+    fun onToggleAnimationMode() {
+        if (_uiState.value.isAnimationMode) stopPlayback()
+        dispatch(EditorIntent.ToggleAnimationMode)
+    }
+
+    fun onToggleOnionSkin() = dispatch(EditorIntent.ToggleOnionSkin)
+    fun onSetOnionSkinFrameCount(count: Int) = dispatch(EditorIntent.SetOnionSkinFrameCount(count))
+    fun onSetAnimationFrameDurationMs(ms: Int) = dispatch(EditorIntent.SetAnimationFrameDurationMs(ms))
+    fun onSetAnimationLoopMode(mode: com.hereliesaz.graffitixr.common.model.AnimationLoopMode) =
+        dispatch(EditorIntent.SetAnimationLoopMode(mode))
+
+    /** Frame count == top-level layer count, since that's what a frame *is*. */
+    fun animationFrameCount(): Int = AnimationFrames.topLevelFrames(_uiState.value.layers).size
+
+    /**
+     * Moves the frame cursor and points the active layer at that frame, so a stroke drawn right
+     * after stepping lands on the frame the user is looking at rather than the one they left.
+     */
+    fun onSelectFrame(index: Int) {
+        val count = animationFrameCount()
+        if (count == 0) return
+        dispatch(EditorIntent.SetActiveFrameIndex(index.coerceIn(0, count - 1), followActiveLayer = true))
+    }
+
+    fun onNextFrame() {
+        val count = animationFrameCount()
+        if (count == 0) return
+        onSelectFrame((_uiState.value.activeFrameIndex + 1) % count)
+    }
+
+    fun onPreviousFrame() {
+        val count = animationFrameCount()
+        if (count == 0) return
+        onSelectFrame((_uiState.value.activeFrameIndex - 1 + count) % count)
+    }
+
+    /** A new frame is just a new top-level layer, appended — so this is the existing blank-layer add. */
+    fun onAddFrame() {
+        val before = animationFrameCount()
+        onAddBlankLayer()
+        viewModelScope.launch(dispatchers.main) {
+            // AddLayer lands asynchronously (it writes the layer's artifact first), so wait for the
+            // count to grow rather than moving the cursor to a frame that doesn't exist yet.
+            withTimeoutOrNull(5_000) { _uiState.first { AnimationFrames.topLevelFrames(it.layers).size > before } }
+            dispatch(EditorIntent.SetActiveFrameIndex((animationFrameCount() - 1).coerceAtLeast(0)))
+        }
+    }
+
+    fun onToggleAnimationPlayback() {
+        if (_uiState.value.isAnimationPlaying) stopPlayback() else startPlayback()
+    }
+
+    private fun startPlayback() {
+        val count = animationFrameCount()
+        if (count <= 1) return
+        dispatch(EditorIntent.SetAnimationPlaying(true))
+        playbackJob?.cancel()
+        playbackJob = viewModelScope.launch(dispatchers.main) {
+            var index = _uiState.value.activeFrameIndex
+            var forward = true
+            while (isActive) {
+                kotlinx.coroutines.delay(_uiState.value.animationFrameDurationMs.toLong())
+                val frames = animationFrameCount()
+                if (frames <= 1) break
+                when (_uiState.value.animationLoopMode) {
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.LOOP -> index = (index + 1) % frames
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.PING_PONG -> {
+                        if (forward && index >= frames - 1) forward = false
+                        else if (!forward && index <= 0) forward = true
+                        index = (index + if (forward) 1 else -1).coerceIn(0, frames - 1)
+                    }
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.ONCE -> {
+                        if (index >= frames - 1) break
+                        index++
+                    }
+                }
+                // Only the cursor moves during playback — syncActiveLayerToFrame would rewrite the
+                // active layer dozens of times a second and clobber whatever the user had selected.
+                dispatch(EditorIntent.SetActiveFrameIndex(index))
+            }
+            dispatch(EditorIntent.SetAnimationPlaying(false))
+        }
+    }
+
+    private fun stopPlayback() {
+        playbackJob?.cancel()
+        playbackJob = null
+        if (_uiState.value.isAnimationPlaying) dispatch(EditorIntent.SetAnimationPlaying(false))
+    }
+
+    /**
+     * Exports every frame as an animated GIF in Downloads. Each frame composites only its own
+     * subtree — [buildLayerTree] roots at `parentId == null`, so a frame's own layers form a
+     * complete tree on their own and group/clip/blend handling comes along unchanged.
+     */
+    fun exportAnimation() {
+        val state = _uiState.value
+        val frames = AnimationFrames.topLevelFrames(state.layers)
+        if (frames.isEmpty()) {
+            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        stopPlayback()
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val metrics = context.resources.displayMetrics
+                val dir = File(context.cacheDir, "animation").apply { mkdirs() }
+                val file = File(dir, "animation_${System.currentTimeMillis()}.gif")
+                val written = com.hereliesaz.graffitixr.feature.editor.animation.AnimationGifWriter.write(
+                    file = file,
+                    frameCount = frames.size,
+                    frameDurationMs = state.animationFrameDurationMs,
+                    loopMode = state.animationLoopMode,
+                ) { index ->
+                    val frame = frames.getOrNull(index) ?: return@write null
+                    val ids = AnimationFrames.frameSubtreeIds(state.layers, frame.id)
+                    exportManager.compositeToDocument(
+                        state.layers.filter { it.id in ids },
+                        metrics.widthPixels,
+                        metrics.heightPixels,
+                        state.documentWidth,
+                        state.documentHeight,
+                        backgroundColor = android.graphics.Color.WHITE,
+                    )
+                }
+                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+                if (written > 0) {
+                    saveAnimationToDownloads(file)
+                } else {
+                    file.delete()
+                    withContext(dispatchers.main) {
+                        Toast.makeText(context, "Animation export produced no frames", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    Toast.makeText(context, "Animation export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun saveAnimationToDownloads(file: File) =
+        copyGifToDownloads(file, "Animation saved to Downloads", "Animation export failed")
 
     // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
 

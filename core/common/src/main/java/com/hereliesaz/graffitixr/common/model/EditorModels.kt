@@ -177,6 +177,17 @@ data class EditorUiState(
     // Procreate's time-lapse: while true, EditorViewModel streams a downsampled canvas snapshot to
     // a GIF file after every committed stroke (see TimeLapseRecorder). Transient UI state, not history.
     val isTimeLapseRecording: Boolean = false,
+    // Procreate's Animation Assist: each top-level layer is a frame (see AnimationFrames). Entering
+    // this mode doesn't touch any layer's persisted isVisible — the canvas renderer computes a
+    // per-frame opacity override instead, so turning it off leaves every layer exactly as it was.
+    val isAnimationMode: Boolean = false,
+    val isAnimationPlaying: Boolean = false,
+    val activeFrameIndex: Int = 0,
+    val onionSkinEnabled: Boolean = false,
+    // Frames shown faded on each side of the active one when onion skinning is on.
+    val onionSkinFrameCount: Int = 1,
+    val animationFrameDurationMs: Int = 100,
+    val animationLoopMode: AnimationLoopMode = AnimationLoopMode.LOOP,
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

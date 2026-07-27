@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.model.*
+import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -765,6 +766,96 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.isTimeLapseRecording) activeColor else navItemColor,
         onClick = { vm.onToggleTimeLapseRecording() },
     )
+    // Animation Assist. Every top-level layer is a frame (see AnimationFrames), so the layer group
+    // above doubles as the frame timeline — this group is the transport, onion-skin, and export
+    // controls that turn that stack into an animation.
+    azRailToggle(
+        id = "tool.animation",
+        isChecked = uiState.isAnimationMode,
+        toggleOnText = "Anim On",
+        toggleOffText = "Anim Off",
+        color = if (uiState.isAnimationMode) activeColor else navItemColor,
+        onClick = { vm.onToggleAnimationMode() },
+    )
+    if (uiState.isAnimationMode) {
+        val frameCount = uiState.layers.count { it.parentId == null }
+        azRailHostItem(
+            id = "grp.animation",
+            text = "Frame ${(uiState.activeFrameIndex + 1).coerceAtMost(frameCount.coerceAtLeast(1))}/$frameCount",
+            content = DesignR.drawable.ic_ps_animation,
+            color = navItemColor,
+        )
+        azRailSubItem(
+            id = "anim.play", hostId = "grp.animation",
+            text = if (uiState.isAnimationPlaying) "Pause" else "Play", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_animation,
+            color = if (uiState.isAnimationPlaying) activeColor else navItemColor,
+            onClick = { vm.onToggleAnimationPlayback() },
+        )
+        azRailSubItem(
+            id = "anim.prev", hostId = "grp.animation", text = "Previous", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_undo, color = navItemColor,
+            onClick = { vm.onPreviousFrame() },
+        )
+        azRailSubItem(
+            id = "anim.next", hostId = "grp.animation", text = "Next", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_redo, color = navItemColor,
+            onClick = { vm.onNextFrame() },
+        )
+        azRailSubItem(
+            id = "anim.add", hostId = "grp.animation", text = "Add Frame", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_layers, color = navItemColor,
+            onClick = { vm.onAddFrame() },
+        )
+        azRailSubItem(
+            id = "anim.onion", hostId = "grp.animation",
+            text = if (uiState.onionSkinEnabled) "Onion On" else "Onion Off", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_layers,
+            color = if (uiState.onionSkinEnabled) activeColor else navItemColor,
+            onClick = { vm.onToggleOnionSkin() },
+        )
+        AnimationLoopMode.entries.forEach { mode ->
+            azRailSubItem(
+                id = "anim.loop.${mode.name}", hostId = "grp.animation", text = mode.label, shape = AzButtonShape.NONE,
+                content = DesignR.drawable.ic_ps_animation,
+                color = if (uiState.animationLoopMode == mode) activeColor else navItemColor,
+                onClick = { vm.onSetAnimationLoopMode(mode) },
+            )
+        }
+        azRailSubItem(
+            id = "anim.export", hostId = "grp.animation", text = "Export GIF", shape = AzButtonShape.NONE,
+            content = DesignR.drawable.ic_ps_image, color = navItemColor,
+            onClick = { vm.exportAnimation() },
+        )
+        // Onion-skin depth and frame duration as sliders, since both are "dial it in while watching"
+        // values rather than discrete picks.
+        azRailSlider(
+            id = "anim.onionCount",
+            text = "Onion",
+            value = uiState.onionSkinFrameCount.toFloat(),
+            config = AzSliderConfig(
+                orientation = AzSliderOrientation.VERTICAL,
+                valueFrom = 1f,
+                valueTo = 5f,
+            ),
+            color = navItemColor,
+            valueFormatter = { "${it.roundToInt()}" },
+            onValueChange = { vm.onSetOnionSkinFrameCount(it.roundToInt()) },
+        )
+        azRailSlider(
+            id = "anim.speed",
+            text = "Speed",
+            value = uiState.animationFrameDurationMs.toFloat(),
+            config = AzSliderConfig(
+                orientation = AzSliderOrientation.VERTICAL,
+                valueFrom = 20f,
+                valueTo = 500f,
+            ),
+            color = navItemColor,
+            valueFormatter = { "${it.roundToInt()}ms" },
+            onValueChange = { vm.onSetAnimationFrameDurationMs(it.roundToInt()) },
+        )
+    }
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
     // its own read-out while dragging, so it's obvious which is which and what value you're on.

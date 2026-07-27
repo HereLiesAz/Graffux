@@ -164,8 +164,22 @@ fun EditorScreen(
                         }
                         // 1. Layer stack render.
                         val layerTree = remember(uiState.layers) { buildLayerTree(uiState.layers) }
+                        // Animation Assist: every top-level layer is a frame, so only the active
+                        // frame draws at full strength and neighbours fade in as onion skins. Off
+                        // (the normal editor), every frame stays at 1 and this is a no-op.
+                        val frameAlphas = remember(
+                            uiState.layers, uiState.isAnimationMode, uiState.activeFrameIndex,
+                            uiState.onionSkinEnabled, uiState.onionSkinFrameCount,
+                        ) {
+                            if (!uiState.isAnimationMode) emptyMap() else AnimationFrames.effectiveOpacities(
+                                uiState.layers,
+                                uiState.activeFrameIndex,
+                                uiState.onionSkinEnabled,
+                                uiState.onionSkinFrameCount,
+                            )
+                        }
                         layerTree.forEach { node ->
-                            LayerStackNode(node, uiState)
+                            LayerStackNode(node, uiState, frameAlpha = frameAlphas[node.layer.id] ?: 1f)
                         }
                     }
                 }
@@ -448,10 +462,15 @@ fun EditorScreen(
 private fun LayerStackNode(
     node: LayerNode,
     uiState: EditorUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Animation Assist's per-frame opacity override, applied on top of the layer's own opacity.
+    // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha
+    // already covers its whole subtree — recursive calls take the 1f default so it isn't squared.
+    frameAlpha: Float = 1f,
 ) {
     val layer = node.layer
     if (!layer.isVisible) return
+    if (frameAlpha <= 0f) return
 
     key(layer.id) {
         if (layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP) {
@@ -466,7 +485,7 @@ private fun LayerStackNode(
                         rotationX = layer.rotationX
                         rotationY = layer.rotationY
                         rotationZ = layer.rotationZ
-                        alpha = layer.opacity
+                        alpha = layer.opacity * frameAlpha
                         transformOrigin = TransformOrigin.Center
                         blendMode = layer.blendMode
                         compositingStrategy = if (layer.blendMode != BlendMode.SrcOver)
@@ -483,7 +502,7 @@ private fun LayerStackNode(
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)
             if (layer.shapes.isNotEmpty()) {
-                VectorLayerContent(layer, modifier = Modifier.fillMaxSize())
+                VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha)
             }
             val isLive = layer.id == uiState.liveStrokeLayerId
             val bmp = if (isLive) uiState.liveStrokeBitmap ?: layer.bitmap else layer.bitmap
@@ -534,7 +553,7 @@ private fun LayerStackNode(
                             rotationX = layer.rotationX
                             rotationY = layer.rotationY
                             rotationZ = layer.rotationZ
-                            alpha = layer.opacity
+                            alpha = layer.opacity * frameAlpha
                             transformOrigin = TransformOrigin.Center
                             blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
                             compositingStrategy = if (needsOffscreen)
@@ -996,7 +1015,7 @@ private fun ArtboardFrame(
  * bitmap. Shapes are defined in the layer's local pixel space centered on the origin.
  */
 @Composable
-private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier) {
+private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier, frameAlpha: Float = 1f) {
     Canvas(
         modifier = modifier.graphicsLayer {
             translationX = layer.offset.x
@@ -1006,7 +1025,7 @@ private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier) {
             rotationX = layer.rotationX
             rotationY = layer.rotationY
             rotationZ = layer.rotationZ
-            alpha = layer.opacity
+            alpha = layer.opacity * frameAlpha
             transformOrigin = TransformOrigin.Center
             blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
             if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
