@@ -70,6 +70,7 @@ import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
+import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
@@ -131,6 +132,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val uiState by vm.uiState.collectAsState()
     val storeState by vm.storeState.collectAsState()
     val installedExtensionIds by vm.installedExtensionIds.collectAsState()
+    val figmaState by vm.figmaState.collectAsState()
     val projects by vm.projects.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
@@ -153,6 +155,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
+    var showFigmaDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
     // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
     // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
@@ -286,6 +289,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 })
                 azDivider()
                 azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
+                azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
@@ -516,6 +520,19 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onInstall = { vm.installFromStore(it) },
                     onUninstall = { vm.uninstallStoreExtension(it) },
                     onDismiss = { showStoreDialog = false },
+                )
+            }
+
+            if (showFigmaDialog) {
+                FigmaWindow(
+                    state = figmaState,
+                    onTokenSubmit = { vm.connectFigma(it) },
+                    onDisconnect = { vm.disconnectFigma() },
+                    onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
+                    onLoadFile = { vm.loadFigmaFile() },
+                    onToggleFrame = { vm.toggleFigmaFrame(it) },
+                    onImport = { vm.importFigmaFrames() },
+                    onDismiss = { showFigmaDialog = false },
                 )
             }
 

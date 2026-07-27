@@ -127,6 +127,7 @@ class EditorViewModel @Inject constructor(
     private val opEmitter: OpEmitter,
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
+    private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
 ) : ViewModel(), EditorActions {
 
     private val _uiState = MutableStateFlow(EditorUiState())
@@ -3795,11 +3796,126 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Figma import ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
-     * round brush. Loads the brush's declarative definition to confirm it parses (rendering wiring is a
-     * follow-up); the active-brush name drives the UI and switches the size control's second axis to flow.
+     * Figma import panel state, shaped like [StoreUiState] — same load/error/results rhythm, so the
+     * window can be built the same way the Store window is.
      */
+    data class FigmaUiState(
+        val isConnected: Boolean = false,
+        val fileInput: String = "",
+        val fileName: String? = null,
+        val fileKey: String? = null,
+        val frames: List<com.hereliesaz.graffitixr.data.figma.FigmaFrame> = emptyList(),
+        val selectedIds: Set<String> = emptySet(),
+        val isLoading: Boolean = false,
+        val error: String? = null,
+    )
+
+    private val _figmaState = MutableStateFlow(FigmaUiState())
+    val figmaState: StateFlow<FigmaUiState> = _figmaState.asStateFlow()
+
+    init {
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.isAuthenticated.collect { connected ->
+                _figmaState.update { it.copy(isConnected = connected) }
+            }
+        }
+    }
+
+    fun onFigmaFileInputChanged(value: String) = _figmaState.update { it.copy(fileInput = value) }
+
+    /** Validates and stores a Figma personal access token. */
+    fun connectFigma(token: String) {
+        if (token.isBlank()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.connect(token)
+                .onSuccess { user ->
+                    _figmaState.update { it.copy(isLoading = false, error = null) }
+                    Toast.makeText(context, "Connected to Figma as ${user.handle}", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { e ->
+                    _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't verify that token") }
+                }
+        }
+    }
+
+    fun disconnectFigma() {
+        figmaRepository.disconnect()
+        _figmaState.update { FigmaUiState(isConnected = false) }
+    }
+
+    /** Resolves the pasted link/key and lists that file's importable frames. */
+    fun loadFigmaFile() {
+        val input = _figmaState.value.fileInput
+        if (input.isBlank()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.main) {
+            figmaRepository.loadFile(input)
+                .onSuccess { contents ->
+                    _figmaState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = if (contents.frames.isEmpty()) "No importable frames in that file" else null,
+                            fileKey = contents.fileKey,
+                            fileName = contents.name,
+                            frames = contents.frames,
+                            selectedIds = emptySet(),
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't load that file") }
+                }
+        }
+    }
+
+    fun toggleFigmaFrame(id: String) = _figmaState.update {
+        it.copy(selectedIds = if (id in it.selectedIds) it.selectedIds - id else it.selectedIds + id)
+    }
+
+    /**
+     * Renders the selected frames server-side, downloads each PNG, and adds it as a layer. Frames
+     * import newest-last so the picker's order is the stacking order.
+     */
+    fun importFigmaFrames() {
+        val state = _figmaState.value
+        val fileKey = state.fileKey ?: return
+        val ids = state.frames.map { it.id }.filter { it in state.selectedIds }
+        if (ids.isEmpty()) return
+        _figmaState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.default) {
+            figmaRepository.renderFrames(fileKey, ids)
+                .onSuccess { rendered ->
+                    var imported = 0
+                    for (id in ids) {
+                        val bytes = rendered[id] ?: continue
+                        val bitmap = runCatching { decodeBoundedBitmap(bytes, 4096) }.getOrNull() ?: continue
+                        val name = state.frames.firstOrNull { it.id == id }?.name ?: "Figma frame"
+                        importSingleBitmap(bitmap, name)
+                        imported++
+                    }
+                    withContext(dispatchers.main) {
+                        _figmaState.update { it.copy(isLoading = false, selectedIds = emptySet()) }
+                        val missed = ids.size - imported
+                        val message = when {
+                            imported == 0 -> "Couldn't import any of those frames"
+                            missed > 0 -> "Imported $imported of ${ids.size} frames"
+                            else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .onFailure { e ->
+                    withContext(dispatchers.main) {
+                        _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Import failed") }
+                    }
+                }
+        }
+    }
+
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
 
     /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
@@ -3884,6 +4000,10 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
+     * round brush. The active-brush name drives the UI and switches the size control's second axis to flow.
+     */
     fun selectBrushExtension(id: String?) {
         if (id == null) {
             activeStampBrush = null
