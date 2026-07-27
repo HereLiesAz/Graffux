@@ -50,6 +50,12 @@ fun TextEditDialog(
     initialItalic: Boolean,
     onTextChange: (String) -> Unit,
     onSizeChange: (Float) -> Unit,
+    // Brackets one drag of the size slider (undo + persist) — see
+    // EditorViewModel.onLayerEditStart/onLayerEditEnd. Without these, resizing text here reverted
+    // on relaunch and couldn't be undone, unlike every other control in this dialog (each of which
+    // is a single tap, not a drag, so it can push history and save inline).
+    onSizeStart: () -> Unit,
+    onSizeCommit: () -> Unit,
     onColorChange: (Int) -> Unit,
     onStyleChange: (bold: Boolean, italic: Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -59,6 +65,9 @@ fun TextEditDialog(
     var colorArgb by remember { mutableIntStateOf(initialColorArgb) }
     var bold by remember { mutableStateOf(initialBold) }
     var italic by remember { mutableStateOf(initialItalic) }
+    // True from the first onValueChange of a drag until onValueChangeFinished — see
+    // LayerOptionsDialog's identical isDraggingOpacity for why a stock Slider needs this.
+    var isDraggingSize by remember { mutableStateOf(false) }
 
     FloatingWindow(title = "Text", onDismiss = onDismiss) {
         Column(
@@ -75,7 +84,12 @@ fun TextEditDialog(
                 Text("Size ${size.roundToInt()} dp")
                 Slider(
                     value = size,
-                    onValueChange = { size = it; onSizeChange(it) },
+                    onValueChange = {
+                        if (!isDraggingSize) { isDraggingSize = true; onSizeStart() }
+                        size = it
+                        onSizeChange(it)
+                    },
+                    onValueChangeFinished = { isDraggingSize = false; onSizeCommit() },
                     valueRange = 8f..300f,
                 )
 

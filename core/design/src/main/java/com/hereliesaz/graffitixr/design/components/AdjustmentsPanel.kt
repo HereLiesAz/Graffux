@@ -66,11 +66,6 @@ fun AdjustmentsPanel(
     onAdjustmentStart: () -> Unit,
     onAdjustmentEnd: () -> Unit,
     strings: AppStrings,
-    showSegmentationSlider: Boolean = false,
-    segmentationInfluence: Float = 0.5f,
-    onSegmentationInfluenceChange: (Float) -> Unit = {},
-    onSegmentationDismiss: () -> Unit = {},
-    onSegmentationCancel: () -> Unit = {},
     // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of
     // the active layer's values.
     modeOpacity: Float? = null,
@@ -89,7 +84,7 @@ fun AdjustmentsPanel(
     // or if we are in AR mode (to provide access to the Magic Wand for anchoring).
     // HOWEVER, we hide the action row during Target Creation.
     val canShowActionRow = !state.isCapturingTarget
-    val isVisible = showKnobs || showColorBalance || showSegmentationSlider || (canShowActionRow && (hasImage || isArMode))
+    val isVisible = showKnobs || showColorBalance || (canShowActionRow && (hasImage || isArMode))
 
     if (!isVisible) return
 
@@ -115,21 +110,6 @@ fun AdjustmentsPanel(
         // Image-specific adjustment knobs
         // These are only shown if an image is actually present to adjust.
         if (hasImage) {
-            AnimatedVisibility(
-                visible = showSegmentationSlider,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-            ) {
-                SegmentationInfluenceRow(
-                    influence = segmentationInfluence,
-                    onInfluenceChange = onSegmentationInfluenceChange,
-                    onDismiss = onSegmentationDismiss,
-                    onCancel = onSegmentationCancel,
-                    strings = strings,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
             AnimatedVisibility(
                 visible = showColorBalance,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -173,72 +153,3 @@ fun AdjustmentsPanel(
     }
 }
 
-@Composable
-fun SegmentationInfluenceRow(
-    influence: Float,
-    onInfluenceChange: (Float) -> Unit,
-    onDismiss: () -> Unit,
-    onCancel: () -> Unit,
-    strings: AppStrings,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Cancel button
-            Surface(
-                shape = CircleShape,
-                color = HotPink,
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, contentDescription = strings.common.cancel, tint = Color.White)
-                }
-            }
-
-            // Confirm button
-            Surface(
-                shape = CircleShape,
-                color = HotPink,
-                shadowElevation = 4.dp
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Check, contentDescription = strings.common.done, tint = Color.White)
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                strings.adj.detail,
-                color = Color.White,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.width(36.dp)
-            )
-            Slider(
-                value = influence,
-                onValueChange = onInfluenceChange,
-                valueRange = 0f..1f,
-                modifier = Modifier.weight(1f),
-                colors = SliderDefaults.colors(
-                    thumbColor = HotPink,
-                    activeTrackColor = HotPink,
-                    inactiveTrackColor = Color.DarkGray
-                )
-            )
-        }
-    }
-}

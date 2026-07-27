@@ -70,6 +70,16 @@ class ExtensionRepository @Inject constructor(
     private val storeRegistry = RepositoryClient(AzphaltStore.REGISTRY_BASE_URL, ::httpGetString)
 
     /**
+     * The media domains (spec/repository-api.md § Media domains) this host can actually use, passed
+     * as `mediaDomains` on every search so the catalog never surfaces what it structurally can't run —
+     * a pure audio SFX or font pack doesn't match. `image` covers the 2D paint tools today; `3d` and
+     * `video` are included too since layered 3D assets (mesh/material/hdri) and animated/motion assets
+     * are on the roadmap even though nothing installs them yet — narrowing to `image` alone would hide
+     * exactly the packages that work would need to browse for.
+     */
+    private val supportedMediaDomains = listOf("image", "3d", "video")
+
+    /**
      * Browse the official azphalt store (https://azphalt.store) — the live catalog, not a bundled seed.
      * Fetches the store's package list and maps each to a catalog card whose [MarketplaceEntry.source]
      * is its resolved `.azp` download URL, which [install] then fetches. Blocking IO — call from a
@@ -80,7 +90,7 @@ class ExtensionRepository @Inject constructor(
      * array is what its storefront-internal `/api/packages` returns, which is a different surface.
      */
     fun browseStore(query: String? = null): List<MarketplaceEntry> =
-        storeRegistry.search(q = query).packages.map { pkg ->
+        storeRegistry.search(q = query, mediaDomains = supportedMediaDomains).packages.map { pkg ->
             pkg.toMarketplaceEntry(storeRegistry.downloadUrl(pkg.id, pkg.version))
         }
 
@@ -94,7 +104,7 @@ class ExtensionRepository @Inject constructor(
         query: String? = null,
         page: Int = 1,
     ): List<MarketplaceEntry> =
-        client.search(q = query, page = page).packages.map { pkg ->
+        client.search(q = query, mediaDomains = supportedMediaDomains, page = page).packages.map { pkg ->
             pkg.toMarketplaceEntry(client.downloadUrl(pkg.id, pkg.version))
         }
 

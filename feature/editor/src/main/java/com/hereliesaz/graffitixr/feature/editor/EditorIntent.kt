@@ -62,13 +62,6 @@ internal sealed interface EditorIntent {
     // ── Effect-result / transient flags (dispatched by the VM around async work) ───
     data class SetLoading(val loading: Boolean) : EditorIntent
     data class SetBackgroundBitmap(val bitmap: Bitmap?) : EditorIntent
-    data object BeginSegmentation : EditorIntent
-    data object EndSegmentation : EditorIntent
-    data class SetSegmentationInfluence(val value: Float) : EditorIntent
-    data class SetSegmentationPreview(val preview: Bitmap?) : EditorIntent
-    data class SetStencilGenerating(val generating: Boolean) : EditorIntent
-    data class SetStencilHintVisible(val visible: Boolean) : EditorIntent
-    data class SetStencilButtonPosition(val position: Offset) : EditorIntent
 
     // ── Settings / tool / brush / color ───────────────────────────────────────
     data class SetCanvasBackground(val color: Color) : EditorIntent
@@ -81,14 +74,23 @@ internal sealed interface EditorIntent {
     data object ToggleHandedness : EditorIntent
     data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
-    data class SetSketchThickness(val value: Int) : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
+    /** Ceiling on rendered touch samples per second while drawing; 0 is unthrottled. */
+    data class SetInputSampleRateHz(val hz: Int) : EditorIntent
+    /** Fraction of screen resolution new layers allocate at. */
+    data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
     /** Toggles the vertical-mirror symmetry guide for painting. */
     data object ToggleSymmetry : EditorIntent
+    /** Opens the radial QuickMenu at a screen point, or closes it with null. */
+    data class SetQuickMenu(val at: Offset?) : EditorIntent
+    /** Replaces the freehand selection, or clears it with null (deselect). */
+    data class SetSelection(val selection: com.hereliesaz.graffitixr.common.model.Selection?) : EditorIntent
+    /** Flips the active selection inside-out; a no-op when nothing is selected. */
+    data object InvertSelection : EditorIntent
     /** Live eyedropper state: sampling in progress, current colour + loupe position. */
     data class SetEyedrop(val active: Boolean, val color: Color? = null, val position: Offset = Offset.Zero) : EditorIntent
     /** Selects an azphalt stamp brush by name, or clears back to the built-in round brush (null). */

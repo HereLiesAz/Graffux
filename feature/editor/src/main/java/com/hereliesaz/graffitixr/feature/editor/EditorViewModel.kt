@@ -34,6 +34,7 @@ import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
@@ -57,11 +58,7 @@ import java.util.UUID
 import javax.inject.Inject
 import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilPrintEngine
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilProcessor
-import com.hereliesaz.graffitixr.feature.editor.stencil.StencilProgress
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
-import com.hereliesaz.graffitixr.common.util.SketchProcessor
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import kotlinx.coroutines.flow.collect
 
@@ -88,7 +85,25 @@ data class StrokeCommand(
     // paint to pixels that already have alpha.
     val symmetry: Boolean = false,
     val alphaLock: Boolean = false,
+    // The lasso selection in force when the stroke was drawn, if any. Recorded per stroke (rather
+    // than read from live state at replay time) so an undo/redo re-composites against the same
+    // boundary the paint was originally clipped to, even after the selection has moved or gone.
+    val selection: com.hereliesaz.graffitixr.common.model.Selection? = null,
+    // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
+    // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
+    val moveDelta: Offset? = null,
+    // Wipes the layer to transparency instead of painting a path — Procreate's clear-layer. Recorded
+    // as a command so it undoes by replay like everything else; honours [selection], so clearing
+    // with a lasso active wipes only inside it.
+    val clearAll: Boolean = false,
 )
+
+/**
+ * How many edits deep undo goes — and therefore how many strokes a layer must keep replayable.
+ * Shared by [EditHistory] and the stroke baker so they can't drift apart: if the history were ever
+ * deeper than the strokes kept, an undo would silently restore the wrong pixels.
+ */
+internal const val HISTORY_DEPTH = 20
 
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
@@ -102,9 +117,6 @@ class EditorViewModel @Inject constructor(
     private val projectManager: ProjectManager,
     private val exportManager: ExportManager,
     @ApplicationContext private val context: Context,
-    private val subjectIsolator: SubjectIsolator,
-    private val stencilProcessor: StencilProcessor,
-    private val stencilPrintEngine: StencilPrintEngine,
     internal val slamManager: SlamManager,
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
@@ -152,7 +164,7 @@ class EditorViewModel @Inject constructor(
                 emptyList()
             )
 
-    private val history = EditHistory()
+    private val history = EditHistory(HISTORY_DEPTH)
 
     // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore).
     private val layerStore = LayerStore()
@@ -175,13 +187,6 @@ class EditorViewModel @Inject constructor(
     private var copiedLayerState: Layer? = null
     private var anchorHalfExtentMeters: Pair<Float, Float>? = null
 
-    private var rawSegmentationConfidence: FloatArray? = null
-    private var segmentationSourceBitmap: Bitmap? = null
-    private var segmentationTargetLayerId: String? = null
-    // Stencil-mode segmentation: pending pipeline info set while the slider is visible
-    private var pendingStencilSourceLayerId: String? = null
-    private var pendingStencilProjectId: String? = null
-
     // Real-time stroke state — valid only between onStrokeStart and onStrokeEnd.
     private var strokeWorkingBitmap: Bitmap? = null
     private var strokeWorkingCanvas: Canvas? = null
@@ -191,6 +196,10 @@ class EditorViewModel @Inject constructor(
     // StrokeCommand (which is what undo/redo replays).
     private var strokeSymmetry: Boolean = false
     private var strokeAlphaLock: Boolean = false
+    /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
+    private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
+    /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
+    private var lastSampleMs: Long = 0L
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
@@ -223,10 +232,6 @@ class EditorViewModel @Inject constructor(
     private var strokeLayerOffset: Offset = Offset.Zero
     private var strokeLayerRotationZ: Float = 0f
 
-    // Cancels the previous segmentation-influence recompute so a slider drag doesn't pile up full
-    // K-means passes (one uncancelled Default coroutine per tick).
-    private var segmentationInfluenceJob: kotlinx.coroutines.Job? = null
-
     // Liquify live-preview state — valid only between onStrokeStart and onStrokeEnd for LIQUIFY.
     private var liquifyJob: kotlinx.coroutines.Job? = null
     private var liquifyOriginalBitmap: Bitmap? = null
@@ -256,6 +261,18 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
                 dispatch(EditorIntent.SetCanvasBackground(Color(argb.toLong() and 0xFFFFFFFFL)))
+            }
+        }
+        // Performance settings, mirrored into UiState so the hot paths (onStrokePoint, layer
+        // allocation) read them without touching DataStore per touch sample.
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.inputSampleRateHz.collect { hz ->
+                dispatch(EditorIntent.SetInputSampleRateHz(hz))
+            }
+        }
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.canvasRenderScale.collect { scale ->
+                dispatch(EditorIntent.SetCanvasRenderScale(scale))
             }
         }
 
@@ -427,6 +444,11 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 if (!layerStore.removeLastStroke(command.layerId)) return
                 rebuildLayerBitmap(command.layerId, emitOp = true)
+                // Undoing a selection move must walk the marquee back with its pixels, or it would
+                // sit over content it no longer bounds.
+                if (command.command.tool == Tool.SELECT) {
+                    dispatch(EditorIntent.SetSelection(command.command.selection))
+                }
             }
             is EditCommand.PropertyChange -> {
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
@@ -453,6 +475,13 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 rebuildLayerBitmap(command.layerId, emitOp = true)
+                // Redo re-applies the move, so the marquee moves forward with it again.
+                val delta = command.command.moveDelta
+                if (command.command.tool == Tool.SELECT && delta != null) {
+                    dispatch(EditorIntent.SetSelection(
+                        command.command.selection?.let { sel -> sel.copy(path = sel.path.map { it + delta }) }
+                    ))
+                }
             }
             is EditCommand.PropertyChange -> {
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
@@ -476,6 +505,80 @@ class EditorViewModel @Inject constructor(
      */
     private fun rebuildMissingBitmaps(layers: List<Layer>) {
         layers.filter { it.bitmap == null }.forEach { rebuildLayerBitmap(it.id, emitOp = true) }
+    }
+
+    /**
+     * Folds strokes older than the undo depth into the layer's base bitmap and drops them.
+     *
+     * A layer rebuilds by replaying its *whole* stroke list onto the base, so without this the list
+     * grows for the life of the session: every undo costs one full-bitmap composite per stroke ever
+     * made on that layer, and every recorded path — plus any stamp-brush bitmap it references — is
+     * retained forever. Both were unbounded.
+     *
+     * [EditHistory] keeps at most [HISTORY_DEPTH] entries, so a stroke older than that can never be
+     * undone back to. Baking it produces identical pixels for strictly less work and memory.
+     *
+     * The composite runs against a *snapshot* and the strokes are only removed afterwards, on the
+     * main thread, so a cancelled bake loses nothing: strokes are append-only, which keeps "the
+     * oldest N" the same N it composited.
+     */
+    private fun maybeBakeOldStrokes(layerId: String) {
+        val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
+        if (excess <= 0) return
+        val base = layerStore.base(layerId) ?: return
+        val stale = layerStore.strokes(layerId).take(excess)
+        if (stale.isEmpty()) return
+
+        viewModelScope.launch(dispatchers.default) {
+            try {
+                val baked = drawingEngine.composite(base, stale)
+                withContext(dispatchers.main) {
+                    // Re-check under the main thread: a project reload could have replaced the
+                    // layer's caches wholesale while this ran, and baking onto a stale base would
+                    // resurrect deleted pixels.
+                    if (layerStore.base(layerId) !== base) {
+                        baked.recycle()
+                        return@withContext
+                    }
+                    layerStore.takeOldestStrokes(layerId, stale.size)
+                    layerStore.putBase(layerId, baked)
+                    // The superseded base is deliberately NOT recycled: a rebuild launched before
+                    // this bake may still be compositing from it on another thread, and recycling
+                    // it underneath would fail that rebuild. It is unreachable now, so the
+                    // collector reclaims it — a moment later, but safely.
+                    //
+                    // Swapping the base and dropping the strokes together on the main thread is
+                    // what keeps this correct: rebuildLayerBitmap captures base and strokes on the
+                    // same thread, so it can never pair a freshly baked base with the strokes
+                    // already folded into it and apply them twice.
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Losing a bake is harmless — the strokes are still queued and still replay.
+                android.util.Log.w("EditorViewModel", "Failed to bake old strokes for $layerId", e)
+            }
+        }
+    }
+
+    /**
+     * The pixel size a newly created layer should allocate at: the screen, scaled by the user's
+     * canvas render scale.
+     *
+     * A layer costs width*height*4 bytes twice over (the displayed bitmap and [LayerStore]'s
+     * pristine base), so on a 1440x3120 panel each layer is ~36 MB at full scale and a handful of
+     * them exhausts the heap. Scale is quadratic here: 0.5 leaves a quarter of the bytes.
+     *
+     * Stroke coordinates are unaffected — [ImageProcessor.mapScreenToBitmap] derives its fit scale
+     * from the bitmap's own dimensions, so a smaller layer takes the same strokes in the same
+     * places and simply renders scaled up.
+     */
+    private fun newLayerSize(): Pair<Int, Int> {
+        val metrics = context.resources.displayMetrics
+        val scale = _uiState.value.canvasRenderScale.coerceIn(0.25f, 1f)
+        val w = (metrics.widthPixels.takeIf { it > 0 } ?: 1080) * scale
+        val h = (metrics.heightPixels.takeIf { it > 0 } ?: 1920) * scale
+        return w.toInt().coerceAtLeast(1) to h.toInt().coerceAtLeast(1)
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
@@ -516,6 +619,7 @@ class EditorViewModel @Inject constructor(
 
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
 
         viewModelScope.launch(dispatchers.default) {
             val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command)
@@ -893,9 +997,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         viewModelScope.launch(dispatchers.io) {
             val projectId = ensureProjectId()
-            val metrics = context.resources.displayMetrics
-            val width = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val height = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            val (width, height) = newLayerSize()
             val blankBitmap = createBitmap(width, height)
 
             val filename = "layer_${UUID.randomUUID()}.png"
@@ -1386,270 +1488,6 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onRemoveBackgroundClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val result = subjectIsolator.isolate(bitmap)
-                result.onSuccess { isolationResult ->
-                    val path = projectRepository.saveArtifact(projectId, "bg_removed_${System.currentTimeMillis()}.png", ImageUtils.bitmapToByteArray(isolationResult.isolatedBitmap))
-                    updateLayerUri(layerId, "file://$path".toUri())
-                    rawSegmentationConfidence = isolationResult.rawConfidence
-                    segmentationSourceBitmap = bitmap
-                    segmentationTargetLayerId = layerId
-                    withContext(dispatchers.main) {
-                        dispatch(EditorIntent.BeginSegmentation)
-                    }
-                }
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
-    fun setSegmentationInfluence(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
-        dispatch(EditorIntent.SetSegmentationInfluence(clamped))
-
-        val confidence = rawSegmentationConfidence ?: return
-        val source = segmentationSourceBitmap ?: return
-        val targetId = segmentationTargetLayerId
-
-        // Debounce: each slider tick reruns full K-means, so cancel the in-flight recompute before
-        // starting a fresh one — otherwise fast dragging piles up parallel passes on the Default pool.
-        segmentationInfluenceJob?.cancel()
-        segmentationInfluenceJob = viewModelScope.launch(dispatchers.default) {
-            val newBitmap = subjectIsolator.applyConfidenceThreshold(source, confidence, clamped, 0.1f)
-
-            val finalPreview = if (pendingStencilSourceLayerId != null) {
-                val polarity = stencilProcessor.assessTonalPolarity(newBitmap)
-                val mask = stencilProcessor.alphaToMask(newBitmap)
-                val stencilLayers = stencilProcessor.kmeansLayers(newBitmap, mask, polarity, clamped)
-
-                val combined = Bitmap.createBitmap(newBitmap.width, newBitmap.height, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(combined)
-                stencilLayers.forEach { stencilLayer ->
-                    canvas.drawBitmap(stencilLayer.bitmap, 0f, 0f, null)
-                }
-                combined
-            } else {
-                newBitmap
-            }
-
-            withContext(dispatchers.main) {
-                if (targetId != null) {
-                    _uiState.update { state ->
-                        state.copy(
-                            layers = state.layers.map { layer ->
-                                if (layer.id == targetId) layer.copy(bitmap = finalPreview) else layer
-                            }
-                        )
-                    }
-                } else {
-                    // Update live preview for stencil generation
-                    dispatch(EditorIntent.SetSegmentationPreview(finalPreview))
-                }
-            }
-        }
-    }
-
-    override fun onConfirmSegmentation() {
-        val stencilSourceLayerId = pendingStencilSourceLayerId
-        val stencilProjectId = pendingStencilProjectId
-        val confidence = rawSegmentationConfidence
-        val source = segmentationSourceBitmap
-        val influence = _uiState.value.segmentationInfluence
-        val targetLayerId = segmentationTargetLayerId
-
-        rawSegmentationConfidence = null
-        segmentationSourceBitmap = null
-        segmentationTargetLayerId = null
-        pendingStencilSourceLayerId = null
-        pendingStencilProjectId = null
-        dispatch(EditorIntent.EndSegmentation)
-
-        if (stencilSourceLayerId != null && stencilProjectId != null) {
-            dispatch(EditorIntent.SetLoading(true))
-            viewModelScope.launch(dispatchers.default) {
-                val isolated = if (confidence != null && source != null)
-                    subjectIsolator.applyConfidenceThreshold(source, confidence, influence, 0.1f)
-                else source ?: return@launch
-                runStencilPipeline(isolated, stencilSourceLayerId, stencilProjectId, influence)
-                withContext(dispatchers.main) {
-                    dispatch(EditorIntent.SetLoading(false))
-                }
-            }
-        } else if (targetLayerId != null && confidence != null && source != null) {
-            // Background-removal path: setSegmentationInfluence only updated the in-memory
-            // Layer.bitmap (which is @Transient and never serialized). Recompute the adjusted
-            // isolation deterministically and overwrite the layer's file so the slider
-            // adjustment survives a reload instead of reverting to the default threshold.
-            dispatch(EditorIntent.SetLoading(true))
-            viewModelScope.launch(dispatchers.default) {
-                val adjusted = subjectIsolator.applyConfidenceThreshold(source, confidence, influence, 0.1f)
-                val state = _uiState.value
-                val projectId = state.projectId
-                val filename = state.layers.find { it.id == targetLayerId }?.uri?.path?.substringAfterLast('/')
-                if (projectId != null && filename != null) {
-                    val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(adjusted))
-                    withContext(dispatchers.main) { updateLayerUri(targetLayerId, "file://$path".toUri()) }
-                }
-                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
-            }
-        }
-    }
-
-    override fun onCancelSegmentation() {
-        rawSegmentationConfidence = null
-        segmentationSourceBitmap = null
-        segmentationTargetLayerId = null
-        pendingStencilSourceLayerId = null
-        pendingStencilProjectId = null
-        dispatch(EditorIntent.EndSegmentation)
-    }
-
-    fun dismissSegmentationSlider() {
-        onConfirmSegmentation()
-    }
-
-    override fun onSketchClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val bg = state.canvasBackground
-                val penArgb = android.graphics.Color.argb(
-                    255,
-                    (255 * (1f - bg.red)).toInt().coerceIn(0, 255),
-                    (255 * (1f - bg.green)).toInt().coerceIn(0, 255),
-                    (255 * (1f - bg.blue)).toInt().coerceIn(0, 255)
-                )
-                val sketchBitmap = SketchProcessor.sketchEffect(bitmap, state.sketchThickness, penArgb)
-                if (sketchBitmap != null) {
-                    val path = projectRepository.saveArtifact(
-                        projectId,
-                        "sketch_${System.currentTimeMillis()}.png",
-                        ImageUtils.bitmapToByteArray(sketchBitmap)
-                    )
-                    val sketchUri = "file://$path".toUri()
-                    val sketchLayer = Layer(
-                        id = java.util.UUID.randomUUID().toString(),
-                        name = "Outline – ${layer.name}",
-                        uri = sketchUri,
-                        isSketch = true,
-                        isLinked = false,
-                        blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
-                        scale = layer.scale,
-                        offset = layer.offset,
-                        rotationX = layer.rotationX,
-                        rotationY = layer.rotationY,
-                        rotationZ = layer.rotationZ,
-                        warpMesh = layer.warpMesh
-                    )
-                    withContext(dispatchers.main) {
-                        _uiState.update { s ->
-                            val idx = s.layers.indexOfFirst { it.id == layerId }
-                            if (idx < 0) return@update s
-                            val newLayers = s.layers.toMutableList().also { list ->
-                                // Find top of the linked group to avoid splitting it
-                                var topIdx = idx
-                                while (topIdx + 1 < list.size && list[topIdx + 1].isLinked) topIdx++
-                                // Insert sketch layer above the group
-                                list.add(topIdx + 1, sketchLayer)
-                            }
-                            s.copy(layers = newLayers, isLoading = false)
-                        }
-                    }
-                    // Load the bitmap into the sketch layer so it renders immediately
-                    updateLayerUri(sketchLayer.id, sketchUri)
-                    opEmitter.emit(Op.LayerAdd(sketchLayer))
-                    return@launch
-                }
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
-    override fun onSketchThicknessChanged(thickness: Int) {
-        dispatch(EditorIntent.SetSketchThickness(thickness))
-    }
-
-    override fun onApplyCannyEdgeClicked() {
-        val state = _uiState.value
-        val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-        val uri = layer.uri ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val cannyBitmap = ImageProcessor.applyCannyEdgeDetection(bitmap, 50.0, 150.0)
-                val path = projectRepository.saveArtifact(
-                    projectId,
-                    "canny_${System.currentTimeMillis()}.png",
-                    ImageUtils.bitmapToByteArray(cannyBitmap)
-                )
-                val cannyUri = android.net.Uri.parse("file://$path")
-                val cannyLayer = Layer(
-                    id = java.util.UUID.randomUUID().toString(),
-                    name = "Canny – ${layer.name}",
-                    uri = cannyUri,
-                    isSketch = true,
-                    isLinked = false,
-                    blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver,
-                    scale = layer.scale,
-                    offset = layer.offset,
-                    rotationX = layer.rotationX,
-                    rotationY = layer.rotationY,
-                    rotationZ = layer.rotationZ,
-                    warpMesh = layer.warpMesh
-                )
-                withContext(dispatchers.main) {
-                    _uiState.update { s ->
-                        val idx = s.layers.indexOfFirst { it.id == layerId }
-                        if (idx < 0) return@update s
-                        val newLayers = s.layers.toMutableList().apply {
-                            var topIdx = idx
-                            while (topIdx + 1 < size && get(topIdx + 1).isLinked) topIdx++
-                            add(topIdx + 1, cannyLayer)
-                        }
-                        s.copy(layers = newLayers, isLoading = false)
-                    }
-                }
-                updateLayerUri(cannyLayer.id, cannyUri)
-                opEmitter.emit(Op.LayerAdd(cannyLayer))
-                return@launch
-            }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-            }
-        }
-    }
-
     private fun updateLayerUri(id: String, uri: Uri) {
         viewModelScope.launch(dispatchers.io) {
             val bitmap = ImageUtils.loadBitmapAsync(context, uri)
@@ -1687,16 +1525,6 @@ class EditorViewModel @Inject constructor(
         updateActiveLayer { it.copy(scale = scale, offset = Offset.Zero, rotationX = 0f, rotationY = 0f, rotationZ = 0f) }
     }
 
-    override fun onMagicClicked() {
-        pushHistory()
-        val extent = anchorHalfExtentMeters
-        if (extent != null) {
-            fitActiveLayerToAnchor(extent.first, extent.second)
-        } else {
-            updateActiveLayer { it.copy(brightness = 0.1f, contrast = 1.2f, saturation = 1.1f) }
-        }
-        saveProject()
-    }
     override fun onAdjustClicked() = dispatch(EditorIntent.ToggleAdjustPanel)
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
@@ -1839,6 +1667,23 @@ class EditorViewModel @Inject constructor(
         saveProject()
         emitActiveLayerProps()
     }
+    /**
+     * Brackets a drag on a stock Material `Slider` that live-updates the active layer (the Layer
+     * Options "Edit" window's opacity slider, the Text window's size slider) — as opposed to the
+     * Adjust panel's custom Knob, a stock `Slider` has no drag-start callback, so the caller
+     * detects drag-start itself and calls this once per drag. Without this bracket the slider
+     * dispatched its per-frame value change but never pushed history or saved, so an edit made
+     * this way reverted on relaunch and couldn't be undone — unlike the Adjust-panel knob, which
+     * commits correctly via [onAdjustmentStart]/[onAdjustmentEnd].
+     */
+    fun onLayerEditStart() = pushHistory()
+
+    /** See [onLayerEditStart]. */
+    fun onLayerEditEnd() {
+        saveProject()
+        emitActiveLayerProps()
+    }
+
     /** Opacity / brightness / contrast / saturation knobs adjust the active layer. */
     override fun onOpacityChanged(v: Float) = dispatch(EditorIntent.SetOpacity(v))
     override fun onBrightnessChanged(v: Float) = dispatch(EditorIntent.SetBrightness(v))
@@ -1922,6 +1767,16 @@ class EditorViewModel @Inject constructor(
     override fun onOffsetChanged(o: Offset) = dispatch(EditorIntent.AddOffset(o))
 
     fun setStabilizerLevel(level: Int) = dispatch(EditorIntent.SetStabilizerLevel(level))
+
+    /** Persisted; the collector above mirrors it back into [EditorUiState]. */
+    fun setInputSampleRateHz(hz: Int) {
+        viewModelScope.launch { settingsRepository.setInputSampleRateHz(hz) }
+    }
+
+    /** Persisted. Applies to layers created from now on — existing layers keep their pixels. */
+    fun setCanvasRenderScale(scale: Float) {
+        viewModelScope.launch { settingsRepository.setCanvasRenderScale(scale) }
+    }
     fun toggleWrapAroundMode() = dispatch(EditorIntent.ToggleWrapAroundMode)
 
     override fun onRotationXChanged(d: Float) {
@@ -1958,6 +1813,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onLayerWarpChanged(layerId: String, mesh: List<Float>) {
+        pushHistory()
         dispatch(EditorIntent.SetLayerWarp(layerId, mesh))
         saveProject()
     }
@@ -2244,6 +2100,8 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeSymmetry = state.symmetryEnabled && state.activeTool != Tool.LIQUIFY
         strokeAlphaLock = layer.alphaLock
+        strokeSelection = state.selection
+        lastSampleMs = 0L
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
@@ -2267,13 +2125,22 @@ class EditorViewModel @Inject constructor(
             stampLiveCanvas = null
             stampMappedPoints.clear()
             viewModelScope.launch(dispatchers.default) {
-                val work = originalBitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+                val work = SafeBitmap.copy(originalBitmap) ?: return@launch
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
                     if (stampSeed == currentSeed && stampBrushForStroke === stampBrush && strokeLayerId == layerId) {
                         stampLiveBitmap = work
-                        stampLiveCanvas = Canvas(work)
+                        // Same sticky-clip trick as the brush preview: bound the stamp canvas once.
+                        stampLiveCanvas = Canvas(work).also { c ->
+                            SelectionMask.clip(
+                                c,
+                                SelectionMask.bitmapPath(
+                                    strokeSelection, work.width, work.height,
+                                    layer.scale, layer.offset, layer.rotationZ,
+                                ),
+                            )
+                        }
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
@@ -2296,8 +2163,21 @@ class EditorViewModel @Inject constructor(
         // After the copy is done, replay ALL points collected so far (including any that
         // arrived while the copy was in flight) so no input is lost.
         viewModelScope.launch(dispatchers.default) {
-            val workBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            // Skipping the preview beats crashing: the stroke still commits on finger-up through
+            // onStrokeEnd's whole-stroke fallback, which is exactly the path a stroke too fast for
+            // this copy already takes.
+            val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch
             val workCanvas = Canvas(workBitmap)
+            // Clip the live-preview canvas to the lasso once, here. A Canvas clip is sticky until a
+            // restore, and this canvas is retained for the whole stroke — so every later segment
+            // drawn by onStrokePoint is confined too, without re-clipping per frame.
+            SelectionMask.clip(
+                workCanvas,
+                SelectionMask.bitmapPath(
+                    strokeSelection, workBitmap.width, workBitmap.height,
+                    layer.scale, layer.offset, layer.rotationZ,
+                ),
+            )
             // Read the transform off the captured immutable `layer` (not the mutable stroke* members,
             // which a quick second stroke could overwrite before this coroutine runs).
             val layerScale = layer.scale
@@ -2392,6 +2272,25 @@ class EditorViewModel @Inject constructor(
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
     fun onStrokePoint(currentPoint: Offset) {
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel)
+
+        // Input-rate throttle. Touch panels report at 120-240 Hz and this method previously
+        // rendered and published a frame for every single sample — the editor's largest power cost
+        // while drawing, spent on frames the display never showed. Dropping a sample loses nothing
+        // visible: the stroke is a polyline, so the segment simply spans to the next kept point.
+        //
+        // The point is still stabilized first (above) so the filter's history stays continuous, and
+        // the very first point of a stroke is never dropped — a quick tap is a single dab and has
+        // no later sample to fall back on.
+        val rateHz = _uiState.value.inputSampleRateHz
+        if (rateHz > 0 && lastSampleMs != 0L) {
+            val minGapMs = 1000L / rateHz
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastSampleMs < minGapMs) return
+            lastSampleMs = now
+        } else {
+            lastSampleMs = android.os.SystemClock.uptimeMillis()
+        }
+
         addStrokePoint(stabilizedPoint)
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
@@ -2547,6 +2446,7 @@ class EditorViewModel @Inject constructor(
             commitStampStroke(
                 state, layer, layerId, points, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
+                strokeSelection,
             )
             clearTransientStrokeState()
             return
@@ -2569,10 +2469,12 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
+                selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             val mapped = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, base.width, base.height,
@@ -2583,7 +2485,13 @@ class EditorViewModel @Inject constructor(
                 val blurred = ImageProcessor.applyToolToBitmap(
                     base, mapped, Tool.BLUR, state.brushSize * brushScale,
                     state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
-                    symmetry = strokeSymmetry,
+                    symmetry = command.symmetry,
+                    // Read off the command, not `strokeSelection`: this runs after the caller has
+                    // already cleared the transient stroke state.
+                    clipPath = SelectionMask.bitmapPath(
+                        command.selection, base.width, base.height,
+                        capturedScale, capturedOffset, capturedRotationZ,
+                    ),
                 )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -2634,6 +2542,13 @@ class EditorViewModel @Inject constructor(
                 val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
                 if (target != null && points.isNotEmpty()) {
                     val canvas = android.graphics.Canvas(target)
+                    SelectionMask.clip(
+                        canvas,
+                        SelectionMask.bitmapPath(
+                            strokeSelection, target.width, target.height,
+                            capturedScale, capturedOffset, capturedRotationZ,
+                        ),
+                    )
                     val brushScale = ImageProcessor.screenToBitmapScale(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
@@ -2709,12 +2624,14 @@ class EditorViewModel @Inject constructor(
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
+                selection = strokeSelection,
             )
 
             // Add stroke to history
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             _uiState.update { s ->
                 s.copy(
@@ -2740,12 +2657,14 @@ class EditorViewModel @Inject constructor(
                 layerRotationZ = capturedRotationZ,
                 symmetry = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
+                selection = strokeSelection,
             )
 
             // Add stroke to history for undo/redo replay.
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
             updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
 
             // Commit: working bitmap becomes the displayed layer bitmap.
             _uiState.update { s ->
@@ -2806,6 +2725,10 @@ class EditorViewModel @Inject constructor(
         rotationZ: Float,
         brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
         stampShape: Bitmap?,
+        // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke
+        // state the moment this returns, while the rasterization below runs later on a background
+        // dispatcher and would otherwise find it already null.
+        selection: com.hereliesaz.graffitixr.common.model.Selection?,
     ) {
         val base = layer.bitmap ?: return
         if (points.isEmpty()) return
@@ -2828,10 +2751,12 @@ class EditorViewModel @Inject constructor(
             // Reuse the live-preview seed so the committed pixels match what was previewed (no flash).
             seed = stampSeed,
             stampShape = stampShape,
+            selection = selection,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
 
         // Capture this stroke's preview bitmap synchronously (clearTransientStrokeState nulls the field
         // right after this returns). The async commit only clears the live preview if it's still ours —
@@ -2845,8 +2770,13 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
+            val commitCanvas = Canvas(target)
+            SelectionMask.clip(
+                commitCanvas,
+                SelectionMask.bitmapPath(selection, target.width, target.height, scale, offset, rotationZ),
+            )
             StampBrushRenderer.paintStroke(
-                Canvas(target), pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
+                commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
@@ -2959,17 +2889,26 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
+            selection = state.selection,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
         updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
         viewModelScope.launch(dispatchers.default) {
             val mapped = ImageProcessor.mapScreenToBitmap(
                 listOf(position), canvasSize.width, canvasSize.height, base.width, base.height,
                 layer.scale, layer.offset, layer.rotationZ
             ).first()
             val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            ImageProcessor.floodFill(target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb())
+            val clipPath = SelectionMask.bitmapPath(
+                command.selection, target.width, target.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+            ImageProcessor.floodFill(
+                target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb(),
+                clipRegion = SelectionMask.region(clipPath, target.width, target.height),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -2981,6 +2920,210 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Layer operations: clear and merge down ───────────────────────────────────────────────
+
+    /**
+     * Wipes the active layer to transparency — Procreate's clear-layer (its three-finger scrub).
+     * With a lasso active it clears only inside it, which is what a selection means everywhere else.
+     *
+     * Recorded as a replayable [StrokeCommand] for the same reason a selection move is: the editor
+     * restores pixels by replaying commands onto a base, so a bitmap edit is only undoable if it is
+     * replayable.
+     */
+    fun onClearLayer() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: return
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = IntSize(base.width, base.height),
+            tool = Tool.ERASER,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = state.selection,
+            clearAll = true,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
+
+        viewModelScope.launch(dispatchers.default) {
+            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val canvas = Canvas(target)
+            SelectionMask.clip(
+                canvas,
+                SelectionMask.bitmapPath(
+                    command.selection, target.width, target.height,
+                    layer.scale, layer.offset, layer.rotationZ,
+                ),
+            )
+            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
+    /**
+     * Merges [layerId] into the layer directly beneath it, as Procreate's Merge Down does.
+     *
+     * Mirrors [onFlattenAllLayers] rather than overwriting the lower layer in place: the merged
+     * pixels become a **new** layer and both sources leave the visible list while keeping their
+     * [layerStore] base+strokes. That is what makes the undo correct — [pushHistory] strips bitmaps
+     * from its snapshot, so restoring the two source layers can only work by rebuilding them from
+     * the store, and overwriting the lower layer's cached base would have destroyed exactly what
+     * the rebuild needs.
+     */
+    fun onMergeDown(layerId: String) {
+        val projectId = _uiState.value.projectId ?: return
+        val layers = _uiState.value.layers
+        val index = layers.indexOfFirst { it.id == layerId }
+        // Index 0 paints first (bottom), so there is nothing beneath it to merge into.
+        if (index <= 0) {
+            Toast.makeText(context, "Nothing below this layer to merge into", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val upper = layers[index]
+        val lower = layers[index - 1]
+        pushHistory()
+
+        viewModelScope.launch(dispatchers.default) {
+            val metrics = context.resources.displayMetrics
+            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
+            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            // Composited in paint order (lower first) so the upper layer's blend mode and opacity
+            // resolve against the one it is being merged into, exactly as they do on canvas.
+            val merged = exportManager.compositeLayers(listOf(lower, upper), w, h)
+
+            val filename = "merged_${UUID.randomUUID()}.png"
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(merged))
+            val mergedLayer = Layer(
+                id = UUID.randomUUID().toString(),
+                name = lower.name,
+                uri = "file://$path".toUri(),
+                bitmap = merged,
+            )
+
+            withContext(dispatchers.main) {
+                val current = _uiState.value.layers
+                // Re-resolve positions: the list can have changed while the composite was running.
+                val stillThere = current.any { it.id == upper.id } && current.any { it.id == lower.id }
+                if (!stillThere) return@withContext
+                val at = current.indexOfFirst { it.id == lower.id }
+                layerStore.putBase(mergedLayer.id, merged.copy(Bitmap.Config.ARGB_8888, false))
+                layerStore.initStrokes(mergedLayer.id)
+                val next = current.filterNot { it.id == upper.id || it.id == lower.id }
+                    .toMutableList()
+                    .apply { add(at.coerceIn(0, size), mergedLayer) }
+                dispatch(EditorIntent.ReplaceLayers(next, mergedLayer.id))
+                opEmitter.emit(Op.LayerRemove(upper.id))
+                opEmitter.emit(Op.LayerRemove(lower.id))
+                opEmitter.emit(Op.LayerAdd(mergedLayer))
+                saveProject()
+                showHud("Merged down")
+            }
+        }
+    }
+
+    // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
+
+    /** Opens the radial menu centred on [at] (screen space) — normally the summoning centroid. */
+    fun onOpenQuickMenu(at: Offset) = dispatch(EditorIntent.SetQuickMenu(at))
+
+    fun onDismissQuickMenu() = dispatch(EditorIntent.SetQuickMenu(null))
+
+    // ── Freehand selection (Procreate's lasso) ───────────────────────────────────────────────
+
+    /**
+     * Adopts the lasso the finger just traced. The polygon is thinned first — a traced loop arrives
+     * at touch-event rate, and every retained vertex is re-mapped on every paint op the selection
+     * clips. A loop too small to enclose anything is treated as a deselect by the reducer.
+     */
+    fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
+        val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        dispatch(EditorIntent.SetSelection(
+            com.hereliesaz.graffitixr.common.model.Selection(simplified, canvasSize)
+        ))
+    }
+
+    fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
+
+    fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
+
+    /**
+     * Moves the selected pixels by [delta] (screen space) on the active layer.
+     *
+     * Recorded as a [Tool.SELECT] [StrokeCommand] rather than a bitmap snapshot: the editor's
+     * history restores pixels by *replaying* stroke commands onto a base (property snapshots
+     * deliberately strip bitmaps), so a move only becomes undoable by being replayable. Given the
+     * same base, lasso and delta it reproduces identically — see [DrawingEngine].
+     *
+     * The marquee travels with its pixels so the selection keeps bounding the same content.
+     */
+    fun onSelectionMove(delta: Offset) {
+        val state = _uiState.value
+        val selection = state.selection ?: return
+        if (!selection.isUsable) return
+        // Sub-pixel drags would spend a full-bitmap lift to change nothing.
+        if (delta.getDistance() < 1f) return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Move needs a paint layer — vector shapes move via Transform", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val command = StrokeCommand(
+            // `path` carries the lasso too so the command reads sensibly on its own; the clip is
+            // built from `selection`, which also records whether it was inverted.
+            path = selection.path,
+            canvasSize = selection.canvasSize,
+            tool = Tool.SELECT,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = selection,
+            moveDelta = delta,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+
+        viewModelScope.launch(dispatchers.default) {
+            val clipPath = SelectionMask.bitmapPath(
+                selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+            ) ?: return@launch
+            val d = SelectionMask.mapDelta(
+                delta, selection.canvasSize.width, selection.canvasSize.height,
+                base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+            )
+            val moved = SelectionMask.moveRegion(base, clipPath, d.x, d.y)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
+                }
+                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + delta })))
+                scheduleDiskSave(layerId, moved, layer.uri)
+            }
+            // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
+        }
+    }
+
     // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
 
     fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
@@ -2988,6 +3131,8 @@ class EditorViewModel @Inject constructor(
     fun onToggleAlphaLock(id: String) {
         pushHistory()
         dispatch(EditorIntent.ToggleAlphaLock(id))
+        saveProject()
+        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
     }
 
     // ── QuickShape (pen snapped to an ideal ellipse on hold) ────────────────────────────────
@@ -3079,6 +3224,8 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = null
         strokeSymmetry = false
         strokeAlphaLock = false
+        strokeSelection = null
+        lastSampleMs = 0L
         resetStrokePoints()
         strokeLayerId = null
 
@@ -3165,6 +3312,34 @@ class EditorViewModel @Inject constructor(
         extensionRepository.installed
             .map { extensionRepository.installedBrushes().map { ext -> ext.id to ext.manifest.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The user's saved colour swatches (the colour picker's Palettes tab), reactive so a swatch
+     * saved in one place appears everywhere the palette is shown.
+     */
+    val savedPalette: StateFlow<List<androidx.compose.ui.graphics.Color>> =
+        settingsRepository.savedPalette
+            .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. */
+    fun onSavePaletteColor(color: androidx.compose.ui.graphics.Color) {
+        viewModelScope.launch {
+            val current = settingsRepository.savedPalette.first()
+            val next = com.hereliesaz.graffitixr.common.util.PaletteCodec.add(current, color.toArgb())
+            if (next !== current) settingsRepository.setSavedPalette(next)
+        }
+    }
+
+    /** Removes every swatch matching [color] from the saved palette. */
+    fun onRemovePaletteColor(color: androidx.compose.ui.graphics.Color) {
+        viewModelScope.launch {
+            val argb = color.toArgb()
+            val current = settingsRepository.savedPalette.first()
+            val next = current.filterNot { it == argb }
+            if (next.size != current.size) settingsRepository.setSavedPalette(next)
+        }
+    }
 
     /** Ids of every installed azphalt extension — lets the Store mark catalog cards Installed. */
     val installedExtensionIds: StateFlow<Set<String>> =
@@ -3539,137 +3714,6 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) { saveProject() }
     }
 
-    fun updateStencilButtonPosition(position: Offset) {
-        dispatch(EditorIntent.SetStencilButtonPosition(position))
-    }
-
-    override fun onGenerateStencil(layerId: String) {
-        val state = _uiState.value
-        val sourceLayer = state.layers.find { it.id == layerId } ?: return
-        val projectId = state.projectId ?: return
-
-        pushHistory()
-        dispatch(EditorIntent.SetStencilGenerating(true))
-
-        viewModelScope.launch(dispatchers.default) {
-            // 1. Identify linked group
-            val groupIds = getLinkedGroupIds(layerId)
-            val groupLayers = state.layers.filter { it.id in groupIds }
-            
-            val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
-            
-            // 2. Generate anchor-relative composite for analysis
-            val composite = exportManager.compositeToLayerSpace(sourceLayer, groupLayers, w, h)
-            
-            // 3. Isolate subject, then show the segmentation slider
-            val isolationResult = subjectIsolator.isolate(composite).getOrNull()
-            if (isolationResult != null) {
-                rawSegmentationConfidence = isolationResult.rawConfidence
-                segmentationSourceBitmap = composite
-                pendingStencilSourceLayerId = layerId
-                pendingStencilProjectId = projectId
-                withContext(dispatchers.main) {
-                    _uiState.update { it.copy(
-                        isStencilGenerating = false, 
-                        isSegmenting = true, 
-                        segmentationInfluence = 0.5f,
-                        segmentationPreview = isolationResult.isolatedBitmap
-                    ) }
-                }
-            } else {
-                // Isolation failed — run binary stencil on the raw composite immediately
-                runStencilPipeline(composite, layerId, projectId, 0.5f)
-            }
-        }
-    }
-
-    private suspend fun runStencilPipeline(
-        isolated: Bitmap,
-        sourceLayerId: String,
-        projectId: String,
-        influence: Float
-    ) {
-        stencilProcessor.process(isolated, influence).collect { progress ->
-            when (progress) {
-                is StencilProgress.Done -> {
-                    val sourceLayer = _uiState.value.layers.find { it.id == sourceLayerId }
-                    val newLayers = progress.layers.map { stencilLayer ->
-                        val type = stencilLayer.type
-                        val filename = "stencil_${type.name.lowercase()}_${UUID.randomUUID()}.png"
-                        val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(stencilLayer.bitmap))
-                        val localUri = "file://$path".toUri()
-
-                        Layer(
-                            id = UUID.randomUUID().toString(),
-                            name = "Stencil ${type.label}",
-                            uri = localUri,
-                            bitmap = stencilLayer.bitmap,
-                            isLinked = false,
-                            stencilType = type,
-                            stencilSourceId = sourceLayerId,
-                            scale = sourceLayer?.scale ?: 1.0f,
-                            offset = sourceLayer?.offset ?: Offset.Zero,
-                            rotationX = sourceLayer?.rotationX ?: 0f,
-                            rotationY = sourceLayer?.rotationY ?: 0f,
-                            rotationZ = sourceLayer?.rotationZ ?: 0f,
-                            warpMesh = sourceLayer?.warpMesh ?: emptyList()
-                        )
-                    }
-
-                    withContext(dispatchers.main) {
-                        for (layer in newLayers) {
-                            layerStore.putBase(layer.id, layer.bitmap!!.copy(Bitmap.Config.ARGB_8888, false))
-                            layerStore.initStrokes(layer.id)
-                        }
-
-                        // Set canvas background to match the color of the first generated layer (the Base)
-                        val baseColor = if (progress.layers.first().type.color == android.graphics.Color.BLACK) {
-                            androidx.compose.ui.graphics.Color.Black
-                        } else {
-                            androidx.compose.ui.graphics.Color.White
-                        }
-
-                        _uiState.update { s ->
-                            val idx = s.layers.indexOfFirst { it.id == sourceLayerId }
-                            val updatedLayers = s.layers.toMutableList().also { list ->
-                                var topIdx = idx
-                                while (topIdx + 1 < list.size && list[topIdx + 1].isLinked) topIdx++
-                                // Add all new layers in order
-                                list.addAll(topIdx + 1, newLayers)
-                            }
-                            s.copy(
-                                layers = updatedLayers,
-                                activeLayerId = newLayers.last().id,
-                                isStencilGenerating = false,
-                                stencilHintVisible = true,
-                                canvasBackground = baseColor
-                            )
-                        }
-                        viewModelScope.launch {
-                            kotlinx.coroutines.delay(3000)
-                            dispatch(EditorIntent.SetStencilHintVisible(false))
-                        }
-                        newLayers.forEach { opEmitter.emit(Op.LayerAdd(it)) }
-                        saveProject()
-                    }
-                }
-                is StencilProgress.Error -> {
-                    withContext(dispatchers.main) {
-                        dispatch(EditorIntent.SetStencilGenerating(false))
-                        Toast.makeText(context, "Stencil failed: ${progress.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-                else -> { /* Progress updates handled by UI if needed */ }
-            }
-        }
-    }
-
-    override fun onGeneratePoster(layerId: String) {
-        // This is called from the PosterOptionsDialog
-    }
-
     // -------------------------------------------------------------------------
     // Co-op spectator API
     // -------------------------------------------------------------------------
@@ -3777,48 +3821,4 @@ class EditorViewModel @Inject constructor(
     // already reacts to by loading the project's layers. The former loadAsSpectator stub here was
     // dead code from Task 14 — never called — and implied a second, unimplemented load path.
 
-    fun generatePosterPdf(selectedLayerIds: List<String>, outputSizeMm: Float) {
-        val state = _uiState.value
-        val stencilLayers = state.layers.filter { it.id in selectedLayerIds }
-            .mapNotNull { layer ->
-                layer.stencilType?.let { type ->
-                    layer.bitmap?.let { bmp ->
-                        StencilLayer(type, bmp, layer.name)
-                    }
-                }
-            }
-
-        if (stencilLayers.isEmpty()) return
-
-        dispatch(EditorIntent.SetLoading(true))
-        viewModelScope.launch(dispatchers.io) {
-            val result = stencilPrintEngine.generatePdf(
-                context,
-                stencilLayers,
-                outputSizeMm,
-                StencilOutputDimension.WIDTH // Default to width for now
-            )
-            
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetLoading(false))
-                result.fold(
-                    onSuccess = { uri ->
-                        // Share intent triggered via Activity/UI state or broadcast
-                        // For simplicity, let's just toast or use a callback
-                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(intent, "Share Stencil PDF").apply {
-                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    },
-                    onFailure = { e ->
-                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                )
-            }
-        }
-    }
 }
