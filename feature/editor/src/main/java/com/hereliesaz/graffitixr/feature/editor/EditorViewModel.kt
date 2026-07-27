@@ -1667,6 +1667,23 @@ class EditorViewModel @Inject constructor(
         saveProject()
         emitActiveLayerProps()
     }
+    /**
+     * Brackets a drag on a stock Material `Slider` that live-updates the active layer (the Layer
+     * Options "Edit" window's opacity slider, the Text window's size slider) — as opposed to the
+     * Adjust panel's custom Knob, a stock `Slider` has no drag-start callback, so the caller
+     * detects drag-start itself and calls this once per drag. Without this bracket the slider
+     * dispatched its per-frame value change but never pushed history or saved, so an edit made
+     * this way reverted on relaunch and couldn't be undone — unlike the Adjust-panel knob, which
+     * commits correctly via [onAdjustmentStart]/[onAdjustmentEnd].
+     */
+    fun onLayerEditStart() = pushHistory()
+
+    /** See [onLayerEditStart]. */
+    fun onLayerEditEnd() {
+        saveProject()
+        emitActiveLayerProps()
+    }
+
     /** Opacity / brightness / contrast / saturation knobs adjust the active layer. */
     override fun onOpacityChanged(v: Float) = dispatch(EditorIntent.SetOpacity(v))
     override fun onBrightnessChanged(v: Float) = dispatch(EditorIntent.SetBrightness(v))
@@ -1796,6 +1813,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onLayerWarpChanged(layerId: String, mesh: List<Float>) {
+        pushHistory()
         dispatch(EditorIntent.SetLayerWarp(layerId, mesh))
         saveProject()
     }
@@ -3113,6 +3131,8 @@ class EditorViewModel @Inject constructor(
     fun onToggleAlphaLock(id: String) {
         pushHistory()
         dispatch(EditorIntent.ToggleAlphaLock(id))
+        saveProject()
+        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
     }
 
     // ── QuickShape (pen snapped to an ideal ellipse on hold) ────────────────────────────────

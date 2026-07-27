@@ -395,6 +395,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             initialItalic = params.isItalic,
                             onTextChange = { vm.onTextContentChanged(editTextId, it) },
                             onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                            onSizeStart = { vm.onLayerEditStart() },
+                            onSizeCommit = { vm.onLayerEditEnd() },
                             onColorChange = { vm.onTextColorChanged(editTextId, it) },
                             onStyleChange = { b, i ->
                                 vm.onTextStyleChanged(editTextId, b, i, params.hasOutline, params.hasDropShadow)
@@ -450,6 +452,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onPolygonSides = { showSidesDialog = true },
                         onToggleFill = { vm.toggleVectorFill() },
                         onOpacityChange = { vm.onOpacityChanged(it) },
+                        onOpacityStart = { vm.onLayerEditStart() },
+                        onOpacityCommit = { vm.onLayerEditEnd() },
                         onBlendMode = { showBlendDialog = true },
                         onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
                         onDismiss = { showLayerOptionsDialog = false },
@@ -724,7 +728,15 @@ private fun AzNavHostScope.ConfigureRailItems(
                 shape = AzButtonShape.NONE,
                 color = if (layer.id == uiState.activeLayerId) activeColor else navItemColor,
                 onClick = { vm.onLayerActivated(layer.id) },
-                onRelocate = { _, _, newOrder -> vm.onLayerReordered(newOrder.reversed()) },
+                // newOrder comes back as this rail item's own ids ("layer.<uuid>"), not the raw
+                // layer ids LayerListOps.reorder matches against — every entry used to miss,
+                // silently reordering the layer list down to empty and saving that. Filtering to
+                // "layer."-prefixed entries also protects against newOrder carrying ids from other
+                // rail groups, if the library's relocate scope is ever wider than this host.
+                onRelocate = { _, _, newOrder ->
+                    val layerOrder = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
+                    vm.onLayerReordered(layerOrder.reversed())
+                },
             ) {
                 inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
                 listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
