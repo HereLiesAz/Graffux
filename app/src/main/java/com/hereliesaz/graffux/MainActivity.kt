@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +62,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -81,6 +83,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
+import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
@@ -168,6 +171,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    // The name confirmed in the Save dialog, held while the system location picker is up — the
+    // picker hands back a Uri and nothing else, so the name has to survive the round trip.
+    var pendingSaveName by remember { mutableStateOf<String?>(null) }
     // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
     // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
     // undo-tracked, and shouldn't survive into a save file the way a layer does.
@@ -188,6 +195,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         sharedImageUri?.let { vm.onAddLayer(it) }
     }
 
+    // Autosave is debounced so a flurry of strokes doesn't re-encode a full-screen PNG on each one.
+    // That debounce is exactly what loses the last edits when the user switches away and the
+    // process is reclaimed, so leaving the foreground forces the pending writes out immediately.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.flushPendingSaves()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { vm.onAddLayer(it) } }
@@ -203,6 +222,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val brushPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
+
+    // Save: the system picker chooses the location, seeded with the filename built from the name
+    // the user typed. Cancelling it leaves the project untouched — the work is already autosaved,
+    // so backing out of Save costs nothing.
+    val projectSaver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(ProjectFile.MIME_TYPE)
+    ) { uri ->
+        val name = pendingSaveName
+        pendingSaveName = null
+        if (uri != null && name != null) vm.saveProjectAs(uri, name)
+    }
+
+    // Open: like the model picker, `.fux` has no registered MIME type, so the picker can't filter
+    // by one — it opens on all files and the importer rejects anything that isn't a project.
+    val projectOpener = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.openProjectFile(it) } }
 
     // OBJ has no registered MIME type on most devices, so the picker can't filter by one — it
     // opens on all files and the parser rejects anything that isn't a model.
@@ -261,13 +297,14 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         onscreen(alignment = Alignment.TopEnd) {
             if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                 azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
-                // New/Open/Import/Save/Export map onto distinct actions rather than overloading one
-                // another: New starts a blank project; Open browses the saved ones (the Gallery IS
-                // that browser, so it lives under this single entry rather than a separate duplicate);
-                // Import brings an image or another design file INTO the current project, which is
-                // what the old "Open"/"Open File" pair actually did despite their names.
+                // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
+                // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
+                // the device; Gallery browses the projects already in the app; Import brings an
+                // image or another design file INTO the current project, which is what the old
+                // "Open"/"Open File" pair actually did despite their names.
                 azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
-                azItem(text = strings.nav.open, onClick = { showGalleryDialog = true })
+                azItem(text = strings.nav.open, onClick = { projectOpener.launch(arrayOf("*/*")) })
+                azItem(text = "Gallery", onClick = { showGalleryDialog = true })
                 azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Add…", onClick = { showAddDialog = true })
@@ -279,10 +316,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
                 // per-layer equivalent this complements at the whole-project level.
                 azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
-                // saveProject(name) both persists (like every autosave elsewhere) AND exports a
-                // portable .gxr copy to Downloads when name is non-null — passing the project's own
-                // current name does both at once without renaming it, i.e. Save and Save As in one tap.
-                azItem(text = strings.nav.save, onClick = { vm.saveProject(name = projects.find { it.id == uiState.projectId }?.name) })
+                // Save names the project and writes a `.fux` wherever the user chooses. It isn't
+                // what keeps their work — autosave does that continuously — so it's free to be a
+                // deliberate, two-step action rather than something they must remember to press.
+                azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                 azItem(text = strings.nav.export, onClick = { vm.exportImage() })
                 azItem(text = strings.nav.share, onClick = {
                     scope.launch {
@@ -518,6 +555,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onDismiss = { showLayerOptionsDialog = false },
                     )
                 }
+            }
+
+            if (showSaveDialog) {
+                SaveProjectDialog(
+                    currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
+                    onConfirm = { name ->
+                        showSaveDialog = false
+                        pendingSaveName = name
+                        projectSaver.launch(ProjectFile.suggestedFileName(name))
+                    },
+                    onDismiss = { showSaveDialog = false },
+                )
             }
 
             if (showGalleryDialog) {
