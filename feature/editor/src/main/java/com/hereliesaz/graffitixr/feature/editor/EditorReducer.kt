@@ -65,7 +65,7 @@ internal object EditorReducer {
         is EditorIntent.AddLayer -> state.copy(
             layers = state.layers + intent.layer,
             activeLayerId = intent.layer.id,
-            activeTool = Tool.NONE,
+            activeTool = intent.activeToolOverride ?: Tool.NONE,
             activePanel = if (intent.resetActivePanel) EditorPanel.NONE else state.activePanel,
         )
         is EditorIntent.RemoveLayer -> {

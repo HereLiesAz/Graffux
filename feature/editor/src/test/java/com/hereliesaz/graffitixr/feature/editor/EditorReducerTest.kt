@@ -125,6 +125,15 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `AddLayer with activeToolOverride keeps that tool instead of clearing it`() {
+        // Mirrors setActiveTool's empty-project path: picking BRUSH with no layers creates one and
+        // must land with BRUSH still active, not reset to NONE like every other AddLayer call.
+        val s = state(active = null).copy(activeTool = Tool.NONE)
+        val out = reduce(s, EditorIntent.AddLayer(lyr("a"), activeToolOverride = Tool.BRUSH))
+        assertEquals(Tool.BRUSH, out.activeTool)
+    }
+
+    @Test
     fun `RemoveLayer reactivates the first remaining layer when the active one is removed`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.RemoveLayer("a"))

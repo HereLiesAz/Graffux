@@ -317,6 +317,24 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `setActiveTool on an empty project creates a layer and keeps the tool active`() = runTest {
+        // Regression: picking a raster tool with no layers used to race a separate coroutine that
+        // polled for the layer and dispatched SetActiveTool afterward, which AddLayer's own
+        // activeTool reset could beat (or, on a slow/failed first write, never land at all) —
+        // leaving activeTool stuck on NONE so every touch fell through to canvas pan instead of
+        // painting. The tool must now land atomically with the layer, in the same dispatch.
+        assertTrue(viewModel.uiState.value.layers.isEmpty())
+
+        viewModel.setActiveTool(Tool.BRUSH)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(1, state.layers.size)
+        assertEquals(Tool.BRUSH, state.activeTool)
+        assertEquals(state.layers.first().id, state.activeLayerId)
+    }
+
+    @Test
     fun `onStrokeStart replays all buffered points after bitmap copy`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)

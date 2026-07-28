@@ -1232,16 +1232,29 @@ class EditorViewModel @Inject constructor(
         return _uiState.first { it.projectId != null }.projectId!!
     }
 
-    fun onAddBlankLayer() {
+    /** [activeToolOverride], when set, keeps that tool active on the new layer instead of resetting
+     *  to none — see [setActiveTool], the only caller that needs it. */
+    fun onAddBlankLayer(activeToolOverride: Tool? = null) {
         pushHistory()
         viewModelScope.launch(dispatchers.io) {
             val projectId = ensureProjectId()
             val (width, height) = newLayerSize()
             val blankBitmap = createBitmap(width, height)
 
-            val filename = "layer_${UUID.randomUUID()}.png"
-            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
-            val localUri = "file://$path".toUri()
+            // Persisting the artifact can fail (storage full, a first-run I/O hiccup) — don't let
+            // that leave the layer (and, via activeToolOverride, the tool the user picked) stuck
+            // never landing. Fall back to an in-memory-only layer and warn, rather than fail silently.
+            val localUri = try {
+                val filename = "layer_${UUID.randomUUID()}.png"
+                val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
+                "file://$path".toUri()
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Failed to persist new layer artifact", e)
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Couldn't save the new layer — storage may be full", Toast.LENGTH_LONG).show()
+                }
+                null
+            }
 
             withContext(dispatchers.main) {
                 val sketchCount = _uiState.value.layers.count { it.isSketch }
@@ -1256,7 +1269,7 @@ class EditorViewModel @Inject constructor(
                 layerStore.putBase(newLayer.id, blankBitmap.copy(Bitmap.Config.ARGB_8888, false))
                 layerStore.initStrokes(newLayer.id)
 
-                dispatch(EditorIntent.AddLayer(newLayer))
+                dispatch(EditorIntent.AddLayer(newLayer, activeToolOverride = activeToolOverride))
                 opEmitter.emit(Op.LayerAdd(newLayer))
                 saveProject()
             }
@@ -1738,14 +1751,16 @@ class EditorViewModel @Inject constructor(
         // A raster tool needs something to paint on: with no layers EditorScreen doesn't even mount the
         // touch layer, so the brush silently does nothing. Give it a canvas instead of a dead tool.
         // PEN is exempt — it makes its own vector layer per stroke.
+        //
+        // The tool activates atomically with the layer landing (AddLayer's activeToolOverride)
+        // rather than in a separate coroutine that polls for the layer and then dispatches
+        // SetActiveTool afterward: AddLayer's reducer case always resets activeTool to NONE, so a
+        // delayed dispatch here was racing it, and on a slow/failed first write (a fresh project's
+        // first disk I/O, low storage) the poll's timeout could elapse before the layer ever
+        // landed — leaving the tool stuck on NONE and every touch falling through to canvas
+        // pan/zoom instead of painting, exactly as if the tool had never been picked at all.
         if (tool != Tool.NONE && tool != Tool.PEN && _uiState.value.layers.isEmpty()) {
-            viewModelScope.launch(dispatchers.main) {
-                onAddBlankLayer()
-                // AddLayer clears activeTool, so select the tool only once the layer has landed —
-                // setting it first would have it wiped the moment the layer arrives.
-                withTimeoutOrNull(5_000) { _uiState.first { it.layers.isNotEmpty() } }
-                dispatch(EditorIntent.SetActiveTool(tool))
-            }
+            onAddBlankLayer(activeToolOverride = tool)
             return
         }
         dispatch(EditorIntent.SetActiveTool(tool))
