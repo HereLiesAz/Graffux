@@ -64,6 +64,12 @@ fun ModelWindow(
     var paintEnabled by remember { mutableStateOf(false) }
     val texture = state.texture
 
+    // Tracked as Compose state rather than read off PaintableTexture.version, which is a plain
+    // volatile the GL thread polls — nothing recomposes when it moves, so the Clear button would
+    // appear only when some unrelated change happened to redraw the window. Re-keyed on the
+    // texture so opening a different project starts from that project's own paint.
+    var hasPaint by remember(texture) { mutableStateOf(texture?.isPainted == true) }
+
     FloatingWindow(title = state.name ?: "3D Model", onDismiss = onDismiss) {
         when {
             state.isLoading -> Box(
@@ -86,7 +92,7 @@ fun ModelWindow(
                     paintEnabled = paintEnabled,
                     paintColor = paintColor,
                     brushRadiusPx = brushRadiusPx,
-                    onPaintChanged = onPaintChanged,
+                    onPaintChanged = { hasPaint = true; onPaintChanged() },
                     captureRequest = captureRequest,
                     onCaptured = { bitmap -> if (bitmap != null) onAddToCanvas(bitmap) },
                 )
@@ -112,10 +118,10 @@ fun ModelWindow(
                     onClick = { captureRequest++ },
                     shape = AzButtonShape.RECTANGLE,
                 )
-                if (texture?.isPainted == true) {
+                if (hasPaint && texture != null) {
                     AzButton(
                         text = "Clear paint",
-                        onClick = { texture.clear(); onPaintChanged() },
+                        onClick = { texture.clear(); hasPaint = false; onPaintChanged() },
                         shape = AzButtonShape.RECTANGLE,
                     )
                 }

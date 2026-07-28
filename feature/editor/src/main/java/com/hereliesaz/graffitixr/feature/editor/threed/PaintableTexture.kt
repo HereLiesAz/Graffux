@@ -54,6 +54,7 @@ class PaintableTexture(val width: Int, val height: Int) {
                 null
             }
             stamps.forEach { canvas.drawCircle(it.x, it.y, radius, paint) }
+            isPainted = true
             version++
         }
     }
@@ -70,6 +71,9 @@ class PaintableTexture(val width: Int, val height: Int) {
             canvas.drawColor(0, PorterDuff.Mode.CLEAR)
             val dest = android.graphics.Rect(0, 0, width, height)
             canvas.drawBitmap(saved, null, dest, Paint(Paint.FILTER_BITMAP_FLAG))
+            // A texture is only written to disk once something has been painted on it, so its
+            // existence on reload is what tells us there is paint here.
+            isPainted = true
             version++
         }
     }
@@ -78,12 +82,20 @@ class PaintableTexture(val width: Int, val height: Int) {
     fun clear() {
         synchronized(this) {
             canvas.drawColor(0, PorterDuff.Mode.CLEAR)
+            isPainted = false
             version++
         }
     }
 
-    /** True once anything has been painted — used to decide whether there's work worth keeping. */
-    val isPainted: Boolean get() = version > 0
+    /**
+     * Whether there is paint on the surface right now.
+     *
+     * Tracked separately from [version], which only ever counts up: deriving it from the version
+     * would make a cleared texture still claim to be painted, since clearing is itself a change.
+     */
+    @Volatile
+    var isPainted: Boolean = false
+        private set
 
     /**
      * Runs [block] against the bitmap with painting held off.
