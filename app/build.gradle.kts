@@ -23,6 +23,15 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
+// google-services.json is never committed (see .gitignore) — CI writes it from the GOOGLE_SERVICES
+// secret before this build runs (see the "Inject Google Services" step in the workflows), and local
+// dev needs its own copy from the Firebase console. The google-services plugin hard-fails
+// configuration when the file is missing, so only apply it when the file is actually there —
+// otherwise every build without Firebase creds configured (fresh checkouts, fork PRs) would break.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Load version properties
 val versionPropsFile = project.rootProject.file("version.properties")
 val versionProps = Properties().apply {
@@ -276,6 +285,11 @@ dependencies {
 
     implementation(libs.timber)
     implementation(libs.coil.compose)
+
+    // Import the Firebase BoM so all Firebase library versions stay compatible; don't pin
+    // individual Firebase dependency versions when using it.
+    implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
+    implementation("com.google.firebase:firebase-analytics")
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
