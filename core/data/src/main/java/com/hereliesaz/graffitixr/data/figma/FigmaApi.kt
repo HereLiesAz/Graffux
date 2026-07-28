@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Figma REST API models and a transport-agnostic client, mirroring [RepositoryClient]'s design: the
- * caller supplies the HTTP function, so everything here is pure and unit-testable without a network.
+ * Figma REST API models and a transport-agnostic client: the caller supplies the HTTP function, so
+ * everything here is pure and unit-testable without a network.
  *
  * Only the read surface is modelled, because that is all the public API offers — Figma's REST API
  * cannot create or modify design content in a file. Pushing artwork the other way needs a companion

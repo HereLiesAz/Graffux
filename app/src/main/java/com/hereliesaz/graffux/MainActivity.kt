@@ -85,6 +85,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
+import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
@@ -143,8 +144,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
-    val storeState by vm.storeState.collectAsState()
-    val installedExtensionIds by vm.installedExtensionIds.collectAsState()
+    val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val figmaState by vm.figmaState.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
@@ -226,6 +226,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
 
+    // The azphalt acquisition handoff (spec/store-app.md): a separate store app does the browsing and
+    // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
+    // the exact same AzpInstaller check it would on a file the user picked by hand. RESULT_CANCELED
+    // (the user backed out) is a clean no-op per the spec.
+    val storeBrowser = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { vm.installExtensionFromUri(it) }
+        }
+    }
+
     // Save: the system picker chooses the location, seeded with the filename built from the name
     // the user typed. Cancelling it leaves the project untouched — the work is already autosaved,
     // so backing out of Save costs nothing.
@@ -251,6 +263,19 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     val brushes by vm.installedBrushes.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
+
+    // Resolves and launches the azphalt store's browse intent (spec/store-app.md § Discovery), or
+    // says plainly that none is installed — the spec requires degrading gracefully here, not silently
+    // doing nothing or crashing on ActivityNotFoundException.
+    val openAzphaltStore = {
+        if (AzphaltStoreHandoff.isStoreAvailable(context.packageManager, context.packageName)) {
+            storeBrowser.launch(AzphaltStoreHandoff.browseIntent(context.packageName))
+        } else {
+            android.widget.Toast.makeText(
+                context, "No Azphalt Store app is installed", android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
 
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -345,7 +370,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     }
                 })
                 azDivider()
-                azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
+                azItem(text = "Store", onClick = { showStoreDialog = true })
                 azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                 azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                 azItem(text = "3D Model…", onClick = { showModelDialog = true })
@@ -600,11 +625,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
             if (showStoreDialog) {
                 StoreWindow(
-                    state = storeState,
-                    installedIds = installedExtensionIds,
-                    onSearch = { vm.searchStore(it) },
-                    onInstall = { vm.installFromStore(it) },
-                    onUninstall = { vm.uninstallStoreExtension(it) },
+                    installed = allInstalledExtensions,
+                    onBrowse = openAzphaltStore,
+                    onUninstall = { vm.uninstallExtension(it) },
                     onDismiss = { showStoreDialog = false },
                 )
             }
