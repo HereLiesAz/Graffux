@@ -119,7 +119,19 @@ def main() -> int:
     print(f"::notice::Publishing {args.package} as {sa_email} (project {sa_project})")
 
     creds = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-    authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=HTTP_TIMEOUT_S))
+    http = httplib2.Http(timeout=HTTP_TIMEOUT_S)
+    # Resumable uploads (like the multi-chunk AAB below) report an in-progress chunk as HTTP 308
+    # "Resume Incomplete" with no Location header - that's Google's convention, not a real
+    # redirect. httplib2 treats 308 as a redirect by default and raises RedirectMissingLocation
+    # ("Redirected but the response is missing a Location: header.") the moment it sees one,
+    # which aborts the upload after the first chunk. googleapiclient's own build_http() strips
+    # 308 out for exactly this reason; we bypass build_http() to wrap the transport in
+    # AuthorizedHttp, so apply the same fix here.
+    try:
+        http.redirect_codes = http.redirect_codes - {308}
+    except AttributeError:
+        pass
+    authed_http = AuthorizedHttp(creds, http=http)
     svc = build("androidpublisher", "v3", http=authed_http, cache_discovery=False)
 
     # Play's concurrent-active-edits quota is small - if we fail between insert and commit,
