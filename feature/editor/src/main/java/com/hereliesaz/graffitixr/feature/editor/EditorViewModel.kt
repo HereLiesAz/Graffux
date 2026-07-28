@@ -3817,6 +3817,41 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── 3D model viewport ────────────────────────────────────────────────────────────────────
+
+    private val _modelState = MutableStateFlow(com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState())
+    val modelState: StateFlow<com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState> =
+        _modelState.asStateFlow()
+
+    /**
+     * Loads an OBJ model from [uri]. Parsing runs off the main thread — a scanned mesh is megabytes
+     * of text and would jank the UI if read inline.
+     */
+    fun loadModel(uri: Uri, displayName: String? = null) {
+        _modelState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.io) {
+            val result = runCatching {
+                val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes().decodeToString()
+                } ?: throw java.io.IOException("Couldn't open that file")
+                com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(text)
+            }
+            withContext(dispatchers.main) {
+                result
+                    .onSuccess { mesh ->
+                        _modelState.update {
+                            it.copy(mesh = mesh, name = displayName, isLoading = false, error = null)
+                        }
+                    }
+                    .onFailure { e ->
+                        _modelState.update {
+                            it.copy(isLoading = false, error = e.message ?: "Couldn't read that model")
+                        }
+                    }
+            }
+        }
+    }
+
     // ── Layout (constraints + auto-layout) ───────────────────────────────────────────────────
 
     /** Sets how the active layer reacts when its parent frame resizes. */

@@ -82,6 +82,7 @@ import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
+import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
@@ -141,6 +142,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val storeState by vm.storeState.collectAsState()
     val installedExtensionIds by vm.installedExtensionIds.collectAsState()
     val figmaState by vm.figmaState.collectAsState()
+    val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
@@ -164,6 +166,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showFigmaDialog by remember { mutableStateOf(false) }
+    var showModelDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
     // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
     // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
@@ -200,6 +203,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val brushPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
+
+    // OBJ has no registered MIME type on most devices, so the picker can't filter by one — it
+    // opens on all files and the parser rejects anything that isn't a model.
+    val modelPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
     val brushes by vm.installedBrushes.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
@@ -299,6 +308,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 azItem(text = "Store", onClick = { vm.openStore(); showStoreDialog = true })
                 azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                 azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
+                azItem(text = "3D Model…", onClick = { showModelDialog = true })
                 azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                 azItem(text = "Settings", onClick = { showSettings = true })
             }
@@ -529,6 +539,14 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onInstall = { vm.installFromStore(it) },
                     onUninstall = { vm.uninstallStoreExtension(it) },
                     onDismiss = { showStoreDialog = false },
+                )
+            }
+
+            if (showModelDialog) {
+                ModelWindow(
+                    state = modelState,
+                    onPickModel = { modelPicker.launch(arrayOf("*/*")) },
+                    onDismiss = { showModelDialog = false },
                 )
             }
 
