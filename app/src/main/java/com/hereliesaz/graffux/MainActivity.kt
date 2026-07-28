@@ -83,6 +83,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
+import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
@@ -147,6 +148,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val figmaState by vm.figmaState.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
+    val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
 
@@ -172,6 +174,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showModelDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showOpenDialog by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -303,7 +306,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 // image or another design file INTO the current project, which is what the old
                 // "Open"/"Open File" pair actually did despite their names.
                 azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
-                azItem(text = strings.nav.open, onClick = { projectOpener.launch(arrayOf("*/*")) })
+                azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                 azItem(text = "Gallery", onClick = { showGalleryDialog = true })
                 azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
@@ -555,6 +558,21 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onDismiss = { showLayerOptionsDialog = false },
                     )
                 }
+            }
+
+            if (showOpenDialog) {
+                OpenProjectWindow(
+                    state = openScreenState,
+                    currentProjectId = uiState.projectId,
+                    onOpenProject = { vm.openProject(it) },
+                    onOpenFile = { vm.openProjectFile(it) },
+                    onNew = { vm.createNewProject() },
+                    // Stays open behind the system picker: cancelling it should put the user back
+                    // where they were rather than making them find Open again.
+                    onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
+                    onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
+                    onDismiss = { showOpenDialog = false },
+                )
             }
 
             if (showSaveDialog) {

@@ -128,6 +128,7 @@ class EditorViewModel @Inject constructor(
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
+    private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
 ) : ViewModel(), EditorActions {
 
     private val _uiState = MutableStateFlow(EditorUiState())
@@ -3692,6 +3693,28 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
             projectRepository.createProject("Untitled $n")
+        }
+    }
+
+    // ── Open screen (every project the device can offer, wherever it lives) ─────────────────
+
+    private val _openScreenState = MutableStateFlow(OpenScreenState())
+    val openScreenState: StateFlow<OpenScreenState> = _openScreenState.asStateFlow()
+
+    /**
+     * Rebuilds the Open screen: the projects already in the app, plus every `.fux` the device will
+     * admit to holding.
+     *
+     * Scanning storage is slow enough to see, so the in-app projects are published first and the
+     * discovered files land when they land — the screen is usable immediately rather than blank
+     * until the slowest part finishes.
+     */
+    fun refreshOpenScreen() {
+        viewModelScope.launch(dispatchers.io) {
+            val inApp = runCatching { projectRepository.getProjects() }.getOrDefault(emptyList())
+            _openScreenState.value = OpenScreenState(isScanning = true, inApp = inApp)
+            val files = runCatching { projectFileScanner.scan() }.getOrDefault(emptyList())
+            _openScreenState.value = OpenScreenState(isScanning = false, inApp = inApp, files = files)
         }
     }
 

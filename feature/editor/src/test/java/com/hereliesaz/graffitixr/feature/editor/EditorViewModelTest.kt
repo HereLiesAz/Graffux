@@ -58,6 +58,7 @@ class EditorViewModelTest {
     private val extensionRepository: ExtensionRepository = mockk(relaxed = true)
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository = mockk(relaxed = true)
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository = mockk(relaxed = true)
+    private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
@@ -129,7 +130,7 @@ class EditorViewModelTest {
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
             slamManager, testDispatcherProvider, opEmitter, extensionRepository, customBrushRepository,
-            figmaRepository,
+            figmaRepository, projectFileScanner,
         )
     }
 
