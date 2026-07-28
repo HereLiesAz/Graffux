@@ -614,6 +614,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     state = modelState,
                     onPickModel = { modelPicker.launch(arrayOf("*/*")) },
                     onDismiss = { showModelDialog = false },
+                    // The same colour and size the 2D canvas is set to: switching to a model is a
+                    // change of surface, not of brush.
+                    paintColor = uiState.activeColor,
+                    brushRadiusPx = uiState.brushSize / 2f,
                 )
             }
 
