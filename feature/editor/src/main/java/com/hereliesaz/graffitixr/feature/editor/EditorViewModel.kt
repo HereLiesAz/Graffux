@@ -4021,6 +4021,22 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Adds the model as it currently looks — angle, paint and all — to the document as a layer.
+     *
+     * A snapshot rather than a live 3D layer: the document is a flat image, and everything that
+     * acts on a layer (transform, blend, adjustments, export) already works on pixels. Turning the
+     * model and taking another is cheap, so nothing is lost by not keeping it live.
+     */
+    fun addModelViewToCanvas(bitmap: Bitmap) {
+        viewModelScope.launch(dispatchers.io) {
+            ensureProjectId()
+            val name = _modelState.value.name?.substringBeforeLast('.') ?: "Model"
+            importSingleBitmap(bitmap, name)
+            withContext(dispatchers.main) { toast("Added “$name” to the canvas") }
+        }
+    }
+
     /** Where the current model's texture is written. Null when no model is loaded. */
     private var modelTexturePath: String? = null
 

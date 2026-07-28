@@ -615,6 +615,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     onPickModel = { modelPicker.launch(arrayOf("*/*")) },
                     onDismiss = { showModelDialog = false },
                     onPaintChanged = { vm.onModelPaintChanged() },
+                    onAddToCanvas = { bitmap ->
+                        vm.addModelViewToCanvas(bitmap)
+                        showModelDialog = false
+                    },
                     // The same colour and size the 2D canvas is set to: switching to a model is a
                     // change of surface, not of brush.
                     paintColor = uiState.activeColor,

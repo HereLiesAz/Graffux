@@ -85,29 +85,6 @@ class ProjectFileScanner @Inject constructor(
     }
 
     /**
-     * Reads the name and preview out of a project file the user picked by hand, so a file from a
-     * location the scan can't reach still shows as a proper card once chosen.
-     */
-    suspend fun inspect(uri: Uri, fileName: String?): DiscoveredProjectFile? = withContext(Dispatchers.IO) {
-        try {
-            val stream = context.contentResolver.openInputStream(uri) ?: return@withContext null
-            val name = fileName ?: uri.lastPathSegment.orEmpty()
-            val peeked = stream.use { peek(it) }
-            DiscoveredProjectFile(
-                uri = uri,
-                fileName = name,
-                projectName = peeked.name ?: ProjectFile.projectNameFrom(name),
-                location = "Chosen file",
-                lastModified = System.currentTimeMillis(),
-                thumbnail = peeked.thumbnail,
-            )
-        } catch (e: Exception) {
-            Log.w("ProjectFileScanner", "Couldn't inspect $uri", e)
-            null
-        }
-    }
-
-    /**
      * The directories this app can always read: its own external files area (including the
      * Downloads folder inside it, where the app's own exports go).
      */

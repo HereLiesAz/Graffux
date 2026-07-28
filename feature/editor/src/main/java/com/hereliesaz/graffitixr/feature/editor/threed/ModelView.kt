@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +51,8 @@ fun ModelView(
     paintColor: Color = Color.White,
     brushRadiusPx: Float = 24f,
     onPaintChanged: () -> Unit = {},
+    captureRequest: Int = 0,
+    onCaptured: (android.graphics.Bitmap?) -> Unit = {},
 ) {
     // Framed on first sight of a mesh, so a model of any authored scale opens filling the view.
     var camera by remember(mesh) { mutableStateOf(mesh?.let { OrbitCamera.framing(it) } ?: OrbitCamera()) }
@@ -58,6 +61,13 @@ fun ModelView(
     renderer.camera = camera
     renderer.texture = texture
     remember(mesh) { mesh?.let { renderer.setMesh(it) } }
+
+    // Driven by a counter rather than a callback the caller invokes, because only the GL thread can
+    // read the framebuffer — the request has to be left for it to pick up on its next frame.
+    // Skips 0 so merely composing doesn't fire a capture nobody asked for.
+    LaunchedEffect(captureRequest) {
+        if (captureRequest > 0) renderer.requestCapture(onCaptured)
+    }
 
     Box(modifier = modifier) {
         AndroidView(

@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/threed/ModelRenderer.kt
 package com.hereliesaz.graffitixr.feature.editor.threed
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import com.hereliesaz.graffitixr.common.mesh.Mesh
@@ -30,6 +32,9 @@ class ModelRenderer : GLSurfaceView.Renderer {
     @Volatile var camera: OrbitCamera = OrbitCamera()
     @Volatile private var pendingMesh: Mesh? = null
     @Volatile private var aspect: Float = 1f
+    @Volatile private var captureRequest: ((Bitmap?) -> Unit)? = null
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
 
     private var program = 0
     private var vertexBuffer: FloatBuffer? = null
@@ -58,7 +63,6 @@ class ModelRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        GLES20.glClearColor(0.078f, 0.086f, 0.114f, 1f)   // the app's #14161D ground
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         // Back-face culling: an OBJ from a sane exporter is wound consistently, and culling halves
         // the fragment work on a closed model.
@@ -84,16 +88,36 @@ class ModelRenderer : GLSurfaceView.Renderer {
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
+        surfaceWidth = width
+        surfaceHeight = height
         aspect = if (height > 0) width.toFloat() / height.toFloat() else 1f
     }
 
     override fun onDrawFrame(gl: GL10?) {
         pendingMesh?.let { upload(it); pendingMesh = null }
+
+        // A capture frame clears to transparent instead of the app's ground, so the model comes
+        // back as a cut-out that can sit over the artwork rather than a rectangle of background.
+        // It costs one frame that looks different from the rest, which at 60fps nobody sees.
+        val capture = captureRequest
+        if (capture != null) {
+            GLES20.glClearColor(0f, 0f, 0f, 0f)
+        } else {
+            GLES20.glClearColor(GROUND_R, GROUND_G, GROUND_B, 1f)
+        }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-        val vb = vertexBuffer ?: return
-        val ib = indexBuffer ?: return
-        if (indexCount == 0) return
+        val vb = vertexBuffer
+        val ib = indexBuffer
+        if (vb == null || ib == null || indexCount == 0) {
+            // Still answer a pending capture, or the caller waits forever for a model that isn't
+            // there yet.
+            if (capture != null) {
+                captureRequest = null
+                capture(null)
+            }
+            return
+        }
 
         val cam = camera
         val view = cam.viewMatrix()
@@ -143,6 +167,46 @@ class ModelRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aNormal)
         GLES20.glDisableVertexAttribArray(aUv)
+
+        if (capture != null) {
+            captureRequest = null
+            capture(readPixels(surfaceWidth, surfaceHeight))
+        }
+    }
+
+    /**
+     * Asks for the next frame as a bitmap — the model as it currently looks, paint and all, on a
+     * transparent background.
+     *
+     * [onResult] is invoked on the GL thread with the pixels, or null if there was nothing to
+     * draw. The surface renders continuously, so the next frame is a few milliseconds away and
+     * there's nothing to schedule.
+     */
+    fun requestCapture(onResult: (Bitmap?) -> Unit) {
+        captureRequest = onResult
+    }
+
+    private fun readPixels(width: Int, height: Int): Bitmap? {
+        if (width <= 0 || height <= 0) return null
+        return try {
+            val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+            GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer)
+            buffer.rewind()
+            val raw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            raw.copyPixelsFromBuffer(buffer)
+            // GL's origin is bottom-left and a Bitmap's is top-left, so the readback arrives
+            // upside down. Flipping here rather than at the call site keeps every caller from
+            // having to know that.
+            val flip = Matrix().apply { preScale(1f, -1f) }
+            val flipped = Bitmap.createBitmap(raw, 0, 0, width, height, flip, false)
+            if (flipped !== raw) raw.recycle()
+            flipped
+        } catch (e: Throwable) {
+            // A readback can fail on a lost context or an exhausted heap. Neither is worth taking
+            // the surface down for — the user just doesn't get their snapshot.
+            android.util.Log.w("ModelRenderer", "Couldn't read back the model view", e)
+            null
+        }
     }
 
     /**
@@ -235,6 +299,12 @@ class ModelRenderer : GLSurfaceView.Renderer {
     }
 
     private companion object {
+        // The app's #14161D ground. Set per-frame rather than once at surface creation, because a
+        // capture frame swaps it for transparent.
+        const val GROUND_R = 0.078f
+        const val GROUND_G = 0.086f
+        const val GROUND_B = 0.114f
+
         val IDENTITY = floatArrayOf(
             1f, 0f, 0f, 0f,
             0f, 1f, 0f, 0f,

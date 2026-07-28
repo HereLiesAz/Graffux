@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,9 +54,11 @@ fun ModelWindow(
     onPickModel: () -> Unit,
     onDismiss: () -> Unit,
     onPaintChanged: () -> Unit = {},
+    onAddToCanvas: (android.graphics.Bitmap) -> Unit = {},
     paintColor: Color = Color.White,
     brushRadiusPx: Float = 24f,
 ) {
+    var captureRequest by remember { mutableIntStateOf(0) }
     // Whether one finger paints or orbits is a mode of this window, so it stays here. The texture
     // it paints into is not — that's the user's work, and it comes from the state.
     var paintEnabled by remember { mutableStateOf(false) }
@@ -84,6 +87,8 @@ fun ModelWindow(
                     paintColor = paintColor,
                     brushRadiusPx = brushRadiusPx,
                     onPaintChanged = onPaintChanged,
+                    captureRequest = captureRequest,
+                    onCaptured = { bitmap -> if (bitmap != null) onAddToCanvas(bitmap) },
                 )
                 Text(
                     text = if (paintEnabled) {
@@ -97,6 +102,14 @@ fun ModelWindow(
                 AzButton(
                     text = if (paintEnabled) "Painting — tap to orbit" else "Paint on model",
                     onClick = { paintEnabled = !paintEnabled },
+                    shape = AzButtonShape.RECTANGLE,
+                )
+                // The way a model becomes artwork: whatever angle it's turned to, as a layer.
+                // A snapshot rather than a live 3D layer, because the document is a flat image —
+                // turn the model again and take another if the first angle was wrong.
+                AzButton(
+                    text = "Add view to canvas",
+                    onClick = { captureRequest++ },
                     shape = AzButtonShape.RECTANGLE,
                 )
                 if (texture?.isPainted == true) {
