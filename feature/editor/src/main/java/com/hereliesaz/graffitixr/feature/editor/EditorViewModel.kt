@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -25,6 +26,7 @@ import com.hereliesaz.graffitixr.common.importer.DocumentFormat
 import com.hereliesaz.graffitixr.common.importer.DocumentImporter
 import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
+import com.hereliesaz.graffitixr.feature.editor.threed.PaintableTexture
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
@@ -109,6 +111,16 @@ internal const val HISTORY_DEPTH = 20
 
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
+
+// The 3D model and its paint, inside the project folder. Fixed names rather than generated ones:
+// a project holds at most one model, so a uuid would only accumulate orphans every time a new
+// model replaced the old.
+private const val MODEL_OBJ_FILE = "model.obj"
+private const val MODEL_TEXTURE_FILE = "model_texture.png"
+
+// Key for the model texture in the pending-write map, which is otherwise keyed by layer id. Prefixed
+// so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
+private const val MODEL_TEXTURE_KEY = "model:texture"
 
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
@@ -344,6 +356,7 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
+                        restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -3964,27 +3977,134 @@ class EditorViewModel @Inject constructor(
     /**
      * Loads an OBJ model from [uri]. Parsing runs off the main thread — a scanned mesh is megabytes
      * of text and would jank the UI if read inline.
+     *
+     * The file is copied into the project rather than referenced where the user picked it. A
+     * document-picker URI is a grant that expires, so a project reopened next week would find its
+     * own model gone; a copy also means the model rides along inside a `.fux`.
      */
     fun loadModel(uri: Uri, displayName: String? = null) {
         _modelState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch(dispatchers.io) {
             val result = runCatching {
-                val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.readBytes().decodeToString()
+                val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes()
                 } ?: throw java.io.IOException("Couldn't open that file")
-                com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(text)
+                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString())
+                mesh to bytes
             }
-            withContext(dispatchers.main) {
-                result
-                    .onSuccess { mesh ->
+            result
+                .onSuccess { (mesh, bytes) ->
+                    val name = displayName ?: "Model"
+                    // Persist before publishing, so the state the UI shows is one that survives a
+                    // reopen — the alternative is a model that looks loaded and isn't saved.
+                    val paths = runCatching { persistModel(bytes, name) }.getOrNull()
+                    val texture = PaintableTexture(
+                        PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
+                    )
+                    modelTexturePath = paths?.second
+                    withContext(dispatchers.main) {
                         _modelState.update {
-                            it.copy(mesh = mesh, name = displayName, isLoading = false, error = null)
+                            it.copy(
+                                mesh = mesh, name = name, texture = texture,
+                                isLoading = false, error = null,
+                            )
                         }
                     }
-                    .onFailure { e ->
+                }
+                .onFailure { e ->
+                    withContext(dispatchers.main) {
                         _modelState.update {
                             it.copy(isLoading = false, error = e.message ?: "Couldn't read that model")
                         }
+                    }
+                }
+        }
+    }
+
+    /** Where the current model's texture is written. Null when no model is loaded. */
+    private var modelTexturePath: String? = null
+
+    /** Copies the model into the project and records it on the manifest. Returns (objPath, texturePath). */
+    private suspend fun persistModel(objBytes: ByteArray, name: String): Pair<String, String> {
+        val projectId = ensureProjectId()
+        val objPath = projectRepository.saveArtifact(projectId, MODEL_OBJ_FILE, objBytes)
+        val texturePath = File(File(objPath).parentFile, MODEL_TEXTURE_FILE).absolutePath
+        projectRepository.updateProject { current ->
+            if (current.id == projectId) {
+                current.copy(
+                    modelPath = objPath,
+                    modelName = name,
+                    // Recorded even before anything is painted: the path is where the texture
+                    // *will* be, and a reopen that finds no file there simply starts unpainted.
+                    modelTexturePath = texturePath,
+                )
+            } else {
+                current
+            }
+        }
+        return objPath to texturePath
+    }
+
+    /**
+     * Called when paint lands on the model. Writes the texture on the same debounce as layer
+     * bitmaps, and through the same pending-write map — so leaving the app flushes model paint
+     * exactly as it flushes a stroke on the flat canvas.
+     */
+    fun onModelPaintChanged() {
+        val texture = _modelState.value.texture ?: return
+        val path = modelTexturePath ?: return
+        pendingWrites[MODEL_TEXTURE_KEY] = path to texture.bitmap
+        pendingSaveJobs.remove(MODEL_TEXTURE_KEY)?.cancel()
+        val job = viewModelScope.launch(dispatchers.io) {
+            kotlinx.coroutines.delay(1500)
+            writeLayerBitmap(MODEL_TEXTURE_KEY, path, texture.bitmap)
+            saveProject()
+            pendingSaveJobs.remove(MODEL_TEXTURE_KEY, coroutineContext[kotlinx.coroutines.Job])
+        }
+        pendingSaveJobs[MODEL_TEXTURE_KEY] = job
+    }
+
+    /**
+     * Brings back the model a project was saved with, paint and all. Silent when the project has
+     * none, which is most of them.
+     */
+    private fun restoreModel(project: GraffitiProject) {
+        val objPath = project.modelPath
+        if (objPath == null) {
+            modelTexturePath = null
+            _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
+            return
+        }
+        _modelState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.io) {
+            val restored = runCatching {
+                val file = File(objPath)
+                if (!file.exists()) throw java.io.FileNotFoundException("model missing")
+                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(file.readText())
+                val texture = PaintableTexture(
+                    PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
+                )
+                project.modelTexturePath?.let { texturePath ->
+                    val saved = File(texturePath)
+                    if (saved.exists()) {
+                        BitmapFactory.decodeFile(texturePath)?.let { texture.restore(it) }
+                    }
+                }
+                mesh to texture
+            }
+            modelTexturePath = project.modelTexturePath
+            withContext(dispatchers.main) {
+                restored
+                    .onSuccess { (mesh, texture) ->
+                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState(
+                            mesh = mesh, name = project.modelName, texture = texture,
+                        )
+                    }
+                    .onFailure {
+                        // A project whose model file is gone shouldn't look broken — it just has
+                        // no model any more, which is the same as never having had one.
+                        android.util.Log.w("EditorViewModel", "Couldn't restore model for ${project.id}", it)
+                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
                     }
             }
         }

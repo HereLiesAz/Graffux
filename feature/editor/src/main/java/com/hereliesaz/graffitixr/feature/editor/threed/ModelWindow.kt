@@ -22,12 +22,19 @@ import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.mesh.Mesh
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
-/** What the 3D viewport is currently showing. */
+/**
+ * What the 3D viewport is currently showing.
+ *
+ * [texture] is owned here rather than remembered inside the window because paint is work: it has to
+ * outlive the window being dismissed, be autosaved like everything else, and come back when the
+ * project is reopened. A composable's `remember` gives none of that.
+ */
 data class ModelUiState(
     val mesh: Mesh? = null,
     val name: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val texture: PaintableTexture? = null,
 )
 
 /**
@@ -45,15 +52,14 @@ fun ModelWindow(
     state: ModelUiState,
     onPickModel: () -> Unit,
     onDismiss: () -> Unit,
+    onPaintChanged: () -> Unit = {},
     paintColor: Color = Color.White,
     brushRadiusPx: Float = 24f,
 ) {
-    // Paint mode and the texture live here rather than in EditorUiState: a model is a tool window,
-    // not a layer, and its paint has no meaning once the window is gone.
+    // Whether one finger paints or orbits is a mode of this window, so it stays here. The texture
+    // it paints into is not — that's the user's work, and it comes from the state.
     var paintEnabled by remember { mutableStateOf(false) }
-    val texture = remember(state.mesh) {
-        state.mesh?.let { PaintableTexture(PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE) }
-    }
+    val texture = state.texture
 
     FloatingWindow(title = state.name ?: "3D Model", onDismiss = onDismiss) {
         when {
@@ -77,6 +83,7 @@ fun ModelWindow(
                     paintEnabled = paintEnabled,
                     paintColor = paintColor,
                     brushRadiusPx = brushRadiusPx,
+                    onPaintChanged = onPaintChanged,
                 )
                 Text(
                     text = if (paintEnabled) {
@@ -95,7 +102,7 @@ fun ModelWindow(
                 if (texture?.isPainted == true) {
                     AzButton(
                         text = "Clear paint",
-                        onClick = { texture.clear() },
+                        onClick = { texture.clear(); onPaintChanged() },
                         shape = AzButtonShape.RECTANGLE,
                     )
                 }

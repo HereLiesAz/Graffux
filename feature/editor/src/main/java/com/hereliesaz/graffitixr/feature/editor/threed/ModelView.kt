@@ -49,6 +49,7 @@ fun ModelView(
     paintEnabled: Boolean = false,
     paintColor: Color = Color.White,
     brushRadiusPx: Float = 24f,
+    onPaintChanged: () -> Unit = {},
 ) {
     // Framed on first sight of a mesh, so a model of any authored scale opens filling the view.
     var camera by remember(mesh) { mutableStateOf(mesh?.let { OrbitCamera.framing(it) } ?: OrbitCamera()) }
@@ -103,11 +104,15 @@ fun ModelView(
                             } else if (paintEnabled && texture != null && mesh != null) {
                                 val point = event.changes.firstOrNull { it.pressed }?.position
                                 if (point != null) {
-                                    lastUv = paintAt(
+                                    val next = paintAt(
                                         mesh, texture, camera, point,
                                         size.width.toFloat(), size.height.toFloat(),
                                         lastUv, paintColor.toArgb(), brushRadiusPx,
                                     )
+                                    // Only when paint actually landed, so dragging across empty
+                                    // space doesn't schedule a save of an unchanged texture.
+                                    if (next != null) onPaintChanged()
+                                    lastUv = next
                                 }
                             } else {
                                 // One finger orbits. Negated so the model follows the finger rather

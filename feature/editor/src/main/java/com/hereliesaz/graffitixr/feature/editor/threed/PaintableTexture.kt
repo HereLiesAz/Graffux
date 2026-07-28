@@ -58,6 +58,22 @@ class PaintableTexture(val width: Int, val height: Int) {
         }
     }
 
+    /**
+     * Replaces the paint with [saved] — the texture read back off disk when a project reopens.
+     *
+     * Drawn rather than swapped in so the bitmap object stays the one the renderer already holds,
+     * and scaled to fit in case the file was written when [DEFAULT_SIZE] was something else.
+     * [version] moves, so the renderer re-uploads without needing to know a restore happened.
+     */
+    fun restore(saved: Bitmap) {
+        synchronized(this) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR)
+            val dest = android.graphics.Rect(0, 0, width, height)
+            canvas.drawBitmap(saved, null, dest, Paint(Paint.FILTER_BITMAP_FLAG))
+            version++
+        }
+    }
+
     /** Wipes the paint back to bare model. */
     fun clear() {
         synchronized(this) {
