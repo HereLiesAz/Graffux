@@ -157,23 +157,40 @@ jobs:
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
+          # These are what publish_play.py actually imports. Installing google-auth alone left
+          # googleapiclient/httplib2 missing, which — combined with the swallowed exit code
+          # below — is how this step reported success while publishing nothing.
           python -m pip install --quiet \
             google-auth==2.35.0 \
-            requests==2.32.3
+            google-api-python-client==2.149.0 \
+            google-auth-httplib2==0.2.0 \
+            httplib2==0.22.0
+          SCRIPT=.github/scripts/publish_play.py
+          # Fail loudly on a missing script. Python exits 2 for "can't open file", which is the
+          # same code this workflow reads as "internal published, drafts failed" — so without
+          # this guard a rename or a typo reports a successful publish that never happened.
+          if [ ! -f "$SCRIPT" ]; then
+            echo "::error::$SCRIPT is missing — nothing was published."
+            exit 1
+          fi
           # Keep the service-account JSON off disk except while the script needs it.
           SA_JSON="$(mktemp)"
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$SA_JSON"
           trap 'rm -f "$SA_JSON"' EXIT
           AAB="$(ls app/build/outputs/bundle/release/*.aab | head -n1)"
           set +e
-          python .github/scripts/publish_play.py \
+          python "$SCRIPT" \
             --package com.hereliesaz.graffux \
             --aab "$AAB" \
             --sa-json "$SA_JSON"
           CODE=$?
           set -e
           echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
-          if [ "$CODE" = "1" ]; then
+          # Only 0 (all tracks) and 2 (internal live, some drafts missing) are outcomes the
+          # script means. Anything else is the script failing to run at all, and must not be
+          # mistaken for one of them.
+          if [ "$CODE" != "0" ] && [ "$CODE" != "2" ]; then
+            echo "::error::Play publish exited $CODE — nothing was published."
             exit 1
           fi
 

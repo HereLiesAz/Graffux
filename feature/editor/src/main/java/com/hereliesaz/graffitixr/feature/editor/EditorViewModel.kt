@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -25,6 +26,7 @@ import com.hereliesaz.graffitixr.common.importer.DocumentFormat
 import com.hereliesaz.graffitixr.common.importer.DocumentImporter
 import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
+import com.hereliesaz.graffitixr.feature.editor.threed.PaintableTexture
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
@@ -110,6 +112,16 @@ internal const val HISTORY_DEPTH = 20
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
+// The 3D model and its paint, inside the project folder. Fixed names rather than generated ones:
+// a project holds at most one model, so a uuid would only accumulate orphans every time a new
+// model replaced the old.
+private const val MODEL_OBJ_FILE = "model.obj"
+private const val MODEL_TEXTURE_FILE = "model_texture.png"
+
+// Key for the model texture in the pending-write map, which is otherwise keyed by layer id. Prefixed
+// so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
+private const val MODEL_TEXTURE_KEY = "model:texture"
+
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
     data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
@@ -128,6 +140,7 @@ class EditorViewModel @Inject constructor(
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
+    private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
 ) : ViewModel(), EditorActions {
 
     private val _uiState = MutableStateFlow(EditorUiState())
@@ -343,6 +356,7 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
+                        restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -743,7 +757,7 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Copies a cache-dir file into Downloads (MediaStore on Q+, the public directory below it, the
-     * same split [exportProjectInternal] uses) and deletes the cache copy either way.
+     * same MediaStore/public-directory split) and deletes the cache copy either way.
      */
     private suspend fun copyToDownloads(
         file: File,
@@ -838,32 +852,93 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The pixels each layer still owes the disk: what a pending debounced save would write.
+     * Recorded separately from the job so [flushPendingSaves] can write them straight out without
+     * having to wait the debounce out first.
+     */
+    private val pendingWrites = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Bitmap>>()
+
     private fun scheduleDiskSave(layerId: String, bitmap: Bitmap, uri: Uri?) {
         val path = uri?.path ?: return
+        pendingWrites[layerId] = path to bitmap
         // Cancel only this layer's previous pending save, never another layer's.
         pendingSaveJobs.remove(layerId)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            try {
-                val file = java.io.File(path)
-                java.io.FileOutputStream(file).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // Normal: a newer stroke superseded this debounced save. Not a failure.
-                throw e
-            } catch (e: Exception) {
-                // A swallowed failure here means the user's edits are silently lost.
-                android.util.Log.e("EditorViewModel", "Failed to save layer bitmap to $path", e)
-                withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
-                }
-            } finally {
-                // Don't leak completed jobs in the map.
-                pendingSaveJobs.remove(layerId, coroutineContext[kotlinx.coroutines.Job])
-            }
+            writeLayerBitmap(layerId, path, bitmap)
+            // Painting changes the project, so the manifest's modified time should move with it —
+            // otherwise a session spent only painting leaves the project sorting as untouched in
+            // the gallery, behind projects that were merely opened.
+            saveProject()
+            // Don't leak completed jobs in the map.
+            pendingSaveJobs.remove(layerId, coroutineContext[kotlinx.coroutines.Job])
         }
         pendingSaveJobs[layerId] = job
+    }
+
+    /**
+     * Writes [bitmap] to [path] atomically: compress into a sibling temp file, then rename over the
+     * target. Writing straight onto the live file leaves a truncated PNG if the process is killed
+     * mid-compress — and the process being killed mid-edit is exactly the case autosave exists for,
+     * so the naive write fails precisely when it matters. A truncated layer doesn't decode, which
+     * loses the whole layer rather than the last stroke.
+     */
+    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap) {
+        try {
+            if (bitmap.isRecycled) return
+            val file = java.io.File(path)
+            val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
+            java.io.FileOutputStream(tmp).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) {
+                    java.io.FileOutputStream(file).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    tmp.delete()
+                }
+            }
+            pendingWrites.remove(layerId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
+            // stays in pendingWrites so a flush still catches it.
+            throw e
+        } catch (e: Exception) {
+            // A swallowed failure here means the user's edits are silently lost.
+            android.util.Log.e("EditorViewModel", "Failed to save layer bitmap to $path", e)
+            withContext(dispatchers.main) {
+                Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * Writes every debounced layer save immediately instead of waiting out its delay.
+     *
+     * Call this when the app leaves the foreground. Layer saves are debounced by 1.5s so that a
+     * flurry of strokes doesn't re-encode a full-screen PNG on every one — but that debounce means
+     * painting and then immediately switching away loses the last edits when the process is
+     * reclaimed, because the pending coroutine dies with it. The point of saving as you go is that
+     * leaving is never a decision the user has to make.
+     */
+    fun flushPendingSaves() {
+        val outstanding = pendingWrites.entries.map { it.key to it.value }
+        pendingSaveJobs.values.forEach { it.cancel() }
+        pendingSaveJobs.clear()
+        if (outstanding.isEmpty()) {
+            saveProject()
+            return
+        }
+        viewModelScope.launch(dispatchers.io) {
+            outstanding.forEach { (layerId, write) ->
+                val (path, bitmap) = write
+                writeLayerBitmap(layerId, path, bitmap)
+            }
+            saveProject()
+        }
     }
 
     override fun onAddLayer(uri: Uri) {
@@ -1367,55 +1442,7 @@ class EditorViewModel @Inject constructor(
     fun saveProject(name: String? = null) {
         viewModelScope.launch(dispatchers.io) {
             try {
-            val currentProject = projectRepository.currentProject.value
-            val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
-
-            // Paths derive from the (immutable) project id. Persist the SLAM world first so they're valid.
-            val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
-            val mapPath = projectManager.getMapPath(context, projectId)
-            val cloudPointsPath = projectManager.getCloudPointsPath(context, projectId)
-            slamManager.saveModel(mapPath)
-
-            val manifestToSave: GraffitiProject
-            if (currentProject == null) {
-                manifestToSave = GraffitiProject(
-                    id = projectId,
-                    name = name ?: "New Project",
-                    layers = updatedLayers,
-                    colorStyles = _uiState.value.colorStyles,
-                    textStyles = _uiState.value.textStyles,
-                    mapPath = mapPath,
-                    cloudPointsPath = cloudPointsPath,
-                    documentWidth = _uiState.value.documentWidth,
-                    documentHeight = _uiState.value.documentHeight,
-                )
-                projectRepository.createProject(manifestToSave)
-            } else {
-                // Atomic read-modify-write: a concurrent AR wall-feature-map save merges into the SAME
-                // currentProject, so writing a full stale copy here would drop its wall map (and vice
-                // versa). The transform only touches the editor-owned fields. (docs/AUDIT.md save-race)
-                projectRepository.updateProject { current ->
-                    current.copy(
-                        name = name ?: current.name,
-                        layers = updatedLayers,
-                        colorStyles = _uiState.value.colorStyles,
-                        textStyles = _uiState.value.textStyles,
-                        lastModified = System.currentTimeMillis(),
-                        mapPath = mapPath,
-                        cloudPointsPath = cloudPointsPath,
-                        documentWidth = _uiState.value.documentWidth,
-                        documentHeight = _uiState.value.documentHeight,
-                    )
-                }
-                // Export the merged result the repository just persisted (includes any AR wall map).
-                manifestToSave = projectRepository.currentProject.value ?: return@launch
-            }
-
-            if (name != null) {
-                exportProjectInternal(manifestToSave)
-            }
-
-            scheduleThumbnailUpdate()
+                persistProject(name)
             } catch (e: Exception) {
                 // Don't let a failed save die silently — the user believes their work is safe.
                 android.util.Log.e("EditorViewModel", "Failed to save project", e)
@@ -1424,6 +1451,142 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Save As: renames the project to [name] and writes a complete `.fux` copy of it to [uri].
+     *
+     * The rename applies to the project itself, not only to the file — a project the user has just
+     * called "Mural" should be called that in the gallery too, or the next Save offers the old name
+     * back and the two drift apart.
+     */
+    fun saveProjectAs(uri: Uri, name: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val cleanName = ProjectFile.sanitizeName(name)
+            try {
+                // Flush pixels first: writeProjectArchive zips what is on disk, so a debounced layer
+                // save still in flight would be missing from the file the user just asked for.
+                pendingSaveJobs.values.forEach { it.cancel() }
+                pendingSaveJobs.clear()
+                pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
+                    writeLayerBitmap(layerId, write.first, write.second)
+                }
+                val saved = persistProject(cleanName)
+                val projectId = saved?.id ?: projectRepository.currentProject.value?.id
+                if (projectId == null) {
+                    withContext(dispatchers.main) { toast("There's no project open to save.") }
+                    return@launch
+                }
+                projectManager.writeProjectArchive(context, projectId, uri)
+                withContext(dispatchers.main) { toast("Saved “$cleanName”") }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Save As failed", e)
+                withContext(dispatchers.main) {
+                    toast("Couldn't save “$cleanName”: ${e.message ?: "unknown error"}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Opens a `.fux` project file the user picked, replacing the open project with it.
+     *
+     * The current project is flushed first — opening another one is a way of leaving this one, and
+     * the user shouldn't have to have thought about that.
+     */
+    fun openProjectFile(uri: Uri) {
+        viewModelScope.launch(dispatchers.io) {
+            try {
+                pendingSaveJobs.values.forEach { it.cancel() }
+                pendingSaveJobs.clear()
+                pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
+                    writeLayerBitmap(layerId, write.first, write.second)
+                }
+                persistProject(null)
+
+                val displayName = queryDisplayName(uri)
+                val result = projectRepository.importProject(uri)
+                val project = result.getOrNull()
+                if (project == null) {
+                    withContext(dispatchers.main) {
+                        // Named files are the common miss: someone picks a PNG, or a .fux that got
+                        // truncated in transit. Say which, rather than "import failed".
+                        toast(
+                            if (displayName != null && !ProjectFile.isProjectFile(displayName)) {
+                                "“$displayName” isn't a Graffux project file."
+                            } else {
+                                "Couldn't open that project — the file may be damaged."
+                            }
+                        )
+                    }
+                    return@launch
+                }
+                // importProject sets currentProject directly; load it so the editor rebuilds its
+                // layers from the freshly extracted files rather than keeping the old ones.
+                projectRepository.loadProject(project.id)
+                withContext(dispatchers.main) { toast("Opened “${project.name}”") }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Open project failed", e)
+                withContext(dispatchers.main) { toast("Couldn't open that project.") }
+            }
+        }
+    }
+
+    /**
+     * Persists the editor's current state into the project manifest, renaming it to [name] when one
+     * is given. Returns the persisted project, or null if there was nothing to write.
+     *
+     * The body of [saveProject], split out so Save As can await the write before archiving it —
+     * [saveProject] fires and forgets, which is right for autosave and wrong for a file the user is
+     * waiting on.
+     */
+    private suspend fun persistProject(name: String?): GraffitiProject? {
+        val currentProject = projectRepository.currentProject.value
+        val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
+
+        // Paths derive from the (immutable) project id. Persist the SLAM world first so they're valid.
+        val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
+        val mapPath = projectManager.getMapPath(context, projectId)
+        val cloudPointsPath = projectManager.getCloudPointsPath(context, projectId)
+        slamManager.saveModel(mapPath)
+
+        val manifestToSave: GraffitiProject
+        if (currentProject == null) {
+            manifestToSave = GraffitiProject(
+                id = projectId,
+                name = name ?: "New Project",
+                layers = updatedLayers,
+                colorStyles = _uiState.value.colorStyles,
+                textStyles = _uiState.value.textStyles,
+                mapPath = mapPath,
+                cloudPointsPath = cloudPointsPath,
+                documentWidth = _uiState.value.documentWidth,
+                documentHeight = _uiState.value.documentHeight,
+            )
+            projectRepository.createProject(manifestToSave)
+        } else {
+            // Atomic read-modify-write: a concurrent AR wall-feature-map save merges into the SAME
+            // currentProject, so writing a full stale copy here would drop its wall map (and vice
+            // versa). The transform only touches the editor-owned fields. (docs/AUDIT.md save-race)
+            projectRepository.updateProject { current ->
+                current.copy(
+                    name = name ?: current.name,
+                    layers = updatedLayers,
+                    colorStyles = _uiState.value.colorStyles,
+                    textStyles = _uiState.value.textStyles,
+                    lastModified = System.currentTimeMillis(),
+                    mapPath = mapPath,
+                    cloudPointsPath = cloudPointsPath,
+                    documentWidth = _uiState.value.documentWidth,
+                    documentHeight = _uiState.value.documentHeight,
+                )
+            }
+            // The merged result the repository just persisted (includes any AR wall map).
+            manifestToSave = projectRepository.currentProject.value ?: return null
+        }
+
+        scheduleThumbnailUpdate()
+        return manifestToSave
     }
 
     /**
@@ -1477,40 +1640,6 @@ class EditorViewModel @Inject constructor(
                     // Thumbnails are best-effort; never let one crash the app.
                     android.util.Log.e("EditorViewModel", "Failed to generate thumbnail", e)
                 }
-            }
-        }
-    }
-
-    private suspend fun exportProjectInternal(project: GraffitiProject) {
-        val filename = "${project.name.replace(" ", "_")}_export.gxr"
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/zip")
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-                }
-                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    projectManager.exportProjectToUri(context, project.id, uri)
-                    withContext(dispatchers.main) {
-                        Toast.makeText(context, "Project saved and exported to Downloads", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    throw java.io.IOException("Failed to create MediaStore entry")
-                }
-            } else {
-                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                val file = File(downloadsDir, filename)
-                val uri = Uri.fromFile(file)
-                projectManager.exportProjectToUri(context, project.id, uri)
-                withContext(dispatchers.main) {
-                    Toast.makeText(context, "Project saved and exported to ${file.absolutePath}", Toast.LENGTH_LONG).show()
-                }
-            }
-        } catch (e: Exception) {
-            withContext(dispatchers.main) {
-                Toast.makeText(context, "Project saved locally. Export failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -3580,6 +3709,28 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Open screen (every project the device can offer, wherever it lives) ─────────────────
+
+    private val _openScreenState = MutableStateFlow(OpenScreenState())
+    val openScreenState: StateFlow<OpenScreenState> = _openScreenState.asStateFlow()
+
+    /**
+     * Rebuilds the Open screen: the projects already in the app, plus every `.fux` the device will
+     * admit to holding.
+     *
+     * Scanning storage is slow enough to see, so the in-app projects are published first and the
+     * discovered files land when they land — the screen is usable immediately rather than blank
+     * until the slowest part finishes.
+     */
+    fun refreshOpenScreen() {
+        viewModelScope.launch(dispatchers.io) {
+            val inApp = runCatching { projectRepository.getProjects() }.getOrDefault(emptyList())
+            _openScreenState.value = OpenScreenState(isScanning = true, inApp = inApp)
+            val files = runCatching { projectFileScanner.scan() }.getOrDefault(emptyList())
+            _openScreenState.value = OpenScreenState(isScanning = false, inApp = inApp, files = files)
+        }
+    }
+
     fun deleteProjectById(id: String) {
         viewModelScope.launch(dispatchers.io) {
             projectRepository.deleteProject(id)
@@ -3826,27 +3977,150 @@ class EditorViewModel @Inject constructor(
     /**
      * Loads an OBJ model from [uri]. Parsing runs off the main thread — a scanned mesh is megabytes
      * of text and would jank the UI if read inline.
+     *
+     * The file is copied into the project rather than referenced where the user picked it. A
+     * document-picker URI is a grant that expires, so a project reopened next week would find its
+     * own model gone; a copy also means the model rides along inside a `.fux`.
      */
     fun loadModel(uri: Uri, displayName: String? = null) {
         _modelState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch(dispatchers.io) {
             val result = runCatching {
-                val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.readBytes().decodeToString()
+                val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes()
                 } ?: throw java.io.IOException("Couldn't open that file")
-                com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(text)
+                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString())
+                mesh to bytes
             }
-            withContext(dispatchers.main) {
-                result
-                    .onSuccess { mesh ->
+            result
+                .onSuccess { (mesh, bytes) ->
+                    val name = displayName ?: "Model"
+                    // Persist before publishing, so the state the UI shows is one that survives a
+                    // reopen — the alternative is a model that looks loaded and isn't saved.
+                    val paths = runCatching { persistModel(bytes, name) }.getOrNull()
+                    val texture = PaintableTexture(
+                        PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
+                    )
+                    modelTexturePath = paths?.second
+                    withContext(dispatchers.main) {
                         _modelState.update {
-                            it.copy(mesh = mesh, name = displayName, isLoading = false, error = null)
+                            it.copy(
+                                mesh = mesh, name = name, texture = texture,
+                                isLoading = false, error = null,
+                            )
                         }
                     }
-                    .onFailure { e ->
+                }
+                .onFailure { e ->
+                    withContext(dispatchers.main) {
                         _modelState.update {
                             it.copy(isLoading = false, error = e.message ?: "Couldn't read that model")
                         }
+                    }
+                }
+        }
+    }
+
+    /**
+     * Adds the model as it currently looks — angle, paint and all — to the document as a layer.
+     *
+     * A snapshot rather than a live 3D layer: the document is a flat image, and everything that
+     * acts on a layer (transform, blend, adjustments, export) already works on pixels. Turning the
+     * model and taking another is cheap, so nothing is lost by not keeping it live.
+     */
+    fun addModelViewToCanvas(bitmap: Bitmap) {
+        viewModelScope.launch(dispatchers.io) {
+            ensureProjectId()
+            val name = _modelState.value.name?.substringBeforeLast('.') ?: "Model"
+            importSingleBitmap(bitmap, name)
+            withContext(dispatchers.main) { toast("Added “$name” to the canvas") }
+        }
+    }
+
+    /** Where the current model's texture is written. Null when no model is loaded. */
+    private var modelTexturePath: String? = null
+
+    /** Copies the model into the project and records it on the manifest. Returns (objPath, texturePath). */
+    private suspend fun persistModel(objBytes: ByteArray, name: String): Pair<String, String> {
+        val projectId = ensureProjectId()
+        val objPath = projectRepository.saveArtifact(projectId, MODEL_OBJ_FILE, objBytes)
+        val texturePath = File(File(objPath).parentFile, MODEL_TEXTURE_FILE).absolutePath
+        projectRepository.updateProject { current ->
+            if (current.id == projectId) {
+                current.copy(
+                    modelPath = objPath,
+                    modelName = name,
+                    // Recorded even before anything is painted: the path is where the texture
+                    // *will* be, and a reopen that finds no file there simply starts unpainted.
+                    modelTexturePath = texturePath,
+                )
+            } else {
+                current
+            }
+        }
+        return objPath to texturePath
+    }
+
+    /**
+     * Called when paint lands on the model. Writes the texture on the same debounce as layer
+     * bitmaps, and through the same pending-write map — so leaving the app flushes model paint
+     * exactly as it flushes a stroke on the flat canvas.
+     */
+    fun onModelPaintChanged() {
+        val texture = _modelState.value.texture ?: return
+        val path = modelTexturePath ?: return
+        pendingWrites[MODEL_TEXTURE_KEY] = path to texture.bitmap
+        pendingSaveJobs.remove(MODEL_TEXTURE_KEY)?.cancel()
+        val job = viewModelScope.launch(dispatchers.io) {
+            kotlinx.coroutines.delay(1500)
+            writeLayerBitmap(MODEL_TEXTURE_KEY, path, texture.bitmap)
+            saveProject()
+            pendingSaveJobs.remove(MODEL_TEXTURE_KEY, coroutineContext[kotlinx.coroutines.Job])
+        }
+        pendingSaveJobs[MODEL_TEXTURE_KEY] = job
+    }
+
+    /**
+     * Brings back the model a project was saved with, paint and all. Silent when the project has
+     * none, which is most of them.
+     */
+    private fun restoreModel(project: GraffitiProject) {
+        val objPath = project.modelPath
+        if (objPath == null) {
+            modelTexturePath = null
+            _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
+            return
+        }
+        _modelState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch(dispatchers.io) {
+            val restored = runCatching {
+                val file = File(objPath)
+                if (!file.exists()) throw java.io.FileNotFoundException("model missing")
+                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(file.readText())
+                val texture = PaintableTexture(
+                    PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
+                )
+                project.modelTexturePath?.let { texturePath ->
+                    val saved = File(texturePath)
+                    if (saved.exists()) {
+                        BitmapFactory.decodeFile(texturePath)?.let { texture.restore(it) }
+                    }
+                }
+                mesh to texture
+            }
+            modelTexturePath = project.modelTexturePath
+            withContext(dispatchers.main) {
+                restored
+                    .onSuccess { (mesh, texture) ->
+                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState(
+                            mesh = mesh, name = project.modelName, texture = texture,
+                        )
+                    }
+                    .onFailure {
+                        // A project whose model file is gone shouldn't look broken — it just has
+                        // no model any more, which is the same as never having had one.
+                        android.util.Log.w("EditorViewModel", "Couldn't restore model for ${project.id}", it)
+                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
                     }
             }
         }

@@ -284,18 +284,33 @@ class ProjectManager @Inject constructor(
     }
 
     fun exportProjectToUri(context: Context, projectId: String, uri: Uri) {
-        val sourceFolder = File(context.filesDir, "projects/$projectId")
-        if (!sourceFolder.exists()) return
-
         try {
-            context.contentResolver.openOutputStream(uri)?.use { os ->
-                ZipOutputStream(os).use { zos ->
-                    // Use empty string for parent to zip contents directly into the root.
-                    zipFolder(sourceFolder, "", zos)
-                }
-            }
+            writeProjectArchive(context, projectId, uri)
         } catch (e: Exception) {
             Log.e("ProjectManager", "Export failed", e)
+        }
+    }
+
+    /**
+     * Writes project [projectId] to [uri] as a `.fux` archive — `project.json` plus every artifact
+     * beside it, so the file is a complete, portable copy of the project.
+     *
+     * Throws rather than logging, unlike [exportProjectToUri]. When the user has picked a location
+     * and named a file, a failure that produces nothing but a logcat line is indistinguishable from
+     * a successful save until they try to open it — the caller needs to be able to say so.
+     */
+    fun writeProjectArchive(context: Context, projectId: String, uri: Uri) {
+        val sourceFolder = File(context.filesDir, "projects/$projectId")
+        if (!sourceFolder.exists()) {
+            throw java.io.FileNotFoundException("Project $projectId has nothing saved to write")
+        }
+        val out = context.contentResolver.openOutputStream(uri)
+            ?: throw java.io.IOException("Couldn't open the chosen location for writing")
+        out.use { os ->
+            ZipOutputStream(os).use { zos ->
+                // Use empty string for parent to zip contents directly into the root.
+                zipFolder(sourceFolder, "", zos)
+            }
         }
     }
 

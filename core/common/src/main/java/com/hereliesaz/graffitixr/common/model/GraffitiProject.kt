@@ -156,5 +156,14 @@ data class GraffitiProject(
     // preset, print, or custom). Defaulted to a 1080² square for back-compat with projects saved
     // before the document model existed.
     val documentWidth: Int = 1080,
-    val documentHeight: Int = 1080
+    val documentHeight: Int = 1080,
+
+    // The 3D model loaded into the project, and the texture painted onto it. Both are copied into
+    // the project folder rather than referenced where the user picked them: a document picker URI
+    // is a grant that expires, so a project reopened next week would find its own model gone. Being
+    // in the folder also means both ride along in a `.fux` and reopen intact on another device.
+    // All null on projects without a model, which is most of them.
+    val modelPath: String? = null,
+    val modelName: String? = null,
+    val modelTexturePath: String? = null
 )

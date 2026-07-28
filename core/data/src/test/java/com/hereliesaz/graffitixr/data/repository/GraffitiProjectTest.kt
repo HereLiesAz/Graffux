@@ -100,4 +100,37 @@ class GraffitiProjectTest {
 
         assertEquals(expansion, decoded.railExpansion)
     }
+
+    @Test
+    fun `serialization preserves the 3D model and its paint`() {
+        // These three point at files inside the project folder. Dropping them here wouldn't fail
+        // anything visibly — the model and its paint are still on disk — the project would simply
+        // reopen with no model, and the work would look deleted. That's the same silent shape as
+        // the parentId and componentId losses this suite exists to catch.
+        val project = GraffitiProject(
+            id = "id",
+            name = "n",
+            modelPath = "/data/projects/id/model.obj",
+            modelName = "head.obj",
+            modelTexturePath = "/data/projects/id/model_texture.png",
+        )
+
+        val decoded = json.decodeFromString<GraffitiProject>(json.encodeToString(project))
+
+        assertEquals("/data/projects/id/model.obj", decoded.modelPath)
+        assertEquals("head.obj", decoded.modelName)
+        assertEquals("/data/projects/id/model_texture.png", decoded.modelTexturePath)
+    }
+
+    @Test
+    fun `a project saved before models existed still decodes`() {
+        // Back-compat: every existing project on every device predates these fields.
+        val old = """{"id":"id","name":"n"}"""
+
+        val decoded = json.decodeFromString<GraffitiProject>(old)
+
+        assertEquals(null, decoded.modelPath)
+        assertEquals(null, decoded.modelName)
+        assertEquals(null, decoded.modelTexturePath)
+    }
 }
