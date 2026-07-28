@@ -76,6 +76,7 @@ plugins {
     alias(libs.plugins.kotlinx.serialization) apply false
     alias(libs.plugins.kotlin.parcelize) apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    id("com.google.gms.google-services") version "4.5.0" apply false
 }
 
 allprojects {
