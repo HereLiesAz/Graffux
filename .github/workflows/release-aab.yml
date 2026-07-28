@@ -19,6 +19,16 @@ name: Release AAB to Play
 #   2. Google Cloud Console → create a service account, create a JSON key, paste the JSON into the
 #      PLAY_SERVICE_ACCOUNT_JSON secret. In the Play Console, invite that service account and grant
 #      it "Release to testing tracks" (and Production if you intend to publish there).
+#      Three things have to line up or every API call fails with 403 "The caller does not have
+#      permission" even though the key authenticates fine — the secret is not the problem when
+#      that happens, the grant is:
+#        a. the service account is an accepted user in Play Console → Users & permissions, with
+#           app access to com.hereliesaz.graffux (a pending invitation is not access);
+#        b. the service account's GCP project is the one linked under Play Console → Setup →
+#           API access (a key from any other project authenticates and is then refused);
+#        c. the Google Play Android Developer API is enabled in that same GCP project.
+#      publish_play.py prints the account and project it is using, and spells out this list on
+#      a 403, so the run log names the identity that was rejected.
 #   3. FIRST UPLOAD MUST BE MANUAL: Google's API cannot create the very first release for a new app.
 #      Upload one AAB by hand in the Play Console once; after that this workflow can publish.
 #   4. Create at least one release in each of the alpha (closed testing), beta (open testing), and
@@ -165,6 +175,14 @@ jobs:
             google-api-python-client==2.149.0 \
             google-auth-httplib2==0.2.0 \
             httplib2==0.22.0
+          # An unset secret reaches the script as an empty file and surfaces as a JSON parse
+          # error, which reads like a corrupt key rather than a missing one. Distinguish them
+          # here: this branch means the secret does not exist (or is not exposed to this run),
+          # not that its contents are wrong.
+          if [ -z "${PLAY_SERVICE_ACCOUNT_JSON//[[:space:]]/}" ]; then
+            echo "::error::Repository secret PLAY_SERVICE_ACCOUNT_JSON is empty or not set. Add it under Settings > Secrets and variables > Actions with the full service-account key JSON."
+            exit 1
+          fi
           SCRIPT=.github/scripts/publish_play.py
           # Fail loudly on a missing script. Python exits 2 for "can't open file", which is the
           # same code this workflow reads as "internal published, drafts failed" — so without

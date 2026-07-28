@@ -32,6 +32,7 @@ import httplib2
 from google.oauth2 import service_account
 from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 # (track_slug, release_status). `internal` goes live immediately; the other
@@ -87,8 +88,35 @@ def main() -> int:
         print(f"::error::No service-account JSON at {args.sa_json}", file=sys.stderr)
         return EXIT_NOTHING_PUBLISHED
 
-    with open(args.sa_json, encoding="utf-8") as handle:
-        creds_info = json.load(handle)
+    try:
+        with open(args.sa_json, encoding="utf-8") as handle:
+            creds_info = json.load(handle)
+    except json.JSONDecodeError as err:
+        # An unset or truncated PLAY_SERVICE_ACCOUNT_JSON secret lands here, and the raw
+        # decoder message ("Expecting value: line 1 column 1") names neither the secret nor
+        # the cause. Say which one to look at.
+        print(
+            "::error::PLAY_SERVICE_ACCOUNT_JSON is not valid JSON — paste the whole "
+            f"service-account key file into the repository secret, unedited ({err})",
+            file=sys.stderr,
+        )
+        return EXIT_NOTHING_PUBLISHED
+
+    if creds_info.get("type") != "service_account" or not creds_info.get("client_email"):
+        print(
+            "::error::PLAY_SERVICE_ACCOUNT_JSON is valid JSON but not a service-account key "
+            "(no \"type\": \"service_account\"). An OAuth client secret or a downloaded "
+            "google-services.json will not work here.",
+            file=sys.stderr,
+        )
+        return EXIT_NOTHING_PUBLISHED
+
+    # Neither of these is a secret — they are the account's public identifier and its GCP
+    # project — and both are what you need to know to fix a 403, which otherwise only says
+    # "the caller does not have permission" without naming the caller.
+    sa_email = creds_info["client_email"]
+    sa_project = creds_info.get("project_id", "<unknown>")
+    print(f"::notice::Publishing {args.package} as {sa_email} (project {sa_project})")
 
     creds = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=HTTP_TIMEOUT_S))
@@ -165,11 +193,63 @@ def main() -> int:
             return EXIT_PARTIAL
         return EXIT_OK
 
+    except HttpError as err:
+        print(f"::error::Play publish failed: {err}", file=sys.stderr)
+        if err.resp.status == 403:
+            explain_403(sa_email, sa_project, args.package, err)
+        if edit_id is not None:
+            discard(svc, args.package, edit_id)
+        return EXIT_NOTHING_PUBLISHED
+
     except Exception as err:
         print(f"::error::Play publish failed: {err}", file=sys.stderr)
         if edit_id is not None:
             discard(svc, args.package, edit_id)
         return EXIT_NOTHING_PUBLISHED
+
+
+def explain_403(sa_email: str, sa_project: str, package: str, err: HttpError) -> None:
+    """Turn Play's "The caller does not have permission" into something actionable.
+
+    A 403 means Google minted a token for the key in PLAY_SERVICE_ACCOUNT_JSON and then
+    refused it — so the secret itself is fine and rotating it changes nothing. What is
+    missing is a grant on Google's side, and the API will not say which one, so list the
+    three that produce this exact error."""
+    body = ""
+    try:
+        body = err.content.decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - diagnostics must never mask the real error
+        body = str(err)
+
+    if "accessNotConfigured" in body or "SERVICE_DISABLED" in body:
+        print(
+            "::error::The Google Play Android Developer API is not enabled in project "
+            f"'{sa_project}'. Enable it at https://console.cloud.google.com/apis/library/"
+            f"androidpublisher.googleapis.com?project={sa_project} and re-run.",
+            file=sys.stderr,
+        )
+        return
+
+    # A `::error::` annotation is one line - a newline inside it ends the annotation and the
+    # rest is swallowed. So: one-line annotation for the summary, plain lines for the list.
+    print(
+        f"::error::Play rejected {sa_email} for {package}. The key authenticated, so "
+        "PLAY_SERVICE_ACCOUNT_JSON is being read correctly and rotating it will not help — "
+        "the account is not authorised. See the checklist below.",
+        file=sys.stderr,
+    )
+    for line in (
+        f"  1. Play Console > Users & permissions: is {sa_email} an *accepted* user with app",
+        f"     access to {package}? Grant it 'Release to testing tracks' (and 'Release to",
+        "     production' for the production draft). A pending invitation is not access.",
+        f"  2. Play Console > Setup > API access: is project '{sa_project}' the project linked",
+        "     to this developer account? A key from any other project authenticates and is",
+        "     then refused with exactly this error.",
+        "  3. Google Cloud Console: is the Google Play Android Developer API enabled in",
+        f"     project '{sa_project}'?",
+        "  Permission changes can take a few minutes to propagate.",
+    ):
+        print(line, file=sys.stderr)
 
 
 def discard(svc, package: str, edit_id: str) -> None:
