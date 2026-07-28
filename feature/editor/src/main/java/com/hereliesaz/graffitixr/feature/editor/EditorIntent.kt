@@ -122,6 +122,44 @@ internal sealed interface EditorIntent {
         val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
         val editingId: String? = null,
     ) : EditorIntent
+    /** Promotes a layer to a main component (Figma's "create component"). */
+    data class MakeComponent(val layerId: String, val componentId: String) : EditorIntent
+    /** Adds a new instance layer of a component to the top of the stack. */
+    data class PlaceInstance(val instance: Layer) : EditorIntent
+    /** Breaks an instance's link to its main, keeping the content it currently shows. */
+    data class DetachInstance(val instanceId: String) : EditorIntent
+    /** Removes a component definition, detaching its instances so none are left dangling. */
+    data class ReleaseComponent(val componentId: String) : EditorIntent
+    /**
+     * Re-propagates every main component's content onto its instances. Fired after edits that could
+     * have touched a main — running it unconditionally is cheaper and safer than trying to work out
+     * which edits qualify, and it's idempotent.
+     */
+    data object SyncComponents : EditorIntent
+    // ── Layout (constraints + auto-layout) ───────────────────────────────────────────────────
+    data class SetLayerConstraints(
+        val layerId: String,
+        val constraints: com.hereliesaz.graffitixr.common.model.Constraints,
+    ) : EditorIntent
+    data class SetAutoLayout(
+        val frameId: String,
+        val layout: com.hereliesaz.graffitixr.common.model.AutoLayout,
+    ) : EditorIntent
+    /** Re-runs a frame's auto-layout over its children. */
+    data class RelayoutFrame(val frameId: String) : EditorIntent
+
+    // ── Shared styles ────────────────────────────────────────────────────────────────────────
+    data class AddColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent
+    data class UpdateColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent
+    data class DeleteColorStyle(val styleId: String) : EditorIntent
+    data class AddTextStyle(val style: com.hereliesaz.graffitixr.common.model.TextStyle) : EditorIntent
+    data class UpdateTextStyle(val style: com.hereliesaz.graffitixr.common.model.TextStyle) : EditorIntent
+    data class DeleteTextStyle(val styleId: String) : EditorIntent
+    /** Links (or with null, unlinks) a layer's shape fill / stroke / text to a token. */
+    data class SetShapeFillStyle(val layerId: String, val styleId: String?) : EditorIntent
+    data class SetShapeStrokeStyle(val layerId: String, val styleId: String?) : EditorIntent
+    data class SetLayerTextStyle(val layerId: String, val styleId: String?) : EditorIntent
+
     /** Enters node-edit mode on a PATH layer, or leaves it with null. */
     data class SetPathEditLayer(val layerId: String?) : EditorIntent
     data class SelectPathNode(val index: Int?) : EditorIntent
@@ -172,6 +210,11 @@ internal sealed interface EditorIntent {
     data class SetLayers(val layers: List<Layer>) : EditorIntent
     /** Copies a source layer's aesthetic modifications (incl. warp mesh) onto [id]. */
     data class PasteLayerModifications(val id: String, val source: Layer) : EditorIntent
-    data class LoadedProject(val projectId: String, val layers: List<Layer>) : EditorIntent
+    data class LoadedProject(
+        val projectId: String,
+        val layers: List<Layer>,
+        val colorStyles: List<com.hereliesaz.graffitixr.common.model.ColorStyle> = emptyList(),
+        val textStyles: List<com.hereliesaz.graffitixr.common.model.TextStyle> = emptyList(),
+    ) : EditorIntent
     data object ClearProject : EditorIntent
 }

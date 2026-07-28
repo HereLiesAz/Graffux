@@ -73,7 +73,29 @@ data class Layer(
     val isInverted: Boolean = false,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
     // when empty the layer is the usual raster layer backed by [bitmap]. Defaulted for back-compat.
-    val shapes: List<VectorShape> = emptyList()
+    val shapes: List<VectorShape> = emptyList(),
+    /**
+     * Figma's components. When set, this layer is a MAIN component with this id — the definition
+     * instances copy their content from. When [instanceOf] is set instead, this layer is an INSTANCE
+     * of that component id. A layer is never both; see [ComponentOps] for the rules and for which
+     * fields an instance inherits versus owns.
+     */
+    val componentId: String? = null,
+    val instanceOf: String? = null,
+    /**
+     * Figma's constraints: how this layer reacts when its parent frame resizes. Ignored when the
+     * parent declares an [autoLayout], which owns its children's placement outright — see [LayoutOps].
+     */
+    val constraints: Constraints = Constraints(),
+    /** Auto-layout settings for this layer AS A FRAME, i.e. applied to its children. */
+    val autoLayout: AutoLayout = AutoLayout(),
+    /**
+     * Layout extent for a layer with no shape to measure (a raster or group frame). A raster layer's
+     * true pixel size lives on its bitmap, which this pure module can't see, so the size that
+     * participates in layout is declared rather than guessed.
+     */
+    val layoutWidth: Float = 0f,
+    val layoutHeight: Float = 0f,
 )
 
 /**
@@ -199,6 +221,10 @@ data class EditorUiState(
     // entering the mode isn't.
     val pathEditLayerId: String? = null,
     val selectedNodeIndex: Int? = null,
+    // Shared styles (see StyleOps). Unlike components, which are derived from the layer stack,
+    // a style has no layer to live on — these ARE the definitions, and the artwork stores only ids.
+    val colorStyles: List<ColorStyle> = emptyList(),
+    val textStyles: List<TextStyle> = emptyList(),
     // Procreate's freehand selection: while set, every raster tool is confined to this region and
     // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.

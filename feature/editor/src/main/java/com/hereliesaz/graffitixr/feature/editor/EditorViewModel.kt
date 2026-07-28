@@ -337,7 +337,11 @@ class EditorViewModel @Inject constructor(
                             }
                         }
 
-                        dispatch(EditorIntent.LoadedProject(project.id, layers))
+                        dispatch(
+                            EditorIntent.LoadedProject(
+                                project.id, layers, project.colorStyles, project.textStyles,
+                            ),
+                        )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -658,6 +662,11 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 _uiState.update { state ->
                     state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = newBitmap) else it })
+                }
+                // Painting on a main component has to reach its instances. Idempotent and a no-op
+                // when the document has no components, so it can run on every stroke unconditionally.
+                if (_uiState.value.layers.any { it.componentId != null }) {
+                    dispatch(EditorIntent.SyncComponents)
                 }
             }
 
@@ -1373,6 +1382,8 @@ class EditorViewModel @Inject constructor(
                     id = projectId,
                     name = name ?: "New Project",
                     layers = updatedLayers,
+                    colorStyles = _uiState.value.colorStyles,
+                    textStyles = _uiState.value.textStyles,
                     mapPath = mapPath,
                     cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
@@ -1387,6 +1398,8 @@ class EditorViewModel @Inject constructor(
                     current.copy(
                         name = name ?: current.name,
                         layers = updatedLayers,
+                        colorStyles = _uiState.value.colorStyles,
+                        textStyles = _uiState.value.textStyles,
                         lastModified = System.currentTimeMillis(),
                         mapPath = mapPath,
                         cloudPointsPath = cloudPointsPath,
@@ -3802,6 +3815,170 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ── Layout (constraints + auto-layout) ───────────────────────────────────────────────────
+
+    /** Sets how the active layer reacts when its parent frame resizes. */
+    fun onSetConstraints(constraints: com.hereliesaz.graffitixr.common.model.Constraints) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetLayerConstraints(layerId, constraints))
+        saveProject()
+    }
+
+    /** Sets the active layer's auto-layout, immediately re-laying out its children. */
+    fun onSetAutoLayout(layout: com.hereliesaz.graffitixr.common.model.AutoLayout) {
+        val frameId = _uiState.value.activeLayerId ?: return
+        if (_uiState.value.layers.none { it.parentId == frameId }) {
+            Toast.makeText(context, "That layer has no children to lay out", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetAutoLayout(frameId, layout))
+        saveProject()
+    }
+
+    /** Resizes the active frame to exactly fit its laid-out children (Figma's "hug contents"). */
+    fun onHugContents() {
+        val frameId = _uiState.value.activeLayerId ?: return
+        val size = com.hereliesaz.graffitixr.common.model.LayoutOps
+            .hugContentsSize(_uiState.value.layers, frameId)
+        if (size == null) {
+            Toast.makeText(context, "Turn on auto-layout first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pushHistory()
+        _uiState.update { state ->
+            state.copy(
+                layers = state.layers.map {
+                    if (it.id == frameId) it.copy(layoutWidth = size.first, layoutHeight = size.second) else it
+                },
+            )
+        }
+        dispatch(EditorIntent.RelayoutFrame(frameId))
+        saveProject()
+    }
+
+    // ── Shared styles ────────────────────────────────────────────────────────────────────────
+
+    /** Creates a colour token from the active shape's fill and links that shape to it. */
+    fun onCreateColorStyleFromActive(name: String) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val shape = _uiState.value.layers.firstOrNull { it.id == layerId }?.shapes?.firstOrNull()
+        if (shape == null) {
+            Toast.makeText(context, "Select a shape layer first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val style = com.hereliesaz.graffitixr.common.model.StyleOps.colorStyleFromShape(shape, name)
+        pushHistory()
+        dispatch(EditorIntent.AddColorStyle(style))
+        dispatch(EditorIntent.SetShapeFillStyle(layerId, style.id))
+        saveProject()
+    }
+
+    /** Creates a text token from the active text layer and links that layer to it. */
+    fun onCreateTextStyleFromActive(name: String) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val params = _uiState.value.layers.firstOrNull { it.id == layerId }?.textParams
+        if (params == null) {
+            Toast.makeText(context, "Select a text layer first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val style = com.hereliesaz.graffitixr.common.model.StyleOps.textStyleFromParams(params, name)
+        pushHistory()
+        dispatch(EditorIntent.AddTextStyle(style))
+        dispatch(EditorIntent.SetLayerTextStyle(layerId, style.id))
+        saveProject()
+    }
+
+    /** Re-points the active layer at an existing token (or unlinks it with null). */
+    fun onApplyColorStyle(styleId: String?) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetShapeFillStyle(layerId, styleId))
+        saveProject()
+    }
+
+    fun onApplyTextStyle(styleId: String?) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetLayerTextStyle(layerId, styleId))
+        saveProject()
+    }
+
+    /** Repoints a colour token at the current colour — every shape using it follows. */
+    fun onUpdateColorStyleToActiveColor(styleId: String) {
+        val existing = _uiState.value.colorStyles.firstOrNull { it.id == styleId } ?: return
+        val argb = _uiState.value.activeColor.toArgb().toLong() and 0xFFFFFFFFL
+        pushHistory()
+        dispatch(EditorIntent.UpdateColorStyle(existing.copy(argb = argb)))
+        saveProject()
+    }
+
+    fun onDeleteColorStyle(styleId: String) {
+        pushHistory()
+        dispatch(EditorIntent.DeleteColorStyle(styleId))
+        saveProject()
+    }
+
+    fun onDeleteTextStyle(styleId: String) {
+        pushHistory()
+        dispatch(EditorIntent.DeleteTextStyle(styleId))
+        saveProject()
+    }
+
+    // ── Components and instances ─────────────────────────────────────────────────────────────
+    //
+    // Like node editing, these are undoable and persisted but NOT emitted to co-op peers — no Op
+    // carries the component link, so a LayerPropsChange would announce a change it can't transmit.
+
+    /** Promotes the active layer to a main component. */
+    fun onMakeComponent() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val layer = _uiState.value.layers.firstOrNull { it.id == layerId } ?: return
+        if (layer.instanceOf != null) {
+            Toast.makeText(context, "An instance can't become a component", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (layer.componentId != null) return
+        pushHistory()
+        dispatch(EditorIntent.MakeComponent(layerId, UUID.randomUUID().toString()))
+        saveProject()
+        Toast.makeText(context, "\"${layer.name}\" is now a component", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Places a new instance of [componentId] on top of the stack, ready to be dragged into place. */
+    fun onPlaceInstance(componentId: String) {
+        val instance = com.hereliesaz.graffitixr.common.model.ComponentOps
+            .buildInstance(_uiState.value.layers, componentId) ?: return
+        pushHistory()
+        // The instance shares the main's bitmap reference, so it needs its own stroke-store entries
+        // or painting on it would be replayed against the main's base.
+        instance.bitmap?.let { bmp ->
+            layerStore.putBase(instance.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            layerStore.initStrokes(instance.id)
+        }
+        dispatch(EditorIntent.PlaceInstance(instance))
+        saveProject()
+    }
+
+    /** Breaks the active layer's link to its main, keeping what it currently shows. */
+    fun onDetachInstance() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        if (_uiState.value.layers.firstOrNull { it.id == layerId }?.instanceOf == null) return
+        pushHistory()
+        dispatch(EditorIntent.DetachInstance(layerId))
+        saveProject()
+    }
+
+    /** Demotes the active layer from being a component, detaching its instances. */
+    fun onReleaseComponent() {
+        val layerId = _uiState.value.activeLayerId ?: return
+        val componentId = _uiState.value.layers.firstOrNull { it.id == layerId }?.componentId ?: return
+        pushHistory()
+        dispatch(EditorIntent.ReleaseComponent(componentId))
+        saveProject()
     }
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────

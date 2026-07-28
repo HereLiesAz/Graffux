@@ -23,7 +23,13 @@ data class TextLayerParams(
     val shadowRadiusDp: Float = 8f,
     val shadowDxDp: Float = 4f,
     val shadowDyDp: Float = 4f,
-    val shadowColorArgb: Int = 0x88000000.toInt()
+    val shadowColorArgb: Int = 0x88000000.toInt(),
+    /**
+     * Shared text-style reference (see [StyleOps]). When set, the typography below is owned by the
+     * named token; [StyleOps.resolve] writes its values into these fields. [text] is never part of
+     * a style — content stays per-layer.
+     */
+    val styleId: String? = null,
 )
 
 @Serializable
@@ -55,6 +61,16 @@ data class OverlayLayer(
     // them, so a group (or a group membership) silently reset to flat/RASTER on reload.
     val parentId: String? = null,
     val layerType: LayerType = LayerType.RASTER,
+    // Component links, persisted for the same reason as the hierarchy above: without them a main
+    // component and its instances would reload as unrelated copies that no longer track each other.
+    val componentId: String? = null,
+    val instanceOf: String? = null,
+    // Layout, persisted for the same reason as the hierarchy and component links above: without
+    // these a reopened frame would forget how it arranges its children and how they resize.
+    val constraints: Constraints = Constraints(),
+    val autoLayout: AutoLayout = AutoLayout(),
+    val layoutWidth: Float = 0f,
+    val layoutHeight: Float = 0f,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,

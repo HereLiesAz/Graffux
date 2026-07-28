@@ -52,6 +52,13 @@ data class VectorShape(
      */
     val handlesIn: List<Float> = emptyList(),
     val handlesOut: List<Float> = emptyList(),
+    /**
+     * Shared-style references (see [StyleOps]). When set, the corresponding colour is owned by the
+     * named token rather than by this shape: [StyleOps.resolve] writes the token's current value
+     * into [fillArgb] / [strokeArgb], so every renderer keeps reading those fields unchanged.
+     */
+    val fillStyleId: String? = null,
+    val strokeStyleId: String? = null,
 ) {
     /** True when this path has any curvature — i.e. anything but a straight poly-line. */
     val hasCurves: Boolean
