@@ -20,23 +20,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Upper bound on a registry catalog JSON response — a guard against a hostile/oversized reply. */
-private const val MAX_REGISTRY_RESPONSE_BYTES: Long = 16L * 1024 * 1024
-
 /**
- * The GraffitiXR side of the azphalt marketplace: browse the catalog, install `.azp` packages, track
- * what's installed, and hand installed asset extensions (LUTs) to the editor. The filesystem under
- * `filesDir/extensions/<id>/` IS the installed-state — [installed] is rebuilt by scanning it, so an
- * install/uninstall survives process death with no separate index.
+ * The GraffitiXR side of the azphalt marketplace: install `.azp` packages (fetched by the host itself,
+ * handed off from a store app, or picked from a file — see [installFromStream]), track what's
+ * installed, and hand installed asset extensions (LUTs, brushes) to the editor. Browsing/acquiring is
+ * delegated to a separate store app ([AzphaltStoreHandoff], spec/store-app.md) rather than built here —
+ * this class's job starts once bytes exist, regardless of where they came from.
+ *
+ * The filesystem under `filesDir/extensions/<id>/` IS the installed-state — [installed] is rebuilt by
+ * scanning it, so an install/uninstall survives process death with no separate index.
  */
 @Singleton
 class ExtensionRepository @Inject constructor(
@@ -66,78 +64,14 @@ class ExtensionRepository @Inject constructor(
         ioScope.launch { _installed.value = scanInstalled() }
     }
 
-    /** Client for the official azphalt store (https://azphalt.store). GET-only; browse/install use it. */
-    private val storeRegistry = RepositoryClient(AzphaltStore.REGISTRY_BASE_URL, ::httpGetString)
-
-    /**
-     * The media domains (spec/repository-api.md § Media domains) this host can actually use, passed
-     * as `mediaDomains` on every search so the catalog never surfaces what it structurally can't run —
-     * a pure audio SFX or font pack doesn't match. `image` covers the 2D paint tools today; `3d` and
-     * `video` are included too since layered 3D assets (mesh/material/hdri) and animated/motion assets
-     * are on the roadmap even though nothing installs them yet — narrowing to `image` alone would hide
-     * exactly the packages that work would need to browse for.
-     */
-    private val supportedMediaDomains = listOf("image", "3d", "video")
-
-    /**
-     * Browse the official azphalt store (https://azphalt.store) — the live catalog, not a bundled seed.
-     * Fetches the store's package list and maps each to a catalog card whose [MarketplaceEntry.source]
-     * is its resolved `.azp` download URL, which [install] then fetches. Blocking IO — call from a
-     * background dispatcher.
-     *
-     * Uses [RepositoryClient.search], not [RepositoryClient.listPackages]: at its canonical root path
-     * the store answers with the repository-api.md envelope (`{packages,total,page,pages}`). The bare
-     * array is what its storefront-internal `/api/packages` returns, which is a different surface.
-     */
-    fun browseStore(query: String? = null): List<MarketplaceEntry> =
-        storeRegistry.search(q = query, mediaDomains = supportedMediaDomains).packages.map { pkg ->
-            pkg.toMarketplaceEntry(storeRegistry.downloadUrl(pkg.id, pkg.version))
-        }
-
-    /**
-     * Browse an arbitrary azphalt registry that implements the paginated repository-api.md envelope
-     * (`{packages,total,page,pages}`), rather than the official store's flat list. Blocking IO; call
-     * from a background dispatcher.
-     */
-    fun catalogFromRegistry(
-        client: RepositoryClient,
-        query: String? = null,
-        page: Int = 1,
-    ): List<MarketplaceEntry> =
-        client.search(q = query, mediaDomains = supportedMediaDomains, page = page).packages.map { pkg ->
-            pkg.toMarketplaceEntry(client.downloadUrl(pkg.id, pkg.version))
-        }
-
     fun isInstalled(id: String): Boolean = _installed.value.any { it.id == id }
 
     /**
-     * Fetch, verify, and unpack the entry's `.azp`. Throws on any fetch/integrity/safety failure.
-     * Runs blocking IO — call from a background dispatcher.
-     */
-    fun install(entry: MarketplaceEntry, nowMs: Long): InstalledExtension {
-        // Fetch OUTSIDE the lock so a slow/stalled download can't block uninstall or another install.
-        // Buffer to a bounded temp file, then serialize only the filesystem-mutating unpack + rescan.
-        val tempFile = File.createTempFile("azp_", ".azp", context.cacheDir)
-        try {
-            openSource(entry.source).use { input ->
-                tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
-            }
-            requireAzpPackage(tempFile, entry)
-            return synchronized(lock) {
-                val installed = tempFile.inputStream().use { installer.install(it, nowMs) }
-                _installed.value = scanInstalled()
-                installed
-            }
-        } finally {
-            tempFile.delete()
-        }
-    }
-
-    /**
-     * Verify and unpack an `.azp` from an arbitrary [input] stream — e.g. a user-picked file (a
-     * `content://` Uri the caller opened). Buffers to a bounded temp file first (the same zip-bomb
-     * guard as [install]), then serializes the unpack + rescan. Throws on any integrity/safety failure.
-     * Runs blocking IO — call from a background dispatcher.
+     * Verify and unpack an `.azp` from an arbitrary [input] stream — a user-picked file (a
+     * `content://` Uri from the file picker) or a package handed off from a store app
+     * ([AzphaltStoreHandoff]). Buffers to a bounded temp file first (a zip-bomb guard), then
+     * serializes the unpack + rescan. Throws on any integrity/safety failure. Runs blocking IO — call
+     * from a background dispatcher.
      */
     fun installFromStream(input: InputStream, nowMs: Long): InstalledExtension {
         val tempFile = File.createTempFile("azp_", ".azp", context.cacheDir)
@@ -150,25 +84,6 @@ class ExtensionRepository @Inject constructor(
             }
         } finally {
             tempFile.delete()
-        }
-    }
-
-    /**
-     * Reject anything that isn't actually an `.azp` before the installer opens it. A registry that
-     * doesn't implement `/download` can still answer 200 — the azphalt store currently serves its
-     * single-page-app `index.html` for every unmatched API path — and feeding that to the unpacker
-     * surfaced as the baffling "Package has no manifest.json". An `.azp` is a zip, so check the local
-     * file header magic and say plainly what arrived instead.
-     */
-    private fun requireAzpPackage(file: File, entry: MarketplaceEntry) {
-        val header = ByteArray(4)
-        val read = file.inputStream().use { it.read(header) }
-        val isZip = read == 4 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte() &&
-            header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
-        if (!isZip) {
-            throw AzpInstaller.InstallException(
-                "${entry.name} isn't downloadable yet — ${entry.source} returned a web page, not a package."
-            )
         }
     }
 
@@ -317,42 +232,6 @@ class ExtensionRepository @Inject constructor(
                 // Unsupported runtime
             }
         }
-    }
-
-    private fun openSource(source: String): InputStream = when {
-        source.startsWith("asset:") -> context.assets.open(source.removePrefix("asset:"))
-        source.startsWith("https://") -> {
-            // https-only with finite timeouts — a cleartext or hung endpoint must not be trusted or
-            // block the install indefinitely. HttpURLConnection won't follow a cross-protocol
-            // (https→http) redirect, so a downgrade can't be forced.
-            val conn = (URL(source).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-            }
-            conn.inputStream
-        }
-        source.startsWith("http://") ->
-            throw AzpInstaller.InstallException("Refusing cleartext http source (https required): $source")
-        else -> throw AzpInstaller.InstallException("Unsupported source: $source")
-    }
-
-    /**
-     * Blocking https GET returning the response body — the transport behind [storeRegistry]. https-only
-     * with finite timeouts (a cleartext or hung registry must not be trusted or stall the UI), and the
-     * body is bounded so a hostile/huge catalog response can't OOM the app.
-     */
-    private fun httpGetString(url: String, headers: Map<String, String>): String {
-        if (!url.startsWith("https://")) throw AzpInstaller.InstallException("Registry requires https: $url")
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            requestMethod = "GET"
-            setRequestProperty("Accept", "application/json")
-            headers.forEach { (k, v) -> setRequestProperty(k, v) }
-        }
-        val out = ByteArrayOutputStream()
-        conn.inputStream.use { input -> copyBounded(input, out, MAX_REGISTRY_RESPONSE_BYTES) }
-        return out.toByteArray().decodeToString()
     }
 
     private fun scanInstalled(): List<InstalledExtension> {
