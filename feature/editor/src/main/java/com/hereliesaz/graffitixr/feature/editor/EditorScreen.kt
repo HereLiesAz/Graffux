@@ -222,9 +222,12 @@ fun EditorScreen(
                     }
                     .pointerInput(Unit) {
                         // Infinite-canvas navigation vs. object move:
-                        //  • two+ fingers  → pan + zoom the CAMERA (about the pinch centroid)
+                        //  • two+ fingers                   → pan + zoom the CAMERA (about the pinch centroid)
                         //  • one finger on the active layer → move that layer (history-bracketed)
-                        //  • one finger on empty space      → pan the CAMERA
+                        //  • one finger on empty space      → no-op; a single finger must NEVER pan the
+                        //    canvas (Procreate reserves camera navigation for two fingers exclusively —
+                        //    one finger is always either painting or, here in Transform mode, moving the
+                        //    layer it lands on; there is no single-finger canvas-drag gesture at all).
                         // Handle drags are claimed by the SelectionHandles layer above (consumed),
                         // so they never reach here.
                         //
@@ -248,24 +251,25 @@ fun EditorScreen(
                                 val event = awaitPointerEvent()
                                 val pressed = event.changes.count { it.pressed }
                                 if (pressed == 0) break
-                                val pan = event.calculatePan()
-                                val zoom = event.calculateZoom()
-                                val centroid = event.calculateCentroid()
                                 when {
                                     pressed >= 2 -> {
                                         // Two fingers → pan + zoom + rotate the whole canvas (Procreate-style).
-                                        if (centroid != Offset.Unspecified)
-                                            vm.onViewportPanZoom(pan, zoom, centroid, event.calculateRotation())
+                                        val centroid = event.calculateCentroid()
+                                        if (centroid != Offset.Unspecified) {
+                                            vm.onViewportPanZoom(
+                                                event.calculatePan(), event.calculateZoom(), centroid,
+                                                event.calculateRotation(),
+                                            )
+                                        }
                                     }
                                     startOnActiveLayer -> {
                                         if (!movingObject) { vm.onGestureStart(); movingObject = true }
-                                        vm.onTransformGesture(pan, 1f, 0f, w, h)
+                                        vm.onTransformGesture(event.calculatePan(), 1f, 0f, w, h)
                                     }
-                                    else -> {
-                                        if (centroid != Offset.Unspecified) vm.onViewportPanZoom(pan, 1f, centroid)
-                                    }
+                                    // One finger, off the active layer: not a canvas gesture. Leave the
+                                    // event unconsumed and do nothing — no camera pan, ever, on one finger.
                                 }
-                                event.changes.forEach { it.consume() }
+                                if (pressed >= 2 || startOnActiveLayer) event.changes.forEach { it.consume() }
                             }
                             if (movingObject) vm.onGestureEnd()
                         }

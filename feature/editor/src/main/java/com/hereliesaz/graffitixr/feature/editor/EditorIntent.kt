@@ -49,8 +49,11 @@ internal sealed interface EditorIntent {
     data class ActivateLayer(val id: String) : EditorIntent
 
     /** Appends [layer], makes it active, and clears the tool. [resetActivePanel] mirrors the
-     *  two call patterns: adds dismiss the panel, duplicate leaves it as-is. */
-    data class AddLayer(val layer: Layer, val resetActivePanel: Boolean = true) : EditorIntent
+     *  two call patterns: adds dismiss the panel, duplicate leaves it as-is. [activeToolOverride]
+     *  keeps that tool active instead of clearing it — used when the layer exists only because a
+     *  tool needed a canvas to paint on (see EditorViewModel.setActiveTool), so picking a brush on
+     *  an empty project activates it immediately instead of snapping back to none. */
+    data class AddLayer(val layer: Layer, val resetActivePanel: Boolean = true, val activeToolOverride: Tool? = null) : EditorIntent
     /** Removes [id]; if it was active, activates the first remaining layer. Clears the tool. */
     data class RemoveLayer(val id: String) : EditorIntent
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */
