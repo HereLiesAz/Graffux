@@ -14,6 +14,16 @@
          instead of opting into that declaration. -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
+    <!-- Package visibility (Android 11+): without this, PackageManager#resolveActivity and
+         startActivity for the azphalt store's custom action (spec/store-app.md) silently fail to see
+         a store app even when one is installed — a custom action isn't covered by the automatic
+         visibility exemptions implicit/standard actions get. -->
+    <queries>
+        <intent>
+            <action android:name="store.azphalt.action.BROWSE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".GraffuxApplication"
         android:allowBackup="true"
