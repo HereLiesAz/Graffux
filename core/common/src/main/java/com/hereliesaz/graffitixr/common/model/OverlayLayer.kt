@@ -65,6 +65,12 @@ data class OverlayLayer(
     // component and its instances would reload as unrelated copies that no longer track each other.
     val componentId: String? = null,
     val instanceOf: String? = null,
+    // Layout, persisted for the same reason as the hierarchy and component links above: without
+    // these a reopened frame would forget how it arranges its children and how they resize.
+    val constraints: Constraints = Constraints(),
+    val autoLayout: AutoLayout = AutoLayout(),
+    val layoutWidth: Float = 0f,
+    val layoutHeight: Float = 0f,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,

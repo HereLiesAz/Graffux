@@ -53,6 +53,9 @@ import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
+import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
+import com.hereliesaz.graffitixr.common.model.LayoutAlign
+import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -760,6 +763,88 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
+    // Auto-layout and constraints (Figma). Auto-layout only appears on a layer that actually has
+    // children to arrange; constraints only on a layer that has a parent to be constrained within.
+    run {
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val hasChildren = active != null && uiState.layers.any { it.parentId == active.id }
+        val hasParent = active?.parentId != null
+        if (hasChildren || hasParent) {
+            azRailHostItem(
+                id = "grp.layout", text = "Layout",
+                content = DesignR.drawable.ic_ps_transform, color = navItemColor,
+            )
+            if (hasChildren) {
+                val current = active.autoLayout
+                LayoutDirection.entries.forEach { dir ->
+                    azRailSubItem(
+                        id = "lay.dir.${dir.name}", hostId = "grp.layout",
+                        text = when (dir) {
+                            LayoutDirection.NONE -> "Free"
+                            LayoutDirection.HORIZONTAL -> "Row"
+                            LayoutDirection.VERTICAL -> "Column"
+                        },
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                        color = if (current.direction == dir) activeColor else navItemColor,
+                        onClick = { vm.onSetAutoLayout(current.copy(direction = dir)) },
+                    )
+                }
+                if (current.direction != LayoutDirection.NONE) {
+                    azRailSubItem(
+                        id = "lay.hug", hostId = "grp.layout", text = "Hug Contents",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_fit,
+                        color = navItemColor,
+                        onClick = { vm.onHugContents() },
+                    )
+                    azRailSlider(
+                        id = "lay.gap", text = "Gap",
+                        value = current.gap,
+                        config = AzSliderConfig(
+                            orientation = AzSliderOrientation.VERTICAL, valueFrom = 0f, valueTo = 100f,
+                        ),
+                        color = navItemColor,
+                        valueFormatter = { "${it.roundToInt()}" },
+                        onValueChange = { vm.onSetAutoLayout(current.copy(gap = it)) },
+                    )
+                    LayoutAlign.entries.forEach { align ->
+                        azRailSubItem(
+                            id = "lay.align.${align.name}", hostId = "grp.layout",
+                            text = "Align ${align.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                            shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                            color = if (current.align == align) activeColor else navItemColor,
+                            onClick = { vm.onSetAutoLayout(current.copy(align = align)) },
+                        )
+                    }
+                }
+            }
+            // Constraints are per-axis; a parent running auto-layout owns placement instead, so
+            // they're hidden in that case rather than shown as controls that do nothing.
+            val parentAutoLays = active?.parentId
+                ?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
+                ?.autoLayout?.direction != LayoutDirection.NONE
+            if (hasParent && !parentAutoLays) {
+                ConstraintAnchor.entries.forEach { anchor ->
+                    azRailSubItem(
+                        id = "lay.h.${anchor.name}", hostId = "grp.layout",
+                        text = "H: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                        color = if (active.constraints.horizontal == anchor) activeColor else navItemColor,
+                        onClick = { vm.onSetConstraints(active.constraints.copy(horizontal = anchor)) },
+                    )
+                }
+                ConstraintAnchor.entries.forEach { anchor ->
+                    azRailSubItem(
+                        id = "lay.v.${anchor.name}", hostId = "grp.layout",
+                        text = "V: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                        color = if (active.constraints.vertical == anchor) activeColor else navItemColor,
+                        onClick = { vm.onSetConstraints(active.constraints.copy(vertical = anchor)) },
+                    )
+                }
+            }
+        }
+    }
+
     // Shared styles (Figma tokens). The library is a real registry on UiState, so the group shows
     // whenever a token exists or the active layer is something a token could be lifted from.
     run {

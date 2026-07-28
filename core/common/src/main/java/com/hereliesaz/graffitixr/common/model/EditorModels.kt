@@ -82,6 +82,20 @@ data class Layer(
      */
     val componentId: String? = null,
     val instanceOf: String? = null,
+    /**
+     * Figma's constraints: how this layer reacts when its parent frame resizes. Ignored when the
+     * parent declares an [autoLayout], which owns its children's placement outright — see [LayoutOps].
+     */
+    val constraints: Constraints = Constraints(),
+    /** Auto-layout settings for this layer AS A FRAME, i.e. applied to its children. */
+    val autoLayout: AutoLayout = AutoLayout(),
+    /**
+     * Layout extent for a layer with no shape to measure (a raster or group frame). A raster layer's
+     * true pixel size lives on its bitmap, which this pure module can't see, so the size that
+     * participates in layout is declared rather than guessed.
+     */
+    val layoutWidth: Float = 0f,
+    val layoutHeight: Float = 0f,
 )
 
 /**

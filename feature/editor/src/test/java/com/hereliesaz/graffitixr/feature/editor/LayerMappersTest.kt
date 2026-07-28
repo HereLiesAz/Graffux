@@ -53,6 +53,32 @@ class LayerMappersTest {
     }
 
     @Test
+    fun `layout settings survive the round trip`() {
+        val frame = Layer(
+            id = "f", name = "f", uri = uri,
+            constraints = com.hereliesaz.graffitixr.common.model.Constraints(
+                horizontal = com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END,
+                vertical = com.hereliesaz.graffitixr.common.model.ConstraintAnchor.CENTER,
+            ),
+            autoLayout = com.hereliesaz.graffitixr.common.model.AutoLayout(
+                direction = com.hereliesaz.graffitixr.common.model.LayoutDirection.VERTICAL,
+                gap = 12f,
+                paddingStart = 4f,
+            ),
+            layoutWidth = 300f,
+            layoutHeight = 150f,
+        )
+        val restored = frame.toOverlayLayer().toLayer()
+        assertEquals(com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END, restored.constraints.horizontal)
+        assertEquals(com.hereliesaz.graffitixr.common.model.ConstraintAnchor.CENTER, restored.constraints.vertical)
+        assertEquals(com.hereliesaz.graffitixr.common.model.LayoutDirection.VERTICAL, restored.autoLayout.direction)
+        assertEquals(12f, restored.autoLayout.gap, 0f)
+        assertEquals(4f, restored.autoLayout.paddingStart, 0f)
+        assertEquals(300f, restored.layoutWidth, 0f)
+        assertEquals(150f, restored.layoutHeight, 0f)
+    }
+
+    @Test
     fun `a plain layer round trips with no component links invented`() {
         val plain = Layer(id = "p", name = "p", uri = uri)
         val restored = plain.toOverlayLayer().toLayer()

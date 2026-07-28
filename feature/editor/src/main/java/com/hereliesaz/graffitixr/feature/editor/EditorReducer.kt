@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.model.ComponentOps
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayoutOps
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.StyleOps
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
@@ -177,6 +178,16 @@ internal object EditorReducer {
             state.copy(layers = ComponentOps.releaseComponent(state.layers, intent.componentId))
         EditorIntent.SyncComponents -> state.copy(layers = ComponentOps.syncInstances(state.layers))
 
+        // Layout. Setting either one immediately re-lays the frame out, so the canvas shows the
+        // result of the change rather than waiting for the next resize to apply it.
+        is EditorIntent.SetLayerConstraints -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(constraints = intent.constraints) },
+        )
+        is EditorIntent.SetAutoLayout -> state
+            .copy(layers = LayerListOps.mapLayer(state.layers, intent.frameId) { it.copy(autoLayout = intent.layout) })
+            .relaidOut(intent.frameId)
+        is EditorIntent.RelayoutFrame -> state.relaidOut(intent.frameId)
+
         // Shared styles. Every branch re-resolves, so a token edit reaches the artwork in the same
         // transition — the artwork stores ids, and resolve() writes the current values into the
         // concrete colour/typography fields the renderers already read.
@@ -303,6 +314,19 @@ internal object EditorReducer {
     }
 
     /** Applies [transform] to the active layer (no-op when there is no active layer). */
+    /**
+     * Re-runs [frameId]'s auto-layout. The frame's rect comes from its own offset and declared
+     * layout size — the document is the frame of last resort, so a frame with no declared size
+     * falls back to the document bounds rather than laying out into a zero-sized box.
+     */
+    private fun EditorUiState.relaidOut(frameId: String): EditorUiState {
+        val frame = layers.firstOrNull { it.id == frameId } ?: return this
+        val w = if (frame.layoutWidth > 0f) frame.layoutWidth else documentWidth.toFloat()
+        val h = if (frame.layoutHeight > 0f) frame.layoutHeight else documentHeight.toFloat()
+        val rect = com.hereliesaz.graffitixr.common.model.Rect(frame.offset.x, frame.offset.y, w, h)
+        return copy(layers = LayoutOps.applyAutoLayout(layers, frameId, rect))
+    }
+
     /**
      * Applies the style registry to the artwork. Called by every style branch so a token edit lands
      * on the layers in the same transition that changed the token — the artwork stores only ids, and

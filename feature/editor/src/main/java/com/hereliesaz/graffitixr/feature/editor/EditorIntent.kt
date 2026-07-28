@@ -136,6 +136,18 @@ internal sealed interface EditorIntent {
      * which edits qualify, and it's idempotent.
      */
     data object SyncComponents : EditorIntent
+    // ── Layout (constraints + auto-layout) ───────────────────────────────────────────────────
+    data class SetLayerConstraints(
+        val layerId: String,
+        val constraints: com.hereliesaz.graffitixr.common.model.Constraints,
+    ) : EditorIntent
+    data class SetAutoLayout(
+        val frameId: String,
+        val layout: com.hereliesaz.graffitixr.common.model.AutoLayout,
+    ) : EditorIntent
+    /** Re-runs a frame's auto-layout over its children. */
+    data class RelayoutFrame(val frameId: String) : EditorIntent
+
     // ── Shared styles ────────────────────────────────────────────────────────────────────────
     data class AddColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent
     data class UpdateColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent

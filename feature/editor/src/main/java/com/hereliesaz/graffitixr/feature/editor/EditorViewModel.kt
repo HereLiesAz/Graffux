@@ -3817,6 +3817,49 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Layout (constraints + auto-layout) ───────────────────────────────────────────────────
+
+    /** Sets how the active layer reacts when its parent frame resizes. */
+    fun onSetConstraints(constraints: com.hereliesaz.graffitixr.common.model.Constraints) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetLayerConstraints(layerId, constraints))
+        saveProject()
+    }
+
+    /** Sets the active layer's auto-layout, immediately re-laying out its children. */
+    fun onSetAutoLayout(layout: com.hereliesaz.graffitixr.common.model.AutoLayout) {
+        val frameId = _uiState.value.activeLayerId ?: return
+        if (_uiState.value.layers.none { it.parentId == frameId }) {
+            Toast.makeText(context, "That layer has no children to lay out", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetAutoLayout(frameId, layout))
+        saveProject()
+    }
+
+    /** Resizes the active frame to exactly fit its laid-out children (Figma's "hug contents"). */
+    fun onHugContents() {
+        val frameId = _uiState.value.activeLayerId ?: return
+        val size = com.hereliesaz.graffitixr.common.model.LayoutOps
+            .hugContentsSize(_uiState.value.layers, frameId)
+        if (size == null) {
+            Toast.makeText(context, "Turn on auto-layout first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pushHistory()
+        _uiState.update { state ->
+            state.copy(
+                layers = state.layers.map {
+                    if (it.id == frameId) it.copy(layoutWidth = size.first, layoutHeight = size.second) else it
+                },
+            )
+        }
+        dispatch(EditorIntent.RelayoutFrame(frameId))
+        saveProject()
+    }
+
     // ── Shared styles ────────────────────────────────────────────────────────────────────────
 
     /** Creates a colour token from the active shape's fill and links that shape to it. */
