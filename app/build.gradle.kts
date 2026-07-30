@@ -97,6 +97,16 @@ if (isBuilding) {
 }
 
 
+// compute gitCount (existing approach)
+val gitCommitCount: Int = try {
+    val proc = Runtime.getRuntime().exec(arrayOf("bash", "-lc", "git rev-list --count HEAD"))
+    proc.inputStream.bufferedReader().readText().trim().toInt()
+} catch (e: Exception) {
+    0
+}
+
+// read project property if provided
+val versionCodeOffset: Int = (project.findProperty("versionCodeOffset") as? String)?.toIntOrNull() ?: 0
 
 android {
     namespace = "com.hereliesaz.graffux"
