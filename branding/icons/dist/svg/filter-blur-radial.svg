@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/filter-blur-radial — A burst of lines from one still centre. -->
+  <path d="M15,12L21.4,12 M14.6,13.5L20.14,16.7 M13.5,14.6L16.7,20.14 M12,15L12,21.4 M10.5,14.6L7.3,20.14 M9.4,13.5L3.86,16.7 M9,12L2.6,12 M9.4,10.5L3.86,7.3 M10.5,9.4L7.3,3.86 M12,9L12,2.6 M13.5,9.4L16.7,3.86 M14.6,10.5L20.14,7.3"/>
+  <path d="M10.3,12A1.7,1.7 0 1,0 13.7,12A1.7,1.7 0 1,0 10.3,12Z" fill="currentColor" stroke="none"/>
+</svg>

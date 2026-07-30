@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/mask-vector — A mask whose edge is a path, not a painting. -->
+  <path d="M3,4.6L21,4.6L21,19.4L3,19.4Z"/>
+  <path d="M6.6,16.4Q12,5.8 17.4,16.4"/>
+  <path d="M5.3,15.1L7.9,15.1L7.9,17.7L5.3,17.7Z M16.1,15.1L18.7,15.1L18.7,17.7L16.1,17.7Z" fill="currentColor" stroke="none"/>
+</svg>

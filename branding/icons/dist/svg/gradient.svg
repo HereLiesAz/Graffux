@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/gradient — A ramp read as a rhythm that opens out. -->
+  <path d="M3.4,6.4L20.6,6.4L20.6,17.6L3.4,17.6Z"/>
+  <path d="M11.4,6.4L11.4,17.6 M14.4,6.4L14.4,17.6 M18.4,6.4L18.4,17.6"/>
+  <path d="M3.4,6.4L9.6,6.4L9.6,17.6L3.4,17.6Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/channel-mixer — Three rails set independently. -->
+  <path d="M6.4,3.4L6.4,20.6 M12,3.4L12,20.6 M17.6,3.4L17.6,20.6"/>
+  <path d="M4.4,8A2,2 0 1,0 8.4,8A2,2 0 1,0 4.4,8Z"/>
+  <path d="M15.6,15.4A2,2 0 1,0 19.6,15.4A2,2 0 1,0 15.6,15.4Z"/>
+  <path d="M10,11.4A2,2 0 1,0 14,11.4A2,2 0 1,0 10,11.4Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/font-size — The same letter at two sizes, side by side. -->
+  <path d="M6.4,8.6L2.4,20.2 M6.4,8.6L10.4,20.2 M4.48,15.79L8.32,15.79"/>
+  <path d="M16.6,4.4L11.6,20 M16.6,4.4L21.6,20 M14.2,14.07L19,14.07" fill="currentColor" stroke="none"/>
+</svg>

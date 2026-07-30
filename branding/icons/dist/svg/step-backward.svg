@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/step-backward — The same pairing, run the other way. -->
+  <path d="M6.4,6.4L8.6,6.4L8.6,17.6L6.4,17.6Z M17.6,6.4L10,12L17.6,17.6Z" fill="currentColor" stroke="none"/>
+</svg>

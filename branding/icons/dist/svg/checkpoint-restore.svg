@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/checkpoint-restore — A run of states with the live one held at the far end. -->
+  <path d="M2.3,12A1.1,1.1 0 1,0 4.5,12A1.1,1.1 0 1,0 2.3,12Z M7.5,12A1.1,1.1 0 1,0 9.7,12A1.1,1.1 0 1,0 7.5,12Z M12.7,12A1.1,1.1 0 1,0 14.9,12A1.1,1.1 0 1,0 12.7,12Z"/>
+  <path d="M3.4,12L17.4,12"/>
+  <path d="M17.4,12A1.6,1.6 0 1,0 20.6,12A1.6,1.6 0 1,0 17.4,12Z" fill="currentColor" stroke="none"/>
+</svg>

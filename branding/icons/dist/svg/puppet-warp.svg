@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/puppet-warp — A form with two pins holding it in a bent pose. -->
+  <path d="M4,18C4.5,16.33 5.33,10 7,8C8.67,6 11.83,5.33 14,6C16.17,6.67 19,11 20,12"/>
+  <path d="M5.5,8A1.5,1.5 0 1,0 8.5,8A1.5,1.5 0 1,0 5.5,8Z M12.5,6A1.5,1.5 0 1,0 15.5,6A1.5,1.5 0 1,0 12.5,6Z" fill="currentColor" stroke="none"/>
+</svg>

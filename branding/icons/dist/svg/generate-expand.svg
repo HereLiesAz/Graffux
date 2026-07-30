@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/generate-expand — A held frame with new ground opening around it. -->
+  <path d="M7.4,7.4L16.6,7.4L16.6,16.6L7.4,16.6Z"/>
+  <path d="M3,3L8.4,3 M12,3L17.4,3 M21,3L21,8.4 M21,12L21,17.4 M21,21L15.6,21 M12,21L6.6,21 M3,21L3,15.6 M3,12L3,6.6"/>
+  <path d="M19.4,2.4L20.02,3.98L21.6,4.6L20.02,5.22L19.4,6.8L18.78,5.22L17.2,4.6L18.78,3.98Z" fill="currentColor" stroke="none"/>
+</svg>

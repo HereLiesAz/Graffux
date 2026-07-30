@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/brush-scatter — A stroke path with its stamps scattered around it. -->
+  <path d="M2.8,17.2L21.2,6.8"/>
+  <path d="M5.9,10.2A1.7,1.7 0 1,0 9.3,10.2A1.7,1.7 0 1,0 5.9,10.2Z"/>
+  <path d="M15.1,15.4A1.7,1.7 0 1,0 18.5,15.4A1.7,1.7 0 1,0 15.1,15.4Z"/>
+  <path d="M12,7.6A1.4,1.4 0 1,0 14.8,7.6A1.4,1.4 0 1,0 12,7.6Z"/>
+  <path d="M8.65,17.6A1.35,1.35 0 1,0 11.35,17.6A1.35,1.35 0 1,0 8.65,17.6Z" fill="currentColor" stroke="none"/>
+</svg>

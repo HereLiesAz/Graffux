@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/view-actual-colors — Two fields held side by side, neither one favoured. -->
+  <path d="M4,9A5,5 0 1,0 14,9A5,5 0 1,0 4,9Z"/>
+  <path d="M10,15A5,5 0 1,0 20,15A5,5 0 1,0 10,15Z"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/history-snapshot — A camera with the lens that took the picture. -->
+  <path d="M3.4,7.4L20.6,7.4L20.6,19.4L3.4,19.4Z"/>
+  <path d="M8.4,4L15.6,4L15.6,8L8.4,8Z"/>
+  <path d="M10.4,13.4A1.6,1.6 0 1,0 13.6,13.4A1.6,1.6 0 1,0 10.4,13.4Z" fill="currentColor" stroke="none"/>
+</svg>

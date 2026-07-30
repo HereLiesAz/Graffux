@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/replace-color — One field handed over to another. -->
+  <path d="M2.6,12A4,4 0 1,0 10.6,12A4,4 0 1,0 2.6,12Z"/>
+  <path d="M13.4,12A4,4 0 1,0 21.4,12A4,4 0 1,0 13.4,12Z"/>
+  <path d="M11,12L12.6,12"/>
+  <path d="M14,12L11.4,10.13L11.4,13.87Z" fill="currentColor" stroke="none"/>
+</svg>

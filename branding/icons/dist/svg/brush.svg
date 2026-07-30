@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/brush — Handle, ferrule, solid tapered head. -->
+  <path d="M18.36,5.64L13.56,10.44"/>
+  <path d="M15.18,12.07L11.93,8.82"/>
+  <path d="M15.18,12.07L11.01,15.54L5.64,18.36L8.46,12.99L11.93,8.82Z" fill="currentColor" stroke="none"/>
+</svg>

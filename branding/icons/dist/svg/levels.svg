@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/levels — A histogram and the three points that reset its ends and middle. -->
+  <path d="M4,15.4L4,12 M7.2,15.4L7.2,7.4 M10.4,15.4L10.4,4.2 M13.6,15.4L13.6,8.6 M16.8,15.4L16.8,11 M20,15.4L20,13.4"/>
+  <path d="M3,15.4L21,15.4"/>
+  <path d="M4,17.2L2.27,19.6L5.73,19.6Z M11.4,17.2L9.67,19.6L13.13,19.6Z M20,17.2L18.27,19.6L21.73,19.6Z" fill="currentColor" stroke="none"/>
+</svg>

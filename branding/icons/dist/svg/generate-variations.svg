@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/generate-variations — Three held frames and the sparkle offering a fourth. -->
+  <path d="M3,3L11,3L11,11L3,11Z"/>
+  <path d="M13,3L21,3L21,11L13,11Z"/>
+  <path d="M3,13L11,13L11,21L3,21Z"/>
+  <path d="M17,13.8L17.9,16.1L20.2,17L17.9,17.9L17,20.2L16.1,17.9L13.8,17L16.1,16.1Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-sky — Everything above the ridge line, sun included. -->
+  <path d="M2.8,5.4L5.33,5.4 M7.4,5.4L9.93,5.4 M12,5.4L14.53,5.4 M16.6,5.4L19.13,5.4"/>
+  <path d="M5.2,9.6A2.2,2.2 0 1,0 9.6,9.6A2.2,2.2 0 1,0 5.2,9.6Z"/>
+  <path d="M2.8,19.6L8.6,12.4L13.4,17L17,13.2L21.2,19.6Z" fill="currentColor" stroke="none"/>
+</svg>

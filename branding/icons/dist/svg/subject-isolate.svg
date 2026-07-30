@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/subject-isolate — A picture with its subject already lifted from behind it. -->
+  <path d="M2.8,6L5.33,6 M7.4,6L9.93,6 M12,6L14.53,6 M16.6,6L19.13,6"/>
+  <path d="M5.4,10A2,2 0 1,0 9.4,10A2,2 0 1,0 5.4,10Z"/>
+  <path d="M2.8,20.4L8.4,13.4L13,17.8L16.6,14.2L21.2,20.4Z" fill="currentColor" stroke="none"/>
+</svg>
