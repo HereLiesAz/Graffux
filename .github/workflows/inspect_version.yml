@@ -45,22 +45,15 @@ jobs:
           echo "versionCode:"
           java -jar $BUNDLETOOL dump manifest --bundle="$AAB_FILE" | grep -oP 'versionCode="\K[0-9]+' || true
 
-      - name: Print PLAY_SERVICE_ACCOUNT_JSON identity (no private key)
-        if: ${{ inputs.publish != 'false' }}
-        env:
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-        run: |
-          set -e
-          if [ -z "${PLAY_SERVICE_ACCOUNT_JSON//[[:space:]]/}" ]; then
-            echo "::warning::PLAY_SERVICE_ACCOUNT_JSON is empty"
-          else
-            python - <<'PY'
-import json, os, sys
-try:
-    sa = json.loads(os.environ['PLAY_SERVICE_ACCOUNT_JSON'])
-    print("service_account.client_email:", sa.get("client_email"))
-    print("service_account.project_id:", sa.get("project_id"))
-except Exception as e:
-    print("Failed to parse PLAY_SERVICE_ACCOUNT_JSON:", e)
-    sys.exit(0)
-PY
+name: Print PLAY_SERVICE_ACCOUNT_JSON identity (no private key) 
+if: ${{ inputs.publish != 'false' }} 
+env: 
+PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }} 
+run: | 
+    set -e if [ -z "${PLAY_SERVICE_ACCOUNT_JSON//[[:space:]]/}" ]; 
+    then echo "::warning::PLAY_SERVICE_ACCOUNT_JSON is empty" 
+    else python -c "import json,os,sys sa=os.environ.get('PLAY_SERVICE_ACCOUNT_JSON','') 
+    try: d=json.loads(sa) print('service_account.client_email:', d.get('client_email')) 
+    print('service_account.project_id:', d.get('project_id')) 
+    except Exception as e: 
+    print('Failed to parse PLAY_SERVICE_ACCOUNT_JSON:', e) sys.exit(0)"
