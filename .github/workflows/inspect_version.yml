@@ -1,34 +1,60 @@
-- name: Print AAB path and inspect versionCode
-  if: ${{ inputs.publish != 'false' }}
-  run: |
-    set -e
-    AAB="app/build/outputs/bundle/release/*.aab"
-    echo "AAB glob: $AAB"
-    ls -l app/build/outputs/bundle/release || true
-    AAB_FILE=$(ls app/build/outputs/bundle/release/*.aab | head -n1 || true)
-    if [ -z "$AAB_FILE" ]; then
-      echo "::error::No AAB found at app/build/outputs/bundle/release/*.aab"
-      exit 1
-    fi
-    echo "Using AAB: $AAB_FILE"
-    # Download bundletool and extract the versionCode
-    BUNDLETOOL=bundletool.jar
-    if [ ! -f "$BUNDLETOOL" ]; then
-      wget -q https://github.com/google/bundletool/releases/download/1.11.0/bundletool-all-1.11.0.jar -O $BUNDLETOOL
-    fi
-    echo "versionCode:"
-    java -jar $BUNDLETOOL dump manifest --bundle="$AAB_FILE" | grep -oP 'versionCode="\K[0-9]+' || true
+name: Inspect AAB and Play service account
 
-- name: Print PLAY_SERVICE_ACCOUNT_JSON identity (no private key)
-  if: ${{ inputs.publish != 'false' }}
-  env:
-    PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-  run: |
-    set -e
-    if [ -z "${PLAY_SERVICE_ACCOUNT_JSON//[[:space:]]/}" ]; then
-      echo "::warning::PLAY_SERVICE_ACCOUNT_JSON is empty"
-    else
-      python - <<'PY'
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Whether to publish (true/false)'
+        default: 'true'
+        required: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Print AAB path and inspect versionCode
+        if: ${{ inputs.publish != 'false' }}
+        run: |
+          set -e
+          AAB="app/build/outputs/bundle/release/*.aab"
+          echo "AAB glob: $AAB"
+          ls -l app/build/outputs/bundle/release || true
+          AAB_FILE=$(ls app/build/outputs/bundle/release/*.aab | head -n1 || true)
+          if [ -z "$AAB_FILE" ]; then
+            echo "::error::No AAB found at app/build/outputs/bundle/release/*.aab"
+            exit 1
+          fi
+          echo "Using AAB: $AAB_FILE"
+          # Download bundletool and extract the versionCode
+          BUNDLETOOL=bundletool.jar
+          if [ ! -f "$BUNDLETOOL" ]; then
+            wget -q https://github.com/google/bundletool/releases/download/1.11.0/bundletool-all-1.11.0.jar -O $BUNDLETOOL
+          fi
+          echo "versionCode:"
+          java -jar $BUNDLETOOL dump manifest --bundle="$AAB_FILE" | grep -oP 'versionCode="\K[0-9]+' || true
+
+      - name: Print PLAY_SERVICE_ACCOUNT_JSON identity (no private key)
+        if: ${{ inputs.publish != 'false' }}
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -e
+          if [ -z "${PLAY_SERVICE_ACCOUNT_JSON//[[:space:]]/}" ]; then
+            echo "::warning::PLAY_SERVICE_ACCOUNT_JSON is empty"
+          else
+            python - <<'PY'
 import json, os, sys
 try:
     sa = json.loads(os.environ['PLAY_SERVICE_ACCOUNT_JSON'])
