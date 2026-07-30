@@ -45,7 +45,7 @@ jobs:
           echo "versionCode:"
           java -jar $BUNDLETOOL dump manifest --bundle="$AAB_FILE" | grep -oP 'versionCode="\K[0-9]+' || true
 
-name: Print PLAY_SERVICE_ACCOUNT_JSON identity (no private key) 
+
 if: ${{ inputs.publish != 'false' }} 
 env: 
 PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }} 
