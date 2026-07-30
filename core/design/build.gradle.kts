@@ -42,4 +42,7 @@ dependencies {
     // MISSING DEPENDENCY RESTORED:
     // Required for legacy vector drawables using ?attr/colorControlNormal
     implementation(libs.androidx.appcompat)
+    
+    // Google Fonts for Roboto Condensed
+    implementation(libs.compose.ui.text.google.fonts)
 }
