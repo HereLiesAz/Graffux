@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/bleed-marks — A trim line with the register marks a printer cuts to. -->
+  <path d="M6.6,6.6L17.4,6.6L17.4,17.4L6.6,17.4Z"/>
+  <path d="M3.4,6.6L5.4,6.6 M3.4,17.4L5.4,17.4 M18.6,6.6L20.6,6.6 M18.6,17.4L20.6,17.4 M6.6,3.4L6.6,5.4 M17.4,3.4L17.4,5.4 M6.6,18.6L6.6,20.6 M17.4,18.6L17.4,20.6"/>
+</svg>

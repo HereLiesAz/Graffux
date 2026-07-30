@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/text-color — A letter standing on the colour it will be filled with. -->
+  <path d="M11,3.4L6.2,16.4 M11,3.4L15.8,16.4 M8.7,11.46L13.3,11.46"/>
+  <path d="M3.4,18.6L20.6,18.6L20.6,21.2L3.4,21.2Z" fill="currentColor" stroke="none"/>
+</svg>

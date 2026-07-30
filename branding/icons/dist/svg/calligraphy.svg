@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/calligraphy — Slim holder and a solid broad edge canted off the axis. -->
+  <path d="M18.36,5.64L12.99,11.01"/>
+  <path d="M14.19,13.2L11.36,16.03A0.7,0.7 0 0,1 10.37,16.03L7.97,13.63A0.7,0.7 0 0,1 7.97,12.64L10.8,9.81A0.7,0.7 0 0,1 11.79,9.81L14.19,12.21A0.7,0.7 0 0,1 14.19,13.2Z"/>
+  <path d="M11.72,17.37L6.48,19.21L4.79,17.52L6.63,12.28Z" fill="currentColor" stroke="none"/>
+</svg>

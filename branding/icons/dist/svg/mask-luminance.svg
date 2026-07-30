@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/mask-luminance — A mask taken from the histogram rather than drawn. -->
+  <path d="M3,4.6L21,4.6L21,19.4L3,19.4Z"/>
+  <path d="M7,16.4L7,12.4 M12,16.4L12,8.4 M17,16.4L17,12.4"/>
+  <path d="M10.8,6.6A1.2,1.2 0 1,0 13.2,6.6A1.2,1.2 0 1,0 10.8,6.6Z" fill="currentColor" stroke="none"/>
+</svg>

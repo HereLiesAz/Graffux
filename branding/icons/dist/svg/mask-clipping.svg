@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/mask-clipping — The upper plate bent down into the shape of the one beneath it. -->
+  <path d="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z"/>
+  <path d="M10.2,3.4L10.2,13.8"/>
+  <path d="M10.2,13.8L20.6,13.8"/>
+  <path d="M3.4,13.8L10.2,13.8L10.2,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z" fill="currentColor" stroke="none"/>
+</svg>

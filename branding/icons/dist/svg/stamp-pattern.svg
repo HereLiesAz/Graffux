@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/stamp-pattern — Stamp over a chequer. -->
+  <path d="M9.2,3.4L14.8,3.4L16,10L8,10Z"/>
+  <path d="M5.8,12.2L18.2,12.2L18.2,15.6L5.8,15.6Z"/>
+  <path d="M5.8,17.2L18.2,17.2L18.2,20.8L5.8,20.8Z"/>
+  <path d="M5.8,17.2L12,17.2L12,19L5.8,19Z M12,19L18.2,19L18.2,20.8L12,20.8Z" fill="currentColor" stroke="none"/>
+</svg>

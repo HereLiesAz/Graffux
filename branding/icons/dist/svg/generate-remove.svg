@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/generate-remove — An empty region with the sparkle that will resolve it. -->
+  <path d="M5,10.4A5.4,5.4 0 1,0 15.8,10.4A5.4,5.4 0 1,0 5,10.4Z"/>
+  <path d="M17.4,14.8L18.13,16.67L20,17.4L18.13,18.13L17.4,20L16.67,18.13L14.8,17.4L16.67,16.67Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/resample — A set of columns filled to a new, even measure. -->
+  <path d="M6.4,3.4L6.4,20.6 M12,3.4L12,20.6 M17.6,3.4L17.6,20.6"/>
+  <path d="M3.4,8L9.4,8L9.4,11L3.4,11Z M9,8L15,8L15,11L9,11Z M14.6,8L20.6,8L20.6,11L14.6,11Z" fill="currentColor" stroke="none"/>
+</svg>

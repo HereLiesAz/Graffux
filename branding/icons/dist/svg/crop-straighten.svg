@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/crop-straighten — A frame with a measuring line drawn across its own tilt. -->
+  <path d="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z"/>
+  <path d="M3.4,9.6L5.29,9.25 M6.84,8.96L8.73,8.61 M10.28,8.32L12.17,7.97 M13.72,7.68L15.61,7.33 M17.16,7.04L19.05,6.69"/>
+</svg>

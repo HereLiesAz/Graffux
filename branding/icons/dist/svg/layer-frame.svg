@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-frame — Corner marks around nothing yet placed. -->
+  <path d="M3.4,8L3.4,3.4L8,3.4 M16,3.4L20.6,3.4L20.6,8 M20.6,16L20.6,20.6L16,20.6 M8,20.6L3.4,20.6L3.4,16"/>
+</svg>

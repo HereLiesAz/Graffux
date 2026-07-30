@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-quick — A brush laying down ants instead of pixels. -->
+  <path d="M3.4,19L6.55,19 M9.13,19L12.29,19 M14.87,19L18.02,19"/>
+  <path d="M19.93,5.82L13.85,11.9L11.3,9.35L17.38,3.27Z"/>
+  <path d="M14.27,12.32L8.33,14.87L10.88,8.93Z" fill="currentColor" stroke="none"/>
+</svg>

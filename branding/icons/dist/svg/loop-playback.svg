@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/loop-playback — A ring with both ends arrowed, so it never runs out. -->
+  <path d="M19.52,14.74A8,8 0 1,1 19.52,9.26"/>
+  <path d="M4.69,6.8L4.89,9.5L7.32,7.47Z M19.31,17.2L19.11,14.5L16.68,16.53Z" fill="currentColor" stroke="none"/>
+</svg>

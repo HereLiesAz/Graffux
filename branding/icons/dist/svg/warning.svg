@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/warning — A triangle holding an exclamation mark. -->
+  <path d="M12,3.4L20.6,19.4L3.4,19.4Z"/>
+  <path d="M12,9.4L12,14.6"/>
+  <path d="M11,17A1,1 0 1,0 13,17A1,1 0 1,0 11,17Z" fill="currentColor" stroke="none"/>
+</svg>

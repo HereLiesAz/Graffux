@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/brush-angle — An angle read off the baseline, solid where it points. -->
+  <path d="M3.4,19.4L20.6,19.4"/>
+  <path d="M4.6,19.4L16.6,7.4"/>
+  <path d="M9.97,14.03A7.6,7.6 0 0,1 12.2,19.4"/>
+  <path d="M16.6,7.4L20,5.6L18.4,9Z" fill="currentColor" stroke="none"/>
+</svg>

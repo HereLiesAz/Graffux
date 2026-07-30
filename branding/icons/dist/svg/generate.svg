@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/generate — Two sparkles, the live one solid. -->
+  <path d="M8,4.6L8.95,7.05L11.4,8L8.95,8.95L8,11.4L7.05,8.95L4.6,8L7.05,7.05Z"/>
+  <path d="M16.4,11.4L17.8,15L21.4,16.4L17.8,17.8L16.4,21.4L15,17.8L11.4,16.4L15,15Z" fill="currentColor" stroke="none"/>
+</svg>

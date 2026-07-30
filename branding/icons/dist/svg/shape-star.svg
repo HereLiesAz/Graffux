@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/shape-star — A five-point star, unfilled to keep the count legible. -->
+  <path d="M12,3L14.4,9.4L21,9.8L15.8,13.8L17.6,20.2L12,16.4L6.4,20.2L8.2,13.8L3,9.8L9.6,9.4Z"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/help — A ring holding a plain question mark. -->
+  <path d="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z"/>
+  <path d="M12,7.4A2.6,2.6 0 1,1 10.01,11.67"/>
+  <path d="M10.9,15.6A1.1,1.1 0 1,0 13.1,15.6A1.1,1.1 0 1,0 10.9,15.6Z" fill="currentColor" stroke="none"/>
+</svg>

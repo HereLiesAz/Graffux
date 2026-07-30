@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/settings — A ring with four solid teeth set square around it. -->
+  <path d="M6.4,12A5.6,5.6 0 1,0 17.6,12A5.6,5.6 0 1,0 6.4,12Z"/>
+  <path d="M11.1,2.4L12.9,2.4L12.9,5.4L11.1,5.4Z M11.1,18.6L12.9,18.6L12.9,21.6L11.1,21.6Z M2.4,11.1L5.4,11.1L5.4,12.9L2.4,12.9Z M18.6,11.1L21.6,11.1L21.6,12.9L18.6,12.9Z" fill="currentColor" stroke="none"/>
+</svg>

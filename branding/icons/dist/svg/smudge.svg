@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/smudge — A solid pad pulled out into three trailing lines. -->
+  <path d="M18.22,5.78L16.24,7.76 M14.97,9.03L13.56,10.44"/>
+  <path d="M14.26,13.7L9.45,16.53L5.92,18.08L7.47,14.55L10.3,9.74Z" fill="currentColor" stroke="none"/>
+</svg>

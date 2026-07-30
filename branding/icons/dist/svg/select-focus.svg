@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-focus — Brackets closing on the part of the frame that is sharp. -->
+  <path d="M7,12A5,5 0 1,0 17,12A5,5 0 1,0 7,12Z"/>
+  <path d="M3.4,7.4L3.4,3.4L7.4,3.4 M16.6,3.4L20.6,3.4L20.6,7.4 M20.6,16.6L20.6,20.6L16.6,20.6 M7.4,20.6L3.4,20.6L3.4,16.6"/>
+  <path d="M10.6,12A1.4,1.4 0 1,0 13.4,12A1.4,1.4 0 1,0 10.6,12Z" fill="currentColor" stroke="none"/>
+</svg>

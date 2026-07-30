@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-thumbnail — One row of the stack, at rest. -->
+  <path d="M3.4,7L12.4,7L12.4,17L3.4,17Z"/>
+  <path d="M15,9.6L20.6,9.6"/>
+  <path d="M15,14.4L19,14.4"/>
+</svg>

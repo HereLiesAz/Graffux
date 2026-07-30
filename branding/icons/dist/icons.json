@@ -1,0 +1,5115 @@
+{
+  "grid": {
+    "view": 24.0,
+    "live": [
+      2.0,
+      22.0
+    ],
+    "stroke": 1.4,
+    "cap": "round",
+    "join": "round"
+  },
+  "categories": [
+    {
+      "key": "tools",
+      "title": "Tools & brushes",
+      "blurb": "What touches the surface."
+    },
+    {
+      "key": "selection",
+      "title": "Selection & masking",
+      "blurb": "Deciding where the operation is allowed to land."
+    },
+    {
+      "key": "layers",
+      "title": "Layers & compositing",
+      "blurb": "The stack, and everything done to it."
+    },
+    {
+      "key": "color",
+      "title": "Colour & adjustment",
+      "blurb": "Tone, hue, and the instruments that measure them."
+    },
+    {
+      "key": "filters",
+      "title": "Filters & effects",
+      "blurb": "Transformations of pixels already committed."
+    },
+    {
+      "key": "vector",
+      "title": "Vector & path",
+      "blurb": "Anchors, curves, and boolean geometry."
+    },
+    {
+      "key": "type",
+      "title": "Type",
+      "blurb": "Setting text as an object."
+    },
+    {
+      "key": "transform",
+      "title": "Transform & arrange",
+      "blurb": "Position, scale, alignment, order."
+    },
+    {
+      "key": "document",
+      "title": "Document, canvas & view",
+      "blurb": "The surface itself and how it is looked at."
+    },
+    {
+      "key": "history",
+      "title": "History & automation",
+      "blurb": "Time, states, and repeatable work."
+    },
+    {
+      "key": "animation",
+      "title": "Animation & timeline",
+      "blurb": "Frames, playback, capture."
+    },
+    {
+      "key": "generative",
+      "title": "Generative & capture",
+      "blurb": "Model-assisted work, camera, AR, stencils."
+    },
+    {
+      "key": "ui",
+      "title": "Interface & system",
+      "blurb": "The shell: navigation, status, files, collaboration."
+    }
+  ],
+  "icons": [
+    {
+      "key": "brush",
+      "category": "tools",
+      "drawable": "ic_gx_brush",
+      "keywords": [
+        "paint",
+        "bristle",
+        "draw",
+        "round brush"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's slanted brush and Procreate's brush tip \u2014 handle up-right, tip down-left.",
+      "note": "Handle, ferrule, solid tapered head."
+    },
+    {
+      "key": "pencil",
+      "category": "tools",
+      "drawable": "ic_gx_pencil",
+      "keywords": [
+        "draw",
+        "sketch",
+        "graphite",
+        "edit"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The Photoshop and Illustrator pencil: a sharpened shaft on the same diagonal.",
+      "note": "Shaft, collar, sharpened cone with a solid graphite point."
+    },
+    {
+      "key": "airbrush",
+      "category": "tools",
+      "drawable": "ic_gx_airbrush",
+      "keywords": [
+        "spray",
+        "atomiser",
+        "soft",
+        "mist"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone.",
+      "note": "Canister, cone of air, one landed particle."
+    },
+    {
+      "key": "marker",
+      "category": "tools",
+      "drawable": "ic_gx_marker",
+      "keywords": [
+        "felt tip",
+        "chisel",
+        "highlighter"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's inking and marker brush families \u2014 a fat barrel cut to a chisel.",
+      "note": "Fat banded barrel, cut off at a solid chisel wedge."
+    },
+    {
+      "key": "pen-ink",
+      "category": "tools",
+      "drawable": "ic_gx_pen_ink",
+      "keywords": [
+        "nib",
+        "dip pen",
+        "ink",
+        "line art"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Procreate's technical pen and Photoshop's ink brushes \u2014 a split dip-pen nib.",
+      "note": "Pointed nib, split down the middle, solid at the point."
+    },
+    {
+      "key": "calligraphy",
+      "category": "tools",
+      "drawable": "ic_gx_calligraphy",
+      "keywords": [
+        "broad edge",
+        "lettering",
+        "italic nib"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's calligraphic brush \u2014 a flat edge held at a fixed angle to the stroke.",
+      "note": "Slim holder and a solid broad edge canted off the axis."
+    },
+    {
+      "key": "crayon",
+      "category": "tools",
+      "drawable": "ic_gx_crayon",
+      "keywords": [
+        "wax",
+        "kids",
+        "stub"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Artistic set \u2014 the wrapped wax stub.",
+      "note": "Short barrel with wrapper bands, worn to a blunt solid nose."
+    },
+    {
+      "key": "chalk",
+      "category": "tools",
+      "drawable": "ic_gx_chalk",
+      "keywords": [
+        "pastel",
+        "dry media",
+        "stick"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's chalk and soft-pastel brushes \u2014 a square stick that sheds.",
+      "note": "Square stick, blunt at the solid end, shedding dust."
+    },
+    {
+      "key": "charcoal",
+      "category": "tools",
+      "drawable": "ic_gx_charcoal",
+      "keywords": [
+        "carbon",
+        "smudgy",
+        "dry media"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's charcoal brushes \u2014 a broken stick, never a manufactured one.",
+      "note": "Irregular chunk, solid where it has been worn flat."
+    },
+    {
+      "key": "watercolor",
+      "category": "tools",
+      "drawable": "ic_gx_watercolor",
+      "keywords": [
+        "wet",
+        "wash",
+        "bleed"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Wet Media \u2014 a soft round loaded over a spreading pool.",
+      "note": "Round brush above the water it has already put down."
+    },
+    {
+      "key": "oil-brush",
+      "category": "tools",
+      "drawable": "ic_gx_oil_brush",
+      "keywords": [
+        "flat brush",
+        "bristle",
+        "impasto"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's bristle-tip brushes \u2014 the only tool that shows its hairs.",
+      "note": "Flat ferrule with splayed bristles."
+    },
+    {
+      "key": "blob-brush",
+      "category": "tools",
+      "drawable": "ic_gx_blob_brush",
+      "keywords": [
+        "merge shapes",
+        "vector paint",
+        "blob"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Blob Brush \u2014 a brush whose strokes fuse into one filled shape.",
+      "note": "A brush laying down a closed form rather than a line."
+    },
+    {
+      "key": "spray-can",
+      "category": "tools",
+      "drawable": "ic_gx_spray_can",
+      "keywords": [
+        "aerosol",
+        "graffiti",
+        "rattle can"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Spraypaints set, and the app's own mural heritage.",
+      "note": "Rattle can, nozzle out the side, one landed burst."
+    },
+    {
+      "key": "roller",
+      "category": "tools",
+      "drawable": "ic_gx_roller",
+      "keywords": [
+        "paint roller",
+        "flat fill",
+        "coat"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's roller brushes \u2014 sleeve, cranked stem, grip.",
+      "note": "Roller and handle, with one drip already laid down."
+    },
+    {
+      "key": "stamp",
+      "category": "tools",
+      "drawable": "ic_gx_stamp",
+      "keywords": [
+        "clone",
+        "rubber stamp",
+        "duplicate source"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Clone Stamp \u2014 the rubber stamp, unchanged since 1990.",
+      "note": "Knob, plate, and the solid face that transfers the sample."
+    },
+    {
+      "key": "stamp-pattern",
+      "category": "tools",
+      "drawable": "ic_gx_stamp_pattern",
+      "keywords": [
+        "pattern stamp",
+        "tile",
+        "repeat"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Pattern Stamp \u2014 the same stamp, printing a tile instead of a sample.",
+      "note": "Stamp over a chequer."
+    },
+    {
+      "key": "eraser",
+      "category": "tools",
+      "drawable": "ic_gx_eraser",
+      "keywords": [
+        "rub out",
+        "delete",
+        "undo mark"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The Photoshop and Procreate block eraser \u2014 held flat, not angled like a brush.",
+      "note": "A rubber block, banded, solid at the face doing the wiping."
+    },
+    {
+      "key": "eraser-hard",
+      "category": "tools",
+      "drawable": "ic_gx_eraser_hard",
+      "keywords": [
+        "hard edge",
+        "crisp",
+        "block"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's hard round eraser preset.",
+      "note": "The block against an unbroken rule \u2014 the edge stays where it is put."
+    },
+    {
+      "key": "eraser-soft",
+      "category": "tools",
+      "drawable": "ic_gx_eraser_soft",
+      "keywords": [
+        "feather",
+        "soft edge",
+        "fade"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's soft round eraser preset.",
+      "note": "The same block against a broken rule \u2014 the edge dissolves."
+    },
+    {
+      "key": "smudge",
+      "category": "tools",
+      "drawable": "ic_gx_smudge",
+      "keywords": [
+        "finger",
+        "drag",
+        "blend"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Smudge and Procreate's Smudge \u2014 a fingertip dragging wet pigment.",
+      "note": "A solid pad pulled out into three trailing lines."
+    },
+    {
+      "key": "blur",
+      "category": "tools",
+      "drawable": "ic_gx_blur",
+      "keywords": [
+        "soften",
+        "out of focus",
+        "droplet"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Blur tool \u2014 the water drop, unchanged.",
+      "note": "The drop, with the detail under it collapsing into bands."
+    },
+    {
+      "key": "sharpen",
+      "category": "tools",
+      "drawable": "ic_gx_sharpen",
+      "keywords": [
+        "crisp",
+        "detail",
+        "cone"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Sharpen tool \u2014 the sharpening cone next to the blur drop.",
+      "note": "The cone, solid at the tip that does the work."
+    },
+    {
+      "key": "dodge",
+      "category": "tools",
+      "drawable": "ic_gx_dodge",
+      "keywords": [
+        "lighten",
+        "hold back",
+        "darkroom"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Dodge tool \u2014 the darkroom paddle on its wire, throwing light back.",
+      "note": "Paddle, rod, and the light it holds off the paper."
+    },
+    {
+      "key": "burn",
+      "category": "tools",
+      "drawable": "ic_gx_burn",
+      "keywords": [
+        "darken",
+        "shade",
+        "cupped hand",
+        "aperture"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Burn tool \u2014 the hand cupped into an aperture to concentrate exposure.",
+      "note": "A cupped C with the light it funnels burning solid at the centre."
+    },
+    {
+      "key": "sponge",
+      "category": "tools",
+      "drawable": "ic_gx_sponge",
+      "keywords": [
+        "saturation",
+        "soak",
+        "porous"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Sponge tool \u2014 a porous block that pulls colour out or drives it in.",
+      "note": "Pores, one of them filled where the colour is being taken."
+    },
+    {
+      "key": "heal",
+      "category": "tools",
+      "drawable": "ic_gx_heal",
+      "keywords": [
+        "healing brush",
+        "plaster",
+        "repair"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Healing Brush \u2014 the sticking plaster, on the tool diagonal.",
+      "note": "A plaster with the sampled centre solid."
+    },
+    {
+      "key": "heal-spot",
+      "category": "tools",
+      "drawable": "ic_gx_heal_spot",
+      "keywords": [
+        "blemish",
+        "spot removal",
+        "target"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Spot Healing Brush \u2014 the plaster reduced to the spot it targets.",
+      "note": "A ring sighted on a single blemish."
+    },
+    {
+      "key": "patch",
+      "category": "tools",
+      "drawable": "ic_gx_patch",
+      "keywords": [
+        "region repair",
+        "graft",
+        "swap"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Patch tool \u2014 a drawn region dragged onto clean ground.",
+      "note": "A hand-drawn area moved to a rectangle of good surface."
+    },
+    {
+      "key": "red-eye",
+      "category": "tools",
+      "drawable": "ic_gx_red_eye",
+      "keywords": [
+        "pupil",
+        "flash",
+        "portrait fix"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Red Eye tool \u2014 an eye reduced to lid, iris and pupil.",
+      "note": "The one solid pupil being corrected."
+    },
+    {
+      "key": "liquify",
+      "category": "tools",
+      "drawable": "ic_gx_liquify",
+      "keywords": [
+        "warp",
+        "push pixels",
+        "swirl"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Liquify and Photoshop's Twirl \u2014 the surface pulled into a spiral.",
+      "note": "Three turns tightening on the point being pushed."
+    },
+    {
+      "key": "fill",
+      "category": "tools",
+      "drawable": "ic_gx_fill",
+      "keywords": [
+        "paint bucket",
+        "flood",
+        "pour"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Paint Bucket and Illustrator's Live Paint \u2014 the tipped can.",
+      "note": "A tipped bucket, with the drop that has already left it."
+    },
+    {
+      "key": "eyedropper",
+      "category": "tools",
+      "drawable": "ic_gx_eyedropper",
+      "keywords": [
+        "picker",
+        "sample",
+        "colour pick"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The Photoshop and Illustrator eyedropper \u2014 bulb, barrel, point.",
+      "note": "The dropper, solid where it takes the sample."
+    },
+    {
+      "key": "mixer-brush",
+      "category": "tools",
+      "drawable": "ic_gx_mixer_brush",
+      "keywords": [
+        "wet mix",
+        "blend paint",
+        "load"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Mixer Brush \u2014 a loaded brush over the swirl it stirs.",
+      "note": "A brush working colour already on the surface."
+    },
+    {
+      "key": "brush-library",
+      "category": "tools",
+      "drawable": "ic_gx_brush_library",
+      "keywords": [
+        "brushes",
+        "presets",
+        "pot"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Brush Library \u2014 a set of loaded brushes rather than one.",
+      "note": "A pot of brushes, each with paint on it."
+    },
+    {
+      "key": "brush-settings",
+      "category": "tools",
+      "drawable": "ic_gx_brush_settings",
+      "keywords": [
+        "brush studio",
+        "parameters",
+        "engine"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Brush Studio and Photoshop's Brush Settings \u2014 stacked parameter rails.",
+      "note": "Three rails; the middle one is the one being moved."
+    },
+    {
+      "key": "brush-size",
+      "category": "tools",
+      "drawable": "ic_gx_brush_size",
+      "keywords": [
+        "diameter",
+        "radius",
+        "scale brush"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's brush-size preview \u2014 nested footprints on one centre.",
+      "note": "Two diameters measured out from a single origin."
+    },
+    {
+      "key": "brush-opacity",
+      "category": "tools",
+      "drawable": "ic_gx_brush_opacity",
+      "keywords": [
+        "alpha",
+        "coverage",
+        "translucent"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Procreate's opacity slider thumb \u2014 one disc half laid down.",
+      "note": "Half committed, half withheld."
+    },
+    {
+      "key": "brush-flow",
+      "category": "tools",
+      "drawable": "ic_gx_brush_flow",
+      "keywords": [
+        "rate",
+        "load",
+        "delivery"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Flow control \u2014 how much arrives per pass, not how dark it ends up.",
+      "note": "Three drops at three depths of fall."
+    },
+    {
+      "key": "brush-hardness",
+      "category": "tools",
+      "drawable": "ic_gx_brush_hardness",
+      "keywords": [
+        "edge",
+        "falloff",
+        "core"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's hardness preview \u2014 solid core, soft shoulder, outer limit.",
+      "note": "A solid core, a broken halo, an outer edge."
+    },
+    {
+      "key": "brush-spacing",
+      "category": "tools",
+      "drawable": "ic_gx_brush_spacing",
+      "keywords": [
+        "stamps",
+        "interval",
+        "gap"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Spacing setting \u2014 a brush is a run of stamps, not a line.",
+      "note": "Three stamps on a measured run; the middle one just landed."
+    },
+    {
+      "key": "brush-scatter",
+      "category": "tools",
+      "drawable": "ic_gx_brush_scatter",
+      "keywords": [
+        "jitter",
+        "spread",
+        "random"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Scattering \u2014 marks thrown off the path they were meant to follow.",
+      "note": "A stroke path with its stamps scattered around it."
+    },
+    {
+      "key": "brush-angle",
+      "category": "tools",
+      "drawable": "ic_gx_brush_angle",
+      "keywords": [
+        "rotation",
+        "nib angle",
+        "protractor"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's brush Angle dial and Illustrator's calligraphic angle.",
+      "note": "An angle read off the baseline, solid where it points."
+    },
+    {
+      "key": "brush-roundness",
+      "category": "tools",
+      "drawable": "ic_gx_brush_roundness",
+      "keywords": [
+        "flatten",
+        "squash",
+        "ellipse nib"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Roundness control \u2014 a round footprint compressed on one axis.",
+      "note": "A circle squeezed against its own limit."
+    },
+    {
+      "key": "brush-jitter",
+      "category": "tools",
+      "drawable": "ic_gx_brush_jitter",
+      "keywords": [
+        "variance",
+        "wobble",
+        "noise"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's jitter controls \u2014 a value that refuses to hold still.",
+      "note": "A wandering parameter above a fixed baseline."
+    },
+    {
+      "key": "brush-taper",
+      "category": "tools",
+      "drawable": "ic_gx_brush_taper",
+      "keywords": [
+        "pressure taper",
+        "stroke ends",
+        "swell"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Taper settings \u2014 a stroke that opens, swells and closes.",
+      "note": "One stroke, thin at both ends."
+    },
+    {
+      "key": "brush-wet",
+      "category": "tools",
+      "drawable": "ic_gx_brush_wet",
+      "keywords": [
+        "wet mix",
+        "dilute",
+        "bleed"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Wet Mix \u2014 two loads bleeding into each other.",
+      "note": "Two footprints overlapping; the wet edge is where they meet."
+    },
+    {
+      "key": "brush-buildup",
+      "category": "tools",
+      "drawable": "ic_gx_brush_buildup",
+      "keywords": [
+        "accumulate",
+        "density",
+        "layering"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Build-up airbrush behaviour \u2014 passes stacking over one another.",
+      "note": "Three passes over the same ground."
+    },
+    {
+      "key": "brush-dual",
+      "category": "tools",
+      "drawable": "ic_gx_brush_dual",
+      "keywords": [
+        "dual brush",
+        "second tip",
+        "combine"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Dual Brush \u2014 a second tip riding inside the first.",
+      "note": "A smaller footprint carried by a larger one."
+    },
+    {
+      "key": "brush-texture",
+      "category": "tools",
+      "drawable": "ic_gx_brush_texture",
+      "keywords": [
+        "grain",
+        "tooth",
+        "paper"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 paper tooth as a field.",
+      "note": "Tooth recorded as a field of marks, one of them struck."
+    },
+    {
+      "key": "brush-import",
+      "category": "tools",
+      "drawable": "ic_gx_brush_import",
+      "keywords": [
+        "load brush",
+        "install",
+        "abr"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's brush import and Photoshop's .abr load.",
+      "note": "A brush dropped into the shelf that holds them."
+    },
+    {
+      "key": "stylus",
+      "category": "tools",
+      "drawable": "ic_gx_stylus",
+      "keywords": [
+        "pen hardware",
+        "pencil",
+        "digitiser"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's stylus settings \u2014 the barrel and the tip the digitiser reads.",
+      "note": "A stylus on the tool diagonal."
+    },
+    {
+      "key": "pressure",
+      "category": "tools",
+      "drawable": "ic_gx_pressure",
+      "keywords": [
+        "force",
+        "hard press",
+        "weight"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Pressure curve \u2014 force registered at the point of contact.",
+      "note": "A tip pressed hard enough into the surface to ring."
+    },
+    {
+      "key": "tilt",
+      "category": "tools",
+      "drawable": "ic_gx_tilt",
+      "keywords": [
+        "angle",
+        "shading",
+        "lean"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Tilt settings \u2014 the lean of the barrel against the surface.",
+      "note": "An angle measured off the plane the tool rests on."
+    },
+    {
+      "key": "streamline",
+      "category": "tools",
+      "drawable": "ic_gx_streamline",
+      "keywords": [
+        "stabiliser",
+        "smoothing",
+        "steady"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's StreamLine \u2014 the same gesture above and below the filter.",
+      "note": "Raw input over corrected output."
+    },
+    {
+      "key": "quickshape",
+      "category": "tools",
+      "drawable": "ic_gx_quickshape",
+      "keywords": [
+        "snap to shape",
+        "clean up",
+        "auto shape"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's QuickShape \u2014 a hand-drawn loop pulled onto true geometry.",
+      "note": "A wobble becoming a circle."
+    },
+    {
+      "key": "colordrop",
+      "category": "tools",
+      "drawable": "ic_gx_colordrop",
+      "keywords": [
+        "flood fill",
+        "drag colour",
+        "drop"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's ColorDrop \u2014 colour dragged into a closed region, which takes it whole.",
+      "note": "A dropped colour flooding what it lands in."
+    },
+    {
+      "key": "alpha-lock",
+      "category": "tools",
+      "drawable": "ic_gx_alpha_lock",
+      "keywords": [
+        "lock transparency",
+        "paint inside",
+        "preserve"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Alpha Lock and Photoshop's Lock Transparent Pixels \u2014 the chequer, shackled.",
+      "note": "Paint may land only where pixels already are."
+    },
+    {
+      "key": "symmetry",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry",
+      "keywords": [
+        "mirror",
+        "reflect drawing",
+        "guide"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Paint Symmetry and Procreate's Symmetry guide \u2014 a broken axis, answered.",
+      "note": "The same form on both sides of a guide."
+    },
+    {
+      "key": "symmetry-vertical",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_vertical",
+      "keywords": [
+        "mirror x",
+        "left right"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Vertical symmetry \u2014 the generated half is the solid one.",
+      "note": "Vertical axis, right half generated."
+    },
+    {
+      "key": "symmetry-horizontal",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_horizontal",
+      "keywords": [
+        "mirror y",
+        "top bottom"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Horizontal symmetry.",
+      "note": "Horizontal axis, lower half generated."
+    },
+    {
+      "key": "symmetry-quadrant",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_quadrant",
+      "keywords": [
+        "four way",
+        "kaleidoscope"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Quadrant symmetry \u2014 both axes live at once.",
+      "note": "One mark becomes four."
+    },
+    {
+      "key": "symmetry-radial",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_radial",
+      "keywords": [
+        "rotational",
+        "mandala",
+        "spokes"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Radial symmetry \u2014 spokes around one centre.",
+      "note": "A mark repeated around the wheel."
+    },
+    {
+      "key": "guide-drawing",
+      "category": "tools",
+      "drawable": "ic_gx_guide_drawing",
+      "keywords": [
+        "assist",
+        "grid guide",
+        "on rails"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Drawing Guide with Assisted Drawing on \u2014 a stroke held to the grid.",
+      "note": "A drawing that cannot leave the grid it was given."
+    },
+    {
+      "key": "guide-perspective",
+      "category": "tools",
+      "drawable": "ic_gx_guide_perspective",
+      "keywords": [
+        "vanishing point",
+        "one point",
+        "recede"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's Perspective Grid and Procreate's Perspective guide.",
+      "note": "Lines converging on a single solid vanishing point."
+    },
+    {
+      "key": "guide-isometric",
+      "category": "tools",
+      "drawable": "ic_gx_guide_isometric",
+      "keywords": [
+        "axonometric",
+        "30 degrees",
+        "isometric"
+      ],
+      "apps": "AI/PR",
+      "basis": "Procreate's Isometric guide and Illustrator's isometric grids.",
+      "note": "Three axes at thirty degrees, meeting at one origin."
+    },
+    {
+      "key": "select-rect",
+      "category": "selection",
+      "drawable": "ic_gx_select_rect",
+      "keywords": [
+        "marquee",
+        "rectangle",
+        "crop area"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Rectangular Marquee \u2014 ants, with one corner handle live.",
+      "note": "Rectangular marquee."
+    },
+    {
+      "key": "select-ellipse",
+      "category": "selection",
+      "drawable": "ic_gx_select_ellipse",
+      "keywords": [
+        "marquee",
+        "oval",
+        "round"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Elliptical Marquee.",
+      "note": "Elliptical marquee with its handle on the diagonal."
+    },
+    {
+      "key": "select-lasso",
+      "category": "selection",
+      "drawable": "ic_gx_select_lasso",
+      "keywords": [
+        "freehand",
+        "draw selection",
+        "loop"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Lasso and Procreate's Freehand selection.",
+      "note": "A loop drawn by hand, still hanging from where it started."
+    },
+    {
+      "key": "select-polygon",
+      "category": "selection",
+      "drawable": "ic_gx_select_polygon",
+      "keywords": [
+        "polygonal lasso",
+        "straight",
+        "vertices"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Polygonal Lasso and Procreate's Polyline selection.",
+      "note": "Straight runs between placed vertices; the live one is solid."
+    },
+    {
+      "key": "select-magnetic",
+      "category": "selection",
+      "drawable": "ic_gx_select_magnetic",
+      "keywords": [
+        "snap to edge",
+        "magnetic lasso",
+        "cling"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Magnetic Lasso \u2014 a path pulled onto the nearest edge.",
+      "note": "A path clinging to a hard edge."
+    },
+    {
+      "key": "select-wand",
+      "category": "selection",
+      "drawable": "ic_gx_select_wand",
+      "keywords": [
+        "magic wand",
+        "similar pixels",
+        "tolerance"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Magic Wand and Procreate's Automatic selection.",
+      "note": "A wand and the sparks it throws."
+    },
+    {
+      "key": "select-quick",
+      "category": "selection",
+      "drawable": "ic_gx_select_quick",
+      "keywords": [
+        "quick selection",
+        "brush select",
+        "grow"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Quick Selection \u2014 a brush that paints a selection edge.",
+      "note": "A brush laying down ants instead of pixels."
+    },
+    {
+      "key": "select-object",
+      "category": "selection",
+      "drawable": "ic_gx_select_object",
+      "keywords": [
+        "object select",
+        "auto",
+        "detect"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Object Selection.",
+      "note": "A found object, solid inside the box fitted to it."
+    },
+    {
+      "key": "select-subject",
+      "category": "selection",
+      "drawable": "ic_gx_select_subject",
+      "keywords": [
+        "person",
+        "cut out",
+        "isolate"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Select Subject and Procreate's subject isolation.",
+      "note": "A figure held solid inside the frame it was found in."
+    },
+    {
+      "key": "select-sky",
+      "category": "selection",
+      "drawable": "ic_gx_select_sky",
+      "keywords": [
+        "sky replacement",
+        "horizon",
+        "upper region"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Select Sky.",
+      "note": "Everything above the ridge line, sun included."
+    },
+    {
+      "key": "select-color-range",
+      "category": "selection",
+      "drawable": "ic_gx_select_color_range",
+      "keywords": [
+        "by colour",
+        "tolerance",
+        "sample"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Color Range dialog.",
+      "note": "A sampled colour driving the range beneath it."
+    },
+    {
+      "key": "select-focus",
+      "category": "selection",
+      "drawable": "ic_gx_select_focus",
+      "keywords": [
+        "focus area",
+        "depth",
+        "sharp region"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Focus Area.",
+      "note": "Brackets closing on the part of the frame that is sharp."
+    },
+    {
+      "key": "select-similar",
+      "category": "selection",
+      "drawable": "ic_gx_select_similar",
+      "keywords": [
+        "grow",
+        "like this",
+        "match"
+      ],
+      "apps": "PS/AI",
+      "basis": "Illustrator's Select Similar and Photoshop's Grow / Similar.",
+      "note": "One shape found, its twin selected by resemblance."
+    },
+    {
+      "key": "select-all",
+      "category": "selection",
+      "drawable": "ic_gx_select_all",
+      "keywords": [
+        "everything",
+        "whole canvas"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Select All \u2014 ants on the document edge.",
+      "note": "The ants run the full edge, whatever is inside."
+    },
+    {
+      "key": "select-none",
+      "category": "selection",
+      "drawable": "ic_gx_select_none",
+      "keywords": [
+        "deselect",
+        "drop selection",
+        "clear"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Deselect and Procreate's Clear selection.",
+      "note": "The selection struck out."
+    },
+    {
+      "key": "select-reselect",
+      "category": "selection",
+      "drawable": "ic_gx_select_reselect",
+      "keywords": [
+        "restore selection",
+        "again"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Reselect.",
+      "note": "The last selection called back."
+    },
+    {
+      "key": "select-invert",
+      "category": "selection",
+      "drawable": "ic_gx_select_invert",
+      "keywords": [
+        "inverse",
+        "everything else",
+        "swap"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Inverse and Procreate's Invert selection.",
+      "note": "Held ground and released ground have traded places."
+    },
+    {
+      "key": "select-grow",
+      "category": "selection",
+      "drawable": "ic_gx_select_grow",
+      "keywords": [
+        "expand",
+        "dilate",
+        "outward"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Modify > Expand.",
+      "note": "An edge pushed out to a wider one."
+    },
+    {
+      "key": "select-shrink",
+      "category": "selection",
+      "drawable": "ic_gx_select_shrink",
+      "keywords": [
+        "contract",
+        "erode",
+        "inward"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Modify > Contract.",
+      "note": "An edge pulled in to a tighter one."
+    },
+    {
+      "key": "select-feather",
+      "category": "selection",
+      "drawable": "ic_gx_select_feather",
+      "keywords": [
+        "soften edge",
+        "falloff",
+        "blur selection"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Modify > Feather and Procreate's Feather slider.",
+      "note": "A hard edge that gives out over three steps."
+    },
+    {
+      "key": "select-refine",
+      "category": "selection",
+      "drawable": "ic_gx_select_refine",
+      "keywords": [
+        "refine edge",
+        "hair",
+        "detail"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Select and Mask / Refine Edge.",
+      "note": "Detail recovered from beyond a straight edge."
+    },
+    {
+      "key": "select-transform",
+      "category": "selection",
+      "drawable": "ic_gx_select_transform",
+      "keywords": [
+        "transform selection",
+        "handles",
+        "resize"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Transform Selection.",
+      "note": "A selection edge under its own handles."
+    },
+    {
+      "key": "select-add",
+      "category": "selection",
+      "drawable": "ic_gx_select_add",
+      "keywords": [
+        "union",
+        "unite",
+        "add to selection"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
+      "note": "Both regions held."
+    },
+    {
+      "key": "select-subtract",
+      "category": "selection",
+      "drawable": "ic_gx_select_subtract",
+      "keywords": [
+        "minus front",
+        "remove",
+        "take away"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's Minus Front and Photoshop's Subtract from Selection.",
+      "note": "What is left of the first once the second is taken out."
+    },
+    {
+      "key": "select-intersect",
+      "category": "selection",
+      "drawable": "ic_gx_select_intersect",
+      "keywords": [
+        "overlap",
+        "common",
+        "both"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's Intersect and Photoshop's Intersect with Selection.",
+      "note": "Only the ground both regions hold."
+    },
+    {
+      "key": "select-exclude",
+      "category": "selection",
+      "drawable": "ic_gx_select_exclude",
+      "keywords": [
+        "difference",
+        "xor",
+        "either but not both"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Pathfinder Exclude.",
+      "note": "Everything except the ground they share."
+    },
+    {
+      "key": "mask",
+      "category": "selection",
+      "drawable": "ic_gx_mask",
+      "keywords": [
+        "layer mask",
+        "reveal",
+        "conceal"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's layer-mask thumbnail \u2014 half revealed, half concealed.",
+      "note": "One plate, half of it withheld."
+    },
+    {
+      "key": "mask-add",
+      "category": "selection",
+      "drawable": "ic_gx_mask_add",
+      "keywords": [
+        "new mask",
+        "attach mask"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Add Layer Mask button and Procreate's Mask.",
+      "note": "A mask attached to what did not have one."
+    },
+    {
+      "key": "mask-delete",
+      "category": "selection",
+      "drawable": "ic_gx_mask_delete",
+      "keywords": [
+        "remove mask",
+        "discard"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Delete Layer Mask.",
+      "note": "The mask thrown away; the plate stays."
+    },
+    {
+      "key": "mask-apply",
+      "category": "selection",
+      "drawable": "ic_gx_mask_apply",
+      "keywords": [
+        "bake mask",
+        "commit",
+        "flatten mask"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Apply Layer Mask.",
+      "note": "The mask made permanent."
+    },
+    {
+      "key": "mask-disable",
+      "category": "selection",
+      "drawable": "ic_gx_mask_disable",
+      "keywords": [
+        "turn off mask",
+        "bypass"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Disable Layer Mask \u2014 the cross over the thumbnail.",
+      "note": "A mask still attached but not acting."
+    },
+    {
+      "key": "mask-vector",
+      "category": "selection",
+      "drawable": "ic_gx_mask_vector",
+      "keywords": [
+        "path mask",
+        "clip path"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's vector mask and Illustrator's clipping path.",
+      "note": "A mask whose edge is a path, not a painting."
+    },
+    {
+      "key": "mask-clipping",
+      "category": "selection",
+      "drawable": "ic_gx_mask_clipping",
+      "keywords": [
+        "clip to layer",
+        "clipped",
+        "inside"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Create Clipping Mask and Procreate's clipping arrow.",
+      "note": "The upper plate bent down into the shape of the one beneath it."
+    },
+    {
+      "key": "mask-quick",
+      "category": "selection",
+      "drawable": "ic_gx_mask_quick",
+      "keywords": [
+        "quick mask",
+        "rubylith",
+        "paint a selection"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Quick Mask mode \u2014 the rubylith overlay.",
+      "note": "A temporary overlay, hatched so it is never mistaken for art."
+    },
+    {
+      "key": "mask-luminance",
+      "category": "selection",
+      "drawable": "ic_gx_mask_luminance",
+      "keywords": [
+        "luminosity mask",
+        "by tone",
+        "highlights"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's luminosity masking, read off the tonal distribution.",
+      "note": "A mask taken from the histogram rather than drawn."
+    },
+    {
+      "key": "mask-channel",
+      "category": "selection",
+      "drawable": "ic_gx_mask_channel",
+      "keywords": [
+        "save selection",
+        "alpha channel",
+        "store"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Channels panel \u2014 a selection stored as an alpha channel.",
+      "note": "Three channels, the last carrying a stored selection."
+    },
+    {
+      "key": "layers",
+      "category": "layers",
+      "drawable": "ic_gx_layers",
+      "keywords": [
+        "stack",
+        "sheets",
+        "panel"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Layers panel and Procreate's offset squares \u2014 a stack with one active.",
+      "note": "Three plates; the one being worked on is solid."
+    },
+    {
+      "key": "layer-add",
+      "category": "layers",
+      "drawable": "ic_gx_layer_add",
+      "keywords": [
+        "new layer",
+        "plus"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's New Layer button and Procreate's plus.",
+      "note": "A plate added above the stack."
+    },
+    {
+      "key": "layer-delete",
+      "category": "layers",
+      "drawable": "ic_gx_layer_delete",
+      "keywords": [
+        "remove layer",
+        "discard"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Delete Layer.",
+      "note": "The top plate taken out of the stack."
+    },
+    {
+      "key": "layer-duplicate",
+      "category": "layers",
+      "drawable": "ic_gx_layer_duplicate",
+      "keywords": [
+        "copy layer",
+        "clone layer"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Duplicate Layer \u2014 the same plate, offset once.",
+      "note": "One plate, twice, out of register."
+    },
+    {
+      "key": "layer-group",
+      "category": "layers",
+      "drawable": "ic_gx_layer_group",
+      "keywords": [
+        "folder",
+        "nest",
+        "group"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's layer group \u2014 the folder, holding a plate.",
+      "note": "A folder with a plate in it."
+    },
+    {
+      "key": "layer-ungroup",
+      "category": "layers",
+      "drawable": "ic_gx_layer_ungroup",
+      "keywords": [
+        "release",
+        "unnest",
+        "flatten group"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Ungroup \u2014 contents leaving the folder.",
+      "note": "A plate lifted back out of its folder."
+    },
+    {
+      "key": "layer-visible",
+      "category": "layers",
+      "drawable": "ic_gx_layer_visible",
+      "keywords": [
+        "show",
+        "eye",
+        "toggle"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's eye column \u2014 the oldest control in the panel.",
+      "note": "An open eye."
+    },
+    {
+      "key": "layer-hidden",
+      "category": "layers",
+      "drawable": "ic_gx_layer_hidden",
+      "keywords": [
+        "hide",
+        "eye off",
+        "invisible"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's eye column, switched off.",
+      "note": "The same eye, struck through."
+    },
+    {
+      "key": "layer-lock",
+      "category": "layers",
+      "drawable": "ic_gx_layer_lock",
+      "keywords": [
+        "protect",
+        "padlock",
+        "read only"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's lock icons in the Layers panel.",
+      "note": "A padlock, shut."
+    },
+    {
+      "key": "layer-unlock",
+      "category": "layers",
+      "drawable": "ic_gx_layer_unlock",
+      "keywords": [
+        "unprotect",
+        "open lock",
+        "editable"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's unlocked padlock \u2014 the shackle swung clear.",
+      "note": "The same padlock, open on one side."
+    },
+    {
+      "key": "layer-link",
+      "category": "layers",
+      "drawable": "ic_gx_layer_link",
+      "keywords": [
+        "chain",
+        "tie together",
+        "move as one"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's link chain.",
+      "note": "Two open rings, interlocked."
+    },
+    {
+      "key": "layer-unlink",
+      "category": "layers",
+      "drawable": "ic_gx_layer_unlink",
+      "keywords": [
+        "break chain",
+        "release"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's unlink \u2014 the same two rings, pulled apart.",
+      "note": "Two open rings that no longer touch."
+    },
+    {
+      "key": "layer-merge-down",
+      "category": "layers",
+      "drawable": "ic_gx_layer_merge_down",
+      "keywords": [
+        "combine",
+        "flatten two",
+        "down"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Merge Down and Procreate's pinch-to-merge.",
+      "note": "The upper plate driven into the one below."
+    },
+    {
+      "key": "layer-merge-visible",
+      "category": "layers",
+      "drawable": "ic_gx_layer_merge_visible",
+      "keywords": [
+        "merge shown",
+        "collapse visible"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Merge Visible \u2014 a merge with the eye column as its condition.",
+      "note": "A merge, qualified."
+    },
+    {
+      "key": "layer-flatten",
+      "category": "layers",
+      "drawable": "ic_gx_layer_flatten",
+      "keywords": [
+        "one layer",
+        "collapse all"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Flatten Image \u2014 everything pressed into one plate.",
+      "note": "Three rules pressed down into one solid plate."
+    },
+    {
+      "key": "layer-raise",
+      "category": "layers",
+      "drawable": "ic_gx_layer_raise",
+      "keywords": [
+        "bring forward",
+        "up one"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Arrange > Bring Forward.",
+      "note": "A plate moved one place up the stack."
+    },
+    {
+      "key": "layer-lower",
+      "category": "layers",
+      "drawable": "ic_gx_layer_lower",
+      "keywords": [
+        "send backward",
+        "down one"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Arrange > Send Backward.",
+      "note": "A plate moved one place down the stack."
+    },
+    {
+      "key": "layer-to-front",
+      "category": "layers",
+      "drawable": "ic_gx_layer_to_front",
+      "keywords": [
+        "bring to front",
+        "top"
+      ],
+      "apps": "PS/AI",
+      "basis": "Illustrator's Bring to Front \u2014 up against the ceiling.",
+      "note": "A plate driven to the top of the stack."
+    },
+    {
+      "key": "layer-to-back",
+      "category": "layers",
+      "drawable": "ic_gx_layer_to_back",
+      "keywords": [
+        "send to back",
+        "bottom"
+      ],
+      "apps": "PS/AI",
+      "basis": "Illustrator's Send to Back.",
+      "note": "A plate driven to the bottom of the stack."
+    },
+    {
+      "key": "layer-opacity",
+      "category": "layers",
+      "drawable": "ic_gx_layer_opacity",
+      "keywords": [
+        "transparency",
+        "alpha",
+        "fade"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Opacity field over the transparency chequer.",
+      "note": "Half a plate laid on the chequer that shows through it."
+    },
+    {
+      "key": "layer-blend",
+      "category": "layers",
+      "drawable": "ic_gx_layer_blend",
+      "keywords": [
+        "blend mode",
+        "mix",
+        "interaction"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's blend-mode menu \u2014 two plates deciding how to meet.",
+      "note": "Two fields overlapping, with nothing yet asserted about the result."
+    },
+    {
+      "key": "layer-adjustment",
+      "category": "layers",
+      "drawable": "ic_gx_layer_adjustment",
+      "keywords": [
+        "adjustment layer",
+        "non destructive"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's adjustment-layer thumbnail \u2014 the half-black disc.",
+      "note": "A disc split down the middle: correction, not paint."
+    },
+    {
+      "key": "layer-fill",
+      "category": "layers",
+      "drawable": "ic_gx_layer_fill",
+      "keywords": [
+        "solid colour",
+        "fill layer"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's solid-colour fill layer.",
+      "note": "A plate carrying nothing but colour."
+    },
+    {
+      "key": "layer-smart",
+      "category": "layers",
+      "drawable": "ic_gx_layer_smart",
+      "keywords": [
+        "smart object",
+        "linked",
+        "non destructive"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Smart Object badge in the corner of the thumbnail.",
+      "note": "A plate with the badge that says it is still linked to its source."
+    },
+    {
+      "key": "layer-rasterize",
+      "category": "layers",
+      "drawable": "ic_gx_layer_rasterize",
+      "keywords": [
+        "to pixels",
+        "commit",
+        "bake"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Rasterize \u2014 geometry becoming a grid of samples.",
+      "note": "A clean corner giving way to a pixel grid."
+    },
+    {
+      "key": "layer-style",
+      "category": "layers",
+      "drawable": "ic_gx_layer_style",
+      "keywords": [
+        "fx",
+        "effects",
+        "layer effects"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's fx badge \u2014 a plate with the shadow its effects throw.",
+      "note": "A plate and the solid shadow cast behind it."
+    },
+    {
+      "key": "layer-isolate",
+      "category": "layers",
+      "drawable": "ic_gx_layer_isolate",
+      "keywords": [
+        "solo",
+        "only this",
+        "focus layer"
+      ],
+      "apps": "AI/PR",
+      "basis": "Illustrator's isolation mode \u2014 the rest of the stack goes quiet.",
+      "note": "One plate held solid between two that have gone to rules."
+    },
+    {
+      "key": "layer-reference",
+      "category": "layers",
+      "drawable": "ic_gx_layer_reference",
+      "keywords": [
+        "reference layer",
+        "source",
+        "pin"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Reference layer \u2014 one plate marked as the source others read.",
+      "note": "A stack with one plate flagged."
+    },
+    {
+      "key": "layer-rename",
+      "category": "layers",
+      "drawable": "ic_gx_layer_rename",
+      "keywords": [
+        "label",
+        "title",
+        "edit name"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's double-click-to-rename, drawn as a pencil over the row.",
+      "note": "A panel row under a pencil."
+    },
+    {
+      "key": "layer-tag",
+      "category": "layers",
+      "drawable": "ic_gx_layer_tag",
+      "keywords": [
+        "colour label",
+        "flag",
+        "sort"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's colour labels on layer rows \u2014 one row flagged at its edge.",
+      "note": "A stack with one row flagged down its edge."
+    },
+    {
+      "key": "layer-filter",
+      "category": "layers",
+      "drawable": "ic_gx_layer_filter",
+      "keywords": [
+        "find layer",
+        "search stack"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's layer-filter bar at the top of the panel.",
+      "note": "A stack being searched."
+    },
+    {
+      "key": "layer-count",
+      "category": "layers",
+      "drawable": "ic_gx_layer_count",
+      "keywords": [
+        "how many",
+        "stack depth"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A stack bracketed top to bottom, counted as one span."
+    },
+    {
+      "key": "artboard",
+      "category": "layers",
+      "drawable": "ic_gx_artboard",
+      "keywords": [
+        "canvas",
+        "page",
+        "document frame"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's artboard \u2014 a frame with its name tab at the corner.",
+      "note": "A bounded page with a title tab."
+    },
+    {
+      "key": "artboard-add",
+      "category": "layers",
+      "drawable": "ic_gx_artboard_add",
+      "keywords": [
+        "new artboard",
+        "new page"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's New Artboard.",
+      "note": "A second page being started."
+    },
+    {
+      "key": "layer-background",
+      "category": "layers",
+      "drawable": "ic_gx_layer_background",
+      "keywords": [
+        "backdrop",
+        "base",
+        "chequer"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's transparency chequer, which is what a missing background looks like.",
+      "note": "The chequer that means there is nothing behind."
+    },
+    {
+      "key": "layer-frame",
+      "category": "layers",
+      "drawable": "ic_gx_layer_frame",
+      "keywords": [
+        "frame tool",
+        "placeholder",
+        "crop into"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Frame tool \u2014 a placeholder waiting for content.",
+      "note": "Corner marks around nothing yet placed."
+    },
+    {
+      "key": "layer-thumbnail",
+      "category": "layers",
+      "drawable": "ic_gx_layer_thumbnail",
+      "keywords": [
+        "preview",
+        "row",
+        "panel row"
+      ],
+      "apps": "PS",
+      "basis": "A row of Photoshop's Layers panel: thumbnail left, name right.",
+      "note": "One row of the stack, at rest."
+    },
+    {
+      "key": "brightness",
+      "category": "color",
+      "drawable": "ic_gx_brightness",
+      "keywords": [
+        "light",
+        "sun",
+        "lighten"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Brightness \u2014 the sun, the oldest sign in the panel.",
+      "note": "A disc with eight spokes clear of it."
+    },
+    {
+      "key": "contrast",
+      "category": "color",
+      "drawable": "ic_gx_contrast",
+      "keywords": [
+        "tonal range",
+        "hard soft"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Contrast \u2014 one disc holding both ends of the range at once.",
+      "note": "Black meeting white on a straight edge."
+    },
+    {
+      "key": "levels",
+      "category": "color",
+      "drawable": "ic_gx_levels",
+      "keywords": [
+        "histogram",
+        "black point",
+        "white point"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Levels \u2014 a distribution with three sliders under it.",
+      "note": "A histogram and the three points that reset its ends and middle."
+    },
+    {
+      "key": "curves",
+      "category": "color",
+      "drawable": "ic_gx_curves",
+      "keywords": [
+        "tone curve",
+        "s curve",
+        "remap"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Curves \u2014 the S in a box, with a point on it.",
+      "note": "Input against output, bent, with one control point held."
+    },
+    {
+      "key": "exposure",
+      "category": "color",
+      "drawable": "ic_gx_exposure",
+      "keywords": [
+        "stops",
+        "aperture",
+        "iris"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Exposure \u2014 the camera iris the word comes from.",
+      "note": "An aperture, three blades in."
+    },
+    {
+      "key": "shadows-highlights",
+      "category": "color",
+      "drawable": "ic_gx_shadows_highlights",
+      "keywords": [
+        "recover",
+        "lift shadows",
+        "pull highlights"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Shadows/Highlights \u2014 the two ends of the range, worked separately.",
+      "note": "One frame split on the diagonal, each half addressed on its own."
+    },
+    {
+      "key": "posterize",
+      "category": "color",
+      "drawable": "ic_gx_posterize",
+      "keywords": [
+        "quantise",
+        "steps",
+        "bands"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Posterize \u2014 a ramp cut into a fixed number of steps.",
+      "note": "A gradient reduced to a staircase."
+    },
+    {
+      "key": "threshold",
+      "category": "color",
+      "drawable": "ic_gx_threshold",
+      "keywords": [
+        "cutoff",
+        "two tone",
+        "clip"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Threshold \u2014 everything falls to one side of a movable line.",
+      "note": "A hard cut with the slider that sets it."
+    },
+    {
+      "key": "invert",
+      "category": "color",
+      "drawable": "ic_gx_invert",
+      "keywords": [
+        "negative",
+        "flip tone"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Invert \u2014 the negative, where the counter becomes the mark.",
+      "note": "Two halves in opposite tone, each holding the other's disc."
+    },
+    {
+      "key": "auto-tone",
+      "category": "color",
+      "drawable": "ic_gx_auto_tone",
+      "keywords": [
+        "auto levels",
+        "fix",
+        "one tap"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Auto Tone \u2014 the histogram, corrected without being asked how.",
+      "note": "A distribution and the one gesture that fixes it."
+    },
+    {
+      "key": "hue",
+      "category": "color",
+      "drawable": "ic_gx_hue",
+      "keywords": [
+        "colour angle",
+        "shift hue",
+        "wheel"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Hue/Saturation \u2014 hue as a rotation about the wheel.",
+      "note": "An angle turned about the centre of the wheel."
+    },
+    {
+      "key": "saturation",
+      "category": "color",
+      "drawable": "ic_gx_saturation",
+      "keywords": [
+        "intensity",
+        "chroma",
+        "vivid"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Saturation \u2014 one wedge of the wheel taken to full.",
+      "note": "A wheel with a single wedge at full strength."
+    },
+    {
+      "key": "vibrance",
+      "category": "color",
+      "drawable": "ic_gx_vibrance",
+      "keywords": [
+        "smart saturation",
+        "protect skin"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Vibrance \u2014 a rising ramp that gives more where there is less.",
+      "note": "A wedge, solid only where it is already strong."
+    },
+    {
+      "key": "desaturate",
+      "category": "color",
+      "drawable": "ic_gx_desaturate",
+      "keywords": [
+        "greyscale",
+        "remove colour"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Desaturate \u2014 the wheel with one half left with nothing in it.",
+      "note": "A divided wheel: sectors on one side, nothing on the other."
+    },
+    {
+      "key": "color-balance",
+      "category": "color",
+      "drawable": "ic_gx_color_balance",
+      "keywords": [
+        "cast",
+        "cool warm",
+        "scales"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Color Balance \u2014 a beam balance between two casts.",
+      "note": "Two pans on one beam."
+    },
+    {
+      "key": "black-white",
+      "category": "color",
+      "drawable": "ic_gx_black_white",
+      "keywords": [
+        "mono",
+        "channel mix to grey"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Black & White \u2014 colour resolved into two tones.",
+      "note": "Two discs, one filled, one not."
+    },
+    {
+      "key": "photo-filter",
+      "category": "color",
+      "drawable": "ic_gx_photo_filter",
+      "keywords": [
+        "warming filter",
+        "gel",
+        "lens filter"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Photo Filter \u2014 the glass gel that screws onto a lens.",
+      "note": "A filter ring with its tab."
+    },
+    {
+      "key": "channel-mixer",
+      "category": "color",
+      "drawable": "ic_gx_channel_mixer",
+      "keywords": [
+        "per channel",
+        "recombine"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Channel Mixer \u2014 one rail per channel.",
+      "note": "Three rails set independently."
+    },
+    {
+      "key": "color-lookup",
+      "category": "color",
+      "drawable": "ic_gx_color_lookup",
+      "keywords": [
+        "lut",
+        "preset grade",
+        "cube"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Color Lookup \u2014 the LUT, which really is a cube of samples.",
+      "note": "A colour cube with its origin marked."
+    },
+    {
+      "key": "gradient-map",
+      "category": "color",
+      "drawable": "ic_gx_gradient_map",
+      "keywords": [
+        "remap tone to colour",
+        "duotone"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Gradient Map \u2014 a tonal range mapped onto a ramp.",
+      "note": "A run of tone becoming a run of steps."
+    },
+    {
+      "key": "selective-color",
+      "category": "color",
+      "drawable": "ic_gx_selective_color",
+      "keywords": [
+        "one hue only",
+        "target colour"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Selective Color \u2014 one colour singled out of the set.",
+      "note": "Two fields; only one of them is being touched."
+    },
+    {
+      "key": "replace-color",
+      "category": "color",
+      "drawable": "ic_gx_replace_color",
+      "keywords": [
+        "swap hue",
+        "recolour"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Replace Color.",
+      "note": "One field handed over to another."
+    },
+    {
+      "key": "color-disc",
+      "category": "color",
+      "drawable": "ic_gx_color_disc",
+      "keywords": [
+        "picker",
+        "wheel",
+        "choose colour"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's colour disc \u2014 outer ring for hue, inner field for the rest.",
+      "note": "A ring and a field, with the current pick on the ring."
+    },
+    {
+      "key": "color-swatch",
+      "category": "color",
+      "drawable": "ic_gx_color_swatch",
+      "keywords": [
+        "chip",
+        "sample",
+        "current colour"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's foreground/background chips.",
+      "note": "A chip, half of it laid in."
+    },
+    {
+      "key": "color-swatches",
+      "category": "color",
+      "drawable": "ic_gx_color_swatches",
+      "keywords": [
+        "palette",
+        "library",
+        "saved colours"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Swatches panel and Procreate's palette grid.",
+      "note": "A grid of chips with one of them chosen."
+    },
+    {
+      "key": "color-history",
+      "category": "color",
+      "drawable": "ic_gx_color_history",
+      "keywords": [
+        "recent",
+        "used",
+        "last colours"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's recent-colours row.",
+      "note": "A row of what has been used, newest first."
+    },
+    {
+      "key": "color-harmony",
+      "category": "color",
+      "drawable": "ic_gx_color_harmony",
+      "keywords": [
+        "complementary",
+        "triad",
+        "scheme"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's Harmony modes \u2014 related hues found by geometry on the wheel.",
+      "note": "A triad inscribed in the wheel, with the lead hue solid."
+    },
+    {
+      "key": "gradient",
+      "category": "color",
+      "drawable": "ic_gx_gradient",
+      "keywords": [
+        "ramp",
+        "blend",
+        "fade"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Gradient tool \u2014 solid giving way to nothing by measured steps.",
+      "note": "A ramp read as a rhythm that opens out."
+    },
+    {
+      "key": "gradient-linear",
+      "category": "color",
+      "drawable": "ic_gx_gradient_linear",
+      "keywords": [
+        "axis ramp",
+        "straight"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Linear Gradient.",
+      "note": "A ramp running one way across the frame."
+    },
+    {
+      "key": "gradient-radial",
+      "category": "color",
+      "drawable": "ic_gx_gradient_radial",
+      "keywords": [
+        "from centre",
+        "round ramp"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Radial Gradient.",
+      "note": "A ramp running out from one point."
+    },
+    {
+      "key": "gradient-angle",
+      "category": "color",
+      "drawable": "ic_gx_gradient_angle",
+      "keywords": [
+        "sweep",
+        "conical"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Angle Gradient \u2014 the ramp swept about a centre.",
+      "note": "A ramp measured as a turn."
+    },
+    {
+      "key": "gradient-mesh",
+      "category": "color",
+      "drawable": "ic_gx_gradient_mesh",
+      "keywords": [
+        "mesh",
+        "surface",
+        "multi point"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Gradient Mesh \u2014 a grid that bends.",
+      "note": "A surface with colour held at its intersections."
+    },
+    {
+      "key": "temperature",
+      "category": "color",
+      "drawable": "ic_gx_temperature",
+      "keywords": [
+        "warm cool",
+        "kelvin",
+        "white balance"
+      ],
+      "apps": "PS",
+      "basis": "Camera Raw's Temperature slider \u2014 a thermometer against a scale.",
+      "note": "A bulb and the graduations it is read against."
+    },
+    {
+      "key": "tint",
+      "category": "color",
+      "drawable": "ic_gx_tint",
+      "keywords": [
+        "cast",
+        "shift",
+        "green magenta"
+      ],
+      "apps": "PS",
+      "basis": "Camera Raw's Tint slider \u2014 a drop of cast let into the whole field.",
+      "note": "One drop above a field that has taken half of it."
+    },
+    {
+      "key": "clarity",
+      "category": "color",
+      "drawable": "ic_gx_clarity",
+      "keywords": [
+        "local contrast",
+        "punch",
+        "dehaze"
+      ],
+      "apps": "PS",
+      "basis": "Camera Raw's Clarity and Dehaze \u2014 detail recovered from under a flat sky.",
+      "note": "A ridge coming clear of the haze above it."
+    },
+    {
+      "key": "vignette",
+      "category": "color",
+      "drawable": "ic_gx_vignette",
+      "keywords": [
+        "edge darkening",
+        "corners"
+      ],
+      "apps": "PS",
+      "basis": "Camera Raw's Post-Crop Vignetting \u2014 the frame closing in on the centre.",
+      "note": "A dark border with an open centre."
+    },
+    {
+      "key": "grain",
+      "category": "color",
+      "drawable": "ic_gx_grain",
+      "keywords": [
+        "noise",
+        "film",
+        "texture"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Add Noise and Camera Raw's Grain.",
+      "note": "A field with an uneven record laid across it."
+    },
+    {
+      "key": "histogram",
+      "category": "color",
+      "drawable": "ic_gx_histogram",
+      "keywords": [
+        "distribution",
+        "readout",
+        "levels display"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Histogram panel.",
+      "note": "What the image contains, counted."
+    },
+    {
+      "key": "color-profile",
+      "category": "color",
+      "drawable": "ic_gx_color_profile",
+      "keywords": [
+        "gamut",
+        "icc",
+        "colour space"
+      ],
+      "apps": "PS/AI",
+      "basis": "The chromaticity horseshoe with a gamut triangle inside it.",
+      "note": "What a device can reach, inside what the eye can."
+    },
+    {
+      "key": "color-rgb",
+      "category": "color",
+      "drawable": "ic_gx_color_rgb",
+      "keywords": [
+        "additive",
+        "screen",
+        "channels"
+      ],
+      "apps": "PS",
+      "basis": "The additive primaries, drawn as three discs since Maxwell.",
+      "note": "Three lights overlapping."
+    },
+    {
+      "key": "color-cmyk",
+      "category": "color",
+      "drawable": "ic_gx_color_cmyk",
+      "keywords": [
+        "subtractive",
+        "print",
+        "process"
+      ],
+      "apps": "PS/AI",
+      "basis": "The four process inks, with the black one solid.",
+      "note": "Four plates, one of them black."
+    },
+    {
+      "key": "color-alpha",
+      "category": "color",
+      "drawable": "ic_gx_color_alpha",
+      "keywords": [
+        "transparency",
+        "opacity channel"
+      ],
+      "apps": "PS/PR",
+      "basis": "The transparency chequer, wrapped onto a disc.",
+      "note": "A footprint that is only half there."
+    },
+    {
+      "key": "color-hex",
+      "category": "color",
+      "drawable": "ic_gx_color_hex",
+      "keywords": [
+        "code",
+        "value",
+        "exact"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The hexadecimal field every picker ends with.",
+      "note": "Six sides for six digits."
+    },
+    {
+      "key": "filter-blur-gaussian",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_gaussian",
+      "keywords": [
+        "soft focus",
+        "smooth"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Gaussian Blur \u2014 falloff read as concentric rings.",
+      "note": "Rings closing on a single point of focus."
+    },
+    {
+      "key": "filter-blur-motion",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_motion",
+      "keywords": [
+        "speed",
+        "streak",
+        "movement"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Motion Blur \u2014 a point smeared into a trail.",
+      "note": "A mark trailing behind where it used to be."
+    },
+    {
+      "key": "filter-blur-radial",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_radial",
+      "keywords": [
+        "zoom blur",
+        "spin blur"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Radial Blur \u2014 spokes standing for the zoom or the spin.",
+      "note": "A burst of lines from one still centre."
+    },
+    {
+      "key": "filter-blur-lens",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_lens",
+      "keywords": [
+        "depth of field",
+        "bokeh"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Lens Blur \u2014 the iris, with bokeh discs floating out of focus.",
+      "note": "An aperture and the soft discs behind it."
+    },
+    {
+      "key": "filter-sharpen-unsharp",
+      "category": "filters",
+      "drawable": "ic_gx_filter_sharpen_unsharp",
+      "keywords": [
+        "edge contrast",
+        "unsharp mask"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Unsharp Mask \u2014 a soft curve pulled to a hard peak.",
+      "note": "A profile with one edge steepened."
+    },
+    {
+      "key": "filter-noise-add",
+      "category": "filters",
+      "drawable": "ic_gx_filter_noise_add",
+      "keywords": [
+        "grain",
+        "static",
+        "speckle"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Add Noise.",
+      "note": "A field with an uneven record laid across it."
+    },
+    {
+      "key": "filter-noise-reduce",
+      "category": "filters",
+      "drawable": "ic_gx_filter_noise_reduce",
+      "keywords": [
+        "denoise",
+        "clean up",
+        "smooth grain"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Reduce Noise \u2014 the same field, mostly settled, corners softened.",
+      "note": "The noise field with most of the speckle gone."
+    },
+    {
+      "key": "filter-distort-pinch",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_pinch",
+      "keywords": [
+        "squeeze",
+        "implode"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Pinch \u2014 a grid drawn toward a single point.",
+      "note": "A grid bent inward on itself."
+    },
+    {
+      "key": "filter-distort-spherize",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_spherize",
+      "keywords": [
+        "bulge",
+        "inflate",
+        "fisheye"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Spherize \u2014 a plane with a sphere pushing through it.",
+      "note": "A disc swelling inside its frame."
+    },
+    {
+      "key": "filter-distort-wave",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_wave",
+      "keywords": [
+        "ripple",
+        "undulate"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Wave and Ripple filters.",
+      "note": "A frame with a sine passed through it."
+    },
+    {
+      "key": "filter-distort-twirl",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_twirl",
+      "keywords": [
+        "swirl",
+        "vortex"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Twirl \u2014 the same spiral as Liquify, applied whole.",
+      "note": "A frame's contents wound into a spiral."
+    },
+    {
+      "key": "filter-liquify",
+      "category": "filters",
+      "drawable": "ic_gx_filter_liquify",
+      "keywords": [
+        "push",
+        "warp",
+        "reshape"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Liquify filter and Procreate's Liquify \u2014 a frame with one push in it.",
+      "note": "A frame with a single deliberate push in it."
+    },
+    {
+      "key": "filter-emboss",
+      "category": "filters",
+      "drawable": "ic_gx_filter_emboss",
+      "keywords": [
+        "relief",
+        "3d edge"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Emboss \u2014 flat colour giving way to a lit relief edge.",
+      "note": "A flat plate with one raised bevel."
+    },
+    {
+      "key": "filter-mosaic",
+      "category": "filters",
+      "drawable": "ic_gx_filter_mosaic",
+      "keywords": [
+        "pixelate",
+        "blocks"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Mosaic / Pixelate \u2014 detail coarsened into a fixed grid.",
+      "note": "A field reduced to a grid of flat tiles."
+    },
+    {
+      "key": "filter-crystallize",
+      "category": "filters",
+      "drawable": "ic_gx_filter_crystallize",
+      "keywords": [
+        "facets",
+        "voronoi"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Crystallize \u2014 a field broken into irregular facets.",
+      "note": "A field split into cells around scattered centres."
+    },
+    {
+      "key": "filter-halftone",
+      "category": "filters",
+      "drawable": "ic_gx_filter_halftone",
+      "keywords": [
+        "dots",
+        "print screen",
+        "ben-day"
+      ],
+      "apps": "PS/PR",
+      "basis": "Photoshop's Color Halftone \u2014 a tonal ramp reduced to dot size.",
+      "note": "A field of dots that grow toward one corner."
+    },
+    {
+      "key": "filter-glow",
+      "category": "filters",
+      "drawable": "ic_gx_filter_glow",
+      "keywords": [
+        "outer glow",
+        "bloom"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Outer Glow effect.",
+      "note": "A core with its light spreading past its own edge."
+    },
+    {
+      "key": "filter-shadow-drop",
+      "category": "filters",
+      "drawable": "ic_gx_filter_shadow_drop",
+      "keywords": [
+        "cast shadow",
+        "depth"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Drop Shadow effect.",
+      "note": "A crisp plate over a softer, rounded shadow offset behind it."
+    },
+    {
+      "key": "filter-shadow-inner",
+      "category": "filters",
+      "drawable": "ic_gx_filter_shadow_inner",
+      "keywords": [
+        "inset shadow",
+        "recessed"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Inner Shadow \u2014 the frame's own edge cast onto itself.",
+      "note": "A frame with shade gathered inside its own edge."
+    },
+    {
+      "key": "filter-bevel",
+      "category": "filters",
+      "drawable": "ic_gx_filter_bevel",
+      "keywords": [
+        "ridge",
+        "3d edge",
+        "chamfer"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Bevel and Emboss \u2014 one lit chamfer standing for the whole ridge.",
+      "note": "A frame with one bevelled, lit edge."
+    },
+    {
+      "key": "filter-stroke-outline",
+      "category": "filters",
+      "drawable": "ic_gx_filter_stroke_outline",
+      "keywords": [
+        "outline effect",
+        "border"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Stroke effect \u2014 a second outline drawn around the first.",
+      "note": "A shape traced by a second, larger edge."
+    },
+    {
+      "key": "filter-vanishing-point",
+      "category": "filters",
+      "drawable": "ic_gx_filter_vanishing_point",
+      "keywords": [
+        "perspective clone",
+        "3d plane"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Vanishing Point \u2014 a plane defined in perspective.",
+      "note": "A plane tipped back to a vanishing edge."
+    },
+    {
+      "key": "filter-lens-flare",
+      "category": "filters",
+      "drawable": "ic_gx_filter_lens_flare",
+      "keywords": [
+        "light leak",
+        "sun flare"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Lens Flare.",
+      "note": "A chain of ghosts running toward one bright source."
+    },
+    {
+      "key": "filter-render-clouds",
+      "category": "filters",
+      "drawable": "ic_gx_filter_render_clouds",
+      "keywords": [
+        "procedural sky",
+        "fractal"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Clouds render filter.",
+      "note": "A procedural horizon with nothing behind it yet."
+    },
+    {
+      "key": "filter-vignette-post",
+      "category": "filters",
+      "drawable": "ic_gx_filter_vignette_post",
+      "keywords": [
+        "darken corners",
+        "frame edge"
+      ],
+      "apps": "PS",
+      "basis": "Camera Raw's Post-Crop Vignetting, drawn as darkened corners rather than a ring.",
+      "note": "Four corners closing in on an untouched centre."
+    },
+    {
+      "key": "filter-clone-source",
+      "category": "filters",
+      "drawable": "ic_gx_filter_clone_source",
+      "keywords": [
+        "sample point",
+        "reference"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Clone Source panel \u2014 the sample and the frame it will be copied into.",
+      "note": "A sampled point and the frame waiting to receive it."
+    },
+    {
+      "key": "filter-gallery",
+      "category": "filters",
+      "drawable": "ic_gx_filter_gallery",
+      "keywords": [
+        "stack of filters",
+        "fx library"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Filter Gallery \u2014 stacked, re-orderable effects.",
+      "note": "Frames fanned like cards, the top one active."
+    },
+    {
+      "key": "filter-smart-radius",
+      "category": "filters",
+      "drawable": "ic_gx_filter_smart_radius",
+      "keywords": [
+        "adaptive edge",
+        "AI mask edge"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Smart Radius \u2014 an edge that thickens and thins with the detail.",
+      "note": "An outline that widens where the edge is uncertain."
+    },
+    {
+      "key": "filter-content-aware-fill",
+      "category": "filters",
+      "drawable": "ic_gx_filter_content_aware_fill",
+      "keywords": [
+        "ai fill",
+        "remove and fill"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Content-Aware Fill \u2014 a gap the tiles around it are used to fill.",
+      "note": "A grid with one tile regrown from its neighbours."
+    },
+    {
+      "key": "filter-sky-replace",
+      "category": "filters",
+      "drawable": "ic_gx_filter_sky_replace",
+      "keywords": [
+        "ai sky",
+        "replace background"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Sky Replacement.",
+      "note": "A new horizon dropped in above the ants."
+    },
+    {
+      "key": "filter-generative-fill",
+      "category": "filters",
+      "drawable": "ic_gx_filter_generative_fill",
+      "keywords": [
+        "ai generate",
+        "text to image fill"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A gap in the frame with a generated form taking its place."
+    },
+    {
+      "key": "pen",
+      "category": "vector",
+      "drawable": "ic_gx_pen",
+      "keywords": [
+        "bezier",
+        "path tool",
+        "draw vector"
+      ],
+      "apps": "AI/PS",
+      "basis": "Illustrator's Pen tool \u2014 a nib drawing a line that ends where the point was set.",
+      "note": "A nib at the end of the line it just placed."
+    },
+    {
+      "key": "pen-add",
+      "category": "vector",
+      "drawable": "ic_gx_pen_add",
+      "keywords": [
+        "add anchor",
+        "insert point"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Add Anchor Point tool.",
+      "note": "A curve with a new node placed on it."
+    },
+    {
+      "key": "pen-remove",
+      "category": "vector",
+      "drawable": "ic_gx_pen_remove",
+      "keywords": [
+        "delete anchor",
+        "remove point"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Delete Anchor Point tool.",
+      "note": "A curve with one node taken away, unfilled."
+    },
+    {
+      "key": "anchor-convert",
+      "category": "vector",
+      "drawable": "ic_gx_anchor_convert",
+      "keywords": [
+        "corner smooth toggle",
+        "convert point"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Convert Anchor Point tool.",
+      "note": "A corner node and a smooth node, either end of the same handle."
+    },
+    {
+      "key": "path-select-direct",
+      "category": "vector",
+      "drawable": "ic_gx_path_select_direct",
+      "keywords": [
+        "white arrow",
+        "edit anchors"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Direct Selection \u2014 the white arrow that edits nodes, not objects.",
+      "note": "An open arrowhead with a hollow anchor at its own origin."
+    },
+    {
+      "key": "path-select-group",
+      "category": "vector",
+      "drawable": "ic_gx_path_select_group",
+      "keywords": [
+        "black arrow",
+        "select object"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Selection tool \u2014 the black arrow that moves whole objects.",
+      "note": "The same arrow, solid \u2014 it takes the whole object, not one node."
+    },
+    {
+      "key": "path-close",
+      "category": "vector",
+      "drawable": "ic_gx_path_close",
+      "keywords": [
+        "closed path",
+        "join ends"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Join \u2014 the moment two open ends become one point.",
+      "note": "A loop closed at a single solid seam."
+    },
+    {
+      "key": "path-open",
+      "category": "vector",
+      "drawable": "ic_gx_path_open",
+      "keywords": [
+        "cut path",
+        "scissors"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Scissors tool \u2014 a ring cut at one point.",
+      "note": "A closed loop with one gap opened in its edge."
+    },
+    {
+      "key": "path-simplify",
+      "category": "vector",
+      "drawable": "ic_gx_path_simplify",
+      "keywords": [
+        "reduce points",
+        "clean path"
+      ],
+      "apps": "AI/PS",
+      "basis": "Illustrator's Simplify \u2014 a jagged run reduced to fewer, truer segments.",
+      "note": "A zigzag with most of its corners already gone."
+    },
+    {
+      "key": "path-outline-stroke",
+      "category": "vector",
+      "drawable": "ic_gx_path_outline_stroke",
+      "keywords": [
+        "stroke to fill",
+        "expand stroke"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Outline Stroke \u2014 a line given width and turned into a shape.",
+      "note": "A stroke on one side of the frame, a filled ribbon on the other."
+    },
+    {
+      "key": "path-offset",
+      "category": "vector",
+      "drawable": "ic_gx_path_offset",
+      "keywords": [
+        "parallel copy",
+        "grow path"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Offset Path.",
+      "note": "A curve and its own parallel copy, held at a fixed distance."
+    },
+    {
+      "key": "path-reverse",
+      "category": "vector",
+      "drawable": "ic_gx_path_reverse",
+      "keywords": [
+        "flip direction",
+        "winding"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Reverse Path Direction.",
+      "note": "A path with its direction marked at the end it now runs to."
+    },
+    {
+      "key": "handle-symmetric",
+      "category": "vector",
+      "drawable": "ic_gx_handle_symmetric",
+      "keywords": [
+        "smooth handles",
+        "mirrored tangent"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's smooth anchor \u2014 two handles, locked opposite and equal.",
+      "note": "One node, two equal handles either side of it."
+    },
+    {
+      "key": "handle-asymmetric",
+      "category": "vector",
+      "drawable": "ic_gx_handle_asymmetric",
+      "keywords": [
+        "broken handles",
+        "independent tangent"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's corner anchor with independent handles.",
+      "note": "One node, two handles free to disagree."
+    },
+    {
+      "key": "shape-rectangle",
+      "category": "vector",
+      "drawable": "ic_gx_shape_rectangle",
+      "keywords": [
+        "vector rect",
+        "live shape"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Rectangle tool, drawn as a live shape with one editable corner.",
+      "note": "A rectangle with the corner that defines it marked live."
+    },
+    {
+      "key": "shape-polygon",
+      "category": "vector",
+      "drawable": "ic_gx_shape_polygon",
+      "keywords": [
+        "vector polygon",
+        "n sides"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Polygon tool.",
+      "note": "A regular polygon with its lead vertex marked."
+    },
+    {
+      "key": "shape-star",
+      "category": "vector",
+      "drawable": "ic_gx_shape_star",
+      "keywords": [
+        "vector star",
+        "points"
+      ],
+      "apps": "AI/PR",
+      "basis": "Illustrator's Star tool and Procreate's star shape.",
+      "note": "A five-point star, unfilled to keep the count legible."
+    },
+    {
+      "key": "shape-line",
+      "category": "vector",
+      "drawable": "ic_gx_shape_line",
+      "keywords": [
+        "straight segment",
+        "line tool"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Line Segment tool.",
+      "note": "One straight run with both ends marked."
+    },
+    {
+      "key": "shape-spiral",
+      "category": "vector",
+      "drawable": "ic_gx_shape_spiral",
+      "keywords": [
+        "vector spiral",
+        "coil"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Spiral tool.",
+      "note": "A vector spiral, tightening in to a single terminal point."
+    },
+    {
+      "key": "boolean-unite",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_unite",
+      "keywords": [
+        "pathfinder add",
+        "merge shapes"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Pathfinder \u2014 Unite.",
+      "note": "Both shapes held as one."
+    },
+    {
+      "key": "boolean-minus",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_minus",
+      "keywords": [
+        "pathfinder subtract",
+        "minus front"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Pathfinder \u2014 Minus Front.",
+      "note": "What remains of the back shape once the front is cut from it."
+    },
+    {
+      "key": "boolean-intersect",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_intersect",
+      "keywords": [
+        "pathfinder intersect"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Pathfinder \u2014 Intersect.",
+      "note": "Only the ground the two shapes share."
+    },
+    {
+      "key": "boolean-exclude",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_exclude",
+      "keywords": [
+        "pathfinder exclude"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Pathfinder \u2014 Exclude.",
+      "note": "Everything except the ground the two shapes share."
+    },
+    {
+      "key": "compound-path",
+      "category": "vector",
+      "drawable": "ic_gx_compound_path",
+      "keywords": [
+        "make compound",
+        "holes"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Compound Path \u2014 a ring made from two circles wound oppositely.",
+      "note": "A disc with a true hole cut through it, not painted over."
+    },
+    {
+      "key": "clipping-mask-vector",
+      "category": "vector",
+      "drawable": "ic_gx_clipping_mask_vector",
+      "keywords": [
+        "crop to shape",
+        "clip path"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's clipping mask \u2014 content cropped to a vector shape.",
+      "note": "A shape holding a rectangle to exactly its own outline."
+    },
+    {
+      "key": "trace-image",
+      "category": "vector",
+      "drawable": "ic_gx_trace_image",
+      "keywords": [
+        "image trace",
+        "raster to vector"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Image Trace \u2014 pixels resolved into an editable outline.",
+      "note": "A pixel block on one side, a traced outline on the other."
+    },
+    {
+      "key": "vectorize",
+      "category": "vector",
+      "drawable": "ic_gx_vectorize",
+      "keywords": [
+        "auto vector",
+        "convert to path"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A raster field of crop marks resolving into one solid vector shape."
+    },
+    {
+      "key": "path-width",
+      "category": "vector",
+      "drawable": "ic_gx_path_width",
+      "keywords": [
+        "variable width",
+        "width profile"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Width tool.",
+      "note": "A path with the corner where its width would be pulled."
+    },
+    {
+      "key": "path-knife",
+      "category": "vector",
+      "drawable": "ic_gx_path_knife",
+      "keywords": [
+        "cut shape",
+        "slice"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Knife tool.",
+      "note": "A shape crossed clean through by one cut."
+    },
+    {
+      "key": "path-eraser-vector",
+      "category": "vector",
+      "drawable": "ic_gx_path_eraser_vector",
+      "keywords": [
+        "vector eraser",
+        "erase path"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Path Eraser.",
+      "note": "A curve broken open where the eraser has crossed it."
+    },
+    {
+      "key": "guide-ruler",
+      "category": "vector",
+      "drawable": "ic_gx_guide_ruler",
+      "keywords": [
+        "smart guide",
+        "snap"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's rulers, top and left.",
+      "note": "The two rulers a canvas is measured against."
+    },
+    {
+      "key": "type",
+      "category": "type",
+      "drawable": "ic_gx_type",
+      "keywords": [
+        "text tool",
+        "add text"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's Type tool \u2014 a plain capital A.",
+      "note": "A single letterform, standing for the whole alphabet."
+    },
+    {
+      "key": "type-point",
+      "category": "type",
+      "drawable": "ic_gx_type_point",
+      "keywords": [
+        "point text",
+        "click to type"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Point Type \u2014 text anchored at a single click.",
+      "note": "A letter growing from one fixed point."
+    },
+    {
+      "key": "type-area",
+      "category": "type",
+      "drawable": "ic_gx_type_area",
+      "keywords": [
+        "area text",
+        "text in shape"
+      ],
+      "apps": "AI/PS",
+      "basis": "Illustrator's Area Type \u2014 text poured into a bound shape.",
+      "note": "Text set to the width of a frame, ragged at the last line."
+    },
+    {
+      "key": "type-path",
+      "category": "type",
+      "drawable": "ic_gx_type_path",
+      "keywords": [
+        "text on path",
+        "curved type"
+      ],
+      "apps": "AI/PS",
+      "basis": "Illustrator's Type on a Path.",
+      "note": "A path with one letter riding along it."
+    },
+    {
+      "key": "type-vertical",
+      "category": "type",
+      "drawable": "ic_gx_type_vertical",
+      "keywords": [
+        "vertical text",
+        "top to bottom"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop and Illustrator's vertical type orientation.",
+      "note": "Characters stacked down a single spine."
+    },
+    {
+      "key": "type-mask",
+      "category": "type",
+      "drawable": "ic_gx_type_mask",
+      "keywords": [
+        "type selection",
+        "text as selection"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Horizontal Type Mask \u2014 a letterform that becomes a selection.",
+      "note": "A letter drawn as marching ants, since it is a selection, not ink."
+    },
+    {
+      "key": "type-warp",
+      "category": "type",
+      "drawable": "ic_gx_type_warp",
+      "keywords": [
+        "distort text",
+        "arc text"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Warp Text.",
+      "note": "A frame with the baseline bent inside it."
+    },
+    {
+      "key": "font-family",
+      "category": "type",
+      "drawable": "ic_gx_font_family",
+      "keywords": [
+        "typeface",
+        "font picker"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "A serif F beside a sans A \u2014 the two families every font picker distinguishes.",
+      "note": "Two letterforms in two different faces."
+    },
+    {
+      "key": "font-size",
+      "category": "type",
+      "drawable": "ic_gx_font_size",
+      "keywords": [
+        "point size",
+        "text scale"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The small-A/large-A pair every size control uses.",
+      "note": "The same letter at two sizes, side by side."
+    },
+    {
+      "key": "font-weight",
+      "category": "type",
+      "drawable": "ic_gx_font_weight",
+      "keywords": [
+        "bold",
+        "font weight axis"
+      ],
+      "apps": "PS/AI",
+      "basis": "A light A beside a bold one.",
+      "note": "The same letter, thin then heavy."
+    },
+    {
+      "key": "type-bold",
+      "category": "type",
+      "drawable": "ic_gx_type_bold",
+      "keywords": [
+        "strong",
+        "b"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The solid B every bold toggle in every text editor uses.",
+      "note": "A single heavy capital."
+    },
+    {
+      "key": "type-italic",
+      "category": "type",
+      "drawable": "ic_gx_type_italic",
+      "keywords": [
+        "oblique",
+        "i"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The slanted I every italic toggle uses.",
+      "note": "A single slanted stroke with its serifs."
+    },
+    {
+      "key": "type-underline",
+      "category": "type",
+      "drawable": "ic_gx_type_underline",
+      "keywords": [
+        "u"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The underlined U every underline toggle uses.",
+      "note": "A U with its own rule struck beneath it."
+    },
+    {
+      "key": "type-strikethrough",
+      "category": "type",
+      "drawable": "ic_gx_type_strikethrough",
+      "keywords": [
+        "s",
+        "strike"
+      ],
+      "apps": "PS/AI",
+      "basis": "The struck S every strikethrough toggle uses.",
+      "note": "An S with the rule that crosses it out."
+    },
+    {
+      "key": "type-superscript",
+      "category": "type",
+      "drawable": "ic_gx_type_superscript",
+      "keywords": [
+        "exponent",
+        "raised"
+      ],
+      "apps": "PS/AI",
+      "basis": "A baseline letter with a small mark raised above it.",
+      "note": "A letter with a second, smaller mark set high."
+    },
+    {
+      "key": "type-subscript",
+      "category": "type",
+      "drawable": "ic_gx_type_subscript",
+      "keywords": [
+        "index",
+        "lowered"
+      ],
+      "apps": "PS/AI",
+      "basis": "A baseline letter with a small mark dropped below it.",
+      "note": "A letter with a second, smaller mark set low."
+    },
+    {
+      "key": "type-allcaps",
+      "category": "type",
+      "drawable": "ic_gx_type_allcaps",
+      "keywords": [
+        "uppercase",
+        "caps lock"
+      ],
+      "apps": "PS/AI",
+      "basis": "Two capitals of matched height \u2014 case with nothing lower to compare against.",
+      "note": "Two letters at one uniform height."
+    },
+    {
+      "key": "kerning",
+      "category": "type",
+      "drawable": "ic_gx_kerning",
+      "keywords": [
+        "letter spacing pair",
+        "AV"
+      ],
+      "apps": "PS/AI",
+      "basis": "The AV pair every kerning control uses to show the gap between two letters.",
+      "note": "Two letterforms whose gap is the thing being set."
+    },
+    {
+      "key": "tracking",
+      "category": "type",
+      "drawable": "ic_gx_tracking",
+      "keywords": [
+        "letter spacing all",
+        "expand"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Tracking \u2014 uniform space added between every pair.",
+      "note": "Marks pushed apart by an equal amount, all at once."
+    },
+    {
+      "key": "leading",
+      "category": "type",
+      "drawable": "ic_gx_leading",
+      "keywords": [
+        "line spacing",
+        "row gap"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Leading \u2014 the gap between text rows.",
+      "note": "Two rows with the gap between them held by opposing arrows."
+    },
+    {
+      "key": "paragraph-align-left",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_left",
+      "keywords": [
+        "justify left"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The ragged-right paragraph glyph every editor uses for left alignment.",
+      "note": "Rules flush on the left, ragged on the right."
+    },
+    {
+      "key": "paragraph-align-center",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_center",
+      "keywords": [
+        "centre text"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The centred paragraph glyph.",
+      "note": "Rules centred, ragged on both ends."
+    },
+    {
+      "key": "paragraph-align-right",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_right",
+      "keywords": [
+        "justify right"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The ragged-left paragraph glyph, for right alignment.",
+      "note": "Rules flush on the right, ragged on the left."
+    },
+    {
+      "key": "paragraph-justify",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_justify",
+      "keywords": [
+        "full justify"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The fully justified paragraph glyph \u2014 flush on both sides but the last row.",
+      "note": "Rules flush on both ends, the final row left short."
+    },
+    {
+      "key": "paragraph-indent",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_indent",
+      "keywords": [
+        "first line indent"
+      ],
+      "apps": "PS/AI",
+      "basis": "A paragraph glyph with its first line pushed in from an arrow.",
+      "note": "One row pushed in from the rest by a visible step."
+    },
+    {
+      "key": "glyphs-panel",
+      "category": "type",
+      "drawable": "ic_gx_glyphs_panel",
+      "keywords": [
+        "special characters",
+        "ligatures"
+      ],
+      "apps": "PS/AI",
+      "basis": "Illustrator's Glyphs panel \u2014 one character held up in its own cell.",
+      "note": "A single glyph shown in the cell it is picked from."
+    },
+    {
+      "key": "find-replace-text",
+      "category": "type",
+      "drawable": "ic_gx_find_replace_text",
+      "keywords": [
+        "search text",
+        "swap words"
+      ],
+      "apps": "PS/AI",
+      "basis": "Find/Change \u2014 the search glass, turned on a word instead of a file.",
+      "note": "A search glass, held over running text."
+    },
+    {
+      "key": "spell-check",
+      "category": "type",
+      "drawable": "ic_gx_spell_check",
+      "keywords": [
+        "proofing",
+        "typo underline"
+      ],
+      "apps": "PS/AI",
+      "basis": "The red squiggle every spell-checker draws under a flagged word.",
+      "note": "A letter sitting over the wavy underline that flags it."
+    },
+    {
+      "key": "baseline-shift",
+      "category": "type",
+      "drawable": "ic_gx_baseline_shift",
+      "keywords": [
+        "raise lower glyph"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Baseline Shift.",
+      "note": "A letter lifted clear of the line it would otherwise sit on."
+    },
+    {
+      "key": "text-color",
+      "category": "type",
+      "drawable": "ic_gx_text_color",
+      "keywords": [
+        "font colour",
+        "fill text"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The letter-over-a-colour-bar every text colour control uses.",
+      "note": "A letter standing on the colour it will be filled with."
+    },
+    {
+      "key": "text-outline-convert",
+      "category": "type",
+      "drawable": "ic_gx_text_outline_convert",
+      "keywords": [
+        "create outlines",
+        "text to shape"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Create Outlines \u2014 a live letter beside its converted, solid twin.",
+      "note": "One editable letter and one converted to a fixed shape."
+    },
+    {
+      "key": "move",
+      "category": "transform",
+      "drawable": "ic_gx_move",
+      "keywords": [
+        "position",
+        "pan object",
+        "translate"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The four-way move cross every editor uses for the Move tool.",
+      "note": "Four arrows sharing one centre \u2014 free movement, no axis preferred."
+    },
+    {
+      "key": "scale",
+      "category": "transform",
+      "drawable": "ic_gx_scale",
+      "keywords": [
+        "resize",
+        "free transform"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Illustrator's Free Transform bounding box \u2014 a frame with all eight handles live.",
+      "note": "A frame under its own corner and edge handles."
+    },
+    {
+      "key": "scale-proportional",
+      "category": "transform",
+      "drawable": "ic_gx_scale_proportional",
+      "keywords": [
+        "lock aspect",
+        "uniform scale"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The diagonal double arrow every lock-aspect toggle uses.",
+      "note": "A frame growing only along its own diagonal."
+    },
+    {
+      "key": "rotate",
+      "category": "transform",
+      "drawable": "ic_gx_rotate",
+      "keywords": [
+        "turn",
+        "spin object"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The curved arrow every rotate tool uses.",
+      "note": "An arc most of the way around, with the arrowhead at its live end."
+    },
+    {
+      "key": "rotate-90-cw",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_90_cw",
+      "keywords": [
+        "quarter turn right"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "A fixed quarter-turn \u2014 the arc capped at exactly ninety degrees.",
+      "note": "A frame turned a clean quarter, no more."
+    },
+    {
+      "key": "rotate-90-ccw",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_90_ccw",
+      "keywords": [
+        "quarter turn left"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The same fixed quarter-turn, the other way.",
+      "note": "A frame turned a clean quarter the other direction."
+    },
+    {
+      "key": "rotate-180",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_180",
+      "keywords": [
+        "half turn"
+      ],
+      "apps": "PS/AI",
+      "basis": "The same arc taken all the way to a half-turn.",
+      "note": "A frame turned exactly upside down."
+    },
+    {
+      "key": "flip-horizontal",
+      "category": "transform",
+      "drawable": "ic_gx_flip_horizontal",
+      "keywords": [
+        "mirror x",
+        "flip left right"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The two arrowheads flanking an axis every flip toggle uses.",
+      "note": "A shape and its mirror, meeting at a vertical hinge."
+    },
+    {
+      "key": "flip-vertical",
+      "category": "transform",
+      "drawable": "ic_gx_flip_vertical",
+      "keywords": [
+        "mirror y",
+        "flip top bottom"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The same pair, turned on a horizontal hinge.",
+      "note": "A shape and its mirror, meeting at a horizontal hinge."
+    },
+    {
+      "key": "skew",
+      "category": "transform",
+      "drawable": "ic_gx_skew",
+      "keywords": [
+        "shear",
+        "slant"
+      ],
+      "apps": "PS/AI",
+      "basis": "Illustrator's Shear \u2014 a frame with only the top pushed sideways.",
+      "note": "A rectangle leant over on its own base."
+    },
+    {
+      "key": "distort",
+      "category": "transform",
+      "drawable": "ic_gx_distort",
+      "keywords": [
+        "free distort",
+        "perspective corners"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Distort \u2014 four corners each free to move on its own.",
+      "note": "A frame with all four corners pulled independently."
+    },
+    {
+      "key": "perspective-transform",
+      "category": "transform",
+      "drawable": "ic_gx_perspective_transform",
+      "keywords": [
+        "perspective corners linked"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Perspective \u2014 corners that move together in linked pairs.",
+      "note": "A frame tipped back into depth, both sides moving together."
+    },
+    {
+      "key": "puppet-warp",
+      "category": "transform",
+      "drawable": "ic_gx_puppet_warp",
+      "keywords": [
+        "mesh warp",
+        "pin and bend"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Puppet Warp \u2014 pins set into a form to bend it.",
+      "note": "A form with two pins holding it in a bent pose."
+    },
+    {
+      "key": "transform-again",
+      "category": "transform",
+      "drawable": "ic_gx_transform_again",
+      "keywords": [
+        "repeat transform"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Transform Again \u2014 the same step repeated in place.",
+      "note": "A shape repeated in a straight, equal run."
+    },
+    {
+      "key": "reset-transform",
+      "category": "transform",
+      "drawable": "ic_gx_reset_transform",
+      "keywords": [
+        "clear transform",
+        "original state"
+      ],
+      "apps": "PS/AI",
+      "basis": "A frame returning to true along the arc it was turned through.",
+      "note": "A frame's transform being wound back to nothing."
+    },
+    {
+      "key": "align-left",
+      "category": "transform",
+      "drawable": "ic_gx_align_left",
+      "keywords": [
+        "align objects left"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The align-left glyph shared by every design tool: a rule with objects flush to it.",
+      "note": "Two frames flush to a single edge."
+    },
+    {
+      "key": "align-center-h",
+      "category": "transform",
+      "drawable": "ic_gx_align_center_h",
+      "keywords": [
+        "align objects centre horizontal"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The align-centre glyph shared by every design tool.",
+      "note": "Two frames centred on a single axis."
+    },
+    {
+      "key": "align-right",
+      "category": "transform",
+      "drawable": "ic_gx_align_right",
+      "keywords": [
+        "align objects right"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The align-right glyph shared by every design tool.",
+      "note": "Two frames flush to a single edge, the other side."
+    },
+    {
+      "key": "align-top",
+      "category": "transform",
+      "drawable": "ic_gx_align_top",
+      "keywords": [
+        "align objects top"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The align-top glyph, rotated ninety degrees from align-left.",
+      "note": "Two frames flush to a single edge overhead."
+    },
+    {
+      "key": "align-middle-v",
+      "category": "transform",
+      "drawable": "ic_gx_align_middle_v",
+      "keywords": [
+        "align objects centre vertical"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The vertical-centre glyph, matching align-centre-horizontal at ninety degrees.",
+      "note": "Two frames centred on a single horizontal axis."
+    },
+    {
+      "key": "align-bottom",
+      "category": "transform",
+      "drawable": "ic_gx_align_bottom",
+      "keywords": [
+        "align objects bottom"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The align-bottom glyph.",
+      "note": "Two frames flush to a single edge underneath."
+    },
+    {
+      "key": "distribute-horizontal",
+      "category": "transform",
+      "drawable": "ic_gx_distribute_horizontal",
+      "keywords": [
+        "equal gaps across"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The three-equal-blocks glyph every distribute-horizontally control uses.",
+      "note": "Three frames spaced by one equal gap."
+    },
+    {
+      "key": "distribute-vertical",
+      "category": "transform",
+      "drawable": "ic_gx_distribute_vertical",
+      "keywords": [
+        "equal gaps down"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The vertical twin of distribute-horizontal.",
+      "note": "Three frames stacked by one equal gap."
+    },
+    {
+      "key": "align-to-artboard",
+      "category": "transform",
+      "drawable": "ic_gx_align_to_artboard",
+      "keywords": [
+        "align to canvas",
+        "align to page"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Align To Artboard mode.",
+      "note": "A frame aligned against the whole page, not its neighbours."
+    },
+    {
+      "key": "snap-to-grid",
+      "category": "transform",
+      "drawable": "ic_gx_snap_to_grid",
+      "keywords": [
+        "snap",
+        "grid magnet"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's Snap to Grid.",
+      "note": "A grid with one object caught exactly on its intersection."
+    },
+    {
+      "key": "smart-guides",
+      "category": "transform",
+      "drawable": "ic_gx_smart_guides",
+      "keywords": [
+        "alignment guides",
+        "magenta lines"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's Smart Guides \u2014 a dashed line appearing between two aligned objects.",
+      "note": "Two objects with the guide that appears once they line up."
+    },
+    {
+      "key": "document-new",
+      "category": "document",
+      "drawable": "ic_gx_document_new",
+      "keywords": [
+        "new file",
+        "blank canvas"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The folded-corner page every New Document dialog uses.",
+      "note": "A blank page with its corner turned down."
+    },
+    {
+      "key": "document-open",
+      "category": "document",
+      "drawable": "ic_gx_document_open",
+      "keywords": [
+        "open file"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The open folder every Open dialog uses.",
+      "note": "A folder lifted open at its own top edge."
+    },
+    {
+      "key": "document-save",
+      "category": "document",
+      "drawable": "ic_gx_document_save",
+      "keywords": [
+        "save file"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The floppy disc every Save command still uses.",
+      "note": "The disc's shell, label window, and solid write-protect tab."
+    },
+    {
+      "key": "document-save-as",
+      "category": "document",
+      "drawable": "ic_gx_document_save_as",
+      "keywords": [
+        "save copy",
+        "duplicate file"
+      ],
+      "apps": "PS/AI",
+      "basis": "The same disc, with the plus that marks a new copy.",
+      "note": "A disc being written a second time, under a new name."
+    },
+    {
+      "key": "document-close",
+      "category": "document",
+      "drawable": "ic_gx_document_close",
+      "keywords": [
+        "close file"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The document page, with the corner tucked away as it closes.",
+      "note": "A page with its own corner folding shut."
+    },
+    {
+      "key": "document-revert",
+      "category": "document",
+      "drawable": "ic_gx_document_revert",
+      "keywords": [
+        "revert to saved",
+        "discard changes"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Revert \u2014 the saved disc, called back.",
+      "note": "A disc with its last save being pulled back in."
+    },
+    {
+      "key": "document-properties",
+      "category": "document",
+      "drawable": "ic_gx_document_properties",
+      "keywords": [
+        "file info",
+        "metadata"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's File Info.",
+      "note": "A page with the record it carries laid open."
+    },
+    {
+      "key": "canvas-size",
+      "category": "document",
+      "drawable": "ic_gx_canvas_size",
+      "keywords": [
+        "resize canvas",
+        "expand document"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Canvas Size \u2014 the document, and the new boundary it grows into.",
+      "note": "The current page inside the frame it is about to fill."
+    },
+    {
+      "key": "image-size",
+      "category": "document",
+      "drawable": "ic_gx_image_size",
+      "keywords": [
+        "resize image",
+        "resample"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Image Size \u2014 the frame being pulled from its own corner.",
+      "note": "A frame with its own corner being dragged smaller."
+    },
+    {
+      "key": "crop",
+      "category": "document",
+      "drawable": "ic_gx_crop",
+      "keywords": [
+        "trim",
+        "crop tool"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The two overlapping crop brackets every editor uses.",
+      "note": "Two corner brackets marking the region that survives."
+    },
+    {
+      "key": "crop-straighten",
+      "category": "document",
+      "drawable": "ic_gx_crop_straighten",
+      "keywords": [
+        "level horizon",
+        "de-skew"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Straighten \u2014 a ruled line laid across a tilted horizon.",
+      "note": "A frame with a measuring line drawn across its own tilt."
+    },
+    {
+      "key": "resample",
+      "category": "document",
+      "drawable": "ic_gx_resample",
+      "keywords": [
+        "interpolation",
+        "pixel resample"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's resample method preview \u2014 samples redrawn onto a new grid.",
+      "note": "A set of columns filled to a new, even measure."
+    },
+    {
+      "key": "zoom-in",
+      "category": "document",
+      "drawable": "ic_gx_zoom_in",
+      "keywords": [
+        "magnify",
+        "increase view"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's zoom-in glass.",
+      "note": "A glass with the plus that grows what is under it."
+    },
+    {
+      "key": "zoom-out",
+      "category": "document",
+      "drawable": "ic_gx_zoom_out",
+      "keywords": [
+        "shrink",
+        "decrease view"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The same glass, with the minus that shrinks what is under it.",
+      "note": "A glass with a single bar across its centre."
+    },
+    {
+      "key": "zoom-fit",
+      "category": "document",
+      "drawable": "ic_gx_zoom_fit",
+      "keywords": [
+        "fit to screen",
+        "fit window"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Photoshop's Fit on Screen.",
+      "note": "A frame held exactly inside the four corners of its window."
+    },
+    {
+      "key": "zoom-100",
+      "category": "document",
+      "drawable": "ic_gx_zoom_100",
+      "keywords": [
+        "actual size",
+        "print size"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Actual Pixels \u2014 the glass with nothing being magnified.",
+      "note": "The zoom glass with a single point, not a sign, at its centre."
+    },
+    {
+      "key": "pan-hand",
+      "category": "document",
+      "drawable": "ic_gx_pan_hand",
+      "keywords": [
+        "hand tool",
+        "scroll canvas"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's Hand tool.",
+      "note": "An open hand held flat against the canvas."
+    },
+    {
+      "key": "rotate-view",
+      "category": "document",
+      "drawable": "ic_gx_rotate_view",
+      "keywords": [
+        "rotate canvas view"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Rotate View \u2014 the canvas turned without changing the file.",
+      "note": "A dial turned to look at the same page from a new angle."
+    },
+    {
+      "key": "rulers",
+      "category": "document",
+      "drawable": "ic_gx_rulers",
+      "keywords": [
+        "measurement guides",
+        "show rulers"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's rulers, top and left.",
+      "note": "The two graduated edges every canvas is measured against."
+    },
+    {
+      "key": "guides",
+      "category": "document",
+      "drawable": "ic_gx_guides",
+      "keywords": [
+        "ruler guides",
+        "drag out guide"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Guides pulled out from the rulers.",
+      "note": "Two dashed lines laid across a frame, not part of the art."
+    },
+    {
+      "key": "grid-overlay",
+      "category": "document",
+      "drawable": "ic_gx_grid_overlay",
+      "keywords": [
+        "pixel grid",
+        "show grid"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's grid overlay.",
+      "note": "A frame divided into an even field."
+    },
+    {
+      "key": "view-actual-colors",
+      "category": "document",
+      "drawable": "ic_gx_view_actual_colors",
+      "keywords": [
+        "proof colours",
+        "soft proof"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Proof Colors \u2014 the working view against the output simulation.",
+      "note": "Two fields held side by side, neither one favoured."
+    },
+    {
+      "key": "view-cmyk-preview",
+      "category": "document",
+      "drawable": "ic_gx_view_cmyk_preview",
+      "keywords": [
+        "gamut warning",
+        "print preview"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Gamut Warning \u2014 a ring where a colour cannot be printed.",
+      "note": "A ring marking the limit of what can be reproduced."
+    },
+    {
+      "key": "full-screen",
+      "category": "document",
+      "drawable": "ic_gx_full_screen",
+      "keywords": [
+        "immersive mode",
+        "hide panels"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "Every editor's full-screen toggle.",
+      "note": "Four corner marks with nothing held between them."
+    },
+    {
+      "key": "split-view",
+      "category": "document",
+      "drawable": "ic_gx_split_view",
+      "keywords": [
+        "compare",
+        "before after"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's before/after slider and Photoshop's split preview.",
+      "note": "One frame, half of it showing the result."
+    },
+    {
+      "key": "multi-window",
+      "category": "document",
+      "drawable": "ic_gx_multi_window",
+      "keywords": [
+        "new window",
+        "second view"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's New Window for the same document.",
+      "note": "A second frame opened onto the same page."
+    },
+    {
+      "key": "thumbnails",
+      "category": "document",
+      "drawable": "ic_gx_thumbnails",
+      "keywords": [
+        "gallery",
+        "grid view"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Gallery grid.",
+      "note": "Four pages laid out as a set to choose from."
+    },
+    {
+      "key": "bleed-marks",
+      "category": "document",
+      "drawable": "ic_gx_bleed_marks",
+      "keywords": [
+        "print bleed",
+        "trim marks"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's print bleed and crop marks.",
+      "note": "A trim line with the register marks a printer cuts to."
+    },
+    {
+      "key": "undo",
+      "category": "history",
+      "drawable": "ic_gx_undo",
+      "keywords": [
+        "step back",
+        "ctrl z"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal undo arrow.",
+      "note": "An arc most of the way round, curling back to the left."
+    },
+    {
+      "key": "redo",
+      "category": "history",
+      "drawable": "ic_gx_redo",
+      "keywords": [
+        "step forward",
+        "ctrl y"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The undo arrow's mirror.",
+      "note": "The same arc, curling back to the right instead."
+    },
+    {
+      "key": "history-panel",
+      "category": "history",
+      "drawable": "ic_gx_history_panel",
+      "keywords": [
+        "state list",
+        "undo stack"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's History panel \u2014 a ladder of states with the current one marked.",
+      "note": "A ladder of states with the live rung marked at its edge."
+    },
+    {
+      "key": "history-snapshot",
+      "category": "history",
+      "drawable": "ic_gx_history_snapshot",
+      "keywords": [
+        "checkpoint",
+        "save state"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Snapshot \u2014 a camera capturing the state as it is right now.",
+      "note": "A camera with the lens that took the picture."
+    },
+    {
+      "key": "history-brush",
+      "category": "history",
+      "drawable": "ic_gx_history_brush",
+      "keywords": [
+        "restore from history",
+        "paint back"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's History Brush \u2014 a brush that paints an earlier state back in.",
+      "note": "A brush working from an earlier point on the clock it is bound to."
+    },
+    {
+      "key": "clear-history",
+      "category": "history",
+      "drawable": "ic_gx_clear_history",
+      "keywords": [
+        "purge undo stack",
+        "forget states"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Clear History.",
+      "note": "A ladder of states with everything below the top struck out."
+    },
+    {
+      "key": "actions-panel",
+      "category": "history",
+      "drawable": "ic_gx_actions_panel",
+      "keywords": [
+        "macro",
+        "recorded steps"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Actions panel \u2014 a checklist of recorded steps.",
+      "note": "A checklist of steps, none yet played."
+    },
+    {
+      "key": "action-record",
+      "category": "history",
+      "drawable": "ic_gx_action_record",
+      "keywords": [
+        "record macro",
+        "start recording"
+      ],
+      "apps": "PS/PR",
+      "basis": "The universal record button.",
+      "note": "A solid disc held inside an open ring."
+    },
+    {
+      "key": "action-play",
+      "category": "history",
+      "drawable": "ic_gx_action_play",
+      "keywords": [
+        "run macro",
+        "play action"
+      ],
+      "apps": "PS",
+      "basis": "The universal play button.",
+      "note": "A solid triangle inside a ring, pointed the way it will run."
+    },
+    {
+      "key": "action-stop",
+      "category": "history",
+      "drawable": "ic_gx_action_stop",
+      "keywords": [
+        "stop recording"
+      ],
+      "apps": "PS",
+      "basis": "The universal stop button.",
+      "note": "A solid square inside a ring."
+    },
+    {
+      "key": "batch-process",
+      "category": "history",
+      "drawable": "ic_gx_batch_process",
+      "keywords": [
+        "run on folder",
+        "bulk action"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Batch \u2014 one action driven down a row of files.",
+      "note": "A row of files with one action dropping onto all of them."
+    },
+    {
+      "key": "timer",
+      "category": "history",
+      "drawable": "ic_gx_timer",
+      "keywords": [
+        "duration",
+        "processing time"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A clock face with both hands set to show the time an action takes."
+    },
+    {
+      "key": "version-compare",
+      "category": "history",
+      "drawable": "ic_gx_version_compare",
+      "keywords": [
+        "diff",
+        "compare states"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "Two states side by side, with the one difference between them solid."
+    },
+    {
+      "key": "checkpoint-restore",
+      "category": "history",
+      "drawable": "ic_gx_checkpoint_restore",
+      "keywords": [
+        "roll back",
+        "go to state"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A run of states with the live one held at the far end."
+    },
+    {
+      "key": "timeline",
+      "category": "animation",
+      "drawable": "ic_gx_timeline",
+      "keywords": [
+        "frames track",
+        "animation panel"
+      ],
+      "apps": "PS/AI",
+      "basis": "Photoshop's Timeline \u2014 a track with frames marked along it.",
+      "note": "A track with three marks and the playhead sitting on one."
+    },
+    {
+      "key": "keyframe",
+      "category": "animation",
+      "drawable": "ic_gx_keyframe",
+      "keywords": [
+        "key state",
+        "diamond marker"
+      ],
+      "apps": "PS/AI",
+      "basis": "The diamond every timeline uses to mark a keyframe.",
+      "note": "A single diamond set on the track."
+    },
+    {
+      "key": "keyframe-add",
+      "category": "animation",
+      "drawable": "ic_gx_keyframe_add",
+      "keywords": [
+        "set key",
+        "record state"
+      ],
+      "apps": "PS/AI",
+      "basis": "An empty diamond, waiting to be committed.",
+      "note": "A diamond marked but not yet solid."
+    },
+    {
+      "key": "onion-skin",
+      "category": "animation",
+      "drawable": "ic_gx_onion_skin",
+      "keywords": [
+        "ghost frames",
+        "previous next frame"
+      ],
+      "apps": "PS/PR",
+      "basis": "Procreate's Onion Skin and Photoshop's Ghost frames.",
+      "note": "A solid current frame between two faint marks either side."
+    },
+    {
+      "key": "frame-add",
+      "category": "animation",
+      "drawable": "ic_gx_frame_add",
+      "keywords": [
+        "new frame",
+        "insert frame"
+      ],
+      "apps": "PS/PR",
+      "basis": "A filmstrip with a new frame being spliced onto its end.",
+      "note": "Two frames of a strip, with a third being added."
+    },
+    {
+      "key": "frame-duplicate",
+      "category": "animation",
+      "drawable": "ic_gx_frame_duplicate",
+      "keywords": [
+        "copy frame",
+        "hold frame"
+      ],
+      "apps": "PS/PR",
+      "basis": "A frame copied forward so its hold repeats.",
+      "note": "One frame, twice, held in a row."
+    },
+    {
+      "key": "frame-delete",
+      "category": "animation",
+      "drawable": "ic_gx_frame_delete",
+      "keywords": [
+        "remove frame"
+      ],
+      "apps": "PS/PR",
+      "basis": "A frame taken out of the strip, leaving a gap.",
+      "note": "A single frame's outline, empty."
+    },
+    {
+      "key": "frame-rate",
+      "category": "animation",
+      "drawable": "ic_gx_frame_rate",
+      "keywords": [
+        "fps",
+        "frames per second"
+      ],
+      "apps": "PS/PR",
+      "basis": "A clock face standing for the frame rate that drives it.",
+      "note": "A clock with both hands set, the way a rate is always shown."
+    },
+    {
+      "key": "play",
+      "category": "animation",
+      "drawable": "ic_gx_play",
+      "keywords": [
+        "run",
+        "playback start"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal play button.",
+      "note": "A triangle inside a ring, pointed the way it plays."
+    },
+    {
+      "key": "pause",
+      "category": "animation",
+      "drawable": "ic_gx_pause",
+      "keywords": [
+        "hold playback"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal pause button.",
+      "note": "Two solid bars inside a ring."
+    },
+    {
+      "key": "stop",
+      "category": "animation",
+      "drawable": "ic_gx_stop",
+      "keywords": [
+        "end playback"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal stop button.",
+      "note": "A square inside a ring."
+    },
+    {
+      "key": "step-forward",
+      "category": "animation",
+      "drawable": "ic_gx_step_forward",
+      "keywords": [
+        "next frame"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal next-frame control.",
+      "note": "A triangle stopped by a bar at the frame's own edge."
+    },
+    {
+      "key": "step-backward",
+      "category": "animation",
+      "drawable": "ic_gx_step_backward",
+      "keywords": [
+        "previous frame"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal previous-frame control.",
+      "note": "The same pairing, run the other way."
+    },
+    {
+      "key": "loop-playback",
+      "category": "animation",
+      "drawable": "ic_gx_loop_playback",
+      "keywords": [
+        "repeat",
+        "cycle"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal loop icon.",
+      "note": "A ring with both ends arrowed, so it never runs out."
+    },
+    {
+      "key": "motion-tween",
+      "category": "animation",
+      "drawable": "ic_gx_motion_tween",
+      "keywords": [
+        "interpolate",
+        "in between frames"
+      ],
+      "apps": "AI",
+      "basis": "Illustrator's tweening between two keyframes.",
+      "note": "Two held states with the computed step between them."
+    },
+    {
+      "key": "export-video",
+      "category": "animation",
+      "drawable": "ic_gx_export_video",
+      "keywords": [
+        "render animation",
+        "save as video"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "A camera body with the export arrow beneath it.",
+      "note": "A camera with the mark that says its output is being written out."
+    },
+    {
+      "key": "export-gif",
+      "category": "animation",
+      "drawable": "ic_gx_export_gif",
+      "keywords": [
+        "animated gif",
+        "loop export"
+      ],
+      "apps": "PS/PR",
+      "basis": "The same camera, marked with a loop rather than a single arrow out.",
+      "note": "A camera with the two-headed mark that says its output repeats."
+    },
+    {
+      "key": "generate",
+      "category": "generative",
+      "drawable": "ic_gx_generate",
+      "keywords": [
+        "ai generate",
+        "text to image"
+      ],
+      "apps": "new",
+      "basis": "The four-point sparkle every current tool uses for generative AI.",
+      "note": "Two sparkles, the live one solid."
+    },
+    {
+      "key": "generate-variations",
+      "category": "generative",
+      "drawable": "ic_gx_generate_variations",
+      "keywords": [
+        "ai variations",
+        "reroll"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "Three held frames and the sparkle offering a fourth."
+    },
+    {
+      "key": "generate-expand",
+      "category": "generative",
+      "drawable": "ic_gx_generate_expand",
+      "keywords": [
+        "ai outpaint",
+        "generative expand"
+      ],
+      "apps": "new",
+      "basis": "Photoshop's Generative Expand \u2014 a frame growing past its own edge.",
+      "note": "A held frame with new ground opening around it."
+    },
+    {
+      "key": "generate-remove",
+      "category": "generative",
+      "drawable": "ic_gx_generate_remove",
+      "keywords": [
+        "ai remove",
+        "smart erase"
+      ],
+      "apps": "new",
+      "basis": "Photoshop's Generative Fill used to remove \u2014 a gap the model closes.",
+      "note": "An empty region with the sparkle that will resolve it."
+    },
+    {
+      "key": "upscale",
+      "category": "generative",
+      "drawable": "ic_gx_upscale",
+      "keywords": [
+        "ai upscale",
+        "super resolution"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A small held frame growing to a larger one, corners aligned."
+    },
+    {
+      "key": "style-transfer",
+      "category": "generative",
+      "drawable": "ic_gx_style_transfer",
+      "keywords": [
+        "ai style",
+        "restyle"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "One field recast into another shape of field entirely."
+    },
+    {
+      "key": "prompt",
+      "category": "generative",
+      "drawable": "ic_gx_prompt",
+      "keywords": [
+        "ai text input",
+        "describe"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A field of text with the mark that says it will be read as an instruction."
+    },
+    {
+      "key": "ar-view",
+      "category": "generative",
+      "drawable": "ic_gx_ar_view",
+      "keywords": [
+        "augmented reality",
+        "camera overlay"
+      ],
+      "apps": "new",
+      "basis": "GraffitiXR's own AR mural-projection view.",
+      "note": "A viewfinder with the projected form already inside it."
+    },
+    {
+      "key": "camera-capture",
+      "category": "generative",
+      "drawable": "ic_gx_camera_capture",
+      "keywords": [
+        "take photo",
+        "reference photo"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "A camera body with the shutter over its own lens."
+    },
+    {
+      "key": "gallery-import",
+      "category": "generative",
+      "drawable": "ic_gx_gallery_import",
+      "keywords": [
+        "photo library",
+        "import image"
+      ],
+      "apps": "PS/PR",
+      "basis": "Every editor's Place / Import Image.",
+      "note": "A frame with the picture already loaded into it."
+    },
+    {
+      "key": "stencil",
+      "category": "generative",
+      "drawable": "ic_gx_stencil",
+      "keywords": [
+        "screen mask",
+        "spray template"
+      ],
+      "apps": "new",
+      "basis": "GraffitiXR's stencil generation for physical spraying.",
+      "note": "A card with a letterform cut clean through it."
+    },
+    {
+      "key": "stencil-layers",
+      "category": "generative",
+      "drawable": "ic_gx_stencil_layers",
+      "keywords": [
+        "multi layer stencil",
+        "registration"
+      ],
+      "apps": "new",
+      "basis": "GraffitiXR's multi-layer stencil registration for spray murals.",
+      "note": "Several stencil cards, fanned to the one that is aligned."
+    },
+    {
+      "key": "edge-detect",
+      "category": "generative",
+      "drawable": "ic_gx_edge_detect",
+      "keywords": [
+        "canny",
+        "outline extraction"
+      ],
+      "apps": "new",
+      "basis": "Graffux's Canny edge-outline effect.",
+      "note": "A field reduced to the single line that describes its edges."
+    },
+    {
+      "key": "subject-isolate",
+      "category": "generative",
+      "drawable": "ic_gx_subject_isolate",
+      "keywords": [
+        "ml cutout",
+        "background removal"
+      ],
+      "apps": "PS",
+      "basis": "Photoshop's Select Subject and ML Kit-style isolation, used at capture time.",
+      "note": "A picture with its subject already lifted from behind it."
+    },
+    {
+      "key": "registration-mark",
+      "category": "generative",
+      "drawable": "ic_gx_registration_mark",
+      "keywords": [
+        "alignment target",
+        "print register"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "The printer's own register mark, used here to align a stencil pass."
+    },
+    {
+      "key": "mural-scale",
+      "category": "generative",
+      "drawable": "ic_gx_mural_scale",
+      "keywords": [
+        "wall scale",
+        "project size"
+      ],
+      "apps": "new",
+      "basis": "GraffitiXR's own AR wall-scale placement.",
+      "note": "A wall in perspective with the point a mural will be set from."
+    },
+    {
+      "key": "menu",
+      "category": "ui",
+      "drawable": "ic_gx_menu",
+      "keywords": [
+        "hamburger",
+        "nav rail",
+        "more"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal hamburger menu.",
+      "note": "Three equal bars."
+    },
+    {
+      "key": "close",
+      "category": "ui",
+      "drawable": "ic_gx_close",
+      "keywords": [
+        "x",
+        "dismiss",
+        "cancel"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal close X.",
+      "note": "Two strokes crossing at the centre."
+    },
+    {
+      "key": "back",
+      "category": "ui",
+      "drawable": "ic_gx_back",
+      "keywords": [
+        "navigate back",
+        "previous screen"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal back chevron.",
+      "note": "An open chevron pointing the way back."
+    },
+    {
+      "key": "forward",
+      "category": "ui",
+      "drawable": "ic_gx_forward",
+      "keywords": [
+        "navigate forward",
+        "next screen"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The back chevron's mirror.",
+      "note": "An open chevron pointing the way on."
+    },
+    {
+      "key": "chevron-down",
+      "category": "ui",
+      "drawable": "ic_gx_chevron_down",
+      "keywords": [
+        "expand",
+        "dropdown"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal expand chevron.",
+      "note": "An open chevron pointing at what it reveals."
+    },
+    {
+      "key": "chevron-up",
+      "category": "ui",
+      "drawable": "ic_gx_chevron_up",
+      "keywords": [
+        "collapse",
+        "close dropdown"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The collapse chevron.",
+      "note": "The same chevron, folded the other way."
+    },
+    {
+      "key": "more-horizontal",
+      "category": "ui",
+      "drawable": "ic_gx_more_horizontal",
+      "keywords": [
+        "overflow menu",
+        "kebab horizontal"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal horizontal overflow menu.",
+      "note": "Three equal marks in a row."
+    },
+    {
+      "key": "more-vertical",
+      "category": "ui",
+      "drawable": "ic_gx_more_vertical",
+      "keywords": [
+        "overflow menu",
+        "kebab vertical"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The vertical twin of the overflow menu.",
+      "note": "Three equal marks in a column."
+    },
+    {
+      "key": "search",
+      "category": "ui",
+      "drawable": "ic_gx_search",
+      "keywords": [
+        "find",
+        "magnifier"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal search glass.",
+      "note": "A glass held over the field it searches."
+    },
+    {
+      "key": "settings",
+      "category": "ui",
+      "drawable": "ic_gx_settings",
+      "keywords": [
+        "preferences",
+        "gear"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal settings gear.",
+      "note": "A ring with four solid teeth set square around it."
+    },
+    {
+      "key": "info",
+      "category": "ui",
+      "drawable": "ic_gx_info",
+      "keywords": [
+        "about",
+        "help detail"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal info glyph.",
+      "note": "A ring holding a lower-case i."
+    },
+    {
+      "key": "help",
+      "category": "ui",
+      "drawable": "ic_gx_help",
+      "keywords": [
+        "question",
+        "support"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal help question mark.",
+      "note": "A ring holding a plain question mark."
+    },
+    {
+      "key": "warning",
+      "category": "ui",
+      "drawable": "ic_gx_warning",
+      "keywords": [
+        "caution",
+        "alert"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal warning triangle.",
+      "note": "A triangle holding an exclamation mark."
+    },
+    {
+      "key": "error",
+      "category": "ui",
+      "drawable": "ic_gx_error",
+      "keywords": [
+        "failure",
+        "problem"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal error glyph.",
+      "note": "A ring holding a plain cross."
+    },
+    {
+      "key": "success",
+      "category": "ui",
+      "drawable": "ic_gx_success",
+      "keywords": [
+        "done",
+        "confirmed"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal success check.",
+      "note": "A ring holding a plain check."
+    },
+    {
+      "key": "notification",
+      "category": "ui",
+      "drawable": "ic_gx_notification",
+      "keywords": [
+        "bell",
+        "alerts"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal notification bell.",
+      "note": "A bell with one new mark at its shoulder."
+    },
+    {
+      "key": "share",
+      "category": "ui",
+      "drawable": "ic_gx_share",
+      "keywords": [
+        "send",
+        "export to app"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal share glyph \u2014 an arrow lifting out of a tray.",
+      "note": "A tray with its contents rising clear of it."
+    },
+    {
+      "key": "download",
+      "category": "ui",
+      "drawable": "ic_gx_download",
+      "keywords": [
+        "save to device",
+        "export local"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal download glyph, share's mirror.",
+      "note": "An arrow settling into the tray, rather than leaving it."
+    },
+    {
+      "key": "upload",
+      "category": "ui",
+      "drawable": "ic_gx_upload",
+      "keywords": [
+        "import",
+        "add file"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The download glyph, upside down.",
+      "note": "An arrow lifting up and out, from underneath a tray."
+    },
+    {
+      "key": "link-external",
+      "category": "ui",
+      "drawable": "ic_gx_link_external",
+      "keywords": [
+        "open in browser",
+        "outbound"
+      ],
+      "apps": "PS/AI",
+      "basis": "The universal external-link glyph.",
+      "note": "A frame with an arrow already clear of its corner."
+    },
+    {
+      "key": "copy-link",
+      "category": "ui",
+      "drawable": "ic_gx_copy_link",
+      "keywords": [
+        "copy url",
+        "share link"
+      ],
+      "apps": "PS/AI",
+      "basis": "The link-chain glyph, used here for a copyable URL.",
+      "note": "Two interlocked rings."
+    },
+    {
+      "key": "collaborators",
+      "category": "ui",
+      "drawable": "ic_gx_collaborators",
+      "keywords": [
+        "shared users",
+        "team"
+      ],
+      "apps": "PS/AI",
+      "basis": "Every editor's shared-users glyph.",
+      "note": "One held figure with a second person beside it."
+    },
+    {
+      "key": "comment",
+      "category": "ui",
+      "drawable": "ic_gx_comment",
+      "keywords": [
+        "annotation",
+        "leave a note"
+      ],
+      "apps": "PS/AI",
+      "basis": "Every editor's comment/annotation bubble.",
+      "note": "A speech bubble with its own pointed tail."
+    },
+    {
+      "key": "cloud-sync",
+      "category": "ui",
+      "drawable": "ic_gx_cloud_sync",
+      "keywords": [
+        "backup",
+        "cloud save"
+      ],
+      "apps": "PS/PR",
+      "basis": "Every editor's cloud-save glyph.",
+      "note": "A cloud, holding the document that lives inside it."
+    },
+    {
+      "key": "cloud-offline",
+      "category": "ui",
+      "drawable": "ic_gx_cloud_offline",
+      "keywords": [
+        "no connection",
+        "local only"
+      ],
+      "apps": "PS/PR",
+      "basis": "The same cloud, struck through.",
+      "note": "The cloud with the mark that says it cannot be reached."
+    },
+    {
+      "key": "account",
+      "category": "ui",
+      "drawable": "ic_gx_account",
+      "keywords": [
+        "profile",
+        "user"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal person glyph.",
+      "note": "A head over solid shoulders."
+    },
+    {
+      "key": "subscription",
+      "category": "ui",
+      "drawable": "ic_gx_subscription",
+      "keywords": [
+        "upgrade",
+        "pro badge"
+      ],
+      "apps": "new",
+      "basis": "",
+      "note": "The crown every upgrade badge uses."
+    },
+    {
+      "key": "theme-toggle",
+      "category": "ui",
+      "drawable": "ic_gx_theme_toggle",
+      "keywords": [
+        "dark mode",
+        "light mode"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal light/dark split disc.",
+      "note": "One disc, half in each mode."
+    },
+    {
+      "key": "language",
+      "category": "ui",
+      "drawable": "ic_gx_language",
+      "keywords": [
+        "locale",
+        "translate"
+      ],
+      "apps": "PS/AI/PR",
+      "basis": "The universal globe glyph.",
+      "note": "A globe with one meridian and its equator."
+    },
+    {
+      "key": "keyboard-shortcut",
+      "category": "ui",
+      "drawable": "ic_gx_keyboard_shortcut",
+      "keywords": [
+        "hotkeys",
+        "key command"
+      ],
+      "apps": "PS/AI",
+      "basis": "Every editor's keyboard-shortcut reference.",
+      "note": "A key row, standing for the whole board."
+    },
+    {
+      "key": "brush-cursor",
+      "category": "ui",
+      "drawable": "ic_gx_brush_cursor",
+      "keywords": [
+        "custom cursor",
+        "tool preview"
+      ],
+      "apps": "PS/PR",
+      "basis": "The live brush-size cursor ring Photoshop and Procreate both draw.",
+      "note": "A footprint ring with the cursor arrow still touching it."
+    },
+    {
+      "key": "gesture-pinch",
+      "category": "ui",
+      "drawable": "ic_gx_gesture_pinch",
+      "keywords": [
+        "two finger zoom"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's own pinch-to-zoom gesture diagram.",
+      "note": "Two touch points being drawn together."
+    },
+    {
+      "key": "gesture-two-finger-tap",
+      "category": "ui",
+      "drawable": "ic_gx_gesture_two_finger_tap",
+      "keywords": [
+        "undo gesture",
+        "quick undo"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's two-finger-tap undo gesture.",
+      "note": "Two fingers landing together on the same surface."
+    },
+    {
+      "key": "undo-history-slider",
+      "category": "ui",
+      "drawable": "ic_gx_undo_history_slider",
+      "keywords": [
+        "scrub history",
+        "time slider"
+      ],
+      "apps": "PR",
+      "basis": "Procreate's own undo/redo slider.",
+      "note": "A single control riding along its own track."
+    }
+  ]
+}
