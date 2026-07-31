@@ -8,8 +8,9 @@ here reuse the same two-circle pair from Selection so the two families read as o
 from kit import (
     Path,
     arc,
-    cut,
     circle,
+    cut,
+    dashed_rect,
     dot,
     icon,
     line,
@@ -76,21 +77,26 @@ icon("anchor-convert", "vector", ["corner smooth toggle", "convert point"],
      note="A corner node and a smooth node, either end of the same handle.")
 
 icon("path-select-direct", "vector", ["white arrow", "edit anchors"],
-     s=[poly([(3.6, 3.4), (3.6, 15.4), (7.0, 12.4), (9.4, 17.6), (11.6, 16.6), (9.2, 11.4),
-              (13.6, 11.0)], close=True)],
-     f=[square(3.6, 3.4, 2.6)],
+     s=[poly([(3.4, 3.4), (3.4, 14.6), (6.6, 11.8), (8.8, 16.6), (10.8, 15.6), (8.6, 10.8),
+              (12.6, 10.4)], close=True),
+        line(14.6, 5.0, 20.6, 10.2), seq(square(14.6, 5.0, 2.4), square(20.6, 10.2, 2.4))],
+     f=[square(20.6, 10.2, 2.4)],
      apps="AI",
      basis="Illustrator's Direct Selection — the white arrow that edits nodes, not objects.",
-     note="An open arrowhead with a hollow anchor at its own origin.")
+     note="A hollow arrow reaching for one anchor on a path, that anchor solid. Without the "
+          "anchors it is exactly the group-select arrow, and at 24 pixels neither could be "
+          "told from the other.")
 
 icon("path-select-group", "vector", ["black arrow", "select object"],
-     s=[poly([(3.6, 3.4), (3.6, 15.4), (7.0, 12.4), (9.4, 17.6), (11.6, 16.6), (9.2, 11.4),
-              (13.6, 11.0)], close=True)],
-     f=[poly([(3.6, 3.4), (3.6, 15.4), (7.0, 12.4), (9.4, 17.6), (11.6, 16.6), (9.2, 11.4),
-              (13.6, 11.0)], close=True)],
+     s=[dashed_rect(10.6, 3.4, 10.0, 10.0),
+        poly([(3.4, 6.4), (3.4, 17.6), (6.6, 14.8), (8.8, 19.6), (10.8, 18.6), (8.6, 13.8),
+              (12.6, 13.4)], close=True)],
+     f=[poly([(3.4, 6.4), (3.4, 17.6), (6.6, 14.8), (8.8, 19.6), (10.8, 18.6), (8.6, 13.8),
+              (12.6, 13.4)], close=True)],
      apps="AI",
      basis="Illustrator's Selection tool — the black arrow that moves whole objects.",
-     note="The same arrow, solid — it takes the whole object, not one node.")
+     note="The solid arrow with a whole object's bounds marching around it — it takes the "
+          "object, not one node, and the bounds are what say so.")
 
 icon("path-close", "vector", ["closed path", "join ends"],
      s=[smooth([(12, 19.6), (4.4, 14.6), (7.0, 5.4), (12, 4.4)]),

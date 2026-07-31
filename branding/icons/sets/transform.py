@@ -79,11 +79,14 @@ icon("rotate-180", "transform", ["half turn"],
      note="A frame turned exactly upside down.")
 
 icon("flip-horizontal", "transform", ["mirror x", "flip left right"],
-     s=[poly([(9.4, 4.0), (3.4, 12), (9.4, 20.0)], close=True), line(12, 3.4, 12, 20.6)],
-     f=[poly([(14.6, 4.0), (20.6, 12), (14.6, 20.0)], close=True)],
+     s=[dashed(12, 3.0, 12, 21.0, 5),
+        poly([(9.6, 5.0), (3.4, 9.0), (3.4, 15.0), (9.6, 19.0)], close=True)],
+     f=[poly([(14.4, 5.0), (20.6, 9.0), (20.6, 15.0), (14.4, 19.0)], close=True)],
      apps="PS/AI/PR",
-     basis="The two arrowheads flanking an axis every flip toggle uses.",
-     note="A shape and its mirror, meeting at a vertical hinge.")
+     basis="The shape-and-mirror pair every flip toggle uses.",
+     note="One shape and its mirror across a marked axis, both blunt on the outside. Drawn as "
+          "two points meeting at the seam they are labia being held apart, which is then the "
+          "clearest thing in the glyph and not the intended one.")
 
 icon("flip-vertical", "transform", ["mirror y", "flip top bottom"],
      s=[poly([(5.0, 3.6), (19.0, 3.6), (12, 10.2)], close=True), dashed(2.8, 12, 21.2, 12, 4)],

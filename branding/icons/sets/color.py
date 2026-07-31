@@ -239,8 +239,9 @@ icon("color-swatches", "color", ["palette", "library", "saved colours"],
      note="A grid of chips with one of them chosen.")
 
 icon("color-history", "color", ["recent", "used", "last colours"],
-     s=[seq(rect(9.4, 8.6, 5.6, 6.8), rect(15.4, 8.6, 5.6, 6.8)), line(3.4, 18.6, 20.6, 18.6)],
-     f=[rect(3.4, 8.6, 5.6, 6.8)],
+     s=[seq(rect(7.2, 8.0, 4.4, 7.4), rect(12.0, 8.0, 4.4, 7.4), rect(16.8, 8.0, 4.4, 7.4)),
+        line(2.4, 18.8, 21.2, 18.8)],
+     f=[rect(2.4, 8.0, 4.4, 7.4)],
      apps="PR",
      basis="Procreate's recent-colours row.",
      note="A row of what has been used, newest first.")

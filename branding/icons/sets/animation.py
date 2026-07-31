@@ -29,14 +29,17 @@ icon("timeline", "animation", ["frames track", "animation panel"],
           "Calvary.")
 
 icon("keyframe", "animation", ["key state", "diamond marker"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[poly([(12, 7.4), (16.6, 12), (12, 16.6), (7.4, 12)], close=True)],
+     s=[line(3.4, 19.6, 20.6, 19.6)],
+     f=[poly([(12, 8.8), (17.4, 14.2), (12, 19.6), (6.6, 14.2)], close=True)],
      apps="PS/AI",
      basis="The diamond every timeline uses to mark a keyframe.",
-     note="A single diamond set on the track.")
+     note="A single diamond standing on the track. Run the track through the diamond's waist "
+          "instead and the pair of them are a vulva.")
 
 icon("keyframe-add", "animation", ["set key", "record state"],
-     s=[line(3.4, 12, 20.6, 12), poly([(12, 7.4), (16.6, 12), (12, 16.6), (7.4, 12)], close=True)],
+     s=[line(3.4, 19.6, 20.6, 19.6),
+        poly([(9.0, 10.4), (13.6, 15.0), (9.0, 19.6), (4.4, 15.0)], close=True),
+        seq(line(18.0, 5.6, 18.0, 12.0), line(14.8, 8.8, 21.2, 8.8))],
      f=[],
      apps="PS/AI",
      basis="An empty diamond, waiting to be committed.",

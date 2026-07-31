@@ -197,11 +197,14 @@ icon("roller", "tools", ["paint roller", "flat fill", "coat"],
      note="Roller and handle, with one drip already laid down.")
 
 icon("stamp", "tools", ["clone", "rubber stamp", "duplicate source"],
-     s=[rect(8.4, 3.4, 7.2, 4.0), rect(10.4, 7.4, 3.2, 6.0), rect(5.6, 13.4, 12.8, 3.0)],
-     f=[rect(3.4, 17.6, 17.2, 3.0)],
+     s=[rect(7.0, 3.4, 10.0, 4.2, 1.4), rect(10.4, 7.6, 3.2, 2.8), rect(5.0, 10.4, 14.0, 3.4),
+        line(3.4, 20.6, 20.6, 20.6)],
+     f=[rect(3.4, 13.8, 17.2, 3.6)],
      apps="PS",
      basis="Photoshop's Clone Stamp — the rubber stamp, unchanged since 1990.",
-     note="Knob, plate, and the solid face that transfers the sample.")
+     note="A wide grip, a short neck, the plate, and the solid face that transfers the sample, "
+          "resting on the surface it prints onto. A small knob on a long narrow stem above a "
+          "flared base is a butt plug, and the proportions are the whole of the difference.")
 
 icon("stamp-pattern", "tools", ["pattern stamp", "tile", "repeat"],
      s=[rect(8.4, 3.0, 7.2, 3.6), rect(10.4, 6.6, 3.2, 5.2), rect(5.6, 11.8, 12.8, 2.8),
@@ -584,8 +587,8 @@ icon("symmetry", "tools", ["mirror", "reflect drawing", "guide"],
 icon("symmetry-vertical", "tools", ["mirror x", "left right"],
      s=[seq(line(12, 2.4, 12, 5.2), line(12, 7.4, 12, 10.2),
             line(12, 13.8, 12, 16.6), line(12, 18.8, 12, 21.6)),
-        poly([(9.4, 6.0), (3.6, 12), (9.4, 18.0)], close=True)],
-     f=[poly([(14.6, 6.0), (20.4, 12), (14.6, 18.0)], close=True)],
+        poly([(4.0, 18.2), (7.4, 7.0), (10.8, 18.2)], close=True)],
+     f=[poly([(13.2, 18.2), (16.6, 7.0), (20.0, 18.2)], close=True)],
      apps="PS/PR",
      basis="Procreate's Vertical symmetry — the generated half is the solid one.",
      note="Vertical axis, right half generated.")

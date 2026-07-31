@@ -274,7 +274,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Clone Stamp \u2014 the rubber stamp, unchanged since 1990.",
-      "note": "Knob, plate, and the solid face that transfers the sample."
+      "note": "A wide grip, a short neck, the plate, and the solid face that transfers the sample, resting on the surface it prints onto. A small knob on a long narrow stem above a flared base is a butt plug, and the proportions are the whole of the difference."
     },
     {
       "key": "stamp-pattern",
@@ -2835,7 +2835,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Direct Selection \u2014 the white arrow that edits nodes, not objects.",
-      "note": "An open arrowhead with a hollow anchor at its own origin."
+      "note": "A hollow arrow reaching for one anchor on a path, that anchor solid. Without the anchors it is exactly the group-select arrow, and at 24 pixels neither could be told from the other."
     },
     {
       "key": "path-select-group",
@@ -2847,7 +2847,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Selection tool \u2014 the black arrow that moves whole objects.",
-      "note": "The same arrow, solid \u2014 it takes the whole object, not one node."
+      "note": "The solid arrow with a whole object's bounds marching around it \u2014 it takes the object, not one node, and the bounds are what say so."
     },
     {
       "key": "path-close",
@@ -3603,8 +3603,8 @@
         "flip left right"
       ],
       "apps": "PS/AI/PR",
-      "basis": "The two arrowheads flanking an axis every flip toggle uses.",
-      "note": "A shape and its mirror, meeting at a vertical hinge."
+      "basis": "The shape-and-mirror pair every flip toggle uses.",
+      "note": "One shape and its mirror across a marked axis, both blunt on the outside. Drawn as two points meeting at the seam they are labia being held apart, which is then the clearest thing in the glyph and not the intended one."
     },
     {
       "key": "flip-vertical",
@@ -4333,7 +4333,7 @@
       ],
       "apps": "PS/AI",
       "basis": "The diamond every timeline uses to mark a keyframe.",
-      "note": "A single diamond set on the track."
+      "note": "A single diamond standing on the track. Run the track through the diamond's waist instead and the pair of them are a vulva."
     },
     {
       "key": "keyframe-add",

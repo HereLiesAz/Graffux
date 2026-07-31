@@ -53,7 +53,7 @@ object GraffuxIcons {
     val SprayCan: Int get() = R.drawable.ic_gx_spray_can
     /** Roller and handle, with one drip already laid down. */
     val Roller: Int get() = R.drawable.ic_gx_roller
-    /** Knob, plate, and the solid face that transfers the sample. */
+    /** A wide grip, a short neck, the plate, and the solid face that transfers the sample, resting on the surface it prints onto. A small knob on a long narrow stem above a flared base is a butt plug, and the proportions are the whole of the difference. */
     val Stamp: Int get() = R.drawable.ic_gx_stamp
     /** Stamp over a chequer. */
     val StampPattern: Int get() = R.drawable.ic_gx_stamp_pattern
@@ -457,9 +457,9 @@ object GraffuxIcons {
     val PenRemove: Int get() = R.drawable.ic_gx_pen_remove
     /** A corner node and a smooth node, either end of the same handle. */
     val AnchorConvert: Int get() = R.drawable.ic_gx_anchor_convert
-    /** An open arrowhead with a hollow anchor at its own origin. */
+    /** A hollow arrow reaching for one anchor on a path, that anchor solid. Without the anchors it is exactly the group-select arrow, and at 24 pixels neither could be told from the other. */
     val PathSelectDirect: Int get() = R.drawable.ic_gx_path_select_direct
-    /** The same arrow, solid — it takes the whole object, not one node. */
+    /** The solid arrow with a whole object's bounds marching around it — it takes the object, not one node, and the bounds are what say so. */
     val PathSelectGroup: Int get() = R.drawable.ic_gx_path_select_group
     /** A loop closed at a single solid seam. */
     val PathClose: Int get() = R.drawable.ic_gx_path_close
@@ -587,7 +587,7 @@ object GraffuxIcons {
     val Rotate90Ccw: Int get() = R.drawable.ic_gx_rotate_90_ccw
     /** A frame turned exactly upside down. */
     val Rotate180: Int get() = R.drawable.ic_gx_rotate_180
-    /** A shape and its mirror, meeting at a vertical hinge. */
+    /** One shape and its mirror across a marked axis, both blunt on the outside. Drawn as two points meeting at the seam they are labia being held apart, which is then the clearest thing in the glyph and not the intended one. */
     val FlipHorizontal: Int get() = R.drawable.ic_gx_flip_horizontal
     /** A shape and its mirror, meeting at a horizontal hinge. */
     val FlipVertical: Int get() = R.drawable.ic_gx_flip_vertical
@@ -711,7 +711,7 @@ object GraffuxIcons {
     val CheckpointRestore: Int get() = R.drawable.ic_gx_checkpoint_restore
     /** A track with three frame marks hanging below it and the playhead on one. Crossing the track instead of hanging from it makes three crosses on a hill, which is Calvary. */
     val Timeline: Int get() = R.drawable.ic_gx_timeline
-    /** A single diamond set on the track. */
+    /** A single diamond standing on the track. Run the track through the diamond's waist instead and the pair of them are a vulva. */
     val Keyframe: Int get() = R.drawable.ic_gx_keyframe
     /** A diamond marked but not yet solid. */
     val KeyframeAdd: Int get() = R.drawable.ic_gx_keyframe_add
