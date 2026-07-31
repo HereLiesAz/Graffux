@@ -63,17 +63,27 @@ object GraffuxIcons {
     val EraserHard: Int get() = R.drawable.ic_gx_eraser_hard
     /** The same block against a broken rule — the edge dissolves. */
     val EraserSoft: Int get() = R.drawable.ic_gx_eraser_soft
-    /** A fist with the index put out, pointing exactly where the brush tip and the pencil point do. The hand is upright and only the finger is on the tool diagonal — eleven earlier drawings put the hand on the diagonal too, and every one came out as a long thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, a syringe.
+    /** A fist with the index put out along the tool diagonal, pointing where the brush tip and the pencil point point. The hand stands upright; only the finger is on the diagonal. Outlined, with the pad solid where it meets the pixel.
 
-Outlined, not solid, and that is the part that finally settled it. As a solid mass the glyph was bistable: the same path read as a clenched fist on one viewing and a lollipop on the next, and deepening the knuckles to fix that turned it into a mushroom cloud. An outline has interior white, so the fist reads as a fist rather than as a blob on a stalk, and it puts the hand in the same language as the pan hand, which has never once failed. The finger is wide enough to keep white inside it at 1.4 stroke, which is the constraint that made solid look necessary in the first place. Solid only at the pad, like the pencil's graphite and the brush's head. Distinct from the pan hand, which is an open palm with all five splayed. */
+This is the weakest glyph in the set and it is the twenty-fourth drawing of it. It is the version that gets named correctly at first glance — a rater with no context called it a clenched fist — but it carries a knuckle-duster and a stubby handgun as second readings, and it has been read as a molar tooth and an old-fashioned key by other raters. Every alternative tried was worse in a way that mattered more:
+
+Face-on, pointing down, one finger extended — the obvious way to aim a finger at the bottom of the frame where the eraser's face and the pen's nib are — is a hand giving the finger, and two separate raters named the gesture before naming anything else in the drawing. Moving the extended digit from the middle of the hand to the index at the edge of the group did not fix it, and nor did holding the thumb out sideways where no finger could be. A fist with a digit out of it reads as that gesture at any angle it is drawn.
+
+Adding a cuff at the wrist does fix the key and the tooth — a band across the wrist says the mass is attached to an arm, and the manicule has carried one since the twelfth century — but a fist on a cuffed forearm is the raised-fist salute, and the same rater who named that also named an obscene reading. A political symbol is a worse failure than a knuckle-duster. Without the cuff and without the solid pad the same outline is a key with a phallic second reading; the pad is what stops that, and the pad is also what makes the knuckle-duster. There is no configuration of this glyph that is clean.
+
+Turning the whole hand is worse than turning nothing. The pan hand's own outline, folded and rotated 225 degrees so the index lay on the diagonal, came back as a kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a manicule in profile — hand, cuff, curled fingers, thumb on top, laid along the diagonal — it was a torch at three different sets of proportions.
+
+Before those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read as two different objects on two viewings of the same path. Interior creases did not settle it, because a crease is a line on a mass and a gap is two objects. Drawing the folded fingers as separate rolls made the hand a key head.
+
+Distinct from the pan hand, which is a hand face-on, upright, open, with all five splayed, and which has never once been misread by anyone. */
     val Smudge: Int get() = R.drawable.ic_gx_smudge
     /** The drop, with the detail under it collapsing into bands. */
     val Blur: Int get() = R.drawable.ic_gx_blur
     /** The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base it is a pointed hood over a plinth, which is a Klansman, and once seen it cannot be unseen. The lean costs nothing and removes it. */
     val Sharpen: Int get() = R.drawable.ic_gx_sharpen
-    /** Paddle, rod, and the light it holds off the paper. */
+    /** An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it — the obvious way to say a disc has depth — it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell. */
     val Dodge: Int get() = R.drawable.ic_gx_dodge
-    /** A cupped C with the light it funnels burning solid at the centre. */
+    /** A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola — a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it. */
     val Burn: Int get() = R.drawable.ic_gx_burn
     /** Pores, one of them filled where the colour is being taken. */
     val Sponge: Int get() = R.drawable.ic_gx_sponge
@@ -123,7 +133,7 @@ Outlined, not solid, and that is the part that finally settled it. As a solid ma
     val BrushBuildup: Int get() = R.drawable.ic_gx_brush_buildup
     /** A smaller footprint carried by a larger one. */
     val BrushDual: Int get() = R.drawable.ic_gx_brush_dual
-    /** Tooth recorded as a field of marks, one of them struck. */
+    /** A stroke that is solid where it started and broken into slivers where the tooth has taken it. Drawn as a bare field of scattered dashes it was spilled rice, and it was the fourth icon in the set to be a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. Redrawn as a black band with a sawtooth underside it was a mouth full of bared teeth, with the marks below it as the lower row: a regular row of points along a solid edge is a jaw, and nothing else gets a look in. Broken into four slivers of even width it was a barcode; the remnants have to be uneven in both width and height or they are bars, not grain. */
     val BrushTexture: Int get() = R.drawable.ic_gx_brush_texture
     /** A brush dropped into the shelf that holds them. */
     val BrushImport: Int get() = R.drawable.ic_gx_brush_import
@@ -375,7 +385,9 @@ Outlined, not solid, and that is the part that finally settled it. As a solid ma
     val Clarity: Int get() = R.drawable.ic_gx_clarity
     /** A dark border with an open centre. */
     val Vignette: Int get() = R.drawable.ic_gx_vignette
-    /** A field with an uneven record laid across it. */
+    /** A film strip with speckle on it. Drawn as a square field of dashes it was a saltine cracker, indistinguishable from the noise filter; drawn with the sprockets as ticks outside the strip it was an integrated circuit with pins down both sides. The holes have to sit inside the film's own width, behind a margin rule, or they are legs.
+
+The speckle is five equal dashes and no round mark. With three dashes and a dot in the frame it read as sperm under a microscope — a tapered stroke leading a blob is a tail leading a head, and round caps make every short stroke tapered. */
     val Grain: Int get() = R.drawable.ic_gx_grain
     /** What the image contains, counted. */
     val Histogram: Int get() = R.drawable.ic_gx_histogram
@@ -399,9 +411,11 @@ Outlined, not solid, and that is the part that finally settled it. As a solid ma
     val FilterBlurLens: Int get() = R.drawable.ic_gx_filter_blur_lens
     /** A profile with one edge steepened. */
     val FilterSharpenUnsharp: Int get() = R.drawable.ic_gx_filter_sharpen_unsharp
-    /** A field with an uneven record laid across it. */
+    /** A screen packed with static, and a plus. The stand under it is doing all the work — a bordered square with marks inside it is a saltine cracker, a dice face, a seed tray, a pan, or the broken-image placeholder, and five drafts of this glyph were each of those in turn. Put a stand under the same square and it is a screen, and snow on a screen is the one picture of noise nobody has to be taught.
+
+The density is the other half. Six marks evenly spread is a dice face; noise is more marks than you can count, at angles. Drawn as a signal trace — flat, then erupting — it was an EKG, and Reduce Noise as the mirror of it was a seismograph; mirroring is not a difference anyone sees at a glance. */
     val FilterNoiseAdd: Int get() = R.drawable.ic_gx_filter_noise_add
-    /** The noise field with most of the speckle gone. */
+    /** The same screen with almost all the snow gone, and a minus. The pair differs by density and by sign, which is how pen-add differs from pen-remove and layer-add from layer-delete: one recognisable object, signed both ways. */
     val FilterNoiseReduce: Int get() = R.drawable.ic_gx_filter_noise_reduce
     /** A grid bent inward on itself. */
     val FilterDistortPinch: Int get() = R.drawable.ic_gx_filter_distort_pinch
@@ -575,7 +589,7 @@ Outlined, not solid, and that is the part that finally settled it. As a solid ma
     val TextColor: Int get() = R.drawable.ic_gx_text_color
     /** One editable letter and one converted to a fixed shape. */
     val TextOutlineConvert: Int get() = R.drawable.ic_gx_text_outline_convert
-    /** Four arrows sharing one centre — free movement, no axis preferred. */
+    /** Four arrows sharing one centre — free movement, no axis preferred. The shafts are not decoration: heads alone read as four loose arrowheads round a hole. */
     val Move: Int get() = R.drawable.ic_gx_move
     /** A frame under its own corner and edge handles. */
     val Scale: Int get() = R.drawable.ic_gx_scale
@@ -613,7 +627,7 @@ Outlined, not solid, and that is the part that finally settled it. As a solid ma
     val AlignRight: Int get() = R.drawable.ic_gx_align_right
     /** Two frames flush to a single edge overhead. */
     val AlignTop: Int get() = R.drawable.ic_gx_align_top
-    /** Two frames centred on a single horizontal axis. */
+    /** Two frames centred on a single horizontal axis — the exact transpose of align-centre-horizontal. Narrower frames left the axis sticking out far enough either side that the whole thing was a plus sign. */
     val AlignMiddleV: Int get() = R.drawable.ic_gx_align_middle_v
     /** Two frames flush to a single edge underneath. */
     val AlignBottom: Int get() = R.drawable.ic_gx_align_bottom

@@ -339,7 +339,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Smudge tool \u2014 a closed hand with the index finger put out.",
-      "note": "A fist with the index put out, pointing exactly where the brush tip and the pencil point do. The hand is upright and only the finger is on the tool diagonal \u2014 eleven earlier drawings put the hand on the diagonal too, and every one came out as a long thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, a syringe.\n\nOutlined, not solid, and that is the part that finally settled it. As a solid mass the glyph was bistable: the same path read as a clenched fist on one viewing and a lollipop on the next, and deepening the knuckles to fix that turned it into a mushroom cloud. An outline has interior white, so the fist reads as a fist rather than as a blob on a stalk, and it puts the hand in the same language as the pan hand, which has never once failed. The finger is wide enough to keep white inside it at 1.4 stroke, which is the constraint that made solid look necessary in the first place. Solid only at the pad, like the pencil's graphite and the brush's head. Distinct from the pan hand, which is an open palm with all five splayed."
+      "note": "A fist with the index put out along the tool diagonal, pointing where the brush tip and the pencil point point. The hand stands upright; only the finger is on the diagonal. Outlined, with the pad solid where it meets the pixel.\n\nThis is the weakest glyph in the set and it is the twenty-fourth drawing of it. It is the version that gets named correctly at first glance \u2014 a rater with no context called it a clenched fist \u2014 but it carries a knuckle-duster and a stubby handgun as second readings, and it has been read as a molar tooth and an old-fashioned key by other raters. Every alternative tried was worse in a way that mattered more:\n\nFace-on, pointing down, one finger extended \u2014 the obvious way to aim a finger at the bottom of the frame where the eraser's face and the pen's nib are \u2014 is a hand giving the finger, and two separate raters named the gesture before naming anything else in the drawing. Moving the extended digit from the middle of the hand to the index at the edge of the group did not fix it, and nor did holding the thumb out sideways where no finger could be. A fist with a digit out of it reads as that gesture at any angle it is drawn.\n\nAdding a cuff at the wrist does fix the key and the tooth \u2014 a band across the wrist says the mass is attached to an arm, and the manicule has carried one since the twelfth century \u2014 but a fist on a cuffed forearm is the raised-fist salute, and the same rater who named that also named an obscene reading. A political symbol is a worse failure than a knuckle-duster. Without the cuff and without the solid pad the same outline is a key with a phallic second reading; the pad is what stops that, and the pad is also what makes the knuckle-duster. There is no configuration of this glyph that is clean.\n\nTurning the whole hand is worse than turning nothing. The pan hand's own outline, folded and rotated 225 degrees so the index lay on the diagonal, came back as a kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a manicule in profile \u2014 hand, cuff, curled fingers, thumb on top, laid along the diagonal \u2014 it was a torch at three different sets of proportions.\n\nBefore those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read as two different objects on two viewings of the same path. Interior creases did not settle it, because a crease is a line on a mass and a gap is two objects. Drawing the folded fingers as separate rolls made the hand a key head.\n\nDistinct from the pan hand, which is a hand face-on, upright, open, with all five splayed, and which has never once been misread by anyone."
     },
     {
       "key": "blur",
@@ -378,7 +378,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Dodge tool \u2014 the darkroom paddle on its wire, throwing light back.",
-      "note": "Paddle, rod, and the light it holds off the paper."
+      "note": "An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it \u2014 the obvious way to say a disc has depth \u2014 it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell."
     },
     {
       "key": "burn",
@@ -392,7 +392,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Burn tool \u2014 the hand cupped into an aperture to concentrate exposure.",
-      "note": "A cupped C with the light it funnels burning solid at the centre."
+      "note": "A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola \u2014 a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it."
     },
     {
       "key": "sponge",
@@ -716,8 +716,8 @@
         "paper"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 paper tooth as a field.",
-      "note": "Tooth recorded as a field of marks, one of them struck."
+      "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 a stroke running dry over the tooth of the paper.",
+      "note": "A stroke that is solid where it started and broken into slivers where the tooth has taken it. Drawn as a bare field of scattered dashes it was spilled rice, and it was the fourth icon in the set to be a field of scattered dashes \u2014 the same picture as Add Noise, Reduce Noise and Grain. Redrawn as a black band with a sawtooth underside it was a mouth full of bared teeth, with the marks below it as the lower row: a regular row of points along a solid edge is a jaw, and nothing else gets a look in. Broken into four slivers of even width it was a barcode; the remnants have to be uneven in both width and height or they are bars, not grain."
     },
     {
       "key": "brush-import",
@@ -2317,8 +2317,8 @@
         "texture"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Add Noise and Camera Raw's Grain.",
-      "note": "A field with an uneven record laid across it."
+      "basis": "Camera Raw's Grain \u2014 grain is a property of film, so this is film: a strip with sprocket holes down both margins and speckle in the frame.",
+      "note": "A film strip with speckle on it. Drawn as a square field of dashes it was a saltine cracker, indistinguishable from the noise filter; drawn with the sprockets as ticks outside the strip it was an integrated circuit with pins down both sides. The holes have to sit inside the film's own width, behind a margin rule, or they are legs.\n\nThe speckle is five equal dashes and no round mark. With three dashes and a dot in the frame it read as sperm under a microscope \u2014 a tapered stroke leading a blob is a tail leading a head, and round caps make every short stroke tapered."
     },
     {
       "key": "histogram",
@@ -2468,8 +2468,8 @@
         "speckle"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Add Noise.",
-      "note": "A field with an uneven record laid across it."
+      "basis": "Photoshop's Add Noise, drawn as the thing everybody has actually seen noise on: a screen full of snow.",
+      "note": "A screen packed with static, and a plus. The stand under it is doing all the work \u2014 a bordered square with marks inside it is a saltine cracker, a dice face, a seed tray, a pan, or the broken-image placeholder, and five drafts of this glyph were each of those in turn. Put a stand under the same square and it is a screen, and snow on a screen is the one picture of noise nobody has to be taught.\n\nThe density is the other half. Six marks evenly spread is a dice face; noise is more marks than you can count, at angles. Drawn as a signal trace \u2014 flat, then erupting \u2014 it was an EKG, and Reduce Noise as the mirror of it was a seismograph; mirroring is not a difference anyone sees at a glance."
     },
     {
       "key": "filter-noise-reduce",
@@ -2481,8 +2481,8 @@
         "smooth grain"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Reduce Noise \u2014 the same field, mostly settled, corners softened.",
-      "note": "The noise field with most of the speckle gone."
+      "basis": "Photoshop's Reduce Noise \u2014 the same screen as Add Noise, nearly clear, minus.",
+      "note": "The same screen with almost all the snow gone, and a minus. The pair differs by density and by sign, which is how pen-add differs from pen-remove and layer-add from layer-delete: one recognisable object, signed both ways."
     },
     {
       "key": "filter-distort-pinch",
@@ -3523,7 +3523,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The four-way move cross every editor uses for the Move tool.",
-      "note": "Four arrows sharing one centre \u2014 free movement, no axis preferred."
+      "note": "Four arrows sharing one centre \u2014 free movement, no axis preferred. The shafts are not decoration: heads alone read as four loose arrowheads round a hole."
     },
     {
       "key": "scale",
@@ -3741,7 +3741,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The vertical-centre glyph, matching align-centre-horizontal at ninety degrees.",
-      "note": "Two frames centred on a single horizontal axis."
+      "note": "Two frames centred on a single horizontal axis \u2014 the exact transpose of align-centre-horizontal. Narrower frames left the axis sticking out far enough either side that the whole thing was a plus sign."
     },
     {
       "key": "align-bottom",

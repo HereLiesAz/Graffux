@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/burn — A cupped C with the light it funnels burning solid at the centre. -->
-  <path d="M18.88,16.82A8.4,8.4 0 1,1 18.88,7.18"/>
-  <path d="M15.6,9.48A4.4,4.4 0 0,1 15.6,14.52"/>
-  <path d="M10,12A2,2 0 1,0 14,12A2,2 0 1,0 10,12Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/burn — A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola — a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it. -->
+  <path d="M17.6,5L10.6,4.6L5.2,7.4L3.6,12.4L5.6,17.4L11,19.6L17.6,19L13.4,16.2L9.6,15.6L7.6,12.4L9.4,9L13.2,8Z"/>
+  <path d="M4.6,19.4L19.4,19.4L19.4,21.6L4.6,21.6Z" fill="currentColor" stroke="none"/>
 </svg>

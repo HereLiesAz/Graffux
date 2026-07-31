@@ -252,20 +252,43 @@ icon("smudge", "tools", ["finger", "drag", "blend"],
      f=[poly([(2.2, 17.9), (4.3, 20.9), (6.9, 19.7), (4.8, 16.7)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
-     note="A fist with the index put out, pointing exactly where the brush tip and the pencil "
-          "point do. The hand is upright and only the finger is on the tool diagonal — eleven "
-          "earlier drawings put the hand on the diagonal too, and every one came out as a long "
-          "thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, "
-          "a lightbulb, a key, a revolver, a sledgehammer, a syringe.\n\n"
-          "Outlined, not solid, and that is the part that finally settled it. As a solid mass "
-          "the glyph was bistable: the same path read as a clenched fist on one viewing and a "
-          "lollipop on the next, and deepening the knuckles to fix that turned it into a "
-          "mushroom cloud. An outline has interior white, so the fist reads as a fist rather "
-          "than as a blob on a stalk, and it puts the hand in the same language as the pan "
-          "hand, which has never once failed. The finger is wide enough to keep white inside "
-          "it at 1.4 stroke, which is the constraint that made solid look necessary in the "
-          "first place. Solid only at the pad, like the pencil's graphite and the brush's "
-          "head. Distinct from the pan hand, which is an open palm with all five splayed."
+     note="A fist with the index put out along the tool diagonal, pointing where the brush tip "
+          "and the pencil point point. The hand stands upright; only the finger is on the "
+          "diagonal. Outlined, with the pad solid where it meets the pixel.\n\n"
+          "This is the weakest glyph in the set and it is the twenty-fourth drawing of it. It "
+          "is the version that gets named correctly at first glance — a rater with no context "
+          "called it a clenched fist — but it carries a knuckle-duster and a stubby handgun as "
+          "second readings, and it has been read as a molar tooth and an old-fashioned key by "
+          "other raters. Every alternative tried was worse in a way that mattered more:\n\n"
+          "Face-on, pointing down, one finger extended — the obvious way to aim a finger at the "
+          "bottom of the frame where the eraser's face and the pen's nib are — is a hand giving "
+          "the finger, and two separate raters named the gesture before naming anything else in "
+          "the drawing. Moving the extended digit from the middle of the hand to the index at "
+          "the edge of the group did not fix it, and nor did holding the thumb out sideways "
+          "where no finger could be. A fist with a digit out of it reads as that gesture at any "
+          "angle it is drawn.\n\n"
+          "Adding a cuff at the wrist does fix the key and the tooth — a band across the wrist "
+          "says the mass is attached to an arm, and the manicule has carried one since the "
+          "twelfth century — but a fist on a cuffed forearm is the raised-fist salute, and the "
+          "same rater who named that also named an obscene reading. A political symbol is a "
+          "worse failure than a knuckle-duster. Without the cuff and without the solid pad the "
+          "same outline is a key with a phallic second reading; the pad is what stops that, and "
+          "the pad is also what makes the knuckle-duster. There is no configuration of this "
+          "glyph that is clean.\n\n"
+          "Turning the whole hand is worse than turning nothing. The pan hand's own outline, "
+          "folded and rotated 225 degrees so the index lay on the diagonal, came back as a "
+          "kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes "
+          "a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a "
+          "manicule in profile — hand, cuff, curled fingers, thumb on top, laid along the "
+          "diagonal — it was a torch at three different sets of proportions.\n\n"
+          "Before those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a "
+          "revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a "
+          "hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read "
+          "as two different objects on two viewings of the same path. Interior creases did not "
+          "settle it, because a crease is a line on a mass and a gap is two objects. Drawing "
+          "the folded fingers as separate rolls made the hand a key head.\n\n"
+          "Distinct from the pan hand, which is a hand face-on, upright, open, with all five "
+          "splayed, and which has never once been misread by anyone."
 )
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],
@@ -287,19 +310,27 @@ icon("sharpen", "tools", ["crisp", "detail", "cone"],
           "unseen. The lean costs nothing and removes it.")
 
 icon("dodge", "tools", ["lighten", "hold back", "darkroom"],
-     s=[circle(10.0, 8.8, 5.4), line(13.4, 12.6, 18.6, 19.4),
-        seq(circle(8.2, 7.0, 1.0), circle(11.8, 7.0, 1.0), circle(10.0, 10.4, 1.0))],
-     f=[],
+     s=[line(13.8, 13.0, 20.6, 19.8)],
+     f=[rect(4.4, 4.0, 9.6, 9.2, 2.4)],
      apps="PS",
      basis="Photoshop's Dodge tool — the darkroom paddle on its wire, throwing light back.",
-     note="Paddle, rod, and the light it holds off the paper.")
+     note="An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it — the obvious way to say a disc has depth — it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell.")
 
 icon("burn", "tools", ["darken", "shade", "cupped hand", "aperture"],
-     s=[arc(12, 12, 8.4, 35, 325), arc(12, 12, 4.4, 325, 395)],
-     f=[dot(12, 12, 2.0)],
+     s=[poly([(17.6, 5.0), (10.6, 4.6), (5.2, 7.4), (3.6, 12.4), (5.6, 17.4), (11.0, 19.6),
+              (17.6, 19.0), (13.4, 16.2), (9.6, 15.6), (7.6, 12.4), (9.4, 9.0), (13.2, 8.0)],
+             close=True)],
+     f=[poly([(4.6, 19.4), (19.4, 19.4), (19.4, 21.6), (4.6, 21.6)], close=True)],
      apps="PS",
      basis="Photoshop's Burn tool — the hand cupped into an aperture to concentrate exposure.",
-     note="A cupped C with the light it funnels burning solid at the centre.")
+     note="A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn "
+          "as a true C-ring with the solid mark at its exact centre, which is the obvious way "
+          "to draw an aperture, it was a nipple and areola — a ring with a filled circle "
+          "concentric inside it is that and very little else, whatever the ring is meant to be. "
+          "Drawn instead with the solid as a wedge of light narrowing into the cup, it was the "
+          "rewind button, and a vulva on the third guess. The solid is the result, not the "
+          "light: a band of paper gone dark under the hand that shaded it."
+)
 
 icon("sponge", "tools", ["saturation", "soak", "porous"],
      s=[poly([(3.6, 8.6), (7.0, 6.0), (12.0, 7.2), (16.6, 5.6), (20.4, 8.8), (19.2, 14.2),
@@ -496,13 +527,22 @@ icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
      note="A smaller footprint carried by a larger one.")
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
-     s=[seq(line(4.4, 7.0, 5.6, 7.0), line(11.0, 8.6, 12.2, 8.6), line(17.4, 6.6, 18.6, 6.6),
-            line(6.2, 13.4, 7.4, 13.4), line(14.0, 12.2, 15.2, 12.2),
-            line(4.8, 18.6, 6.0, 18.6), line(12.6, 17.4, 13.8, 17.4))],
-     f=[dot(19.2, 17.4, 1.1)],
+     s=[],
+     f=[seq(poly([(3.4, 8.4), (9.8, 7.6), (10.0, 13.0), (3.6, 13.8)], close=True),
+            poly([(11.2, 7.8), (13.2, 7.6), (13.4, 12.6), (11.4, 12.8)], close=True),
+            poly([(14.6, 9.6), (15.8, 9.4), (16.0, 11.6), (14.8, 11.8)], close=True),
+            poly([(17.2, 8.2), (18.2, 8.1), (18.4, 12.4), (17.4, 12.5)], close=True),
+            poly([(19.6, 10.0), (20.4, 9.9), (20.5, 11.4), (19.7, 11.5)], close=True))],
      apps="PS/PR",
-     basis="Photoshop's Texture setting and Procreate's grain source — paper tooth as a field.",
-     note="Tooth recorded as a field of marks, one of them struck.")
+     basis="Photoshop's Texture setting and Procreate's grain source — a stroke running dry "
+           "over the tooth of the paper.",
+     note="A stroke that is solid where it started and broken into slivers where the tooth has "
+          "taken it. Drawn as a bare field of scattered dashes it was spilled rice, and it was "
+          "the fourth icon in the set to be a field of scattered dashes — the same picture as "
+          "Add Noise, Reduce Noise and Grain. Redrawn as a black band with a sawtooth underside "
+          "it was a mouth full of bared teeth, with the marks below it as the lower row: a "
+          "regular row of points along a solid edge is a jaw, and nothing else gets a look in. Broken into four slivers of even width it was a barcode; the remnants have to be uneven in both width and height or they are bars, not grain."
+)
 
 icon("brush-import", "tools", ["load brush", "install", "abr"],
      s=[line(12, 3.0, 12, 10.4),

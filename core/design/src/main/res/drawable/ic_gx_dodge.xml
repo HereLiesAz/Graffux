@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- dodge: Paddle, rod, and the light it holds off the paper. -->
+    <!-- dodge: An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it — the obvious way to say a disc has depth — it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell. -->
     <!-- lineage (PS): Photoshop's Dodge tool — the darkroom paddle on its wire, throwing light back. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,19 +14,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4.6,8.8A5.4,5.4 0 1,0 15.4,8.8A5.4,5.4 0 1,0 4.6,8.8Z" />
+        android:pathData="M13.8,13L20.6,19.8" />
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M13.4,12.6L18.6,19.4" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M7.2,7A1,1 0 1,0 9.2,7A1,1 0 1,0 7.2,7Z M10.8,7A1,1 0 1,0 12.8,7A1,1 0 1,0 10.8,7Z M9,10.4A1,1 0 1,0 11,10.4A1,1 0 1,0 9,10.4Z" />
+        android:fillColor="@android:color/white"
+        android:pathData="M6.8,4L11.6,4A2.4,2.4 0 0,1 14,6.4L14,10.8A2.4,2.4 0 0,1 11.6,13.2L6.8,13.2A2.4,2.4 0 0,1 4.4,10.8L4.4,6.4A2.4,2.4 0 0,1 6.8,4Z" />
 </vector>

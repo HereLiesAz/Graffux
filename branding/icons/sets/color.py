@@ -327,13 +327,23 @@ icon("vignette", "color", ["edge darkening", "corners"],
      note="A dark border with an open centre.")
 
 icon("grain", "color", ["noise", "film", "texture"],
-     s=[rect(3.4, 3.4, 17.2, 17.2),
-        seq(line(6.6, 7.4, 7.6, 7.4), line(12.6, 6.4, 13.6, 6.4), line(16.4, 10.4, 17.4, 10.4),
-            line(7.4, 13.4, 8.4, 13.4), line(13.4, 15.4, 14.4, 15.4), line(9.4, 17.6, 10.4, 17.6))],
+     s=[rect(2.6, 3.4, 18.8, 17.2),
+        seq(line(7.0, 3.4, 7.0, 20.6), line(17.0, 3.4, 17.0, 20.6)),
+        seq(square(4.8, 7.6, 2.6), square(4.8, 16.4, 2.6),
+            square(19.2, 7.6, 2.6), square(19.2, 16.4, 2.6)),
+        seq(line(9.2, 6.8, 10.2, 6.4), line(13.2, 9.0, 14.2, 8.6), line(9.6, 11.4, 10.6, 11.0),
+            line(12.8, 14.2, 13.8, 13.8), line(9.4, 17.0, 10.4, 16.6))],
      f=[],
      apps="PS/PR",
-     basis="Photoshop's Add Noise and Camera Raw's Grain.",
-     note="A field with an uneven record laid across it.")
+     basis="Camera Raw's Grain — grain is a property of film, so this is film: a strip with "
+           "sprocket holes down both margins and speckle in the frame.",
+     note="A film strip with speckle on it. Drawn as a square field of dashes it was a saltine "
+          "cracker, indistinguishable from the noise filter; drawn with the sprockets as ticks "
+          "outside the strip it was an integrated circuit with pins down both sides. The holes "
+          "have to sit inside the film's own width, behind a margin rule, or they are legs.\n\n"
+          "The speckle is five equal dashes and no round mark. With three dashes and a dot in "
+          "the frame it read as sperm under a microscope — a tapered stroke leading a blob is "
+          "a tail leading a head, and round caps make every short stroke tapered.")
 
 icon("histogram", "color", ["distribution", "readout", "levels display"],
      s=[line(3.0, 19.6, 21.0, 19.6)],
