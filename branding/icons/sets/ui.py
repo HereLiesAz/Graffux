@@ -229,13 +229,14 @@ icon("subscription", "ui", ["upgrade", "pro badge"],
      note="The crown every upgrade badge uses.")
 
 icon("theme-toggle", "ui", ["dark mode", "light mode"],
-     s=[circle(12, 12, 7.0),
-        seq(line(20.0, 12, 21.6, 12), line(18.4, 7.2, 19.6, 6.0),
-            line(18.4, 16.8, 19.6, 18.0))],
-     f=[pie(12, 12, 7.0, 90, 270)],
+     s=[circle(12, 12, 7.6)],
+     f=[pie(12, 12, 7.6, 90, 270)],
      apps="PS/AI/PR",
      basis="The universal light/dark split disc.",
-     note="One disc, half in each mode.")
+     note="One disc, half in each mode, and nothing else. The three rays that used to "
+          "sit on the light side were legs: at 24 pixels the glyph read as a tick, "
+          "or a mite — a dark round body with spikes coming off one side is an "
+          "insect, and rays on one side only are never a sun.")
 
 icon("language", "ui", ["locale", "translate"],
      s=[circle(12, 12, 8.4), line(3.6, 12, 20.4, 12), ellipse(12, 12, 3.6, 8.4)],

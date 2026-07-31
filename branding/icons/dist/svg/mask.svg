@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/mask — One plate, half of it withheld. -->
+  <!-- graffux/mask — One plate, half of it withheld. A rater calls this a half-charged battery, or an open book, because a rectangle part-filled along one edge is a fill gauge before it is anything else — the same thing that kept the eraser from being an eraser. It is kept anyway, because the alternative was worse: given a hand-painted zigzag boundary instead of a ruled one, the notch and the wedge inside it made a bat silhouette, and a rater named the DC mark. A diagonal split was not available either — that is view-actual-colors. Neutral and wrong beats close to a trademark. -->
   <path d="M3,4.6L21,4.6L21,19.4L3,19.4Z"/>
   <path d="M12,4.6L12,19.4"/>
   <path d="M12,4.6L21,4.6L21,19.4L12,19.4Z" fill="currentColor" stroke="none"/>

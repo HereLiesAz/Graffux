@@ -560,8 +560,8 @@
         "translucent"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Procreate's opacity slider thumb \u2014 one disc half laid down.",
-      "note": "Half committed, half withheld."
+      "basis": "The chequer every editor shows through a partly transparent pixel, which is also what alpha-lock is drawn from.",
+      "note": "One swatch, solid at one end and down to the chequer at the other. Drawn as a disc with one half laid down and the other half a broken arc \u2014 the obvious picture of half-committed \u2014 it was the dark-mode toggle almost exactly, and this set has one of those: theme-toggle is a disc with one half solid and rays on the light side. A split disc belongs to day and night and cannot be borrowed. The chequer is three cells across and not two: at two cells it was the same diagonal pair of squares that sits inside alpha-lock, and a rater called this one a credit card with the chip knocked out. It runs solid, then chequer, then nothing, across three thirds: half solid against half chequer left the swatch mostly black with white notches in it, and a rater read the notches as a bar chart in negative."
     },
     {
       "key": "brush-flow",
@@ -1206,7 +1206,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's layer-mask thumbnail \u2014 half revealed, half concealed.",
-      "note": "One plate, half of it withheld."
+      "note": "One plate, half of it withheld. A rater calls this a half-charged battery, or an open book, because a rectangle part-filled along one edge is a fill gauge before it is anything else \u2014 the same thing that kept the eraser from being an eraser. It is kept anyway, because the alternative was worse: given a hand-painted zigzag boundary instead of a ruled one, the notch and the wedge inside it made a bat silhouette, and a rater named the DC mark. A diagonal split was not available either \u2014 that is view-actual-colors. Neutral and wrong beats close to a trademark."
     },
     {
       "key": "mask-add",
@@ -1218,7 +1218,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Add Layer Mask button and Procreate's Mask.",
-      "note": "A mask attached to what did not have one."
+      "note": "A mask arriving at the plate, drawn as an arrow driving into it rather than as a plus.\n\nThe plus could not be placed anywhere. A rectangle with a white panel down one side and a bold equal-armed cross on it is a Bible, and a rater named a Bible or a hymnal before naming anything else, at three separate placements. Hung clear of the corner it was a cross standing beside a closed book. Lapped over the filled half it is drawn in the same ink as the fill and simply vanishes, leaving a stub that made the glyph a battery with a terminal on it. Moved to the far corner it was a Bible again, and making the plate landscape to break the book proportion did not help. Delete keeps its cross, because a cross drawn across a plate is a cancellation and not a crucifix."
     },
     {
       "key": "mask-delete",
@@ -4973,7 +4973,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The universal light/dark split disc.",
-      "note": "One disc, half in each mode."
+      "note": "One disc, half in each mode, and nothing else. The three rays that used to sit on the light side were legs: at 24 pixels the glyph read as a tick, or a mite \u2014 a dark round body with spikes coming off one side is an insect, and rays on one side only are never a sun."
     },
     {
       "key": "language",

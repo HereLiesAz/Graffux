@@ -473,11 +473,24 @@ icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
           "as the letters Oi, and at small size that was the only thing left.")
 
 icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
-     s=[seq(arc(12, 12, 8.4, -80, -20), arc(12, 12, 8.4, 20, 80))],
-     f=[pie(12, 12, 8.4, 90, 270)],
+     s=[rect(3.4, 7.0, 17.2, 10.0)],
+     f=[seq(rect(3.4, 7.0, 5.7, 10.0), rect(9.1, 7.0, 2.85, 5.0),
+            rect(11.95, 12.0, 2.85, 5.0))],
      apps="PS/AI/PR",
-     basis="Procreate's opacity slider thumb — one disc half laid down.",
-     note="Half committed, half withheld.")
+     basis="The chequer every editor shows through a partly transparent pixel, which "
+           "is also what alpha-lock is drawn from.",
+     note="One swatch, solid at one end and down to the chequer at the other. Drawn "
+          "as a disc with one half laid down and the other half a broken arc — the "
+          "obvious picture of half-committed — it was the dark-mode toggle almost "
+          "exactly, and this set has one of those: theme-toggle is a disc with one "
+          "half solid and rays on the light side. A split disc belongs to day and "
+          "night and cannot be borrowed. The chequer is three cells across and not two: at "
+          "two cells it was the same diagonal pair of squares that sits inside "
+          "alpha-lock, and a rater called this one a credit card with the chip "
+          "knocked out. It runs solid, then chequer, then nothing, across three thirds: "
+          "half solid against half chequer left the swatch mostly black with white "
+          "notches in it, and a rater read the notches as a bar chart in negative."
+)
 
 icon("brush-flow", "tools", ["rate", "load", "delivery"],
      s=[rect(7.0, 3.4, 10.0, 17.2), seq(line(7.0, 9.0, 17.0, 9.0), line(7.0, 14.8, 17.0, 14.8))],

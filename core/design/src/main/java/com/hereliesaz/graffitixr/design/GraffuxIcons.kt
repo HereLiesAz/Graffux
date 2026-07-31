@@ -113,7 +113,7 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushSettings: Int get() = R.drawable.ic_gx_brush_settings
     /** One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. The measure goes underneath: stood beside the footprint as a vertical bar between two arrowheads, the pair of them read as the letters Oi, and at small size that was the only thing left. */
     val BrushSize: Int get() = R.drawable.ic_gx_brush_size
-    /** Half committed, half withheld. */
+    /** One swatch, solid at one end and down to the chequer at the other. Drawn as a disc with one half laid down and the other half a broken arc — the obvious picture of half-committed — it was the dark-mode toggle almost exactly, and this set has one of those: theme-toggle is a disc with one half solid and rays on the light side. A split disc belongs to day and night and cannot be borrowed. The chequer is three cells across and not two: at two cells it was the same diagonal pair of squares that sits inside alpha-lock, and a rater called this one a credit card with the chip knocked out. It runs solid, then chequer, then nothing, across three thirds: half solid against half chequer left the swatch mostly black with white notches in it, and a rater read the notches as a bar chart in negative. */
     val BrushOpacity: Int get() = R.drawable.ic_gx_brush_opacity
     /** Three drops at three depths of fall. */
     val BrushFlow: Int get() = R.drawable.ic_gx_brush_flow
@@ -217,9 +217,11 @@ What the strokes were: spilled rice, and the fourth icon in the set drawn as a f
     val SelectIntersect: Int get() = R.drawable.ic_gx_select_intersect
     /** Everything except the ground they share. */
     val SelectExclude: Int get() = R.drawable.ic_gx_select_exclude
-    /** One plate, half of it withheld. */
+    /** One plate, half of it withheld. A rater calls this a half-charged battery, or an open book, because a rectangle part-filled along one edge is a fill gauge before it is anything else — the same thing that kept the eraser from being an eraser. It is kept anyway, because the alternative was worse: given a hand-painted zigzag boundary instead of a ruled one, the notch and the wedge inside it made a bat silhouette, and a rater named the DC mark. A diagonal split was not available either — that is view-actual-colors. Neutral and wrong beats close to a trademark. */
     val Mask: Int get() = R.drawable.ic_gx_mask
-    /** A mask attached to what did not have one. */
+    /** A mask arriving at the plate, drawn as an arrow driving into it rather than as a plus.
+
+The plus could not be placed anywhere. A rectangle with a white panel down one side and a bold equal-armed cross on it is a Bible, and a rater named a Bible or a hymnal before naming anything else, at three separate placements. Hung clear of the corner it was a cross standing beside a closed book. Lapped over the filled half it is drawn in the same ink as the fill and simply vanishes, leaving a stub that made the glyph a battery with a terminal on it. Moved to the far corner it was a Bible again, and making the plate landscape to break the book proportion did not help. Delete keeps its cross, because a cross drawn across a plate is a cancellation and not a crucifix. */
     val MaskAdd: Int get() = R.drawable.ic_gx_mask_add
     /** The mask thrown away; the plate stays. */
     val MaskDelete: Int get() = R.drawable.ic_gx_mask_delete
@@ -845,7 +847,7 @@ Drawn as a jagged run with beads on its peaks above a smooth curve below, it was
     val Account: Int get() = R.drawable.ic_gx_account
     /** The crown every upgrade badge uses. */
     val Subscription: Int get() = R.drawable.ic_gx_subscription
-    /** One disc, half in each mode. */
+    /** One disc, half in each mode, and nothing else. The three rays that used to sit on the light side were legs: at 24 pixels the glyph read as a tick, or a mite — a dark round body with spikes coming off one side is an insect, and rays on one side only are never a sun. */
     val ThemeToggle: Int get() = R.drawable.ic_gx_theme_toggle
     /** A globe with one meridian and its equator. */
     val Language: Int get() = R.drawable.ic_gx_language
