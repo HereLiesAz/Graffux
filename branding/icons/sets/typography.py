@@ -28,6 +28,16 @@ def glyph_a(cx, top, h, w):
                 line(cx - w * 0.24, top + h * 0.62, cx + w * 0.24, top + h * 0.62))
 
 
+def glyph_a_solid(cx, top, h, w, weight=2.4):
+    """A closed, fillable bold A — two tapered legs and a crossbar, all genuinely solid.
+    (glyph_a's 3 open segments render invisible when used as a fill: no enclosed area.)"""
+    from kit import taper
+    bar_y = top + h * 0.64
+    return seq(taper(cx, top, cx - w / 2, top + h, weight * 0.3, weight),
+                taper(cx, top, cx + w / 2, top + h, weight * 0.3, weight),
+                rect(cx - w * 0.3, bar_y - weight * 0.35, w * 0.6, weight * 0.7))
+
+
 icon("type", "type", ["text tool", "add text"],
      s=[glyph_a(11.0, 3.4, 15.0, 11.0)],
      f=[],
@@ -59,8 +69,8 @@ icon("type-path", "type", ["text on path", "curved type"],
      note="A path with one letter riding along it.")
 
 icon("type-vertical", "type", ["vertical text", "top to bottom"],
-     s=[line(12, 3.4, 12, 20.6)],
-     f=[seq(square(12, 6.6, 2.4), square(12, 12.0, 2.4), square(12, 17.4, 2.4))],
+     s=[glyph_a(8.0, 3.6, 7.0, 5.0), line(17.0, 4.0, 17.0, 19.0)],
+     f=[seq(rect(6.0, 13.0, 4.0, 1.8), rect(6.0, 16.4, 4.0, 1.8), tip(17.0, 20.6, 2.0, 90))],
      apps="PS/AI",
      basis="Photoshop and Illustrator's vertical type orientation.",
      note="Characters stacked down a single spine.")
@@ -89,23 +99,25 @@ icon("font-family", "type", ["typeface", "font picker"],
      note="Two letterforms in two different faces.")
 
 icon("font-size", "type", ["point size", "text scale"],
-     s=[glyph_a(6.4, 8.6, 11.6, 8.0)],
-     f=[glyph_a(16.6, 4.4, 15.6, 10.0)],
+     s=[glyph_a(5.8, 13.0, 7.6, 5.6), glyph_a(15.4, 3.6, 17.0, 10.4)],
+     f=[],
      apps="PS/AI/PR",
      basis="The small-A/large-A pair every size control uses.",
      note="The same letter at two sizes, side by side.")
 
 icon("font-weight", "type", ["bold", "font weight axis"],
-     s=[glyph_a(7.4, 6.4, 12.0, 7.6)],
-     f=[glyph_a(17.0, 4.4, 15.0, 10.0)],
+     s=[glyph_a(6.6, 6.4, 12.0, 7.6)],
+     f=[glyph_a_solid(16.8, 4.4, 15.0, 8.8)],
      apps="PS/AI",
      basis="A light A beside a bold one.",
      note="The same letter, thin then heavy.")
 
 icon("type-bold", "type", ["strong", "b"],
      s=[],
-     f=[poly([(6.4, 4.0), (13.0, 4.0), (16.6, 6.8), (16.6, 9.6), (14.6, 11.2), (17.2, 13.0),
-              (17.2, 16.6), (13.4, 20.0), (6.4, 20.0)], close=True)],
+     f=[seq(poly([(6.6, 3.6), (14.0, 3.6), (16.8, 6.4), (16.8, 9.6), (14.0, 11.4),
+                  (17.4, 13.2), (17.4, 17.2), (14.2, 20.4), (6.6, 20.4)], close=True),
+            poly([(10.0, 6.6), (10.0, 10.0), (13.2, 10.0), (13.2, 6.6)], close=True),
+            poly([(10.0, 14.0), (10.0, 17.4), (13.6, 17.4), (13.6, 14.0)], close=True))],
      apps="PS/AI/PR",
      basis="The solid B every bold toggle in every text editor uses.",
      note="A single heavy capital.")
@@ -149,8 +161,8 @@ icon("type-subscript", "type", ["index", "lowered"],
      note="A letter with a second, smaller mark set low.")
 
 icon("type-allcaps", "type", ["uppercase", "caps lock"],
-     s=[glyph_a(7.4, 6.0, 13.0, 8.6)],
-     f=[glyph_a(16.6, 6.0, 13.0, 8.6)],
+     s=[glyph_a(7.0, 6.0, 13.0, 8.0), glyph_a(17.0, 6.0, 13.0, 8.0)],
+     f=[],
      apps="PS/AI",
      basis="Two capitals of matched height — case with nothing lower to compare against.",
      note="Two letters at one uniform height.")
@@ -216,24 +228,23 @@ icon("paragraph-indent", "type", ["first line indent"],
      note="One row pushed in from the rest by a visible step.")
 
 icon("glyphs-panel", "type", ["special characters", "ligatures"],
-     s=[rect(3.4, 3.4, 17.2, 17.2)],
-     f=[glyph_a(12, 7.4, 10.0, 7.0)],
+     s=[rect(3.4, 3.4, 17.2, 17.2), glyph_a(12, 7.4, 10.0, 7.0)],
+     f=[],
      apps="PS/AI",
      basis="Illustrator's Glyphs panel — one character held up in its own cell.",
      note="A single glyph shown in the cell it is picked from.")
 
 icon("find-replace-text", "type", ["search text", "swap words"],
-     s=[circle(9.6, 9.6, 5.6), line(13.6, 13.6, 18.6, 18.6)],
+     s=[circle(8.6, 8.6, 5.2), line(12.3, 12.3, 16.4, 16.4),
+        arc(18.6, 5.4, 2.4, 90, 360), arc(18.6, 5.4, 2.4, -90, 180)],
      f=[],
      apps="PS/AI",
      basis="Find/Change — the search glass, turned on a word instead of a file.",
      note="A search glass, held over running text.")
 
 icon("spell-check", "type", ["proofing", "typo underline"],
-     s=[glyph_a(11.0, 4.0, 12.0, 8.6),
-        seq(line(4.0, 20.0, 6.0, 18.6), line(7.0, 20.0, 9.0, 18.6),
-            line(10.0, 20.0, 12.0, 18.6), line(13.0, 20.0, 15.0, 18.6),
-            line(16.0, 20.0, 18.0, 18.6))],
+     s=[glyph_a(11.0, 3.6, 11.4, 8.2),
+        smooth([(3.6, 19.6), (7.0, 17.8), (10.4, 19.6), (13.8, 17.8), (17.2, 19.6), (20.4, 17.8)])],
      f=[],
      apps="PS/AI",
      basis="The red squiggle every spell-checker draws under a flagged word.",
@@ -254,8 +265,8 @@ icon("text-color", "type", ["font colour", "fill text"],
      note="A letter standing on the colour it will be filled with.")
 
 icon("text-outline-convert", "type", ["create outlines", "text to shape"],
-     s=[glyph_a(8.0, 5.4, 13.2, 9.0)],
-     f=[glyph_a(17.0, 5.4, 13.2, 9.0)],
+     s=[glyph_a(7.4, 5.4, 13.2, 8.6)],
+     f=[glyph_a_solid(17.2, 5.4, 13.2, 8.6)],
      apps="AI",
      basis="Illustrator's Create Outlines — a live letter beside its converted, solid twin.",
      note="One editable letter and one converted to a fixed shape.")

@@ -7,7 +7,7 @@
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
     <!-- generate-expand: A held frame with new ground opening around it. -->
-    <!-- lineage (new): Photoshop's Generative Expand — a frame growing past its own edge. -->
+    <!-- lineage (PS): Photoshop's Generative Expand — a frame growing past its own edge. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"

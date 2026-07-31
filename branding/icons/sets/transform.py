@@ -7,6 +7,7 @@ so the family reads as one grammar, distinguished only by the arrow doing the wo
 """
 
 from kit import (
+    Path,
     arc,
     circle,
     dashed,
@@ -71,8 +72,8 @@ icon("rotate-90-ccw", "transform", ["quarter turn left"],
      note="A frame turned a clean quarter the other direction.")
 
 icon("rotate-180", "transform", ["half turn"],
-     s=[rect(6.6, 6.6, 10.8, 10.8), arc(12, 12, 9.6, -20, 200)],
-     f=[tip(2.09, 12, 2.2, 180)],
+     s=[rect(7.4, 11.0, 9.2, 9.2), arc(12, 11.0, 8.2, 180, 360)],
+     f=[seq(tip(3.8, 11.0, 2.2, 90), tip(20.2, 11.0, 2.2, 270))],
      apps="PS/AI",
      basis="The same arc taken all the way to a half-turn.",
      note="A frame turned exactly upside down.")
@@ -85,8 +86,8 @@ icon("flip-horizontal", "transform", ["mirror x", "flip left right"],
      note="A shape and its mirror, meeting at a vertical hinge.")
 
 icon("flip-vertical", "transform", ["mirror y", "flip top bottom"],
-     s=[poly([(4.0, 9.4), (12, 3.4), (20.0, 9.4)], close=True), line(3.4, 12, 20.6, 12)],
-     f=[poly([(4.0, 14.6), (12, 20.6), (20.0, 14.6)], close=True)],
+     s=[poly([(5.0, 3.6), (19.0, 3.6), (12, 10.2)], close=True), dashed(2.8, 12, 21.2, 12, 4)],
+     f=[poly([(5.0, 20.4), (19.0, 20.4), (12, 13.8)], close=True)],
      apps="PS/AI/PR",
      basis="The same pair, turned on a horizontal hinge.",
      note="A shape and its mirror, meeting at a horizontal hinge.")
@@ -114,22 +115,22 @@ icon("perspective-transform", "transform", ["perspective corners linked"],
      note="A frame tipped back into depth, both sides moving together.")
 
 icon("puppet-warp", "transform", ["mesh warp", "pin and bend"],
-     s=[smooth([(4.0, 18.0), (7.0, 8.0), (14.0, 6.0), (20.0, 12.0)])],
-     f=[seq(circle(7.0, 8.0, 1.5), circle(14.0, 6.0, 1.5))],
+     s=[Path("M4,4L20,4Q12,12 20,20L4,20Q12,12 4,4Z", [(4, 4), (20, 20)])],
+     f=[seq(dot(4.6, 4.6, 1.3), dot(19.4, 4.6, 1.3), dot(19.4, 19.4, 1.3), dot(4.6, 19.4, 1.3))],
      apps="PS",
      basis="Photoshop's Puppet Warp — pins set into a form to bend it.",
      note="A form with two pins holding it in a bent pose.")
 
 icon("transform-again", "transform", ["repeat transform"],
-     s=[square(6.6, 12, 4.6), square(13.0, 12, 4.6, r=0)],
-     f=[square(19.4, 12, 4.6)],
+     s=[square(7.0, 15.0, 5.4), square(16.0, 15.0, 5.4), arc(11.5, 14.0, 7.0, 200, 340)],
+     f=[tip(18.7, 8.4, 2.2, 30)],
      apps="AI",
      basis="Illustrator's Transform Again — the same step repeated in place.",
      note="A shape repeated in a straight, equal run.")
 
 icon("reset-transform", "transform", ["clear transform", "original state"],
-     s=[rect(6.6, 6.6, 10.8, 10.8), arc(12, 12, 9.6, 220, 490)],
-     f=[],
+     s=[rect(6.6, 6.6, 10.8, 10.8), arc(12, 12, 8.8, 220, 480)],
+     f=[tip(12.0, 3.2, 2.2, 180)],
      apps="PS/AI",
      basis="A frame returning to true along the arc it was turned through.",
      note="A frame's transform being wound back to nothing.")

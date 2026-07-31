@@ -1820,7 +1820,7 @@
       "keywords": [
         "backdrop",
         "base",
-        "chequer"
+        "foundation"
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's transparency chequer, which is what a missing background looks like.",
@@ -3866,8 +3866,8 @@
         "close file"
       ],
       "apps": "PS/AI/PR",
-      "basis": "The document page, with the corner tucked away as it closes.",
-      "note": "A page with its own corner folding shut."
+      "basis": "The document page, closed off by the same cross every other close control uses.",
+      "note": "A page struck through by the universal close mark."
     },
     {
       "key": "document-revert",
@@ -4542,7 +4542,7 @@
         "ai outpaint",
         "generative expand"
       ],
-      "apps": "new",
+      "apps": "PS",
       "basis": "Photoshop's Generative Expand \u2014 a frame growing past its own edge.",
       "note": "A held frame with new ground opening around it."
     },
@@ -4554,7 +4554,7 @@
         "ai remove",
         "smart erase"
       ],
-      "apps": "new",
+      "apps": "PS",
       "basis": "Photoshop's Generative Fill used to remove \u2014 a gap the model closes.",
       "note": "An empty region with the sparkle that will resolve it."
     },

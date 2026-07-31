@@ -633,7 +633,7 @@ object GraffuxIcons {
     val DocumentSave: Int get() = R.drawable.ic_gx_document_save
     /** A disc being written a second time, under a new name. */
     val DocumentSaveAs: Int get() = R.drawable.ic_gx_document_save_as
-    /** A page with its own corner folding shut. */
+    /** A page struck through by the universal close mark. */
     val DocumentClose: Int get() = R.drawable.ic_gx_document_close
     /** A disc with its last save being pulled back in. */
     val DocumentRevert: Int get() = R.drawable.ic_gx_document_revert
@@ -981,7 +981,7 @@ object GraffuxIcons {
         GxIcon("layer-count", R.drawable.ic_gx_layer_count, GxIconCategory.LAYERS, listOf("how many", "stack depth")),
         GxIcon("artboard", R.drawable.ic_gx_artboard, GxIconCategory.LAYERS, listOf("canvas", "page", "document frame")),
         GxIcon("artboard-add", R.drawable.ic_gx_artboard_add, GxIconCategory.LAYERS, listOf("new artboard", "new page")),
-        GxIcon("layer-background", R.drawable.ic_gx_layer_background, GxIconCategory.LAYERS, listOf("backdrop", "base", "chequer")),
+        GxIcon("layer-background", R.drawable.ic_gx_layer_background, GxIconCategory.LAYERS, listOf("backdrop", "base", "foundation")),
         GxIcon("layer-frame", R.drawable.ic_gx_layer_frame, GxIconCategory.LAYERS, listOf("frame tool", "placeholder", "crop into")),
         GxIcon("layer-thumbnail", R.drawable.ic_gx_layer_thumbnail, GxIconCategory.LAYERS, listOf("preview", "row", "panel row")),
         GxIcon("brightness", R.drawable.ic_gx_brightness, GxIconCategory.COLOR, listOf("light", "sun", "lighten")),

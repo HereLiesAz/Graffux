@@ -6,6 +6,7 @@ must never compete with the art for attention.
 """
 
 from kit import (
+    Path,
     arc,
     circle,
     dot,
@@ -86,9 +87,13 @@ icon("search", "ui", ["find", "magnifier"],
      note="A glass held over the field it searches.")
 
 icon("settings", "ui", ["preferences", "gear"],
-     s=[circle(12, 12, 5.6)],
-     f=[seq(rect(11.1, 2.4, 1.8, 3.0), rect(11.1, 18.6, 1.8, 3.0),
-            rect(2.4, 11.1, 3.0, 1.8), rect(18.6, 11.1, 3.0, 1.8))],
+     s=[circle(12, 12, 4.0),
+        Path("M12,3.2L14.2,3.6L15,6.2L17.2,7.1L19.5,5.8L21,7.9L19.4,9.9L19.8,12.2"
+             "L21.8,13.6L20.7,16L18.2,15.6L16.6,17.3L17,19.8L14.7,20.8L13.2,18.7"
+             "L10.9,18.8L9.5,20.8L7.2,19.7L7.7,17.2L6.1,15.5L3.6,15.8L2.7,13.4"
+             "L4.8,12L4.5,9.7L2.6,8.2L3.9,5.9L6.3,6.5L8.1,4.9L7.8,2.4Z",
+             [(2.6, 2.4), (21.8, 20.8)])],
+     f=[],
      apps="PS/AI/PR",
      basis="The universal settings gear.",
      note="A ring with four solid teeth set square around it.")
@@ -153,8 +158,8 @@ icon("download", "ui", ["save to device", "export local"],
      note="An arrow settling into the tray, rather than leaving it.")
 
 icon("upload", "ui", ["import", "add file"],
-     s=[seq(line(12, 20.6, 12, 9.4), poly([(8.4, 13.0), (12, 9.4), (15.6, 13.0)])),
-        poly([(5.4, 3.4), (5.4, 6.6), (18.6, 6.6), (18.6, 3.4)])],
+     s=[seq(line(12, 17.0, 12, 4.4), poly([(8.4, 8.0), (12, 4.4), (15.6, 8.0)])),
+        poly([(5.4, 14.0), (5.4, 20.6), (18.6, 20.6), (18.6, 14.0)])],
      f=[],
      apps="PS/AI/PR",
      basis="The download glyph, upside down.",
@@ -176,8 +181,8 @@ icon("copy-link", "ui", ["copy url", "share link"],
      note="Two interlocked rings.")
 
 icon("collaborators", "ui", ["shared users", "team"],
-     s=[circle(8.6, 9.0, 3.4), circle(16.0, 10.6, 2.8)],
-     f=[poly([(3.4, 20.0), (4.6, 14.2), (12.6, 14.2), (13.8, 20.0)], close=True)],
+     s=[circle(15.4, 8.0, 3.2), arc(15.4, 19.6, 5.8, 180, 360)],
+     f=[seq(circle(8.0, 8.0, 3.2), pie(8.0, 19.6, 5.8, 180, 360))],
      apps="PS/AI",
      basis="Every editor's shared-users glyph.",
      note="One held figure with a second person beside it.")
@@ -208,8 +213,8 @@ icon("cloud-offline", "ui", ["no connection", "local only"],
      note="The cloud with the mark that says it cannot be reached.")
 
 icon("account", "ui", ["profile", "user"],
-     s=[circle(12, 9.0, 4.2)],
-     f=[poly([(5.4, 20.6), (6.8, 14.2), (17.2, 14.2), (18.6, 20.6)], close=True)],
+     s=[circle(12, 8.4, 4.0), arc(12, 21.0, 7.6, 180, 360)],
+     f=[],
      apps="PS/AI/PR",
      basis="The universal person glyph.",
      note="A head over solid shoulders.")
@@ -244,30 +249,33 @@ icon("keyboard-shortcut", "ui", ["hotkeys", "key command"],
      note="A key row, standing for the whole board.")
 
 icon("brush-cursor", "ui", ["custom cursor", "tool preview"],
-     s=[circle(12, 13.4, 6.0), poly([(15.2, 8.2), (20.6, 3.4), (20.6, 8.0), (17.0, 10.6)])],
-     f=[],
+     s=[circle(12, 12, 6.4),
+        seq(line(12, 2.6, 12, 5.0), line(12, 19.0, 12, 21.4),
+            line(2.6, 12, 5.0, 12), line(19.0, 12, 21.4, 12))],
+     f=[dot(12, 12, 1.2)],
      apps="PS/PR",
      basis="The live brush-size cursor ring Photoshop and Procreate both draw.",
      note="A footprint ring with the cursor arrow still touching it.")
 
 icon("gesture-pinch", "ui", ["two finger zoom"],
-     s=[seq(line(7.0, 7.0, 10.4, 10.4), line(17.0, 17.0, 13.6, 13.6))],
-     f=[seq(circle(6.0, 6.0, 1.4), circle(18.0, 18.0, 1.4))],
+     s=[seq(line(4.4, 4.4, 9.4, 9.4), line(19.6, 19.6, 14.6, 14.6))],
+     f=[seq(ellipse(11.0, 11.0, 2.2, 1.6), ellipse(13.0, 13.0, 2.2, 1.6),
+            tip(10.0, 10.0, 2.2, 225), tip(14.0, 14.0, 2.2, 45))],
      apps="PR",
      basis="Procreate's own pinch-to-zoom gesture diagram.",
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[rect(3.4, 16.4, 17.2, 4.2),
-        seq(line(8.4, 16.4, 8.4, 10.4), line(15.6, 16.4, 15.6, 10.4))],
-     f=[seq(circle(8.4, 8.4, 1.7), circle(15.6, 8.4, 1.7))],
+     s=[line(3.0, 17.4, 21.0, 17.4),
+        seq(arc(8.6, 13.4, 4.2, 200, 340), arc(15.4, 13.4, 4.2, 200, 340))],
+     f=[seq(ellipse(8.6, 14.6, 2.4, 1.7), ellipse(15.4, 14.6, 2.4, 1.7))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
      note="Two fingers landing together on the same surface.")
 
 icon("undo-history-slider", "ui", ["scrub history", "time slider"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[circle(14.0, 12, 2.6)],
+     s=[line(3.4, 12, 20.6, 12), seq(line(3.4, 8.6, 3.4, 15.4), line(20.6, 8.6, 20.6, 15.4))],
+     f=[rect(3.4, 10.6, 5.6, 2.8)],
      apps="PR",
      basis="Procreate's own undo/redo slider.",
      note="A single control riding along its own track.")

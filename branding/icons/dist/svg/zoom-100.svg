@@ -4,5 +4,6 @@
   <!-- graffux/zoom-100 — The zoom glass with a single point, not a sign, at its centre. -->
   <path d="M3.4,10.2A6.8,6.8 0 1,0 17,10.2A6.8,6.8 0 1,0 3.4,10.2Z"/>
   <path d="M15,15L20.6,20.6"/>
-  <path d="M8.7,10.2A1.5,1.5 0 1,0 11.7,10.2A1.5,1.5 0 1,0 8.7,10.2Z" fill="currentColor" stroke="none"/>
+  <path d="M7.4,10.2L9,10.2"/>
+  <path d="M11.4,10.2L13,10.2"/>
 </svg>

@@ -7,6 +7,8 @@ here reuse the same two-circle pair from Selection so the two families read as o
 
 from kit import (
     Path,
+    arc,
+    cut,
     circle,
     dot,
     icon,
@@ -21,10 +23,16 @@ from kit import (
     tip,
 )
 
-_A, _B, _R = (9.2, 12.0), (15.6, 12.0), 6.0
-_LENS = Path("M12.4,6.93A6,6 0 0,1 12.4,17.07A6,6 0 0,1 12.4,6.93Z", [(9.6, 6.9), (15.2, 17.1)])
-_LEFT = Path("M12.4,17.07A6,6 0 1,1 12.4,6.93A6,6 0 0,0 12.4,17.07Z", [(3.2, 6), (15.2, 18)])
-_RIGHT = Path("M12.4,6.93A6,6 0 1,1 12.4,17.07A6,6 0 0,0 12.4,6.93Z", [(9.6, 6), (21.6, 18)])
+# Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
+# in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
+# circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
+_SQ_A = (4.0, 4.0, 10.0, 10.0)
+_SQ_B = (10.0, 10.0, 10.0, 10.0)
+_UNION = poly([(4, 4), (14, 4), (14, 10), (20, 10), (20, 20), (10, 20), (10, 14), (4, 14)],
+              close=True)
+_ONLY_A = poly([(4, 4), (14, 4), (14, 10), (10, 10), (10, 14), (4, 14)], close=True)
+_ONLY_B = poly([(20, 20), (10, 20), (10, 14), (14, 14), (14, 10), (20, 10)], close=True)
+_CORE = rect(10, 10, 4, 4)
 
 
 def anchor(cx, cy, r=1.5):
@@ -45,15 +53,16 @@ icon("pen", "vector", ["bezier", "path tool", "draw vector"],
      note="A nib at the end of the line it just placed.")
 
 icon("pen-add", "vector", ["add anchor", "insert point"],
-     s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]),
-        seq(circle(9.0, 8.0, 1.4), circle(20.6, 6.0, 1.4))],
+     s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]), circle(9.0, 8.0, 1.4),
+        line(17.6, 2.0, 17.6, 6.0), line(15.6, 4.0, 19.6, 4.0)],
      f=[],
      apps="AI",
      basis="Illustrator's Add Anchor Point tool.",
      note="A curve with a new node placed on it.")
 
 icon("pen-remove", "vector", ["delete anchor", "remove point"],
-     s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]), circle(20.6, 6.0, 1.4)],
+     s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]), circle(9.0, 8.0, 1.4),
+        line(15.6, 4.0, 19.6, 4.0)],
      f=[],
      apps="AI",
      basis="Illustrator's Delete Anchor Point tool.",
@@ -84,32 +93,34 @@ icon("path-select-group", "vector", ["black arrow", "select object"],
      note="The same arrow, solid — it takes the whole object, not one node.")
 
 icon("path-close", "vector", ["closed path", "join ends"],
-     s=[smooth([(4.0, 8.0), (8.0, 3.4), (16.0, 3.4), (20.0, 8.0)]),
-        smooth([(4.0, 8.0), (5.0, 16.0), (12.0, 20.6), (19.0, 16.0), (20.0, 8.0)])],
-     f=[dot(4.0, 8.0, 1.4)],
+     s=[smooth([(12, 19.6), (4.4, 14.6), (7.0, 5.4), (12, 4.4)]),
+        smooth([(12, 19.6), (19.6, 14.6), (17.0, 5.4), (12, 4.4)])],
+     f=[square(12, 4.4, 3.0)],
      apps="AI",
      basis="Illustrator's Join — the moment two open ends become one point.",
      note="A loop closed at a single solid seam.")
 
 icon("path-open", "vector", ["cut path", "scissors"],
-     s=[circle(12, 12, 8.4), line(15.0, 9.0, 20.0, 4.0), line(9.0, 15.0, 4.0, 20.0)],
-     f=[],
+     s=[arc(12, 12, 8.0, 40, 320)],
+     f=[seq(square(18.1, 6.9, 3.0), square(18.1, 17.1, 3.0))],
      apps="AI",
      basis="Illustrator's Scissors tool — a ring cut at one point.",
      note="A closed loop with one gap opened in its edge.")
 
 icon("path-simplify", "vector", ["reduce points", "clean path"],
-     s=[seq(*[line(3.4 + i * 3.6, 12 + (4.0 if i % 2 else -4.0), 3.4 + (i + 1) * 3.6,
-                    12 + (-4.0 if i % 2 else 4.0)) for i in range(4)])],
-     f=[],
+     s=[poly([(3.4, 9.4), (6.6, 6.2), (9.0, 9.8), (11.6, 6.6), (14.0, 9.2), (16.8, 6.0), (20.6, 9.0)]),
+        seq(circle(6.6, 6.2, 0.85), circle(11.6, 6.6, 0.85), circle(16.8, 6.0, 0.85)),
+        smooth([(3.4, 18.0), (12.0, 15.0), (20.6, 18.0)])],
+     f=[dot(12.0, 15.0, 1.3)],
      apps="AI/PS",
      basis="Illustrator's Simplify — a jagged run reduced to fewer, truer segments.",
      note="A zigzag with most of its corners already gone.")
 
 icon("path-outline-stroke", "vector", ["stroke to fill", "expand stroke"],
-     s=[smooth([(4.0, 18.0), (9.0, 6.0), (20.0, 6.0)])],
-     f=[poly([(4.0, 18.0), (9.0, 6.0), (20.0, 6.0), (20.0, 9.4), (11.0, 9.4), (7.4, 19.4)],
-             close=True)],
+     s=[line(3.4, 12, 10.0, 12),
+        poly([(13.0, 8.4), (20.6, 8.4), (20.6, 15.6), (13.0, 15.6)], close=True),
+        line(13.0, 12, 20.6, 12)],
+     f=[tip(11.8, 12, 2.0, 0)],
      apps="AI",
      basis="Illustrator's Outline Stroke — a line given width and turned into a shape.",
      note="A stroke on one side of the frame, a filled ribbon on the other.")
@@ -181,36 +192,36 @@ icon("shape-spiral", "vector", ["vector spiral", "coil"],
      note="A vector spiral, tightening in to a single terminal point.")
 
 icon("boolean-unite", "vector", ["pathfinder add", "merge shapes"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[seq(circle(*_A, _R), circle(*_B, _R))],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_UNION],
      apps="AI",
      basis="Illustrator's Pathfinder — Unite.",
      note="Both shapes held as one.")
 
 icon("boolean-minus", "vector", ["pathfinder subtract", "minus front"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[_LEFT],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_ONLY_A],
      apps="AI",
      basis="Illustrator's Pathfinder — Minus Front.",
      note="What remains of the back shape once the front is cut from it.")
 
 icon("boolean-intersect", "vector", ["pathfinder intersect"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[_LENS],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_CORE],
      apps="AI",
      basis="Illustrator's Pathfinder — Intersect.",
      note="Only the ground the two shapes share.")
 
 icon("boolean-exclude", "vector", ["pathfinder exclude"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[seq(_LEFT, _RIGHT)],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[seq(_ONLY_A, _ONLY_B)],
      apps="AI",
      basis="Illustrator's Pathfinder — Exclude.",
      note="Everything except the ground the two shapes share.")
 
 icon("compound-path", "vector", ["make compound", "holes"],
      s=[],
-     f=[ring(12, 12, 8.4, 4.0)],
+     f=[cut(rect(3.4, 3.4, 17.2, 17.2), rect(8.6, 8.6, 6.8, 6.8))],
      apps="AI",
      basis="Illustrator's Compound Path — a ring made from two circles wound oppositely.",
      note="A disc with a true hole cut through it, not painted over.")
@@ -239,22 +250,26 @@ icon("vectorize", "vector", ["auto vector", "convert to path"],
      note="A raster field of crop marks resolving into one solid vector shape.")
 
 icon("path-width", "vector", ["variable width", "width profile"],
-     s=[poly([(3.4, 15.4), (8.0, 9.0), (14.0, 15.0), (20.6, 6.4)])],
-     f=[],
+     s=[poly([(3.4, 12.6), (8.6, 9.4), (8.6, 14.6)], close=True),
+        poly([(8.6, 10.6), (20.6, 6.2), (20.6, 17.8), (8.6, 13.4)], close=True)],
+     f=[dot(20.6, 12.0, 1.4)],
      apps="AI",
      basis="Illustrator's Width tool.",
      note="A path with the corner where its width would be pulled.")
 
 icon("path-knife", "vector", ["cut shape", "slice"],
-     s=[circle(12, 12, 8.4), line(4.6, 19.4, 19.4, 4.6)],
+     s=[Path("M6.86,17.14A8.4,8.4 0 0,1 16.66,6.06M18.14,7.54A8.4,8.4 0 0,1 8.34,18.62",
+             [(4.0, 4.6), (20.0, 20.0)]),
+        line(4.6, 19.4, 19.4, 4.6)],
      f=[],
      apps="AI",
      basis="Illustrator's Knife tool.",
      note="A shape crossed clean through by one cut.")
 
 icon("path-eraser-vector", "vector", ["vector eraser", "erase path"],
-     s=[smooth([(3.4, 16.0), (9.0, 6.0), (20.6, 8.0)])],
-     f=[square(14.6, 7.4, 3.4)],
+     s=[seq(line(3.4, 16.6, 8.0, 16.6), line(15.4, 16.6, 20.6, 16.6)),
+        rect(8.6, 5.4, 6.8, 6.8)],
+     f=[rect(9.6, 13.4, 4.8, 5.2)],
      apps="AI",
      basis="Illustrator's Path Eraser.",
      note="A curve broken open where the eraser has crossed it.")

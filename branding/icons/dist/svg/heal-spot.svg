@@ -2,8 +2,8 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/heal-spot — A ring sighted on a single blemish. -->
-  <path d="M5.4,12A6.6,6.6 0 1,0 18.6,12A6.6,6.6 0 1,0 5.4,12Z"/>
-  <path d="M9.4,12A2.6,2.6 0 1,0 14.6,12A2.6,2.6 0 1,0 9.4,12Z"/>
-  <path d="M12,2.6L12,4.6 M12,19.4L12,21.4 M2.6,12L4.6,12 M19.4,12L21.4,12"/>
-  <path d="M10.85,12A1.15,1.15 0 1,0 13.15,12A1.15,1.15 0 1,0 10.85,12Z" fill="currentColor" stroke="none"/>
+  <path d="M16.95,11.29L11.29,16.95A3,3 0 0,1 7.05,16.95L7.05,16.95A3,3 0 0,1 7.05,12.71L12.71,7.05A3,3 0 0,1 16.95,7.05L16.95,7.05A3,3 0 0,1 16.95,11.29Z"/>
+  <path d="M15.68,12.57L11.43,8.32"/>
+  <path d="M12.57,15.68L8.32,11.43"/>
+  <path d="M15.8,6.6A1.6,1.6 0 1,0 19,6.6A1.6,1.6 0 1,0 15.8,6.6Z" fill="currentColor" stroke="none"/>
 </svg>

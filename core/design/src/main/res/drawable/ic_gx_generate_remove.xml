@@ -7,7 +7,7 @@
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
     <!-- generate-remove: An empty region with the sparkle that will resolve it. -->
-    <!-- lineage (new): Photoshop's Generative Fill used to remove — a gap the model closes. -->
+    <!-- lineage (PS): Photoshop's Generative Fill used to remove — a gap the model closes. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"

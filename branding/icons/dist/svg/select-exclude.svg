@@ -2,7 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/select-exclude — Everything except the ground they share. -->
-  <path d="M3.2,12A6,6 0 1,0 15.2,12A6,6 0 1,0 3.2,12Z"/>
-  <path d="M9.6,12A6,6 0 1,0 21.6,12A6,6 0 1,0 9.6,12Z"/>
-  <path d="M12.4,17.07A6,6 0 1,1 12.4,6.93A6,6 0 0,0 12.4,17.07Z M12.4,6.93A6,6 0 1,1 12.4,17.07A6,6 0 0,0 12.4,6.93Z" fill="currentColor" stroke="none"/>
+  <path d="M4,4L14,4L14,14L4,14Z"/>
+  <path d="M10,10L20,10L20,20L10,20Z"/>
+  <path d="M4,4L14,4L14,10L10,10L10,14L4,14Z M20,20L10,20L10,14L14,14L14,10L20,10Z" fill="currentColor" stroke="none"/>
 </svg>
