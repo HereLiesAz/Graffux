@@ -119,11 +119,10 @@ icon("path-open", "vector", ["cut path", "scissors"],
      note="A closed loop with one gap opened in its edge.")
 
 icon("path-simplify", "vector", ["reduce points", "clean path"],
-     s=[smooth([(3.4, 15.6), (5.2, 12.4), (7.0, 14.0), (8.8, 10.8), (10.6, 12.4),
-                (15.0, 8.2), (20.6, 10.4)]),
-        seq(square(3.4, 15.6, 1.3), square(5.2, 12.4, 1.3), square(7.0, 14.0, 1.3),
-            square(8.8, 10.8, 1.3), square(10.6, 12.4, 1.3))],
-     f=[seq(square(15.0, 8.2, 1.7), square(20.6, 10.4, 1.7))],
+     s=[smooth([(3.4, 13.0), (6.0, 10.6), (8.6, 13.4), (11.2, 10.8), (16.0, 15.0),
+                (20.6, 9.8)]),
+        seq(square(6.0, 10.6, 1.4), square(8.6, 13.4, 1.4), square(11.2, 10.8, 1.4))],
+     f=[seq(square(16.0, 15.0, 1.8), square(20.6, 9.8, 1.8))],
      apps="AI/PS",
      basis="Illustrator's Simplify — the same path carrying fewer anchors.",
      note="One path, crowded with anchors along the first half and carrying two along the "

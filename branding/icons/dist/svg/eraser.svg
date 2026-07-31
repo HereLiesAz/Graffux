@@ -1,11 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/eraser — A rubber block, banded, solid at the face doing the wiping, sitting on the mark it has come to the end of — the line runs in from the left and stops where the block is.
+  <!-- graffux/eraser — A rubber block held at the angle it is used at, divided end to end with the working end solid, and the mark it has come to the end of running in from the left.
 
-No crumbs. On its own the block was a file folder with a dog-eared corner, a wallet, and a battery at sixty per cent: a rectangle part-filled along one edge is a fill gauge before it is an object. Crumbs were tried three times and failed three different ways — in a row underneath they were wheels and the block above them a delivery van; drawn round and up the side they were soap suds and the block a washing machine; drawn as short flecks they closed into a two-lobed lump that a rater called a bone, and then a pair of testicles. Small marks clustered beside a body do not stay abstract. The mark being rubbed out does the same work and cannot become anatomy. -->
-  <path d="M7.4,5L20.6,5L20.6,16.4L7.4,16.4Z"/>
-  <path d="M7.4,9.6L20.6,9.6"/>
-  <path d="M2.8,16.4L7.4,16.4"/>
-  <path d="M7.4,9.6L20.6,9.6L20.6,16.4L7.4,16.4Z" fill="currentColor" stroke="none"/>
+Which way the block is divided decides what it is. Divided across, into a pale strip over a dark one, it is a container with a lid: square to the frame it was a file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and tilted it was an open laptop and a ballot box with a coin slot. Undivided and solid it stopped being a container and became a spade blade. Divided end to end it is neither, and it is also how a two-tone eraser is actually made.
+
+Crumbs were tried three ways and failed three ways: in a row underneath they were wheels and the block a delivery van; round, they were soap suds and the block a washing machine; as short flecks they closed into a two-lobed lump a rater called a bone, then a pair of testicles. Small marks clustered beside a body do not stay abstract, so the mark being rubbed out does that work instead. -->
+  <path d="M5.39,8.33L16.66,4.23L19.81,12.87L8.54,16.97Z"/>
+  <path d="M9.52,6.82L12.67,15.47"/>
+  <path d="M2.6,18.4L7,18.4"/>
+  <path d="M5.39,8.33L9.52,6.82L12.67,15.47L8.54,16.97Z" fill="currentColor" stroke="none"/>
 </svg>

@@ -93,7 +93,7 @@ icon("layer-delete", "layers", ["remove layer", "discard"],
 
 icon("layer-duplicate", "layers", ["copy layer", "clone layer"],
      s=[plate(0)],
-     f=[sheet(7.6, 6.6, 13.8, 4.4)],
+     f=[sheet(5.6, 9.2, 15.2, 4.4)],
      apps="PS/AI/PR",
      basis="Photoshop's Duplicate Layer — the stack, with the copy landing on top of it.",
      note="One plate, and the same plate again below it and out of register — two, not three, "
@@ -103,7 +103,9 @@ icon("layer-duplicate", "layers", ["copy layer", "clone layer"],
           "plates it was the plain layers glyph with a different plate filled in, and a rater "
           "called the two of them one icon in two states. The copy overlaps the original "
           "rather than sitting clear below it: clear of it, the pair was the "
-          "merge-down glyph, which is also one plate over one solid slab.")
+          "merge-down glyph, which is also one plate over one solid slab. Overlapping it "
+          "outright, the two ran together into a single swoosh a rater called an "
+          "automotive marque, so the copy sits just clear and is a plate thick, not a slab.")
 
 icon("layer-group", "layers", ["folder", "nest", "group"],
      s=[poly([(2.8, 20.6), (2.8, 5.0), (9.2, 5.0), (11.0, 7.6), (21.2, 7.6), (21.2, 20.6)],
@@ -166,11 +168,13 @@ icon("layer-unlink", "layers", ["break chain", "release"],
      note="Two open rings that no longer touch.")
 
 icon("layer-merge-down", "layers", ["combine", "flatten two", "down"],
-     s=[plate(0)],
-     f=[sheet(3.4, 13.4, 17.2, 7.2)],
+     s=[plate(0), line(12.4, 8.6, 12.4, 11.4)],
+     f=[seq(sheet(3.4, 13.8, 17.2, 6.8), tip(12.4, 12.8, 2.4, 90))],
      apps="PS/AI/PR",
      basis="Photoshop's Merge Down and Procreate's pinch-to-merge.",
-     note="The upper plate driven into the one below.")
+     note="The upper plate driven down into the one below, with the direction shown. Without "
+          "the arrow this was one plate above one solid slab, which is also what duplicate is, "
+          "and a rater called the two of them the same drawing.")
 
 icon("layer-merge-visible", "layers", ["merge shown", "collapse visible"],
      s=[plate(0), circle(18.6, 7.4, 2.6), line(12, 9.2, 12, 12.6)],

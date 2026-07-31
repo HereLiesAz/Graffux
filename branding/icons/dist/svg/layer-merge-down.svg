@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/layer-merge-down — The upper plate driven into the one below. -->
+  <!-- graffux/layer-merge-down — The upper plate driven down into the one below, with the direction shown. Without the arrow this was one plate above one solid slab, which is also what duplicate is, and a rater called the two of them the same drawing. -->
   <path d="M5.8,3.4L20.6,3.4L18.2,7.8L3.4,7.8Z"/>
-  <path d="M5.8,13.4L20.6,13.4L18.2,20.6L3.4,20.6Z" fill="currentColor" stroke="none"/>
+  <path d="M12.4,8.6L12.4,11.4"/>
+  <path d="M5.8,13.8L20.6,13.8L18.2,20.6L3.4,20.6Z M12.4,12.8L14.13,10.4L10.67,10.4Z" fill="currentColor" stroke="none"/>
 </svg>

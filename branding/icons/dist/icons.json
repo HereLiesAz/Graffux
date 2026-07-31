@@ -300,7 +300,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
-      "note": "A rubber block, banded, solid at the face doing the wiping, sitting on the mark it has come to the end of \u2014 the line runs in from the left and stops where the block is.\n\nNo crumbs. On its own the block was a file folder with a dog-eared corner, a wallet, and a battery at sixty per cent: a rectangle part-filled along one edge is a fill gauge before it is an object. Crumbs were tried three times and failed three different ways \u2014 in a row underneath they were wheels and the block above them a delivery van; drawn round and up the side they were soap suds and the block a washing machine; drawn as short flecks they closed into a two-lobed lump that a rater called a bone, and then a pair of testicles. Small marks clustered beside a body do not stay abstract. The mark being rubbed out does the same work and cannot become anatomy."
+      "note": "A rubber block held at the angle it is used at, divided end to end with the working end solid, and the mark it has come to the end of running in from the left.\n\nWhich way the block is divided decides what it is. Divided across, into a pale strip over a dark one, it is a container with a lid: square to the frame it was a file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and tilted it was an open laptop and a ballot box with a coin slot. Undivided and solid it stopped being a container and became a spade blade. Divided end to end it is neither, and it is also how a two-tone eraser is actually made.\n\nCrumbs were tried three ways and failed three ways: in a row underneath they were wheels and the block a delivery van; round, they were soap suds and the block a washing machine; as short flecks they closed into a two-lobed lump a rater called a bone, then a pair of testicles. Small marks clustered beside a body do not stay abstract, so the mark being rubbed out does that work instead."
     },
     {
       "key": "eraser-hard",
@@ -405,7 +405,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Sponge tool \u2014 a block being squeezed until the colour comes out of it.",
-      "note": "A solid block with suds coming off it. Six drawings, and the first five all tried to draw the sponge itself. As a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two pores overlapped into eye sockets: holes in a blob are cheese. With the underside wrung into points, the points were fangs and the drops were drool \u2014 a row of points along a solid edge is a jaw, which is what went wrong with the brush texture in the same round. Pinched at the waist it was a ticket stub. Given a soft irregular outline it was a thought bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is anything else; the block is a plain rectangle for that reason, and the bubbles carry the whole meaning."
+      "note": "A solid block with suds coming off it. Six drawings, and the first five all tried to draw the sponge itself. As a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two pores overlapped into eye sockets: holes in a blob are cheese. With the underside wrung into points, the points were fangs and the drops were drool \u2014 a row of points along a solid edge is a jaw, which is what went wrong with the brush texture in the same round. Pinched at the waist it was a ticket stub. Given a soft irregular outline it was a thought bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is anything else; the block is a plain rectangle for that reason, and the bubbles carry the whole meaning. The block is deep rather than wide: flat and wide with bubbles over it, it was a bathtub. The bubbles rise in a line off one corner and are three, not two: two marks side by side above a mass are eyes, and a rater called the pair of them a blank cartoon face at every size, more strongly the smaller it got."
     },
     {
       "key": "heal",
@@ -717,7 +717,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 a stroke running dry over the tooth of the paper.",
-      "note": "One stroke, ragged along both edges, where the tooth of the paper has eaten into it from above and below. Nothing beside it and nothing behind it.\n\nEight drawings. Everything that put the grain somewhere other than in the stroke's own outline failed, and failed differently every time. As a bare field of scattered dashes it was spilled rice, and the fourth icon in the set drawn as a field of scattered dashes \u2014 the same picture as Add Noise, Reduce Noise and Grain. As a band with a sawtooth underside it was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature. Over loose hatching, a strikethrough on a scribble; over boxed hatching, a hazard barricade with the stroke redacting it; over unboxed hatching, claw marks with a lightning bolt through them. Ragged on both edges there is only one object in the glyph, and it has nothing to cross out."
+      "note": "One footprint, bitten all round by the tooth, inside the swatch of paper that bit it.\n\nTen drawings. The first eight were strokes, and the brush family does not draw strokes: size is two discs on one centre, hardness a solid core inside a broken halo, roundness a circle beside an ellipse, spacing three stamps on a run. The ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one \u2014 which is the hardness glyph's own composition, and it read as a donut next to a squashed spider. Drawn with twelve vertices at alternating long and short radii, which is the obvious way to rough up a circle, it was a six-pointed star and a rater said Star of David. Sixteen vertices at radii that vary a little and never alternate give a roughened disc with no points on it.\n\nWhat the strokes were: spilled rice, and the fourth icon in the set drawn as a field of scattered dashes \u2014 the same picture as Add Noise, Reduce Noise and Grain. A band with a sawtooth underside was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature; over loose hatching a strikethrough on a scribble; over boxed hatching a hazard barricade; over unboxed hatching claw marks with a lightning bolt. Alone and ragged on both edges, it was a strip of torn tape."
     },
     {
       "key": "brush-import",
@@ -1219,7 +1219,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
-      "note": "Both regions held. The two squares overlap across most of their width: at a four-unit overlap the union was a staircase, and a staircase reads as two offset squares, which is the duplicate-layer glyph."
+      "note": "Both regions held. The pair is a square and a circle, not two squares, and the circle sits deep enough in the corner that what protrudes is a bulge and not a head."
     },
     {
       "key": "select-subtract",
@@ -1258,7 +1258,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Pathfinder Exclude.",
-      "note": "Everything except the ground they share."
+      "note": "Everything except the ground they share. The circle protrudes far enough that the crescent outside the square is worth seeing: set deeper, the only visible difference from Minus Front was a sliver, and a rater called both of them a bitten cookie."
     },
     {
       "key": "mask",
@@ -1433,7 +1433,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Duplicate Layer \u2014 the stack, with the copy landing on top of it.",
-      "note": "One plate, and the same plate again below it and out of register \u2014 two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab."
+      "note": "One plate, and the same plate again below it and out of register \u2014 two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab."
     },
     {
       "key": "layer-group",
@@ -1549,7 +1549,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Merge Down and Procreate's pinch-to-merge.",
-      "note": "The upper plate driven into the one below."
+      "note": "The upper plate driven down into the one below, with the direction shown. Without the arrow this was one plate above one solid slab, which is also what duplicate is, and a rater called the two of them the same drawing."
     },
     {
       "key": "layer-merge-visible",
@@ -5097,7 +5097,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's two-finger-tap undo gesture.",
-      "note": "Two short blunt fingertips leaning in from the upper right, unequal, each with its contact solid at the end of it.\n\nUpright as two chevrons over two dots over a rule \u2014 the obvious shorthand for pressing \u2014 it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. Anything symmetrical with two marks above two marks above a bar is a face and a face is all anyone sees. Upright as two pointed shapes standing on the rule with the contacts below, it was two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled onto the rule it was two chopsticks in a holder. Angled and solid with ripples at the tips, it was two lit cigarettes with smoke. Outlined, long and thin with the ripples curling at the base, it was two straight razors, and then two scalpels. A long thin outlined blade with anything hooked at its foot is a blade \u2014 the fingers have to be short, wide and round-ended."
+      "note": "Two fingers of unequal length coming down together on one surface.\n\nTen drawings, and this is the least bad of them rather than a good one. It is recorded here as unresolved. A rater with no context calls it two chopsticks in a holder, or two cigarettes, or a pair of skis \u2014 all wrong, all harmless, which is more than any other version managed.\n\nWhat the others were. Upright as two chevrons over two dots over a rule: an angry cartoon face, two V eyebrows over two eyes over a flat mouth, because anything symmetrical with two marks above two marks above a bar is a face. Upright as pointed shapes standing on the rule with the contacts below: two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Long, thin and outlined with the ripples curling at their feet: two straight razors, then two scalpels. Outlined and blunt with the contact solid inside the tip: the letters oo, then two pill capsules, then two sperm cells. Outlined, blunt, standing on curved arcs: two tombstones on rocker feet. Solid and anchored off the top-right corner so that the hand would be implied: two shafts with rounded bulges at the base, which a rater named as two erect penises.\n\nThe trap under all of it is that two similar elongated marks side by side are always a pair of something, and the viewer supplies the something. Nothing about fingers survives at this size; only the pairing does."
     },
     {
       "key": "undo-history-slider",

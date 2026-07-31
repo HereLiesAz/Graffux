@@ -220,23 +220,28 @@ icon("stamp-pattern", "tools", ["pattern stamp", "tile", "repeat"],
 # Retouch
 # ---------------------------------------------------------------------------------------
 
+_ERA = xf(12.6, 10.6, -20)
+
 icon("eraser", "tools", ["rub out", "delete", "undo mark"],
-     s=[rect(7.4, 5.0, 13.2, 11.4), line(7.4, 9.6, 20.6, 9.6), line(2.8, 16.4, 7.4, 16.4)],
-     f=[rect(7.4, 9.6, 13.2, 6.8)],
+     s=[rect(-6.0, -4.6, 12.0, 9.2, t=_ERA), line(-1.6, -4.6, -1.6, 4.6, t=_ERA),
+        line(2.6, 18.4, 7.0, 18.4)],
+     f=[poly([(-6.0, -4.6), (-1.6, -4.6), (-1.6, 4.6), (-6.0, 4.6)], close=True, t=_ERA)],
      apps="PS/AI/PR",
      basis="The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
-     note="A rubber block, banded, solid at the face doing the wiping, sitting on the mark it "
-           "has come to the end of — the line runs in from the left and stops where the block "
-           "is.\n\n"
-           "No crumbs. On its own the block was a file folder with a dog-eared corner, a "
-           "wallet, and a battery at sixty per cent: a rectangle part-filled along one edge is "
-           "a fill gauge before it is an object. Crumbs were tried three times and failed three "
-           "different ways — in a row underneath they were wheels and the block above them a "
-           "delivery van; drawn round and up the side they were soap suds and the block a "
-           "washing machine; drawn as short flecks they closed into a two-lobed lump that a "
-           "rater called a bone, and then a pair of testicles. Small marks clustered beside a "
-           "body do not stay abstract. The mark being rubbed out does the same work and cannot "
-           "become anatomy."
+     note="A rubber block held at the angle it is used at, divided end to end with the "
+           "working end solid, and the mark it has come to the end of running in from the "
+           "left.\n\n"
+           "Which way the block is divided decides what it is. Divided across, into a pale "
+           "strip over a dark one, it is a container with a lid: square to the frame it was a "
+           "file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and "
+           "tilted it was an open laptop and a ballot box with a coin slot. Undivided and "
+           "solid it stopped being a container and became a spade blade. Divided end to end "
+           "it is neither, and it is also how a two-tone eraser is actually made.\n\n"
+           "Crumbs were tried three ways and failed three ways: in a row underneath they were "
+           "wheels and the block a delivery van; round, they were soap suds and the block a "
+           "washing machine; as short flecks they closed into a two-lobed lump a rater called "
+           "a bone, then a pair of testicles. Small marks clustered beside a body do not stay "
+           "abstract, so the mark being rubbed out does that work instead."
 )
 
 icon("eraser-hard", "tools", ["hard edge", "crisp", "block"],
@@ -344,8 +349,8 @@ icon("burn", "tools", ["darken", "shade", "cupped hand", "aperture"],
 )
 
 icon("sponge", "tools", ["saturation", "soak", "porous"],
-     s=[seq(circle(8.0, 6.6, 1.3), circle(12.4, 4.4, 0.95), circle(16.2, 7.0, 0.7))],
-     f=[rect(4.4, 10.0, 15.2, 9.4, 1.6)],
+     s=[seq(circle(6.2, 7.8, 1.3), circle(9.0, 4.8, 0.95), circle(11.4, 2.6, 0.65))],
+     f=[rect(6.2, 10.4, 12.6, 10.0, 1.6)],
      apps="PS",
      basis="Photoshop's Sponge tool — a block being squeezed until the colour comes out of it.",
      note="A solid block with suds coming off it. Six drawings, and the first five all tried "
@@ -358,7 +363,11 @@ icon("sponge", "tools", ["saturation", "soak", "porous"],
            "waist it was a ticket stub. Given a soft irregular outline it was a thought "
            "bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is "
            "anything else; the block is a plain rectangle for that reason, and the bubbles "
-           "carry the whole meaning."
+           "carry the whole meaning. The block is deep rather than wide: flat and wide with "
+           "bubbles over it, it was a bathtub. The bubbles rise in a line off one corner "
+           "and are three, not two: two marks side by side above a mass are eyes, and a rater "
+           "called the pair of them a blank cartoon face at every size, more strongly the "
+           "smaller it got."
 )
 
 icon("heal", "tools", ["healing brush", "plaster", "repair"],
@@ -547,26 +556,32 @@ icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
      note="A smaller footprint carried by a larger one.")
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
-     s=[],
-     f=[poly([(3.4, 9.8), (6.2, 8.4), (8.0, 9.4), (11.4, 7.6), (14.2, 8.8), (17.0, 7.0),
-              (20.6, 8.2), (20.6, 12.4), (17.4, 11.6), (14.6, 13.4), (11.0, 12.2),
-              (8.4, 14.0), (5.8, 12.6), (3.4, 13.8)], close=True)],
+     s=[rect(3.0, 3.0, 18.0, 18.0)],
+     f=[poly([(16.1, 12.8), (15.3, 14.2), (14.1, 15.1), (12.8, 16.0), (11.3, 15.7), (9.7, 15.5),
+              (9.0, 14.0), (8.1, 12.8), (7.8, 11.2), (8.8, 9.9), (9.7, 8.6), (11.3, 8.4),
+              (12.8, 7.9), (14.2, 8.7), (15.0, 10.0), (16.0, 11.2)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Texture setting and Procreate's grain source — a stroke running dry "
            "over the tooth of the paper.",
-     note="One stroke, ragged along both edges, where the tooth of the paper has eaten into "
-          "it from above and below. Nothing beside it and nothing behind it.\n\n"
-          "Eight drawings. Everything that put the grain somewhere other than in the stroke's "
-          "own outline failed, and failed differently every time. As a bare field of scattered "
-          "dashes it was spilled rice, and the fourth icon in the set drawn as a field of "
-          "scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a band "
-          "with a sawtooth underside it was a mouth full of bared teeth, because a row of "
+     note="One footprint, bitten all round by the tooth, inside the swatch of paper that bit "
+          "it.\n\n"
+          "Ten drawings. The first eight were strokes, and the brush family does not draw "
+          "strokes: size is two discs on one centre, hardness a solid core inside a broken "
+          "halo, roundness a circle beside an ellipse, spacing three stamps on a run. The "
+          "ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one — "
+          "which is the hardness glyph's own composition, and it read as a donut next to a "
+          "squashed spider. Drawn with twelve vertices at alternating long and short "
+          "radii, which is the obvious way to rough up a circle, it was a six-pointed "
+          "star and a rater said Star of David. Sixteen vertices at radii that vary a "
+          "little and never alternate give a roughened disc with no points on it.\n\n"
+          "What the strokes were: spilled rice, and the fourth icon in the set drawn as a "
+          "field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. "
+          "A band with a sawtooth underside was a mouth full of bared teeth, because a row of "
           "points along a solid edge is a jaw. Broken into slivers it was a barcode at even "
           "and uneven widths both, then road markings in perspective. Over a broken shadow it "
-          "was a crossed-out signature. Over loose hatching, a strikethrough on a scribble; "
-          "over boxed hatching, a hazard barricade with the stroke redacting it; over "
-          "unboxed hatching, claw marks with a lightning bolt through them. Ragged on both "
-          "edges there is only one object in the glyph, and it has nothing to cross out."
+          "was a crossed-out signature; over loose hatching a strikethrough on a scribble; "
+          "over boxed hatching a hazard barricade; over unboxed hatching claw marks with a "
+          "lightning bolt. Alone and ragged on both edges, it was a strip of torn tape."
 )
 
 icon("brush-import", "tools", ["load brush", "install", "abr"],

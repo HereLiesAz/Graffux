@@ -57,9 +57,11 @@ object GraffuxIcons {
     val Stamp: Int get() = R.drawable.ic_gx_stamp
     /** Stamp over a chequer. */
     val StampPattern: Int get() = R.drawable.ic_gx_stamp_pattern
-    /** A rubber block, banded, solid at the face doing the wiping, sitting on the mark it has come to the end of — the line runs in from the left and stops where the block is.
+    /** A rubber block held at the angle it is used at, divided end to end with the working end solid, and the mark it has come to the end of running in from the left.
 
-No crumbs. On its own the block was a file folder with a dog-eared corner, a wallet, and a battery at sixty per cent: a rectangle part-filled along one edge is a fill gauge before it is an object. Crumbs were tried three times and failed three different ways — in a row underneath they were wheels and the block above them a delivery van; drawn round and up the side they were soap suds and the block a washing machine; drawn as short flecks they closed into a two-lobed lump that a rater called a bone, and then a pair of testicles. Small marks clustered beside a body do not stay abstract. The mark being rubbed out does the same work and cannot become anatomy. */
+Which way the block is divided decides what it is. Divided across, into a pale strip over a dark one, it is a container with a lid: square to the frame it was a file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and tilted it was an open laptop and a ballot box with a coin slot. Undivided and solid it stopped being a container and became a spade blade. Divided end to end it is neither, and it is also how a two-tone eraser is actually made.
+
+Crumbs were tried three ways and failed three ways: in a row underneath they were wheels and the block a delivery van; round, they were soap suds and the block a washing machine; as short flecks they closed into a two-lobed lump a rater called a bone, then a pair of testicles. Small marks clustered beside a body do not stay abstract, so the mark being rubbed out does that work instead. */
     val Eraser: Int get() = R.drawable.ic_gx_eraser
     /** The block against an unbroken rule — the edge stays where it is put. */
     val EraserHard: Int get() = R.drawable.ic_gx_eraser_hard
@@ -87,7 +89,7 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val Dodge: Int get() = R.drawable.ic_gx_dodge
     /** A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola — a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it. */
     val Burn: Int get() = R.drawable.ic_gx_burn
-    /** A solid block with suds coming off it. Six drawings, and the first five all tried to draw the sponge itself. As a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two pores overlapped into eye sockets: holes in a blob are cheese. With the underside wrung into points, the points were fangs and the drops were drool — a row of points along a solid edge is a jaw, which is what went wrong with the brush texture in the same round. Pinched at the waist it was a ticket stub. Given a soft irregular outline it was a thought bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is anything else; the block is a plain rectangle for that reason, and the bubbles carry the whole meaning. */
+    /** A solid block with suds coming off it. Six drawings, and the first five all tried to draw the sponge itself. As a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two pores overlapped into eye sockets: holes in a blob are cheese. With the underside wrung into points, the points were fangs and the drops were drool — a row of points along a solid edge is a jaw, which is what went wrong with the brush texture in the same round. Pinched at the waist it was a ticket stub. Given a soft irregular outline it was a thought bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is anything else; the block is a plain rectangle for that reason, and the bubbles carry the whole meaning. The block is deep rather than wide: flat and wide with bubbles over it, it was a bathtub. The bubbles rise in a line off one corner and are three, not two: two marks side by side above a mass are eyes, and a rater called the pair of them a blank cartoon face at every size, more strongly the smaller it got. */
     val Sponge: Int get() = R.drawable.ic_gx_sponge
     /** A plaster with the sampled centre solid. */
     val Heal: Int get() = R.drawable.ic_gx_heal
@@ -135,9 +137,11 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushBuildup: Int get() = R.drawable.ic_gx_brush_buildup
     /** A smaller footprint carried by a larger one. */
     val BrushDual: Int get() = R.drawable.ic_gx_brush_dual
-    /** One stroke, ragged along both edges, where the tooth of the paper has eaten into it from above and below. Nothing beside it and nothing behind it.
+    /** One footprint, bitten all round by the tooth, inside the swatch of paper that bit it.
 
-Eight drawings. Everything that put the grain somewhere other than in the stroke's own outline failed, and failed differently every time. As a bare field of scattered dashes it was spilled rice, and the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a band with a sawtooth underside it was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature. Over loose hatching, a strikethrough on a scribble; over boxed hatching, a hazard barricade with the stroke redacting it; over unboxed hatching, claw marks with a lightning bolt through them. Ragged on both edges there is only one object in the glyph, and it has nothing to cross out. */
+Ten drawings. The first eight were strokes, and the brush family does not draw strokes: size is two discs on one centre, hardness a solid core inside a broken halo, roundness a circle beside an ellipse, spacing three stamps on a run. The ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one — which is the hardness glyph's own composition, and it read as a donut next to a squashed spider. Drawn with twelve vertices at alternating long and short radii, which is the obvious way to rough up a circle, it was a six-pointed star and a rater said Star of David. Sixteen vertices at radii that vary a little and never alternate give a roughened disc with no points on it.
+
+What the strokes were: spilled rice, and the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. A band with a sawtooth underside was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature; over loose hatching a strikethrough on a scribble; over boxed hatching a hazard barricade; over unboxed hatching claw marks with a lightning bolt. Alone and ragged on both edges, it was a strip of torn tape. */
     val BrushTexture: Int get() = R.drawable.ic_gx_brush_texture
     /** A brush dropped into the shelf that holds them. */
     val BrushImport: Int get() = R.drawable.ic_gx_brush_import
@@ -215,13 +219,13 @@ Eight drawings. Everything that put the grain somewhere other than in the stroke
     val SelectRefine: Int get() = R.drawable.ic_gx_select_refine
     /** A selection edge under its own handles. */
     val SelectTransform: Int get() = R.drawable.ic_gx_select_transform
-    /** Both regions held. The two squares overlap across most of their width: at a four-unit overlap the union was a staircase, and a staircase reads as two offset squares, which is the duplicate-layer glyph. */
+    /** Both regions held. The pair is a square and a circle, not two squares, and the circle sits deep enough in the corner that what protrudes is a bulge and not a head. */
     val SelectAdd: Int get() = R.drawable.ic_gx_select_add
     /** What is left of the first once the second is taken out. */
     val SelectSubtract: Int get() = R.drawable.ic_gx_select_subtract
     /** Only the ground both regions hold. */
     val SelectIntersect: Int get() = R.drawable.ic_gx_select_intersect
-    /** Everything except the ground they share. */
+    /** Everything except the ground they share. The circle protrudes far enough that the crescent outside the square is worth seeing: set deeper, the only visible difference from Minus Front was a sliver, and a rater called both of them a bitten cookie. */
     val SelectExclude: Int get() = R.drawable.ic_gx_select_exclude
     /** One plate, half of it withheld. */
     val Mask: Int get() = R.drawable.ic_gx_mask
@@ -249,7 +253,7 @@ Eight drawings. Everything that put the grain somewhere other than in the stroke
     val LayerAdd: Int get() = R.drawable.ic_gx_layer_add
     /** The top plate taken out of the stack, the cross set off to one side to match the plus — a mark centred over stacked slabs is a monument. */
     val LayerDelete: Int get() = R.drawable.ic_gx_layer_delete
-    /** One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. */
+    /** One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. */
     val LayerDuplicate: Int get() = R.drawable.ic_gx_layer_duplicate
     /** A folder with a plate in it. */
     val LayerGroup: Int get() = R.drawable.ic_gx_layer_group
@@ -267,7 +271,7 @@ Eight drawings. Everything that put the grain somewhere other than in the stroke
     val LayerLink: Int get() = R.drawable.ic_gx_layer_link
     /** Two open rings that no longer touch. */
     val LayerUnlink: Int get() = R.drawable.ic_gx_layer_unlink
-    /** The upper plate driven into the one below. */
+    /** The upper plate driven down into the one below, with the direction shown. Without the arrow this was one plate above one solid slab, which is also what duplicate is, and a rater called the two of them the same drawing. */
     val LayerMergeDown: Int get() = R.drawable.ic_gx_layer_merge_down
     /** A merge, qualified. */
     val LayerMergeVisible: Int get() = R.drawable.ic_gx_layer_merge_visible
@@ -861,9 +865,13 @@ Drawn as a jagged run with beads on its peaks above a smooth curve below, it was
     val BrushCursor: Int get() = R.drawable.ic_gx_brush_cursor
     /** Two touch points being drawn together. */
     val GesturePinch: Int get() = R.drawable.ic_gx_gesture_pinch
-    /** Two short blunt fingertips leaning in from the upper right, unequal, each with its contact solid at the end of it.
+    /** Two fingers of unequal length coming down together on one surface.
 
-Upright as two chevrons over two dots over a rule — the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. Anything symmetrical with two marks above two marks above a bar is a face and a face is all anyone sees. Upright as two pointed shapes standing on the rule with the contacts below, it was two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled onto the rule it was two chopsticks in a holder. Angled and solid with ripples at the tips, it was two lit cigarettes with smoke. Outlined, long and thin with the ripples curling at the base, it was two straight razors, and then two scalpels. A long thin outlined blade with anything hooked at its foot is a blade — the fingers have to be short, wide and round-ended. */
+Ten drawings, and this is the least bad of them rather than a good one. It is recorded here as unresolved. A rater with no context calls it two chopsticks in a holder, or two cigarettes, or a pair of skis — all wrong, all harmless, which is more than any other version managed.
+
+What the others were. Upright as two chevrons over two dots over a rule: an angry cartoon face, two V eyebrows over two eyes over a flat mouth, because anything symmetrical with two marks above two marks above a bar is a face. Upright as pointed shapes standing on the rule with the contacts below: two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Long, thin and outlined with the ripples curling at their feet: two straight razors, then two scalpels. Outlined and blunt with the contact solid inside the tip: the letters oo, then two pill capsules, then two sperm cells. Outlined, blunt, standing on curved arcs: two tombstones on rocker feet. Solid and anchored off the top-right corner so that the hand would be implied: two shafts with rounded bulges at the base, which a rater named as two erect penises.
+
+The trap under all of it is that two similar elongated marks side by side are always a pair of something, and the viewer supplies the something. Nothing about fingers survives at this size; only the pairing does. */
     val GestureTwoFingerTap: Int get() = R.drawable.ic_gx_gesture_two_finger_tap
     /** A single control riding along its own track. */
     val UndoHistorySlider: Int get() = R.drawable.ic_gx_undo_history_slider

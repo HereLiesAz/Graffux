@@ -45,19 +45,27 @@ def handle(cx, cy):
     return square(cx, cy, 2.6)
 
 
-# Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
-# in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
-# circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
-_SQ_A = (3.4, 3.4, 12.4, 12.4)
-_SQ_B = (8.2, 8.2, 12.4, 12.4)
-_UNION = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (20.6, 8.2), (20.6, 20.6), (8.2, 20.6),
-               (8.2, 15.8), (3.4, 15.8)],
-              close=True)
-_ONLY_A = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (8.2, 8.2), (8.2, 15.8),
-                (3.4, 15.8)], close=True)
-_ONLY_B = poly([(20.6, 20.6), (8.2, 20.6), (8.2, 15.8), (15.8, 15.8), (15.8, 8.2),
-                (20.6, 8.2)], close=True)
-_CORE = rect(8.2, 8.2, 7.6, 7.6)
+# Illustrator's Pathfinder pair: a square with a circle set deep into its lower-right corner,
+# so that only a shallow bulge of the circle protrudes.
+#
+# Two squares — the cheaper drawing, and what this was — give a union that is a staircase, and
+# a staircase is two offset squares, which is the duplicate-layer glyph; a rater named it as
+# the copy icon at every overlap depth tried. A square against a circle fixed that and all four
+# booleans were then named correctly as vector boolean operations. But the circle has to sit
+# deep. Shallow on the corner, the union was a mass with a rounded head on a neck and was
+# named as a phallus; moved to the middle of the right edge, where the union is a "D" with no
+# neck at all, the whole family stopped reading as booleans and became washing machines.
+_SQ = (3.4, 3.4, 12.6, 12.6)          # 3.4 .. 16.0 on both axes
+_CI = (13.4, 13.4, 6.2)               # centre inside the square, a 3.6-unit bulge outside it
+
+_UNION = Path("M3.4,3.4L16,3.4L16,7.77A6.2,6.2 0 1 1 7.77,16L3.4,16Z",
+              [(3.4, 3.4), (16.0, 3.4), (19.6, 13.4), (13.4, 19.6), (3.4, 16.0)])
+_ONLY_A = Path("M3.4,3.4L16,3.4L16,7.77A6.2,6.2 0 0 0 7.77,16L3.4,16Z",
+               [(3.4, 3.4), (16.0, 3.4), (16.0, 7.77), (7.77, 16.0), (3.4, 16.0)])
+_ONLY_B = Path("M16,7.77A6.2,6.2 0 1 1 7.77,16L16,16Z",
+               [(16.0, 7.77), (19.6, 13.4), (13.4, 19.6), (7.77, 16.0), (16.0, 16.0)])
+_CORE = Path("M16,7.77A6.2,6.2 0 0 0 7.77,16L16,16Z",
+             [(16.0, 7.77), (7.77, 16.0), (16.0, 16.0)])
 
 _WAND = xf(12.4, 12.4, 135)
 
@@ -253,34 +261,37 @@ icon("select-transform", "selection", ["transform selection", "handles", "resize
 # ---------------------------------------------------------------------------------------
 
 icon("select-add", "selection", ["union", "unite", "add to selection"],
-     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     s=[rect(*_SQ), circle(*_CI)],
      f=[_UNION],
      apps="PS/AI/PR",
      basis="Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
-     note="Both regions held. The two squares overlap across most of their width: at "
-          "a four-unit overlap the union was a staircase, and a staircase reads as "
-          "two offset squares, which is the duplicate-layer glyph.")
+     note="Both regions held. The pair is a square and a circle, not two squares, and the "
+          "circle sits deep enough in the corner that what protrudes is a bulge and not a "
+          "head.")
 
 icon("select-subtract", "selection", ["minus front", "remove", "take away"],
-     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     s=[rect(*_SQ), circle(*_CI)],
      f=[_ONLY_A],
      apps="PS/AI/PR",
      basis="Illustrator's Minus Front and Photoshop's Subtract from Selection.",
      note="What is left of the first once the second is taken out.")
 
 icon("select-intersect", "selection", ["overlap", "common", "both"],
-     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     s=[rect(*_SQ), circle(*_CI)],
      f=[_CORE],
      apps="PS/AI/PR",
      basis="Illustrator's Intersect and Photoshop's Intersect with Selection.",
      note="Only the ground both regions hold.")
 
 icon("select-exclude", "selection", ["difference", "xor", "either but not both"],
-     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     s=[rect(*_SQ), circle(*_CI)],
      f=[seq(_ONLY_A, _ONLY_B)],
      apps="AI",
      basis="Illustrator's Pathfinder Exclude.",
-     note="Everything except the ground they share.")
+     note="Everything except the ground they share. The circle protrudes far enough "
+          "that the crescent outside the square is worth seeing: set deeper, the "
+          "only visible difference from Minus Front was a sliver, and a rater called "
+          "both of them a bitten cookie.")
 
 # ---------------------------------------------------------------------------------------
 # Masking
