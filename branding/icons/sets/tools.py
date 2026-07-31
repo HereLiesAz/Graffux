@@ -76,8 +76,8 @@ icon("airbrush", "tools", ["spray", "atomiser", "soft", "mist"],
           "compass, so the cone is described only by where the particles land.")
 
 icon("marker", "tools", ["felt tip", "chisel", "highlighter"],
-     s=[rect(7.4, 3.4, 9.2, 4.0, 1.0), rect(8.8, 7.6, 6.4, 7.2)],
-     f=[poly([(8.8, 14.8), (15.2, 14.8), (15.2, 20.6), (8.8, 16.8)], close=True)],
+     s=[rect(7.6, 3.4, 8.0, 4.2, 1.0), line(16.6, 4.6, 16.6, 9.0), rect(8.8, 7.6, 5.6, 6.4)],
+     f=[poly([(8.8, 14.0), (14.4, 14.0), (14.4, 20.6), (8.8, 16.6)], close=True)],
      apps="PS/PR",
      basis="Procreate's inking and marker brush families — a fat barrel cut to a chisel.",
      note="A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. "
@@ -104,11 +104,13 @@ icon("calligraphy", "tools", ["broad edge", "lettering", "italic nib"],
            "writing implement nobody mistakes for anything else.",
      note="Shaft curving to the cut point at lower left, with the vane solid against it.")
 
+_CRY = xf(12, 10.4, 18)
+
 icon("crayon", "tools", ["wax", "kids", "stub"],
-     s=[rect(7.6, 3.4, 8.8, 11.4),
-        poly([(7.6, 7.2), (9.6, 6.3), (11.6, 7.2), (13.6, 6.3), (16.4, 7.2)]),
-        line(7.6, 12.2, 16.4, 12.2)],
-     f=[poly([(7.6, 14.8), (16.4, 14.8), (12.7, 20.6), (11.3, 20.6)], close=True)],
+     s=[rect(-4.4, -4.4, 8.8, 11.2, t=_CRY),
+        poly([(-4.4, -0.6), (-2.4, -1.5), (-0.4, -0.6), (1.6, -1.5), (4.4, -0.6)], t=_CRY),
+        line(-4.4, 4.4, 4.4, 4.4, t=_CRY)],
+     f=[poly([(-4.4, 6.8), (4.4, 6.8), (0.7, 12.6), (-0.7, 12.6)], close=True, t=_CRY)],
      apps="PR",
      basis="Procreate's Artistic set — the wrapped wax stub.",
      note="Fat and short, with the paper label banded round the middle and the wax worn to a "
@@ -122,10 +124,9 @@ icon("crayon", "tools", ["wax", "kids", "stub"],
 _CHK = xf(11.0, 10.4, -14)
 
 icon("chalk", "tools", ["pastel", "dry media", "stick"],
-     s=[rect(-8.0, -2.4, 9.6, 4.8, t=_CHK),
-        seq(circle(15.8, 16.4, 0.55), circle(18.6, 18.2, 0.55), circle(13.8, 19.2, 0.55))],
-     f=[poly([(1.6, -2.4), (5.4, -2.4), (5.4, 0.6), (3.4, 2.4), (1.6, 2.4)], close=True,
-             t=_CHK)],
+     s=[seq(circle(15.8, 16.4, 0.55), circle(18.6, 18.2, 0.55), circle(13.8, 19.2, 0.55))],
+     f=[poly([(-8.0, -2.0), (-5.6, -2.4), (5.4, -2.4), (5.4, 0.6), (3.4, 2.4), (-6.0, 2.4),
+              (-8.0, 1.6)], close=True, t=_CHK)],
      apps="PR",
      basis="Procreate's chalk and soft-pastel brushes — a square stick that sheds.",
      note="A plain stick lying at the shallow angle chalk is actually held at, worn away at one "
@@ -271,9 +272,9 @@ icon("blur", "tools", ["soften", "out of focus", "droplet"],
      note="The drop, with the detail under it collapsing into bands.")
 
 icon("sharpen", "tools", ["crisp", "detail", "cone"],
-     s=[smooth([(2.8, 17.0), (7.0, 15.6), (10.0, 16.4)]),
-        smooth([(14.0, 16.4), (17.0, 15.6), (21.2, 17.0)]), line(2.8, 20.4, 21.2, 20.4)],
-     f=[poly([(16.2, 3.4), (14.6, 16.8), (9.4, 16.8)], close=True)],
+     s=[ellipse(12, 16.4, 5.4, 1.9), line(6.6, 16.4, 12, 3.6), line(17.4, 16.4, 12, 3.6),
+        line(3.0, 20.6, 21.0, 20.6)],
+     f=[poly([(12, 3.6), (13.6, 7.4), (10.4, 7.4)], close=True)],
      apps="PS/AI/PR",
      basis="Photoshop's Sharpen tool — the sharpening cone next to the blur drop.",
      note="The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base "
@@ -522,7 +523,7 @@ icon("stylus", "tools", ["pen hardware", "pencil", "digitiser"],
 
 icon("pressure", "tools", ["force", "hard press", "weight"],
      s=[quad((3.4, 15.8), (12, 21.4), (20.6, 15.8))],
-     f=[poly([(9.4, 3.6), (14.6, 3.6), (12, 20.4)], close=True)],
+     f=[poly([(8.6, 3.6), (15.4, 3.6), (13.4, 12.0), (12, 20.4), (10.6, 12.0)], close=True)],
      apps="PR",
      basis="Procreate's Pressure curve — force registered at the point of contact.",
      note="A point bearing down hard enough to bow the surface under it, and nothing else. A "
@@ -535,7 +536,8 @@ _TILT = xf(8.6, 20.2, -58)
 icon("tilt", "tools", ["angle", "shading", "lean"],
      s=[rect(2.2, -2.1, 11.0, 4.2, 2.0, t=_TILT), line(6.4, -2.1, 6.4, 2.1, t=_TILT),
         line(3.0, 20.2, 21.0, 20.2), arc(8.6, 20.2, 5.6, -58, 0)],
-     f=[poly([(0, 0), (2.2, -1.5), (2.2, 1.5)], close=True, t=_TILT)],
+     f=[poly([(2.2, -1.5), (0.7, -0.7), (0.7, -1.9), (-0.5, -1.9), (-0.5, 1.9), (0.7, 1.9),
+              (0.7, 0.7), (2.2, 1.5)], close=True, t=_TILT)],
      apps="PR",
      basis="Procreate's Tilt settings — the lean of the barrel against the surface.",
      note="The same capsule barrel as the stylus, leant over, with the angle it makes against "
@@ -559,9 +561,9 @@ icon("quickshape", "tools", ["snap to shape", "clean up", "auto shape"],
      note="A wobble becoming a circle.")
 
 icon("colordrop", "tools", ["flood fill", "drag colour", "drop"],
-     s=[rect(3.4, 13.8, 17.2, 6.8)],
-     f=[poly([(12, 2.8), (15.0, 8.0), (15.6, 10.4), (14.0, 12.4), (10.0, 12.4), (8.4, 10.4),
-              (9.0, 8.0)], close=True)],
+     s=[poly([(12, 2.8), (14.6, 7.2), (15.2, 9.4), (13.8, 11.2), (10.2, 11.2), (8.8, 9.4),
+              (9.4, 7.2)], close=True)],
+     f=[poly([(3.4, 13.4), (20.6, 13.4), (20.6, 20.6), (3.4, 20.6)], close=True)],
      apps="PR",
      basis="Procreate's ColorDrop — colour dragged into a closed region, which takes it whole.",
      note="An actual drop, with shoulders, falling into what it will flood. A bare triangle over "
@@ -630,8 +632,9 @@ icon("guide-drawing", "tools", ["assist", "grid guide", "on rails"],
      note="A drawing that cannot leave the grid it was given.")
 
 icon("guide-perspective", "tools", ["vanishing point", "one point", "recede"],
-     s=[seq(line(2.6, 20.4, 21.4, 20.4), line(2.6, 11.0, 21.4, 11.0)),
-        seq(line(2.6, 20.4, 19.0, 11.0), line(9.0, 20.4, 19.0, 11.0), line(15.4, 20.4, 19.0, 11.0))],
+     s=[seq(line(2.6, 20.6, 21.4, 20.6), line(2.6, 10.6, 21.4, 10.6)),
+        seq(line(3.4, 20.6, 19.0, 10.6), line(9.4, 20.6, 19.0, 10.6),
+            line(15.0, 20.6, 19.0, 10.6))],
      f=[dot(19.0, 11.0, 1.5)],
      apps="PS/AI/PR",
      basis="Illustrator's Perspective Grid and Procreate's Perspective guide. The horizon is "
