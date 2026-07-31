@@ -547,8 +547,8 @@
         "scale brush"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's brush-size preview, measured the way any width is measured.",
-      "note": "One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them \u2014 the literal picture of a diameter \u2014 it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. The measure goes underneath: stood beside the footprint as a vertical bar between two arrowheads, the pair of them read as the letters Oi, and at small size that was the only thing left."
+      "basis": "Photoshop's brush-size preview, dimensioned the way any width is dimensioned.",
+      "note": "One footprint with its diameter measured across it, the arrowheads breaking the outline on both sides.\n\nThe measure has to run through the circle. Set underneath it, a ring above a double-headed width arrow is the universal girth gesture \u2014 a rater called it a condom-size chart and said the crude reading arrived first. Stood beside the footprint as a vertical bar between two arrowheads, the pair read as the letters Oi, and at small size that was the only thing left. What it costs is small size: with the arrowheads gone the tiny render is a bar across a circle, which is a prohibition sign. That is a wrong meaning rather than a crude one, and it is the trade taken.\n\nDrawn as two rings on one centre with a radius struck through them \u2014 the literal picture of a diameter \u2014 it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark."
     },
     {
       "key": "brush-opacity",
@@ -586,8 +586,8 @@
         "core"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's hardness preview \u2014 the same footprint hard and soft.",
-      "note": "A hard footprint and a soft one, deliberately unequal in size. Side by side and near-equal a rater called them a pair of testicles, or breasts: two adjacent circles of about the same size at about that spacing are that, whatever is drawn inside them. Stacked one above the other instead, they were a snowman, and anatomical again. Concentric was never an option: a ring with a filled circle inside it is a nipple, which is what the burn tool was, and a broken ring around a solid centre is a target, which is what the brush size was. Unequal and side by side is the only arrangement of two round things that has come back clean, and it costs a family resemblance to brush-roundness. The two stand clear of each other: hard against the solid one, the small ring read as a piercing through it."
+      "basis": "Photoshop's hardness preview \u2014 a solid core inside a falloff.",
+      "note": "A solid core with its falloff stepping away from it \u2014 the whole parameter is in how fast the ticks run out. It shares that gesture with layer-opacity, which is also bars shrinking to the right, and at 24 pixels the two are hard to tell apart; a rater read this one as a volume meter fading out.\n\nIt was two footprints before, one solid and one a broken ring, and that is the trap the entire brush-parameter family sits in. Two adjacent circles of about the same size are a pair of testicles whatever is drawn inside them, and a rater said so twice; stacked instead they are a snowman and still anatomical; made deliberately unequal they became a dividing cell. A circle is the honest picture of a brush footprint and it is the one shape that cannot carry a second circle beside it.\n\nDrawn in section instead \u2014 a solid wedge standing on the surface, hard wall one side and ramp the other \u2014 it was a doorstop, and at 24 pixels it was the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them. Anything resting on a heavy baseline at this size is a triangle on a line."
     },
     {
       "key": "brush-spacing",
@@ -639,7 +639,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Roundness control \u2014 a round footprint compressed on one axis.",
-      "note": "The footprint above, and the same footprint squashed below it. Set side by side \u2014 a ring with a solid flat lozenge against its right edge \u2014 it was a sperm cell, head left and tail right, at every size and more strongly the smaller it got. Stacked, the compression is along the axis it actually happens on, and there is no tail."
+      "note": "The round footprint, and the same footprint flattened and turned off the horizontal.\n\nThe tilt is not decoration. A horizontal ellipse is an orifice in every company it has been put in, and four arrangements produced four anatomical readings from four raters. Side by side, a ring with a solid flat lozenge against its edge was a sperm cell. Filled, between a mark above and a mark below, it was a vulva. Hollowed, with the compression arrows moved inside it, two solid triangles converging at the centre of a dark oval was an anus. Stacked under a solid disc \u2014 the plainest before-and-after there is \u2014 it was a butthole under a head. Anything pressing inward on a round outline is an orifice, and a squat horizontal lens is one on its own, with nothing else in the frame."
     },
     {
       "key": "brush-texture",

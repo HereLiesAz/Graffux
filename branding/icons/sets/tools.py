@@ -459,18 +459,28 @@ icon("brush-settings", "tools", ["brush studio", "parameters", "engine"],
      note="Three rails; the middle one is the one being moved.")
 
 icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
-     s=[circle(12, 9.6, 5.6), line(6.6, 18.8, 17.4, 18.8)],
-     f=[seq(tip(4.8, 18.8, 2.0, 180), tip(19.2, 18.8, 2.0, 0))],
+     s=[circle(12, 12, 6.4), line(7.8, 12, 16.2, 12)],
+     f=[seq(tip(5.4, 12, 2.4, 180), tip(18.6, 12, 2.4, 0))],
      apps="PS/AI/PR",
-     basis="Photoshop's brush-size preview, measured the way any width is measured.",
-     note="One footprint with its size taken off beside it. Drawn as two rings on one centre "
-          "with a radius struck through them — the literal picture of a diameter — it was a "
-          "dartboard with a dart in it, and at small size the rings merged and the radius "
-          "became the bar of a no-entry sign. Concentric rings around a centre are a target "
-          "whatever is meant by them, which is the same finding that took the ring off the "
-          "brush cursor and the register mark. The measure goes underneath: stood beside "
-          "the footprint as a vertical bar between two arrowheads, the pair of them read "
-          "as the letters Oi, and at small size that was the only thing left.")
+     basis="Photoshop's brush-size preview, dimensioned the way any width is "
+           "dimensioned.",
+     note="One footprint with its diameter measured across it, the arrowheads "
+          "breaking the outline on both sides.\n\n"
+          "The measure has to run through the circle. Set underneath it, a ring "
+          "above a double-headed width arrow is the universal girth gesture — a "
+          "rater called it a condom-size chart and said the crude reading arrived "
+          "first. Stood beside the footprint as a vertical bar between two "
+          "arrowheads, the pair read as the letters Oi, and at small size that was "
+          "the only thing left. What it costs is small size: with the arrowheads gone "
+          "the tiny render is a bar across a circle, which is a prohibition sign. That is a "
+          "wrong meaning rather than a crude one, and it is the trade taken.\n\n"
+          "Drawn as two rings on one centre with a radius struck through them — the "
+          "literal picture of a diameter — it was a dartboard with a dart in it, "
+          "and at small size the rings merged and the radius became the bar of a "
+          "no-entry sign. Concentric rings around a centre are a target whatever is "
+          "meant by them, which is the same finding that took the ring off the "
+          "brush cursor and the register mark."
+)
 
 icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
      s=[rect(3.4, 7.0, 17.2, 10.0)],
@@ -500,21 +510,26 @@ icon("brush-flow", "tools", ["rate", "load", "delivery"],
      note="Three drops at three depths of fall.")
 
 icon("brush-hardness", "tools", ["edge", "falloff", "core"],
-     s=[seq(*[arc(18.2, 12, 2.6, a, a + 38) for a in (0, 60, 120, 180, 240, 300)])],
-     f=[circle(8.8, 12, 5.4)],
+     s=[seq(line(14.0, 7.6, 14.0, 16.4), line(17.0, 9.4, 17.0, 14.6),
+            line(19.8, 11.0, 19.8, 13.0))],
+     f=[rect(4.2, 6.4, 7.4, 11.2)],
      apps="PS/AI/PR",
-     basis="Photoshop's hardness preview — the same footprint hard and soft.",
-     note="A hard footprint and a soft one, deliberately unequal in size. Side by "
-          "side and near-equal a rater called them a pair of testicles, or breasts: "
-          "two adjacent circles of about the same size at about that spacing are "
-          "that, whatever is drawn inside them. Stacked one above the other instead, "
-          "they were a snowman, and anatomical again. Concentric was never an "
-          "option: a ring with a filled circle inside it is a nipple, which is what "
-          "the burn tool was, and a broken ring around a solid centre is a target, "
-          "which is what the brush size was. Unequal and side by side is the only "
-          "arrangement of two round things that has come back clean, and it costs a "
-          "family resemblance to brush-roundness. The two stand clear of each other: hard "
-          "against the solid one, the small ring read as a piercing through it."
+     basis="Photoshop's hardness preview — a solid core inside a falloff.",
+     note="A solid core with its falloff stepping away from it — the whole parameter is in "
+          "how fast the ticks run out. It shares that gesture with layer-opacity, which is "
+          "also bars shrinking to the right, and at 24 pixels the two are hard to tell "
+          "apart; a rater read this one as a volume meter fading out.\n\n"
+          "It was two footprints before, one solid and one a broken ring, and that "
+          "is the trap the entire brush-parameter family sits in. Two adjacent "
+          "circles of about the same size are a pair of testicles whatever is drawn "
+          "inside them, and a rater said so twice; stacked instead they are a "
+          "snowman and still anatomical; made deliberately unequal they became a "
+          "dividing cell. A circle is the honest picture of a brush footprint and "
+          "it is the one shape that cannot carry a second circle beside it.\n\n"
+          "Drawn in section instead — a solid wedge standing on the surface, hard wall "
+          "one side and ramp the other — it was a doorstop, and at 24 pixels it was the same "
+          "small black triangle on a dash as brush-angle. Mirroring the slope did not separate "
+          "them. Anything resting on a heavy baseline at this size is a triangle on a line."
 )
 
 icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
@@ -554,15 +569,23 @@ icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      note="An angle read off the baseline, solid where it points.")
 
 icon("brush-roundness", "tools", ["flatten", "squash", "ellipse nib"],
-     s=[ellipse(12, 17.6, 5.0, 2.2)],
-     f=[circle(12, 7.8, 4.2)],
+     s=[Path("M10.67,18.1A5,2.2 -30 1,0 19.33,13.1A5,2.2 -30 1,0 10.67,18.1Z",
+             [(10.53, 15.6), (19.47, 15.6), (15.0, 12.46), (15.0, 18.74)])],
+     f=[circle(8.6, 8.4, 4.0)],
      apps="PS/AI/PR",
      basis="Photoshop's Roundness control — a round footprint compressed on one axis.",
-     note="The footprint above, and the same footprint squashed below it. Set side "
-          "by side — a ring with a solid flat lozenge against its right edge — it "
-          "was a sperm cell, head left and tail right, at every size and more "
-          "strongly the smaller it got. Stacked, the compression is along the axis "
-          "it actually happens on, and there is no tail."
+     note="The round footprint, and the same footprint flattened and turned off "
+          "the horizontal.\n\n"
+          "The tilt is not decoration. A horizontal ellipse is an orifice in every "
+          "company it has been put in, and four arrangements produced four "
+          "anatomical readings from four raters. Side by side, a ring with a solid "
+          "flat lozenge against its edge was a sperm cell. Filled, between a mark "
+          "above and a mark below, it was a vulva. Hollowed, with the compression "
+          "arrows moved inside it, two solid triangles converging at the centre of "
+          "a dark oval was an anus. Stacked under a solid disc — the plainest "
+          "before-and-after there is — it was a butthole under a head. Anything "
+          "pressing inward on a round outline is an orifice, and a squat horizontal "
+          "lens is one on its own, with nothing else in the frame."
 )
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],

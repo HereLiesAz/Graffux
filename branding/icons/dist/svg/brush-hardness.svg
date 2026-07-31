@@ -1,7 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/brush-hardness — A hard footprint and a soft one, deliberately unequal in size. Side by side and near-equal a rater called them a pair of testicles, or breasts: two adjacent circles of about the same size at about that spacing are that, whatever is drawn inside them. Stacked one above the other instead, they were a snowman, and anatomical again. Concentric was never an option: a ring with a filled circle inside it is a nipple, which is what the burn tool was, and a broken ring around a solid centre is a target, which is what the brush size was. Unequal and side by side is the only arrangement of two round things that has come back clean, and it costs a family resemblance to brush-roundness. The two stand clear of each other: hard against the solid one, the small ring read as a piercing through it. -->
-  <path d="M20.8,12A2.6,2.6 0 0,1 20.25,13.6 M19.5,14.25A2.6,2.6 0 0,1 17.84,14.57 M16.9,14.25A2.6,2.6 0 0,1 15.79,12.97 M15.6,12A2.6,2.6 0 0,1 16.15,10.4 M16.9,9.75A2.6,2.6 0 0,1 18.56,9.43 M19.5,9.75A2.6,2.6 0 0,1 20.61,11.03"/>
-  <path d="M3.4,12A5.4,5.4 0 1,0 14.2,12A5.4,5.4 0 1,0 3.4,12Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/brush-hardness — A solid core with its falloff stepping away from it — the whole parameter is in how fast the ticks run out. It shares that gesture with layer-opacity, which is also bars shrinking to the right, and at 24 pixels the two are hard to tell apart; a rater read this one as a volume meter fading out.
+
+It was two footprints before, one solid and one a broken ring, and that is the trap the entire brush-parameter family sits in. Two adjacent circles of about the same size are a pair of testicles whatever is drawn inside them, and a rater said so twice; stacked instead they are a snowman and still anatomical; made deliberately unequal they became a dividing cell. A circle is the honest picture of a brush footprint and it is the one shape that cannot carry a second circle beside it.
+
+Drawn in section instead — a solid wedge standing on the surface, hard wall one side and ramp the other — it was a doorstop, and at 24 pixels it was the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them. Anything resting on a heavy baseline at this size is a triangle on a line. -->
+  <path d="M14,7.6L14,16.4 M17,9.4L17,14.6 M19.8,11L19.8,13"/>
+  <path d="M4.2,6.4L11.6,6.4L11.6,17.6L4.2,17.6Z" fill="currentColor" stroke="none"/>
 </svg>

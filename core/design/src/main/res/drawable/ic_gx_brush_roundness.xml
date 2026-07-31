@@ -6,7 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-roundness: The footprint above, and the same footprint squashed below it. Set side by side — a ring with a solid flat lozenge against its right edge — it was a sperm cell, head left and tail right, at every size and more strongly the smaller it got. Stacked, the compression is along the axis it actually happens on, and there is no tail. -->
+    <!-- brush-roundness: The round footprint, and the same footprint flattened and turned off the horizontal.
+
+The tilt is not decoration. A horizontal ellipse is an orifice in every company it has been put in, and four arrangements produced four anatomical readings from four raters. Side by side, a ring with a solid flat lozenge against its edge was a sperm cell. Filled, between a mark above and a mark below, it was a vulva. Hollowed, with the compression arrows moved inside it, two solid triangles converging at the centre of a dark oval was an anus. Stacked under a solid disc — the plainest before-and-after there is — it was a butthole under a head. Anything pressing inward on a round outline is an orifice, and a squat horizontal lens is one on its own, with nothing else in the frame. -->
     <!-- lineage (PS/AI/PR): Photoshop's Roundness control — a round footprint compressed on one axis. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +16,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7,17.6A5,2.2 0 1,0 17,17.6A5,2.2 0 1,0 7,17.6Z" />
+        android:pathData="M10.67,18.1A5,2.2 -30 1,0 19.33,13.1A5,2.2 -30 1,0 10.67,18.1Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M7.8,7.8A4.2,4.2 0 1,0 16.2,7.8A4.2,4.2 0 1,0 7.8,7.8Z" />
+        android:pathData="M4.6,8.4A4,4 0 1,0 12.6,8.4A4,4 0 1,0 4.6,8.4Z" />
 </vector>

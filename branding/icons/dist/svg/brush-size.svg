@@ -1,8 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/brush-size — One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. The measure goes underneath: stood beside the footprint as a vertical bar between two arrowheads, the pair of them read as the letters Oi, and at small size that was the only thing left. -->
-  <path d="M6.4,9.6A5.6,5.6 0 1,0 17.6,9.6A5.6,5.6 0 1,0 6.4,9.6Z"/>
-  <path d="M6.6,18.8L17.4,18.8"/>
-  <path d="M4.8,18.8L6.8,20.24L6.8,17.36Z M19.2,18.8L17.2,17.36L17.2,20.24Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/brush-size — One footprint with its diameter measured across it, the arrowheads breaking the outline on both sides.
+
+The measure has to run through the circle. Set underneath it, a ring above a double-headed width arrow is the universal girth gesture — a rater called it a condom-size chart and said the crude reading arrived first. Stood beside the footprint as a vertical bar between two arrowheads, the pair read as the letters Oi, and at small size that was the only thing left. What it costs is small size: with the arrowheads gone the tiny render is a bar across a circle, which is a prohibition sign. That is a wrong meaning rather than a crude one, and it is the trade taken.
+
+Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. -->
+  <path d="M5.6,12A6.4,6.4 0 1,0 18.4,12A6.4,6.4 0 1,0 5.6,12Z"/>
+  <path d="M7.8,12L16.2,12"/>
+  <path d="M5.4,12L7.8,13.73L7.8,10.27Z M18.6,12L16.2,10.27L16.2,13.73Z" fill="currentColor" stroke="none"/>
 </svg>
