@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush: Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the handle. A head longer than its handle is a spear; two bands across the joint are a hilt. Both were in an earlier draft and both had to go. -->
+    <!-- brush: Long handle, a boxed metal ferrule, and a head that flares wider than the ferrule before breaking into three hair points. Any smooth solid wedge on a slanted stick is a garden trowel — that is what a trowel is — and the only thing that has ever broken the reading is visible bristles. A head longer than its handle is a spear. -->
     <!-- lineage (PS/AI/PR): Photoshop's slanted brush and Procreate's brush tip — handle up-right, tip down-left. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -24,5 +24,5 @@
         android:pathData="M14.55,11.72L12.78,13.48L10.52,11.22L12.28,9.45Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12.99,13.7L10.8,15.61L5.64,18.36L8.39,13.2L10.3,11.01Z" />
+        android:pathData="M12.78,13.48L12,15.68L6.48,19.21L7.76,16.81L5.49,17.94L7.05,15.54L5.07,15.82L8.32,12L10.52,11.22Z" />
 </vector>

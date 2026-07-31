@@ -89,7 +89,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's slanted brush and Procreate's brush tip \u2014 handle up-right, tip down-left.",
-      "note": "Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the handle. A head longer than its handle is a spear; two bands across the joint are a hilt. Both were in an earlier draft and both had to go."
+      "note": "Long handle, a boxed metal ferrule, and a head that flares wider than the ferrule before breaking into three hair points. Any smooth solid wedge on a slanted stick is a garden trowel \u2014 that is what a trowel is \u2014 and the only thing that has ever broken the reading is visible bristles. A head longer than its handle is a spear."
     },
     {
       "key": "pencil",
@@ -130,7 +130,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Procreate's inking and marker brush families \u2014 a fat barrel cut to a chisel.",
-      "note": "Barrel with a rounded top, a collar just above the tip, and a felt tip cut hard across at an angle. A shallow bevel left it a USB stick; the chisel has to be the loudest thing in the glyph, because the chisel is the whole tool."
+      "note": "A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. The step at the cap is what stops it: a single rounded barrel of even width, banded or not, is a phone. A shallow bevel on the tip made it a USB stick, so the chisel is the loudest thing in the glyph \u2014 the chisel is the whole tool."
     },
     {
       "key": "pen-ink",
@@ -170,7 +170,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Artistic set \u2014 the wrapped wax stub.",
-      "note": "Fat and short, with the paper label banded round the middle and the wax worn to a cone with a small flat left on it. A slim body with a sharp point is the pencil; a flat foot under a banded box is a battery, and a domed top over a banded box is a rifle cartridge. Flat top, and a cone with barely any flat left on it."
+      "note": "Fat and short, with the paper label banded round the middle and the wax worn to a cone with a small flat left on it. A slim body with a sharp point is the pencil; a flat foot under a banded box is a battery, and a domed top over a banded box is a rifle cartridge. Flat top, a cone with barely any flat left on it, and the wrapper torn along its upper edge \u2014 a clean band left it in a pile with the eyedropper and the stylus, all three of which came back as \"a fountain pen nib\". Only the torn paper belongs to a crayon and nothing else."
     },
     {
       "key": "chalk",
@@ -339,7 +339,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Smudge tool \u2014 a closed hand with the index finger put out.",
-      "note": "A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob. Every rounded version of this \u2014 with a thumb, with knuckle bumps, filled or outlined \u2014 came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed."
+      "note": "A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob, and the thumb is another square column rather than a spur \u2014 drawn as a spur off the wrist it is the hammer of a revolver, and the whole silhouette becomes a handgun. Every rounded version of this came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed."
     },
     {
       "key": "blur",
@@ -496,7 +496,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The Photoshop and Illustrator eyedropper \u2014 bulb, barrel, point.",
-      "note": "The dropper, solid where it takes the sample."
+      "note": "A round squeeze bulb on a thin barrel, solid where it takes the sample. Tapered instead of round, the bulb is just the wide end of a nib."
     },
     {
       "key": "mixer-brush",
@@ -678,7 +678,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Procreate's Wet Mix \u2014 two loads bleeding into each other.",
-      "note": "Two footprints overlapping; the wet edge is where they meet."
+      "note": "A loaded drop over the rings it has already made. Outlined, with an arc floating inside it, the drop is a pointed hood with an eye slit cut in it."
     },
     {
       "key": "brush-buildup",
@@ -908,7 +908,7 @@
         "recede"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Illustrator's Perspective Grid and Procreate's Perspective guide.",
+      "basis": "Illustrator's Perspective Grid and Procreate's Perspective guide. The horizon is not decoration: without it the converging lines rise to a knob on a post and the whole glyph is a gallows.",
       "note": "Lines converging on a single solid vanishing point."
     },
     {
@@ -1141,7 +1141,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Inverse and Procreate's Invert selection.",
-      "note": "Held ground and released ground have traded places."
+      "note": "Held ground and released ground have traded places, the boundary still marching. A solid frame around a solid square is a QR finder pattern, and phones will try to read it."
     },
     {
       "key": "select-grow",
@@ -1991,7 +1991,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Hue/Saturation \u2014 hue as a rotation about the wheel.",
-      "note": "An angle turned about the centre of the wheel."
+      "note": "A marker carried round the wheel by the turn beneath it. Spokes drawn from the hub to the rim make the wheel a dharmachakra."
     },
     {
       "key": "saturation",
@@ -3708,7 +3708,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The align-centre glyph shared by every design tool.",
-      "note": "Two frames centred on a single axis."
+      "note": "Two frames centred on a single axis. Drawn as thin bars rather than frames, a stem crossing two of them is the Cross of Lorraine."
     },
     {
       "key": "align-right",
@@ -4321,7 +4321,7 @@
       ],
       "apps": "PS/AI",
       "basis": "Photoshop's Timeline \u2014 a track with frames marked along it.",
-      "note": "A track with three marks and the playhead sitting on one."
+      "note": "A track with three frame marks hanging below it and the playhead on one. Crossing the track instead of hanging from it makes three crosses on a hill, which is Calvary."
     },
     {
       "key": "keyframe",

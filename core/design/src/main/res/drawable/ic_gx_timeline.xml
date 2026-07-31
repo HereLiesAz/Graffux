@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- timeline: A track with three marks and the playhead sitting on one. -->
+    <!-- timeline: A track with three frame marks hanging below it and the playhead on one. Crossing the track instead of hanging from it makes three crosses on a hill, which is Calvary. -->
     <!-- lineage (PS/AI): Photoshop's Timeline — a track with frames marked along it. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,12L20.6,12" />
+        android:pathData="M3.4,9.6L20.6,9.6" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6.4,8.6L6.4,15.4 M12,8.6L12,15.4 M17.6,8.6L17.6,15.4" />
+        android:pathData="M6.4,9.6L6.4,15.4 M12,9.6L12,15.4 M17.6,9.6L17.6,15.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M10.6,12A1.4,1.4 0 1,0 13.4,12A1.4,1.4 0 1,0 10.6,12Z" />
+        android:pathData="M10.6,9.6A1.4,1.4 0 1,0 13.4,9.6A1.4,1.4 0 1,0 10.6,9.6Z" />
 </vector>

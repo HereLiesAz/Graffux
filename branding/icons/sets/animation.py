@@ -19,12 +19,14 @@ from kit import (
 )
 
 icon("timeline", "animation", ["frames track", "animation panel"],
-     s=[line(3.4, 12, 20.6, 12),
-        seq(line(6.4, 8.6, 6.4, 15.4), line(12.0, 8.6, 12.0, 15.4), line(17.6, 8.6, 17.6, 15.4))],
-     f=[dot(12.0, 12, 1.4)],
+     s=[line(3.4, 9.6, 20.6, 9.6),
+        seq(line(6.4, 9.6, 6.4, 15.4), line(12.0, 9.6, 12.0, 15.4), line(17.6, 9.6, 17.6, 15.4))],
+     f=[dot(12.0, 9.6, 1.4)],
      apps="PS/AI",
      basis="Photoshop's Timeline — a track with frames marked along it.",
-     note="A track with three marks and the playhead sitting on one.")
+     note="A track with three frame marks hanging below it and the playhead on one. Crossing "
+          "the track instead of hanging from it makes three crosses on a hill, which is "
+          "Calvary.")
 
 icon("keyframe", "animation", ["key state", "diamond marker"],
      s=[line(3.4, 12, 20.6, 12)],

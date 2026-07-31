@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- align-center-h: Two frames centred on a single axis. -->
+    <!-- align-center-h: Two frames centred on a single axis. Drawn as thin bars rather than frames, a stem crossing two of them is the Cross of Lorraine. -->
     <!-- lineage (PS/AI/PR): The align-centre glyph shared by every design tool. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,19 +14,19 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,3.4L12,20.6" />
+        android:pathData="M12,3L12,21" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M8,6.4L16,6.4L16,10.4L8,10.4Z" />
+        android:pathData="M7,5L17,5L17,11.4L7,11.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.5,13.6L18.5,13.6L18.5,17.6L5.5,17.6Z" />
+        android:pathData="M4.4,13L19.6,13L19.6,19.4L4.4,19.4Z" />
 </vector>

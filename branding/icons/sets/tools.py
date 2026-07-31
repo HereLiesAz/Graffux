@@ -48,12 +48,14 @@ T = xf(12, 12, 135)
 
 icon("brush", "tools", ["paint", "bristle", "draw", "round brush"],
      s=[line(-9, 0, -2.0, 0, t=T), rect(-2.0, -1.6, 2.5, 3.2, t=T)],
-     f=[poly([(0.5, -1.9), (3.4, -1.7), (9, 0), (3.4, 1.7), (0.5, 1.9)], close=True, t=T)],
+     f=[poly([(0.5, -1.6), (2.6, -2.6), (9, -1.2), (6.4, -0.4), (8.8, 0.4), (6.0, 1.0),
+              (7.6, 2.2), (2.6, 2.6), (0.5, 1.6)], close=True, t=T)],
      apps="PS/AI/PR",
      basis="Photoshop's slanted brush and Procreate's brush tip — handle up-right, tip down-left.",
-     note="Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the "
-          "handle. A head longer than its handle is a spear; two bands across the joint are a "
-          "hilt. Both were in an earlier draft and both had to go.")
+     note="Long handle, a boxed metal ferrule, and a head that flares wider than the ferrule "
+          "before breaking into three hair points. Any smooth solid wedge on a slanted stick is "
+          "a garden trowel — that is what a trowel is — and the only thing that has ever broken "
+          "the reading is visible bristles. A head longer than its handle is a spear.")
 
 icon("pencil", "tools", ["draw", "sketch", "graphite", "edit"],
      s=[poly([(-9, -1.7), (2.4, -1.7), (9, 0), (2.4, 1.7), (-9, 1.7)], close=True, t=T),
@@ -74,13 +76,14 @@ icon("airbrush", "tools", ["spray", "atomiser", "soft", "mist"],
           "compass, so the cone is described only by where the particles land.")
 
 icon("marker", "tools", ["felt tip", "chisel", "highlighter"],
-     s=[rect(8.2, 3.4, 7.6, 11.4, 1.6), line(8.2, 12.4, 15.8, 12.4)],
-     f=[poly([(8.2, 14.8), (15.8, 14.8), (15.8, 20.6), (8.2, 16.8)], close=True)],
+     s=[rect(7.4, 3.4, 9.2, 4.0, 1.0), rect(8.8, 7.6, 6.4, 7.2)],
+     f=[poly([(8.8, 14.8), (15.2, 14.8), (15.2, 20.6), (8.8, 16.8)], close=True)],
      apps="PS/PR",
      basis="Procreate's inking and marker brush families — a fat barrel cut to a chisel.",
-     note="Barrel with a rounded top, a collar just above the tip, and a felt tip cut hard "
-          "across at an angle. A shallow bevel left it a USB stick; the chisel has to be the "
-          "loudest thing in the glyph, because the chisel is the whole tool.")
+     note="A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. "
+          "The step at the cap is what stops it: a single rounded barrel of even width, banded "
+          "or not, is a phone. A shallow bevel on the tip made it a USB stick, so the chisel is "
+          "the loudest thing in the glyph — the chisel is the whole tool.")
 
 icon("pen-ink", "tools", ["nib", "dip pen", "ink", "line art"],
      s=[poly([(7.2, 6.6), (9.0, 4.0), (15.0, 4.0), (16.8, 6.6), (12, 20.6)], close=True),
@@ -102,21 +105,26 @@ icon("calligraphy", "tools", ["broad edge", "lettering", "italic nib"],
      note="Shaft curving to the cut point at lower left, with the vane solid against it.")
 
 icon("crayon", "tools", ["wax", "kids", "stub"],
-     s=[rect(7.6, 3.4, 8.8, 11.4), rect(7.6, 6.2, 8.8, 5.8)],
+     s=[rect(7.6, 3.4, 8.8, 11.4),
+        poly([(7.6, 7.2), (9.6, 6.3), (11.6, 7.2), (13.6, 6.3), (16.4, 7.2)]),
+        line(7.6, 12.2, 16.4, 12.2)],
      f=[poly([(7.6, 14.8), (16.4, 14.8), (12.7, 20.6), (11.3, 20.6)], close=True)],
      apps="PR",
      basis="Procreate's Artistic set — the wrapped wax stub.",
      note="Fat and short, with the paper label banded round the middle and the wax worn to a "
           "cone with a small flat left on it. A slim body with a sharp point is the pencil; a "
           "flat foot under a banded box is a battery, and a domed top over a banded box is a "
-          "rifle cartridge. Flat top, and a cone with barely any flat left on it.")
+          "rifle cartridge. Flat top, a cone with barely any flat left on it, and the wrapper "
+          "torn along its upper edge — a clean band left it in a pile with the eyedropper and "
+          "the stylus, all three of which came back as \"a fountain pen nib\". Only the torn "
+          "paper belongs to a crayon and nothing else.")
 
-_CHK = xf(11.0, 10.8, -22)
+_CHK = xf(11.0, 10.4, -14)
 
 icon("chalk", "tools", ["pastel", "dry media", "stick"],
-     s=[rect(-5.8, -2.8, 7.0, 5.6, t=_CHK),
-        seq(circle(15.4, 15.8, 0.5), circle(18.2, 17.4, 0.5), circle(13.8, 18.6, 0.5))],
-     f=[poly([(1.2, -2.8), (5.0, -2.8), (5.0, 0.8), (2.8, 2.8), (1.2, 2.8)], close=True,
+     s=[rect(-8.0, -2.4, 9.6, 4.8, t=_CHK),
+        seq(circle(15.8, 16.4, 0.55), circle(18.6, 18.2, 0.55), circle(13.8, 19.2, 0.55))],
+     f=[poly([(1.6, -2.4), (5.4, -2.4), (5.4, 0.6), (3.4, 2.4), (1.6, 2.4)], close=True,
              t=_CHK)],
      apps="PR",
      basis="Procreate's chalk and soft-pastel brushes — a square stick that sheds.",
@@ -235,18 +243,20 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
 icon("smudge", "tools", ["finger", "drag", "blend"],
      s=[],
      f=[poly([(11.2, -1.8), (11.2, 0.4), (2.8, 0.4), (2.8, 4.4), (0.8, 4.4), (0.8, 2.2),
-              (-0.4, 2.2), (-0.4, 4.4), (-2.4, 4.4), (-2.4, 2.2), (-5.2, 2.2), (-5.2, -1.0),
-              (-7.0, -2.6), (-6.0, -4.0), (-3.6, -2.2), (2.8, -2.2), (2.8, -1.8)],
-             close=True, t=T)],
+              (-0.4, 2.2), (-0.4, 4.4), (-2.4, 4.4), (-2.4, 2.2), (-5.6, 2.2), (-5.6, -2.2),
+              (-3.2, -2.2), (-3.2, -4.6), (-1.4, -4.6), (-1.4, -2.2), (2.8, -2.2),
+              (2.8, -1.8)], close=True, t=T)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
      note="A hand on the tool diagonal, index finger pointing exactly where the brush tip and "
           "the pencil point do. Drawn the same way the pan hand is drawn, because it is the "
           "only way a hand survives this size: the folded fingers are square columns with real "
-          "gaps between them, not scallops on a blob. Every rounded version of this — with a "
-          "thumb, with knuckle bumps, filled or outlined — came back a key, a lightbulb or a "
-          "mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no "
-          "inside left. Distinct from the pan hand, which is upright with all five splayed.")
+          "gaps between them, not scallops on a blob, and the thumb is another square column "
+          "rather than a spur — drawn as a spur off the wrist it is the hammer of a revolver, "
+          "and the whole silhouette becomes a handgun. Every rounded version of this came back "
+          "a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a "
+          "finger-wide tube has no inside left. Distinct from the pan hand, which is upright "
+          "with all five splayed.")
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],
      s=[seq(line(12, 3.2, 16.99, 9.58), arc(12, 13.6, 6.4, 321.2, 578.8), line(7.01, 9.58, 12, 3.2)),
@@ -339,12 +349,13 @@ icon("fill", "tools", ["paint bucket", "flood", "pour"],
      note="A tipped bucket, with the drop that has already left it.")
 
 icon("eyedropper", "tools", ["picker", "sample", "colour pick"],
-     s=[poly([(-8.6, -2.6), (-4.0, -2.0), (-4.0, 2.0), (-8.6, 2.6)], close=True, t=T),
-        poly([(-4.0, -1.4), (4.8, -0.8), (4.8, 0.8), (-4.0, 1.4)], close=True, t=T)],
+     s=[circle(-6.2, 0, 3.3, t=T),
+        poly([(-3.2, -1.2), (4.8, -0.8), (4.8, 0.8), (-3.2, 1.2)], close=True, t=T)],
      f=[poly([(4.8, -0.8), (9, 0), (4.8, 0.8)], close=True, t=T)],
      apps="PS/AI/PR",
      basis="The Photoshop and Illustrator eyedropper — bulb, barrel, point.",
-     note="The dropper, solid where it takes the sample.")
+     note="A round squeeze bulb on a thin barrel, solid where it takes the sample. Tapered "
+          "instead of round, the bulb is just the wide end of a nib.")
 
 icon("mixer-brush", "tools", ["wet mix", "blend paint", "load"],
      s=[line(-9, 0, -2.4, 0, t=T),
@@ -452,12 +463,13 @@ icon("brush-taper", "tools", ["pressure taper", "stroke ends", "swell"],
      note="One stroke, thin at both ends.")
 
 icon("brush-wet", "tools", ["wet mix", "dilute", "bleed"],
-     s=[seq(line(12, 2.6, 14.5, 6.0), arc(12, 7.6, 3.1, 317, 583), line(9.5, 6.0, 12, 2.6)),
-        seq(arc(12, 17.0, 4.0, 200, 340), arc(12, 17.4, 7.6, 205, 335))],
-     f=[],
+     s=[seq(arc(12, 17.4, 4.0, 200, 340), arc(12, 17.8, 7.6, 205, 335))],
+     f=[poly([(12, 2.8), (15.1, 7.4), (15.1, 10.0), (12, 12.6), (8.9, 10.0), (8.9, 7.4)],
+             close=True)],
      apps="PS/PR",
      basis="Procreate's Wet Mix — two loads bleeding into each other.",
-     note="Two footprints overlapping; the wet edge is where they meet.")
+     note="A loaded drop over the rings it has already made. Outlined, with an arc floating "
+          "inside it, the drop is a pointed hood with an eye slit cut in it.")
 
 icon("brush-buildup", "tools", ["accumulate", "density", "layering"],
      s=[arc(7.0, 15.0, 5.0, 180, 360), arc(12.0, 15.0, 5.0, 180, 360),
@@ -497,7 +509,8 @@ icon("brush-import", "tools", ["load brush", "install", "abr"],
 
 icon("stylus", "tools", ["pen hardware", "pencil", "digitiser"],
      s=[rect(9.6, 2.6, 4.8, 12.6, 2.4), line(9.6, 9.4, 14.4, 9.4), line(3.4, 20.6, 20.6, 20.6)],
-     f=[poly([(10.6, 15.2), (13.4, 15.2), (12, 20.6)], close=True)],
+     f=[poly([(10.4, 15.2), (13.6, 15.2), (13.0, 18.6), (14.2, 18.6), (14.2, 19.9),
+              (9.8, 19.9), (9.8, 18.6), (11.0, 18.6)], close=True)],
      apps="PR",
      basis="Procreate's stylus settings — the barrel and the tip the digitiser reads.",
      note="Stood on the glass it writes on: a slim capsule barrel, one grip band, and a fine "
@@ -614,11 +627,13 @@ icon("guide-drawing", "tools", ["assist", "grid guide", "on rails"],
      note="A drawing that cannot leave the grid it was given.")
 
 icon("guide-perspective", "tools", ["vanishing point", "one point", "recede"],
-     s=[line(2.6, 20.4, 21.4, 20.4),
-        seq(line(2.6, 20.4, 17.6, 6.4), line(8.0, 20.4, 17.6, 6.4), line(15.0, 20.4, 17.6, 6.4))],
-     f=[dot(18.4, 5.6, 1.5)],
+     s=[seq(line(2.6, 20.4, 21.4, 20.4), line(2.6, 11.0, 21.4, 11.0)),
+        seq(line(2.6, 20.4, 19.0, 11.0), line(9.0, 20.4, 19.0, 11.0), line(15.4, 20.4, 19.0, 11.0))],
+     f=[dot(19.0, 11.0, 1.5)],
      apps="PS/AI/PR",
-     basis="Illustrator's Perspective Grid and Procreate's Perspective guide.",
+     basis="Illustrator's Perspective Grid and Procreate's Perspective guide. The horizon is "
+           "not decoration: without it the converging lines rise to a knob on a post and the "
+           "whole glyph is a gallows.",
      note="Lines converging on a single solid vanishing point.")
 
 icon("guide-isometric", "tools", ["axonometric", "30 degrees", "isometric"],

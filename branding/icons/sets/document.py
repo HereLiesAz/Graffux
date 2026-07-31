@@ -232,8 +232,8 @@ icon("multi-window", "document", ["new window", "second view"],
      note="A second frame opened onto the same page.")
 
 icon("thumbnails", "document", ["gallery", "grid view"],
-     s=[seq(square(6.6, 6.6, 6.4), square(17.4, 6.6, 6.4),
-            square(6.6, 17.4, 6.4), square(17.4, 17.4, 6.4))],
+     s=[seq(rect(3.4, 5.6, 5.2, 5.2), rect(9.4, 5.6, 5.2, 5.2), rect(15.4, 5.6, 5.2, 5.2),
+            rect(3.4, 13.2, 5.2, 5.2), rect(9.4, 13.2, 5.2, 5.2), rect(15.4, 13.2, 5.2, 5.2))],
      f=[],
      apps="PS/PR",
      basis="Procreate's Gallery grid.",

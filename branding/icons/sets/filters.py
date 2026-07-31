@@ -141,9 +141,10 @@ icon("filter-mosaic", "filters", ["pixelate", "blocks"],
      note="A field reduced to a grid of flat tiles.")
 
 icon("filter-crystallize", "filters", ["facets", "voronoi"],
-     s=[seq(poly([(12, 3.4), (18.6, 8.4), (16.2, 16.0), (7.8, 16.0), (5.4, 8.4)], close=True),
-            line(12, 3.4, 12, 12), line(18.6, 8.4, 12, 12), line(16.2, 16.0, 12, 12),
-            line(7.8, 16.0, 12, 12), line(5.4, 8.4, 12, 12))],
+     s=[seq(poly([(3.4, 9.2), (9.6, 3.4), (15.2, 6.8), (12.4, 12.6), (5.0, 13.4)], close=True),
+            poly([(12.4, 12.6), (15.2, 6.8), (20.6, 10.2), (18.0, 17.0)], close=True),
+            poly([(5.0, 13.4), (12.4, 12.6), (18.0, 17.0), (11.8, 20.6), (6.0, 19.0)],
+                 close=True))],
      f=[],
      apps="PS/AI",
      basis="Photoshop's Crystallize — a field broken into irregular facets.",

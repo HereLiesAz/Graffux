@@ -194,11 +194,14 @@ icon("select-reselect", "selection", ["restore selection", "again"],
      note="The last selection called back.")
 
 icon("select-invert", "selection", ["inverse", "everything else", "swap"],
-     s=[rect(8.6, 8.6, 6.8, 6.8)],
-     f=[ring_rect(2.8, 2.8, 18.4, 18.4, 4.0)],
+     s=[seq(arc(12, 12, 5.0, 15, 75), arc(12, 12, 5.0, 105, 165),
+            arc(12, 12, 5.0, 195, 255), arc(12, 12, 5.0, 285, 345))],
+     f=[ring_rect(2.8, 2.8, 18.4, 18.4, 3.2)],
      apps="PS/AI/PR",
      basis="Photoshop's Inverse and Procreate's Invert selection.",
-     note="Held ground and released ground have traded places.")
+     note="Held ground and released ground have traded places, the boundary still marching. A "
+          "solid frame around a solid square is a QR finder pattern, and phones will try to "
+          "read it.")
 
 icon("select-grow", "selection", ["expand", "dilate", "outward"],
      s=[rect(8.6, 8.6, 6.8, 6.8), rect(2.8, 2.8, 18.4, 18.4)],

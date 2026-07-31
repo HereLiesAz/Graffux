@@ -126,8 +126,8 @@ icon("path-outline-stroke", "vector", ["stroke to fill", "expand stroke"],
      note="A stroke on one side of the frame, a filled ribbon on the other.")
 
 icon("path-offset", "vector", ["parallel copy", "grow path"],
-     s=[smooth([(4.0, 18.0), (9.0, 8.0), (20.0, 6.0)]),
-        smooth([(4.0, 21.4), (10.2, 11.6), (20.0, 9.6)])],
+     s=[smooth([(8.2, 7.0), (15.0, 7.6), (16.0, 14.0), (9.8, 16.4)], close=True),
+        smooth([(6.4, 4.2), (17.4, 4.8), (18.8, 15.6), (9.0, 19.2)], close=True)],
      f=[],
      apps="AI",
      basis="Illustrator's Offset Path.",

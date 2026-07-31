@@ -143,11 +143,12 @@ icon("align-left", "transform", ["align objects left"],
      note="Two frames flush to a single edge.")
 
 icon("align-center-h", "transform", ["align objects centre horizontal"],
-     s=[line(12, 3.4, 12, 20.6), rect(8.0, 6.4, 8.0, 4.0), rect(5.5, 13.6, 13.0, 4.0)],
+     s=[line(12, 3.0, 12, 21.0), rect(7.0, 5.0, 10.0, 6.4), rect(4.4, 13.0, 15.2, 6.4)],
      f=[],
      apps="PS/AI/PR",
      basis="The align-centre glyph shared by every design tool.",
-     note="Two frames centred on a single axis.")
+     note="Two frames centred on a single axis. Drawn as thin bars rather than frames, a stem "
+          "crossing two of them is the Cross of Lorraine.")
 
 icon("align-right", "transform", ["align objects right"],
      s=[line(20.0, 3.4, 20.0, 20.6), rect(12.0, 6.4, 8.0, 4.0), rect(7.0, 13.6, 13.0, 4.0)],

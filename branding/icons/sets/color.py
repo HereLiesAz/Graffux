@@ -122,11 +122,12 @@ icon("auto-tone", "color", ["auto levels", "fix", "one tap"],
 # ---------------------------------------------------------------------------------------
 
 icon("hue", "color", ["colour angle", "shift hue", "wheel"],
-     s=[circle(12, 12, 8.0), rays(12, 12, 2.6, 8.0, 6, 30)],
-     f=[dot(12, 4.0, 2.0)],
+     s=[circle(12, 12, 8.2), arc(12, 12, 4.6, 200, 340)],
+     f=[seq(dot(12, 4.4, 1.8), tip(16.2, 14.4, 1.8, 35))],
      apps="PS/AI/PR",
      basis="Photoshop's Hue/Saturation — hue as a rotation about the wheel.",
-     note="An angle turned about the centre of the wheel.")
+     note="A marker carried round the wheel by the turn beneath it. Spokes drawn from the hub "
+          "to the rim make the wheel a dharmachakra.")
 
 icon("saturation", "color", ["intensity", "chroma", "vivid"],
      s=[circle(12, 12, 8.4)],
@@ -151,10 +152,8 @@ icon("desaturate", "color", ["greyscale", "remove colour"],
      note="A divided wheel: sectors on one side, nothing on the other.")
 
 icon("color-balance", "color", ["cast", "cool warm", "scales"],
-     s=[line(12, 4.0, 12, 20.4), line(5.6, 8.6, 18.4, 8.6),
-        seq(arc(5.6, 8.6, 3.2, 0, 180), arc(18.4, 8.6, 3.2, 0, 180)),
-        line(7.4, 20.4, 16.6, 20.4)],
-     f=[],
+     s=[seq(line(3.4, 8.6, 20.6, 8.6), line(3.4, 15.4, 20.6, 15.4)), line(12, 4.6, 12, 19.4)],
+     f=[seq(dot(7.4, 8.6, 2.0), dot(16.6, 15.4, 2.0))],
      apps="PS",
      basis="Photoshop's Color Balance — a beam balance between two casts.",
      note="Two pans on one beam.")
@@ -201,8 +200,7 @@ icon("gradient-map", "color", ["remap tone to colour", "duotone"],
      note="A run of tone becoming a run of steps.")
 
 icon("selective-color", "color", ["one hue only", "target colour"],
-     s=[circle(12, 12, 8.4),
-        seq(line(12, 12, 12, 3.6), line(12, 12, 19.3, 16.2), line(12, 12, 4.7, 16.2))],
+     s=[circle(12, 12, 8.4)],
      f=[pie(12, 12, 8.4, -90, -30)],
      apps="PS",
      basis="Photoshop's Selective Color — one colour singled out of the set.",
