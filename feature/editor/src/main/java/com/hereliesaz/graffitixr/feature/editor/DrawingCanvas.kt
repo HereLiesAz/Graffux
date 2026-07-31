@@ -65,10 +65,20 @@ fun DrawingCanvas(
         liquifyPending = emptyList()
     }
 
+    // Leaving composition mid-stroke (tool change, the layer getting locked, a project reload)
+    // cancels the gesture loop below before it can clear the latch, and a latch left standing
+    // suppresses EVERY multi-finger gesture from then on. Unwind it here as well as there.
+    DisposableEffect(gate) {
+        onDispose { gate.strokeActive = false }
+    }
+
     Canvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
             .pointerInput(activeTool) {
+                // Changing tool relaunches this block, killing any in-flight stroke's loop before it
+                // can clear the latch. Nothing is being painted the instant this starts, so start clean.
+                gate.strokeActive = false
                 if (activeTool == Tool.NONE) return@pointerInput
                 val slop = viewConfiguration.touchSlop
 

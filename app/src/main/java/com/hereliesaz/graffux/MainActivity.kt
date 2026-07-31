@@ -85,6 +85,9 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
+import com.hereliesaz.graffitixr.feature.editor.StrokeGate
+import com.hereliesaz.graffitixr.feature.editor.multiFingerTaps
+import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
@@ -283,412 +286,434 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         if (luminance > 0.5f) Color.Black else Color.White
     }
 
-    AzHostActivityLayout(navController = navController, initiallyExpanded = false) {
-        azTheme(
-            activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
-            defaultShape = AzButtonShape.CIRCLE,
-            headerIconShape = AzHeaderIconShape.CIRCLE,
-            translucentBackground = Color.Black.copy(alpha = 0.55f)
-        )
-        azConfig(
-            noMenu = true,
-            packButtons = true,
-            dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
-            railItemWidth = 44.dp
-        )
-        // Four-finger tap (see EditorScreen's multiFingerTaps): full-screen art. Folding the rail
-        // is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the same flag.
-        isFoldedUp = uiState.hideUiForCapture
-
-        ConfigureRailItems(
-            vm = vm,
-            uiState = uiState,
-            brushes = brushes,
-            customBrushes = customBrushes,
-            strings = strings,
-            navItemColor = navItemColor,
-            activeColor = activeRailColor, // Pass down to DSL builder
-            screenCenter = screenCenter,
-            onBlendMode = { showBlendDialog = true },
-            onAddClicked = { showAddDialog = true },
-            onAlignClicked = { showAlignDialog = true },
-            onEditClicked = { showLayerOptionsDialog = true },
-        )
-
-        background(weight = 0) {
-            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                EditorScreen(vm = vm, modifier = Modifier.fillMaxSize())
+    // Procreate's history gestures are installed HERE, above the whole app, not inside EditorScreen.
+    // The nav rail, the onscreen chrome (dropdown, FAB row) and the floating windows are siblings of
+    // the canvas, not children of it, so an observer living on the canvas never saw a two- or
+    // three-finger tap that happened to land on any of them. At this level the gestures work
+    // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
+    // nothing, so every control underneath still behaves exactly as before.
+    val strokeGate = remember { StrokeGate() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .multiFingerTaps(strokeGate) { slot, at ->
+                performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
-        }
+    ) {
+        AzHostActivityLayout(navController = navController, initiallyExpanded = false) {
+            azTheme(
+                activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
+                defaultShape = AzButtonShape.CIRCLE,
+                headerIconShape = AzHeaderIconShape.CIRCLE,
+                translucentBackground = Color.Black.copy(alpha = 0.55f)
+            )
+            azConfig(
+                noMenu = true,
+                packButtons = true,
+                dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
+                railItemWidth = 44.dp
+            )
+            // Four-finger tap (see the multiFingerTaps observer above): full-screen art. Folding the
+            // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
+            // same flag.
+            isFoldedUp = uiState.hideUiForCapture
+
+            ConfigureRailItems(
+                vm = vm,
+                uiState = uiState,
+                brushes = brushes,
+                customBrushes = customBrushes,
+                strings = strings,
+                navItemColor = navItemColor,
+                activeColor = activeRailColor, // Pass down to DSL builder
+                screenCenter = screenCenter,
+                onBlendMode = { showBlendDialog = true },
+                onAddClicked = { showAddDialog = true },
+                onAlignClicked = { showAlignDialog = true },
+                onEditClicked = { showLayerOptionsDialog = true },
+            )
+
+            background(weight = 0) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    EditorScreen(
+                        vm = vm,
+                        modifier = Modifier.fillMaxSize(),
+                        // The host owns the multi-finger history gestures (installed above the whole
+                        // app, see above); the screen just feeds this gate from its drawing surfaces.
+                        hostStrokeGate = strokeGate,
+                    )
+                }
+            }
         
-        // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
-        onscreen(alignment = Alignment.TopEnd) {
-            if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
-                azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
-                // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
-                // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
-                // the device; Gallery browses the projects already in the app; Import brings an
-                // image or another design file INTO the current project, which is what the old
-                // "Open"/"Open File" pair actually did despite their names.
-                azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
-                azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-                azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                azItem(text = "Add…", onClick = { showAddDialog = true })
-                azItem(text = "Reference", onClick = { showReferenceWindow = true })
-                azItem(text = "Align…", onClick = { showAlignDialog = true })
-                azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
-                azItem(text = "Background", onClick = { showBgDialog = true })
-                // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
-                // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
-                // per-layer equivalent this complements at the whole-project level.
-                azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
-                // Save names the project and writes a `.fux` wherever the user chooses. It isn't
-                // what keeps their work — autosave does that continuously — so it's free to be a
-                // deliberate, two-step action rather than something they must remember to press.
-                azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
-                azItem(text = strings.nav.export, onClick = { vm.exportImage() })
-                azItem(text = strings.nav.share, onClick = {
-                    scope.launch {
-                        try {
-                            val uri = vm.exportForShare() ?: return@launch
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/png"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                clipData = android.content.ClipData.newRawUri(null, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
+            onscreen(alignment = Alignment.TopEnd) {
+                if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
+                    azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
+                    // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
+                    // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
+                    // the device; Gallery browses the projects already in the app; Import brings an
+                    // image or another design file INTO the current project, which is what the old
+                    // "Open"/"Open File" pair actually did despite their names.
+                    azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
+                    azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
+                    azItem(text = "Gallery", onClick = { showGalleryDialog = true })
+                    azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                    azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
+                    azItem(text = "Add…", onClick = { showAddDialog = true })
+                    azItem(text = "Reference", onClick = { showReferenceWindow = true })
+                    azItem(text = "Align…", onClick = { showAlignDialog = true })
+                    azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
+                    azItem(text = "Background", onClick = { showBgDialog = true })
+                    // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
+                    // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
+                    // per-layer equivalent this complements at the whole-project level.
+                    azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
+                    // Save names the project and writes a `.fux` wherever the user chooses. It isn't
+                    // what keeps their work — autosave does that continuously — so it's free to be a
+                    // deliberate, two-step action rather than something they must remember to press.
+                    azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
+                    azItem(text = strings.nav.export, onClick = { vm.exportImage() })
+                    azItem(text = strings.nav.share, onClick = {
+                        scope.launch {
+                            try {
+                                val uri = vm.exportForShare() ?: return@launch
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/png"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    clipData = android.content.ClipData.newRawUri(null, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                val chooser = Intent.createChooser(send, null).apply {
+                                    clipData = send.clipData
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(chooser)
+                            } catch (t: Throwable) {
+                                android.util.Log.w("Graffux", "Share failed", t)
                             }
-                            val chooser = Intent.createChooser(send, null).apply {
-                                clipData = send.clipData
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(chooser)
-                        } catch (t: Throwable) {
-                            android.util.Log.w("Graffux", "Share failed", t)
+                        }
+                    })
+                    azDivider()
+                    azItem(text = "Store", onClick = { showStoreDialog = true })
+                    azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
+                    azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
+                    azItem(text = "3D Model…", onClick = { showModelDialog = true })
+                    azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
+                    azItem(text = "Settings", onClick = { showSettings = true })
+                }
+            }
+
+            // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
+            // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
+            // landing on top of their fields.
+            onscreen(alignment = Alignment.BottomCenter) {
+                if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
+                    modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val viewMoved = uiState.viewportZoom != 1f ||
+                        uiState.viewportOffset != Offset.Zero ||
+                        uiState.viewportRotation != 0f
+                    if (viewMoved) {
+                        FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
+                            Icon(rememberVectorPainter(TablerIcons.Maximize), contentDescription = "Fit to screen")
                         }
                     }
-                })
-                azDivider()
-                azItem(text = "Store", onClick = { showStoreDialog = true })
-                azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
-                azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
-                azItem(text = "3D Model…", onClick = { showModelDialog = true })
-                azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
-                azItem(text = "Settings", onClick = { showSettings = true })
-            }
-        }
-
-        // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
-        // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
-        // landing on top of their fields.
-        onscreen(alignment = Alignment.BottomCenter) {
-            if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
-                modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                val viewMoved = uiState.viewportZoom != 1f ||
-                    uiState.viewportOffset != Offset.Zero ||
-                    uiState.viewportRotation != 0f
-                if (viewMoved) {
-                    FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                        Icon(rememberVectorPainter(TablerIcons.Maximize), contentDescription = "Fit to screen")
+                    if (uiState.undoCount > 0) {
+                        FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
+                            Icon(rememberVectorPainter(TablerIcons.ArrowBackUp), contentDescription = "Undo")
+                        }
                     }
-                }
-                if (uiState.undoCount > 0) {
-                    FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(rememberVectorPainter(TablerIcons.ArrowBackUp), contentDescription = "Undo")
-                    }
-                }
-                if (uiState.redoCount > 0) {
-                    FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                        Icon(rememberVectorPainter(TablerIcons.ArrowForwardUp), contentDescription = "Redo")
+                    if (uiState.redoCount > 0) {
+                        FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
+                            Icon(rememberVectorPainter(TablerIcons.ArrowForwardUp), contentDescription = "Redo")
+                        }
                     }
                 }
             }
-        }
 
-        onscreen(alignment = Alignment.Center) {
-            if (showDocDialog) {
-                DocumentSizeDialog(
-                    currentWidth = uiState.documentWidth,
-                    currentHeight = uiState.documentHeight,
-                    onConfirm = { w, h ->
-                        vm.setDocumentSize(w, h)
-                        showDocDialog = false
-                    },
-                    onDismiss = { showDocDialog = false },
-                )
-            }
-
-            if (showBlendDialog) {
-                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                BlendModePicker(
-                    current = activeLayer?.blendMode?.toModelBlendMode() ?: BlendMode.SrcOver,
-                    onSelect = { mode ->
-                        vm.setBlendMode(mode)
-                        showBlendDialog = false
-                    },
-                    onDismiss = { showBlendDialog = false },
-                )
-            }
-
-            if (showStrokeDialog) {
-                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                VectorStrokeDialog(
-                    currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
-                    onApply = { w ->
-                        vm.setVectorStrokeWidth(w)
-                        showStrokeDialog = false
-                    },
-                    onDismiss = { showStrokeDialog = false },
-                )
-            }
-
-            if (showCornerDialog) {
-                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
-                CornerRadiusDialog(
-                    currentRadius = rect?.cornerRadius ?: 0f,
-                    onApply = { r ->
-                        vm.setVectorCornerRadius(r)
-                        showCornerDialog = false
-                    },
-                    onDismiss = { showCornerDialog = false },
-                )
-            }
-
-            if (showShapeSizeDialog) {
-                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                val shape = activeLayer?.shapes?.firstOrNull()
-                if (shape != null) {
-                    ShapeSizeDialog(
-                        currentWidth = shape.width,
-                        currentHeight = shape.height,
-                        isLine = shape.kind == ShapeKind.LINE,
+            onscreen(alignment = Alignment.Center) {
+                if (showDocDialog) {
+                    DocumentSizeDialog(
+                        currentWidth = uiState.documentWidth,
+                        currentHeight = uiState.documentHeight,
                         onConfirm = { w, h ->
-                            vm.setVectorSize(w, h)
-                            showShapeSizeDialog = false
+                            vm.setDocumentSize(w, h)
+                            showDocDialog = false
                         },
-                        onDismiss = { showShapeSizeDialog = false },
+                        onDismiss = { showDocDialog = false },
                     )
                 }
-            }
 
-            if (showSidesDialog) {
-                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
-                if (polygon != null) {
-                    PolygonSidesDialog(
-                        currentSides = polygon.sides,
-                        onApply = { n ->
-                            vm.setPolygonSides(n)
-                            showSidesDialog = false
+                if (showBlendDialog) {
+                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    BlendModePicker(
+                        current = activeLayer?.blendMode?.toModelBlendMode() ?: BlendMode.SrcOver,
+                        onSelect = { mode ->
+                            vm.setBlendMode(mode)
+                            showBlendDialog = false
                         },
-                        onDismiss = { showSidesDialog = false },
+                        onDismiss = { showBlendDialog = false },
                     )
                 }
-            }
 
-            val editTextId = uiState.autoEditTextLayerId ?: manualEditTextId
-            if (editTextId != null) {
-                val params = uiState.layers.find { it.id == editTextId }?.textParams
-                if (params != null) {
-                    // key() on the layer id: without it, if editTextId flips to a different layer
-                    // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
-                    // layer while the dialog is already open for a previous one), TextEditDialog's
-                    // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
-                    // shows stale values and further edits get sent out tagged with the new id but
-                    // carrying the old id's field values. key() forces a fresh composable instance
-                    // (and fresh `remember`s) whenever the id changes, while recomposition for the
-                    // SAME id (e.g. every keystroke) still preserves in-progress local state.
-                    key(editTextId) {
-                        TextEditDialog(
-                            initialText = params.text,
-                            initialFontName = params.fontName,
-                            initialSizeDp = params.fontSizeDp,
-                            initialKerningEm = params.letterSpacingEm,
-                            initialColorArgb = params.colorArgb,
-                            initialBold = params.isBold,
-                            initialItalic = params.isItalic,
-                            initialHasOutline = params.hasOutline,
-                            initialHasDropShadow = params.hasDropShadow,
-                            onTextChange = { vm.onTextContentChanged(editTextId, it) },
-                            onFontChange = { vm.onTextFontChanged(editTextId, it) },
-                            onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
-                            onSizeStart = { vm.onLayerEditStart() },
-                            onSizeCommit = { vm.onLayerEditEnd() },
-                            onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
-                            onKerningStart = { vm.onLayerEditStart() },
-                            onKerningCommit = { vm.onLayerEditEnd() },
-                            onColorChange = { vm.onTextColorChanged(editTextId, it) },
-                            onStyleChange = { b, i, o, s ->
-                                vm.onTextStyleChanged(editTextId, b, i, o, s)
+                if (showStrokeDialog) {
+                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    VectorStrokeDialog(
+                        currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
+                        onApply = { w ->
+                            vm.setVectorStrokeWidth(w)
+                            showStrokeDialog = false
+                        },
+                        onDismiss = { showStrokeDialog = false },
+                    )
+                }
+
+                if (showCornerDialog) {
+                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
+                    CornerRadiusDialog(
+                        currentRadius = rect?.cornerRadius ?: 0f,
+                        onApply = { r ->
+                            vm.setVectorCornerRadius(r)
+                            showCornerDialog = false
+                        },
+                        onDismiss = { showCornerDialog = false },
+                    )
+                }
+
+                if (showShapeSizeDialog) {
+                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    val shape = activeLayer?.shapes?.firstOrNull()
+                    if (shape != null) {
+                        ShapeSizeDialog(
+                            currentWidth = shape.width,
+                            currentHeight = shape.height,
+                            isLine = shape.kind == ShapeKind.LINE,
+                            onConfirm = { w, h ->
+                                vm.setVectorSize(w, h)
+                                showShapeSizeDialog = false
                             },
-                            onDismiss = {
-                                vm.consumeAutoEditTextLayer()
-                                manualEditTextId = null
-                            },
+                            onDismiss = { showShapeSizeDialog = false },
                         )
                     }
                 }
-            }
 
-            if (showBgDialog) {
-                BackgroundColorDialog(
-                    current = uiState.canvasBackground,
-                    onSelect = { vm.setCanvasBackground(it) },
-                    onDismiss = { showBgDialog = false },
-                )
-            }
+                if (showSidesDialog) {
+                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
+                    if (polygon != null) {
+                        PolygonSidesDialog(
+                            currentSides = polygon.sides,
+                            onApply = { n ->
+                                vm.setPolygonSides(n)
+                                showSidesDialog = false
+                            },
+                            onDismiss = { showSidesDialog = false },
+                        )
+                    }
+                }
 
-            if (showAddDialog) {
-                AddContentDialog(
-                    onAddText = { vm.onAddTextLayer() },
-                    onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
-                    onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
-                    onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
-                    onAddTriangle = { vm.onAddPolygonLayer(3) },
-                    onAddPentagon = { vm.onAddPolygonLayer(5) },
-                    onAddHexagon = { vm.onAddPolygonLayer(6) },
-                    onDismiss = { showAddDialog = false },
-                )
-            }
+                val editTextId = uiState.autoEditTextLayerId ?: manualEditTextId
+                if (editTextId != null) {
+                    val params = uiState.layers.find { it.id == editTextId }?.textParams
+                    if (params != null) {
+                        // key() on the layer id: without it, if editTextId flips to a different layer
+                        // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
+                        // layer while the dialog is already open for a previous one), TextEditDialog's
+                        // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
+                        // shows stale values and further edits get sent out tagged with the new id but
+                        // carrying the old id's field values. key() forces a fresh composable instance
+                        // (and fresh `remember`s) whenever the id changes, while recomposition for the
+                        // SAME id (e.g. every keystroke) still preserves in-progress local state.
+                        key(editTextId) {
+                            TextEditDialog(
+                                initialText = params.text,
+                                initialFontName = params.fontName,
+                                initialSizeDp = params.fontSizeDp,
+                                initialKerningEm = params.letterSpacingEm,
+                                initialColorArgb = params.colorArgb,
+                                initialBold = params.isBold,
+                                initialItalic = params.isItalic,
+                                initialHasOutline = params.hasOutline,
+                                initialHasDropShadow = params.hasDropShadow,
+                                onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                                onFontChange = { vm.onTextFontChanged(editTextId, it) },
+                                onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                                onSizeStart = { vm.onLayerEditStart() },
+                                onSizeCommit = { vm.onLayerEditEnd() },
+                                onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
+                                onKerningStart = { vm.onLayerEditStart() },
+                                onKerningCommit = { vm.onLayerEditEnd() },
+                                onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                                onStyleChange = { b, i, o, s ->
+                                    vm.onTextStyleChanged(editTextId, b, i, o, s)
+                                },
+                                onDismiss = {
+                                    vm.consumeAutoEditTextLayer()
+                                    manualEditTextId = null
+                                },
+                            )
+                        }
+                    }
+                }
 
-            if (showAlignDialog) {
-                AlignDialog(
-                    onAlign = { mode -> vm.alignActiveLayer(mode) },
-                    onDismiss = { showAlignDialog = false },
-                )
-            }
-
-            if (showLayerOptionsDialog) {
-                val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
-                if (overlay != null) {
-                    LayerOptionsDialog(
-                        overlay = overlay,
-                        navStrings = strings.nav,
-                        onEditText = { manualEditTextId = overlay.id },
-                        onInvert = { vm.onToggleInvert() },
-                        onShapeSize = { showShapeSizeDialog = true },
-                        onStrokeWidth = { showStrokeDialog = true },
-                        onCornerRadius = { showCornerDialog = true },
-                        onPolygonSides = { showSidesDialog = true },
-                        onToggleFill = { vm.toggleVectorFill() },
-                        onOpacityChange = { vm.onOpacityChanged(it) },
-                        onOpacityStart = { vm.onLayerEditStart() },
-                        onOpacityCommit = { vm.onLayerEditEnd() },
-                        onBlendMode = { showBlendDialog = true },
-                        onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
-                        onDismiss = { showLayerOptionsDialog = false },
+                if (showBgDialog) {
+                    BackgroundColorDialog(
+                        current = uiState.canvasBackground,
+                        onSelect = { vm.setCanvasBackground(it) },
+                        onDismiss = { showBgDialog = false },
                     )
                 }
-            }
 
-            if (showOpenDialog) {
-                OpenProjectWindow(
-                    state = openScreenState,
-                    currentProjectId = uiState.projectId,
-                    onOpenProject = { vm.openProject(it) },
-                    onOpenFile = { vm.openProjectFile(it) },
-                    onNew = { vm.createNewProject() },
-                    // Stays open behind the system picker: cancelling it should put the user back
-                    // where they were rather than making them find Open again.
-                    onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
-                    onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
-                    onDismiss = { showOpenDialog = false },
-                )
-            }
+                if (showAddDialog) {
+                    AddContentDialog(
+                        onAddText = { vm.onAddTextLayer() },
+                        onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
+                        onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
+                        onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
+                        onAddTriangle = { vm.onAddPolygonLayer(3) },
+                        onAddPentagon = { vm.onAddPolygonLayer(5) },
+                        onAddHexagon = { vm.onAddPolygonLayer(6) },
+                        onDismiss = { showAddDialog = false },
+                    )
+                }
 
-            if (showSaveDialog) {
-                SaveProjectDialog(
-                    currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
-                    onConfirm = { name ->
-                        showSaveDialog = false
-                        pendingSaveName = name
-                        projectSaver.launch(ProjectFile.suggestedFileName(name))
-                    },
-                    onDismiss = { showSaveDialog = false },
-                )
-            }
+                if (showAlignDialog) {
+                    AlignDialog(
+                        onAlign = { mode -> vm.alignActiveLayer(mode) },
+                        onDismiss = { showAlignDialog = false },
+                    )
+                }
 
-            if (showGalleryDialog) {
-                GalleryWindow(
-                    projects = projects,
-                    currentProjectId = uiState.projectId,
-                    onOpen = { vm.openProject(it) },
-                    onNew = { vm.createNewProject() },
-                    onDelete = { vm.deleteProjectById(it) },
-                    onDismiss = { showGalleryDialog = false },
-                )
-            }
+                if (showLayerOptionsDialog) {
+                    val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
+                    if (overlay != null) {
+                        LayerOptionsDialog(
+                            overlay = overlay,
+                            navStrings = strings.nav,
+                            onEditText = { manualEditTextId = overlay.id },
+                            onInvert = { vm.onToggleInvert() },
+                            onShapeSize = { showShapeSizeDialog = true },
+                            onStrokeWidth = { showStrokeDialog = true },
+                            onCornerRadius = { showCornerDialog = true },
+                            onPolygonSides = { showSidesDialog = true },
+                            onToggleFill = { vm.toggleVectorFill() },
+                            onOpacityChange = { vm.onOpacityChanged(it) },
+                            onOpacityStart = { vm.onLayerEditStart() },
+                            onOpacityCommit = { vm.onLayerEditEnd() },
+                            onBlendMode = { showBlendDialog = true },
+                            onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
+                            onDismiss = { showLayerOptionsDialog = false },
+                        )
+                    }
+                }
 
-            if (showStoreDialog) {
-                StoreWindow(
-                    installed = allInstalledExtensions,
-                    onBrowse = openAzphaltStore,
-                    onUninstall = { vm.uninstallExtension(it) },
-                    onDismiss = { showStoreDialog = false },
-                )
-            }
+                if (showOpenDialog) {
+                    OpenProjectWindow(
+                        state = openScreenState,
+                        currentProjectId = uiState.projectId,
+                        onOpenProject = { vm.openProject(it) },
+                        onOpenFile = { vm.openProjectFile(it) },
+                        onNew = { vm.createNewProject() },
+                        // Stays open behind the system picker: cancelling it should put the user back
+                        // where they were rather than making them find Open again.
+                        onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
+                        onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
+                        onDismiss = { showOpenDialog = false },
+                    )
+                }
 
-            if (showModelDialog) {
-                ModelWindow(
-                    state = modelState,
-                    onPickModel = { modelPicker.launch(arrayOf("*/*")) },
-                    onDismiss = { showModelDialog = false },
-                    onPaintChanged = { vm.onModelPaintChanged() },
-                    onAddToCanvas = { bitmap ->
-                        vm.addModelViewToCanvas(bitmap)
-                        showModelDialog = false
-                    },
-                    // The same colour and size the 2D canvas is set to: switching to a model is a
-                    // change of surface, not of brush.
-                    paintColor = uiState.activeColor,
-                    brushRadiusPx = uiState.brushSize / 2f,
-                )
-            }
+                if (showSaveDialog) {
+                    SaveProjectDialog(
+                        currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
+                        onConfirm = { name ->
+                            showSaveDialog = false
+                            pendingSaveName = name
+                            projectSaver.launch(ProjectFile.suggestedFileName(name))
+                        },
+                        onDismiss = { showSaveDialog = false },
+                    )
+                }
 
-            if (showFigmaDialog) {
-                FigmaWindow(
-                    state = figmaState,
-                    onTokenSubmit = { vm.connectFigma(it) },
-                    onDisconnect = { vm.disconnectFigma() },
-                    onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
-                    onLoadFile = { vm.loadFigmaFile() },
-                    onToggleFrame = { vm.toggleFigmaFrame(it) },
-                    onImport = { vm.importFigmaFrames() },
-                    onDismiss = { showFigmaDialog = false },
-                )
-            }
+                if (showGalleryDialog) {
+                    GalleryWindow(
+                        projects = projects,
+                        currentProjectId = uiState.projectId,
+                        onOpen = { vm.openProject(it) },
+                        onNew = { vm.createNewProject() },
+                        onDelete = { vm.deleteProjectById(it) },
+                        onDismiss = { showGalleryDialog = false },
+                    )
+                }
 
-            if (showSettings) {
-                SettingsScreen(
-                    vm = settingsVm,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    onClose = { showSettings = false },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+                if (showStoreDialog) {
+                    StoreWindow(
+                        installed = allInstalledExtensions,
+                        onBrowse = openAzphaltStore,
+                        onUninstall = { vm.uninstallExtension(it) },
+                        onDismiss = { showStoreDialog = false },
+                    )
+                }
 
-            if (showReferenceWindow) {
-                ReferenceWindow(
-                    imageUri = referenceImageUri,
-                    onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    onDismiss = { showReferenceWindow = false },
-                )
-            }
+                if (showModelDialog) {
+                    ModelWindow(
+                        state = modelState,
+                        onPickModel = { modelPicker.launch(arrayOf("*/*")) },
+                        onDismiss = { showModelDialog = false },
+                        onPaintChanged = { vm.onModelPaintChanged() },
+                        onAddToCanvas = { bitmap ->
+                            vm.addModelViewToCanvas(bitmap)
+                            showModelDialog = false
+                        },
+                        // The same colour and size the 2D canvas is set to: switching to a model is a
+                        // change of surface, not of brush.
+                        paintColor = uiState.activeColor,
+                        brushRadiusPx = uiState.brushSize / 2f,
+                    )
+                }
 
-            uiState.brushStudioDraft?.let { draft ->
-                BrushStudioWindow(
-                    draft = draft,
-                    brushColor = uiState.activeColor,
-                    isSaved = uiState.brushStudioEditingId != null,
-                    onEdit = { edit -> vm.onEditBrushDraft(edit) },
-                    onSave = { vm.onSaveBrushDraft() },
-                    onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
-                    onDismiss = { vm.onCloseBrushStudio() },
-                )
+                if (showFigmaDialog) {
+                    FigmaWindow(
+                        state = figmaState,
+                        onTokenSubmit = { vm.connectFigma(it) },
+                        onDisconnect = { vm.disconnectFigma() },
+                        onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
+                        onLoadFile = { vm.loadFigmaFile() },
+                        onToggleFrame = { vm.toggleFigmaFrame(it) },
+                        onImport = { vm.importFigmaFrames() },
+                        onDismiss = { showFigmaDialog = false },
+                    )
+                }
+
+                if (showSettings) {
+                    SettingsScreen(
+                        vm = settingsVm,
+                        appVersion = BuildConfig.VERSION_NAME,
+                        onClose = { showSettings = false },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                if (showReferenceWindow) {
+                    ReferenceWindow(
+                        imageUri = referenceImageUri,
+                        onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onDismiss = { showReferenceWindow = false },
+                    )
+                }
+
+                uiState.brushStudioDraft?.let { draft ->
+                    BrushStudioWindow(
+                        draft = draft,
+                        brushColor = uiState.activeColor,
+                        isSaved = uiState.brushStudioEditingId != null,
+                        onEdit = { edit -> vm.onEditBrushDraft(edit) },
+                        onSave = { vm.onSaveBrushDraft() },
+                        onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
+                        onDismiss = { vm.onCloseBrushStudio() },
+                    )
+                }
             }
         }
     }

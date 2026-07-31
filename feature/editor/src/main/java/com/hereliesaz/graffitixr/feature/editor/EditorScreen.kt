@@ -50,8 +50,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
-import com.hereliesaz.graffitixr.common.model.GestureAction
-import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -89,6 +87,13 @@ import kotlin.math.sin
 fun EditorScreen(
     vm: EditorViewModel,
     modifier: Modifier = Modifier,
+    // Non-null when the HOST owns the Procreate history gestures. The host installs the observer
+    // above the whole app (see MainActivity) so two- and three-finger taps also register over the
+    // nav rail, the floating panels and the onscreen chrome — none of which live inside this
+    // screen's subtree, and all of which used to swallow the gesture entirely. This screen then
+    // only feeds the shared gate from its drawing surfaces. Null = standalone: it owns both, and
+    // the gestures are canvas-only.
+    hostStrokeGate: StrokeGate? = null,
 ) {
     val uiState by vm.uiState.collectAsState()
     val strings = rememberAppStrings()
@@ -96,9 +101,22 @@ fun EditorScreen(
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
 
-    // Coordinates the drawing surface with the multi-finger tap observer below, so a two-finger
-    // tap that cancelled an in-flight stroke doesn't also undo the previous action.
-    val strokeGate = remember { StrokeGate() }
+    // Coordinates the drawing surfaces with the multi-finger tap observer, so a two-finger tap that
+    // cancelled an in-flight stroke doesn't also undo the previous action.
+    val ownGate = remember { StrokeGate() }
+    val strokeGate = hostStrokeGate ?: ownGate
+
+    // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger tap
+    // redoes by default — but every slot is user-reassignable (Settings), so each fires through
+    // performGestureAction against the live mapping rather than a fixed call. A pure observer —
+    // consumes nothing, so painting and navigation are unaffected.
+    val gestureObserver = if (hostStrokeGate == null) {
+        Modifier.multiFingerTaps(strokeGate) { slot, at ->
+            performGestureAction(uiState.gestureMapping, slot, vm, at)
+        }
+    } else {
+        Modifier
+    }
 
     Box(
         modifier = modifier
@@ -106,18 +124,7 @@ fun EditorScreen(
             // Fixed dark workspace so the artboard (the document, its own fill) reads as a distinct
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
-            // Procreate's history gestures, live in every mode: two-finger tap undoes, three-finger
-            // tap redoes by default — but every slot is user-reassignable (Settings), so each fires
-            // through performGestureAction against the live mapping rather than a fixed call. A pure
-            // observer — consumes nothing, so painting and navigation are unaffected.
-            .multiFingerTaps(
-                gate = strokeGate,
-                onTwoFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.TWO_FINGER_TAP, vm) },
-                onThreeFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_TAP, vm) },
-                onFourFingerTap = { performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_TAP, vm) },
-                onFourFingerHold = { at -> performGestureAction(uiState.gestureMapping, GestureSlot.FOUR_FINGER_HOLD, vm, at) },
-                onThreeFingerScrub = { performGestureAction(uiState.gestureMapping, GestureSlot.THREE_FINGER_SCRUB, vm) },
-            )
+            .then(gestureObserver)
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
         // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
@@ -361,6 +368,7 @@ fun EditorScreen(
             PenCanvas(
                 color = uiState.activeColor,
                 strokeWidthPx = uiState.brushSize,
+                gate = strokeGate,
                 onCommit = { pts, cw, ch -> vm.onCommitPenPath(pts, cw, ch) },
                 onCommitEllipse = { c, rx, ry, cw, ch -> vm.onCommitPenEllipse(c, rx, ry, cw, ch) },
                 modifier = Modifier.fillMaxSize(),
@@ -717,13 +725,14 @@ private fun SelectionHandles(
  * and lifting commits it: a recognized line commits as a clean two-point path, a recognized
  * circle/ellipse goes through [onCommitEllipse] instead.
  *
- * A second finger cancels the trace (it's a gesture, not drawing). Strokes of fewer than two
- * points are ignored.
+ * A second finger cancels the trace (it's a gesture, not drawing) and tells [gate] so, so the tap
+ * that cancelled it doesn't also fire an undo. Strokes of fewer than two points are ignored.
  */
 @Composable
 private fun PenCanvas(
     color: Color,
     strokeWidthPx: Float,
+    gate: StrokeGate,
     onCommit: (points: List<Offset>, canvasWidth: Float, canvasHeight: Float) -> Unit,
     onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -753,6 +762,10 @@ private fun PenCanvas(
                     }
                     if (event.changes.count { it.pressed } > 1) {
                         cancelled = true
+                        // Same contract the raster and lasso surfaces keep: a second finger throws
+                        // the trace away, so the gesture that did it must not ALSO undo whatever
+                        // came before. Without this, a two-finger tap mid-trace did both.
+                        if (points.size >= 2) gate.markCancelled()
                         break
                     }
                     val change = event.changes.firstOrNull() ?: break
@@ -872,6 +885,11 @@ private fun InfiniteGrid(
     }
 }
 
+/** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
+ *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
+private const val PX_PER_INCH = 96f
+private fun pxToUnit(px: Float, imperial: Boolean): Float = if (imperial) px / PX_PER_INCH else px / PX_PER_INCH * 2.54f
+
 /**
  * Persistent rulers along the top and left edges whose ticks track the world grid. The camera map is
  * `screen = offset + zoom·R(θ)·world`, so along the top edge (`y = 0`) the world-x coordinate is an
@@ -880,32 +898,6 @@ private fun InfiniteGrid(
  * the ticks follow the grid exactly as the canvas pans, zooms, and rotates; near a right-angle turn
  * (`cosθ ≈ 0`) that family of lines runs parallel to the edge and is simply skipped.
  */
-/**
- * Looks up what [slot] is currently assigned to in [mapping] (falling back to the slot's own
- * historical default if the map is somehow missing an entry) and fires it. [at] is only meaningful
- * for [GestureAction.QUICK_MENU] (opens where the gesture landed); every other action ignores it.
- */
-private fun performGestureAction(
-    mapping: Map<GestureSlot, GestureAction>,
-    slot: GestureSlot,
-    vm: EditorViewModel,
-    at: Offset = Offset.Zero,
-) {
-    when (mapping[slot] ?: slot.defaultAction) {
-        GestureAction.NONE -> {}
-        GestureAction.UNDO -> vm.onUndoClicked()
-        GestureAction.REDO -> vm.onRedoClicked()
-        GestureAction.HIDE_UI -> vm.toggleHideUi()
-        GestureAction.QUICK_MENU -> vm.onOpenQuickMenu(at)
-        GestureAction.CLEAR_LAYER -> vm.onClearLayer()
-    }
-}
-
-/** Document px → the chosen unit, assuming the CSS/typical-screen reference of 96 px per inch — the
- *  document model carries no DPI of its own, so this is the same reference every browser ruler uses. */
-private const val PX_PER_INCH = 96f
-private fun pxToUnit(px: Float, imperial: Boolean): Float = if (imperial) px / PX_PER_INCH else px / PX_PER_INCH * 2.54f
-
 @Composable
 private fun BoxScope.Rulers(
     zoom: Float,
