@@ -246,25 +246,27 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
      note="The same block against a broken rule — the edge dissolves.")
 
 icon("smudge", "tools", ["finger", "drag", "blend"],
-     s=[],
-     f=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.8), (12.4, 6.0), (14.4, 8.4), (16.6, 6.0),
-              (18.8, 8.4), (20.0, 10.6), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6), (11.6, 17.6),
-              (11.1, 16.0), (4.3, 20.9)], close=True)],
+     s=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.8), (12.4, 6.4), (14.4, 8.6), (16.6, 6.4),
+              (18.8, 8.6), (20.0, 10.6), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6),
+              (11.6, 17.6), (11.1, 16.0), (4.3, 20.9)], close=True)],
+     f=[poly([(2.2, 17.9), (4.3, 20.9), (6.9, 19.7), (4.8, 16.7)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
      note="A fist with the index put out, pointing exactly where the brush tip and the pencil "
-          "point do. The hand itself is upright; only the finger is on the tool diagonal, and "
-          "that is the whole fix. Eleven earlier drawings put the hand on the diagonal too, and "
-          "every one of them came out as a long thing with a lump on the end: a rocket, a boot, "
-          "a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, "
-          "a syringe. The constraint was the diagonal, not the drawing. Solid rather than "
-          "outlined, because at 1.4 stroke a finger-wide tube has no inside left, and the "
-          "curled knuckles are bumps along the back of the fist rather than separate columns. The "
-          "knuckles have to be deep — a bump of under a unit is under a pixel at final size, and "
-          "a fist with a smooth back is a lollipop head. The finger was thinned once, to stop it reading as a forearm, and that took the whole "
-          "glyph back to a blob on a stick — below this width the fist stops reading as a "
-          "fist. A finger that is slightly too thick is the price. "
-          "Distinct from the pan hand, which is an open palm with all five splayed.")
+          "point do. The hand is upright and only the finger is on the tool diagonal — eleven "
+          "earlier drawings put the hand on the diagonal too, and every one came out as a long "
+          "thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, "
+          "a lightbulb, a key, a revolver, a sledgehammer, a syringe.\n\n"
+          "Outlined, not solid, and that is the part that finally settled it. As a solid mass "
+          "the glyph was bistable: the same path read as a clenched fist on one viewing and a "
+          "lollipop on the next, and deepening the knuckles to fix that turned it into a "
+          "mushroom cloud. An outline has interior white, so the fist reads as a fist rather "
+          "than as a blob on a stalk, and it puts the hand in the same language as the pan "
+          "hand, which has never once failed. The finger is wide enough to keep white inside "
+          "it at 1.4 stroke, which is the constraint that made solid look necessary in the "
+          "first place. Solid only at the pad, like the pencil's graphite and the brush's "
+          "head. Distinct from the pan hand, which is an open palm with all five splayed."
+)
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],
      s=[seq(line(12, 3.2, 16.99, 9.58), arc(12, 13.6, 6.4, 321.2, 578.8), line(7.01, 9.58, 12, 3.2)),

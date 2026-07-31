@@ -6,9 +6,18 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- smudge: A fist with the index put out, pointing exactly where the brush tip and the pencil point do. The hand itself is upright; only the finger is on the tool diagonal, and that is the whole fix. Eleven earlier drawings put the hand on the diagonal too, and every one of them came out as a long thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, a syringe. The constraint was the diagonal, not the drawing. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left, and the curled knuckles are bumps along the back of the fist rather than separate columns. The knuckles have to be deep — a bump of under a unit is under a pixel at final size, and a fist with a smooth back is a lollipop head. The finger was thinned once, to stop it reading as a forearm, and that took the whole glyph back to a blob on a stick — below this width the fist stops reading as a fist. A finger that is slightly too thick is the price. Distinct from the pan hand, which is an open palm with all five splayed. -->
+    <!-- smudge: A fist with the index put out, pointing exactly where the brush tip and the pencil point do. The hand is upright and only the finger is on the tool diagonal — eleven earlier drawings put the hand on the diagonal too, and every one came out as a long thing with a lump on the end: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, a syringe.
+
+Outlined, not solid, and that is the part that finally settled it. As a solid mass the glyph was bistable: the same path read as a clenched fist on one viewing and a lollipop on the next, and deepening the knuckles to fix that turned it into a mushroom cloud. An outline has interior white, so the fist reads as a fist rather than as a blob on a stalk, and it puts the hand in the same language as the pan hand, which has never once failed. The finger is wide enough to keep white inside it at 1.4 stroke, which is the constraint that made solid look necessary in the first place. Solid only at the pad, like the pencil's graphite and the brush's head. Distinct from the pan hand, which is an open palm with all five splayed. -->
     <!-- lineage (PS/PR): Photoshop's Smudge tool — a closed hand with the index finger put out. -->
     <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.2,17.9L9,13L10.4,8.8L12.4,6.4L14.4,8.6L16.6,6.4L18.8,8.6L20,10.6L20,15.2L18.2,17.8L14.4,18.6L11.6,17.6L11.1,16L4.3,20.9Z" />
+    <path
         android:fillColor="@android:color/white"
-        android:pathData="M2.2,17.9L9,13L10.4,8.8L12.4,6L14.4,8.4L16.6,6L18.8,8.4L20,10.6L20,15.2L18.2,17.8L14.4,18.6L11.6,17.6L11.1,16L4.3,20.9Z" />
+        android:pathData="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" />
 </vector>
