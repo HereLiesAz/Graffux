@@ -213,6 +213,27 @@ fun EditorScreen(
         }
         } // end infinite-canvas camera container
 
+        // 1d. Camera navigation — two or more fingers pan, pinch-zoom and rotate the workspace.
+        // Mounted under EVERY tool. This used to live inside the `activeTool == Tool.NONE` block
+        // below, which meant that the moment you picked a brush (or eraser, pen, lasso — anything)
+        // the canvas froze: a second finger only cancelled the stroke and then nothing moved. In
+        // Procreate two fingers navigate at all times, whatever the tool and whatever is selected,
+        // and that is the whole point of the gesture.
+        //
+        // Placed BELOW the tool surfaces in z-order, so a single finger still reaches the brush
+        // first; this layer ignores single-finger events entirely and never consumes them. Once a
+        // second finger lands, the drawing surfaces have already dropped out of their own loops
+        // (they treat two fingers as "this is a gesture, not painting"), so the events arrive here
+        // unclaimed.
+        if (uiState.quickMenuAt == null) {
+            CanvasNavigation(
+                onPanZoom = { pan, zoom, centroid, rotation ->
+                    vm.onViewportPanZoom(pan, zoom, centroid, rotation)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         // 2. Transform / tap gestures — only when no brush tool is active.
         if (uiState.activeTool == Tool.NONE) {
             Box(
@@ -228,8 +249,10 @@ fun EditorScreen(
                         )
                     }
                     .pointerInput(Unit) {
-                        // Infinite-canvas navigation vs. object move:
-                        //  • two+ fingers                   → pan + zoom the CAMERA (about the pinch centroid)
+                        // Object move only. Camera navigation is NOT handled here any more — it is
+                        // CanvasNavigation above, which is mounted under every tool instead of only
+                        // this one:
+                        //  • two+ fingers                   → not ours; CanvasNavigation drives the camera
                         //  • one finger on the active layer → move that layer (history-bracketed)
                         //  • one finger on empty space      → no-op; a single finger must NEVER pan the
                         //    canvas (Procreate reserves camera navigation for two fingers exclusively —
@@ -258,25 +281,21 @@ fun EditorScreen(
                                 val event = awaitPointerEvent()
                                 val pressed = event.changes.count { it.pressed }
                                 if (pressed == 0) break
-                                when {
-                                    pressed >= 2 -> {
-                                        // Two fingers → pan + zoom + rotate the whole canvas (Procreate-style).
-                                        val centroid = event.calculateCentroid()
-                                        if (centroid != Offset.Unspecified) {
-                                            vm.onViewportPanZoom(
-                                                event.calculatePan(), event.calculateZoom(), centroid,
-                                                event.calculateRotation(),
-                                            )
-                                        }
-                                    }
-                                    startOnActiveLayer -> {
-                                        if (!movingObject) { vm.onGestureStart(); movingObject = true }
-                                        vm.onTransformGesture(event.calculatePan(), 1f, 0f, w, h)
-                                    }
-                                    // One finger, off the active layer: not a canvas gesture. Leave the
-                                    // event unconsumed and do nothing — no camera pan, ever, on one finger.
+                                if (pressed >= 2) {
+                                    // A second finger means the user is navigating, not dragging the
+                                    // layer. Close out any in-flight move and stop consuming so
+                                    // CanvasNavigation gets a clean gesture — otherwise the layer
+                                    // would slide along under the pinch.
+                                    if (movingObject) { vm.onGestureEnd(); movingObject = false }
+                                    break
                                 }
-                                if (pressed >= 2 || startOnActiveLayer) event.changes.forEach { it.consume() }
+                                if (startOnActiveLayer) {
+                                    if (!movingObject) { vm.onGestureStart(); movingObject = true }
+                                    vm.onTransformGesture(event.calculatePan(), 1f, 0f, w, h)
+                                    event.changes.forEach { it.consume() }
+                                }
+                                // One finger, off the active layer: not a canvas gesture. Leave the
+                                // event unconsumed and do nothing — no camera pan, ever, on one finger.
                             }
                             if (movingObject) vm.onGestureEnd()
                         }
@@ -606,6 +625,56 @@ private fun LayerStackNode(
 }
 
 /**
+ * Procreate's canvas navigation: **two or more fingers pan, pinch-zoom and rotate the workspace**,
+ * about the pinch centroid — under every tool, with anything or nothing selected. It is the one
+ * gesture that must never be modal, because there is no other way to move the canvas while you are
+ * painting on it.
+ *
+ * A single finger is left strictly alone: no camera drag, no consumption, nothing. That finger
+ * belongs to whichever tool is active (or to nobody, in Transform mode over empty space), and this
+ * layer must not so much as touch it. Only from the second finger onwards does it claim the gesture
+ * and consume, which is also the point at which the drawing surfaces have abandoned theirs — they
+ * treat a second finger as "this is a gesture, not painting" and drop out of their loops.
+ *
+ * [awaitFirstDown] takes `requireUnconsumed = false` because the tool surfaces above legitimately
+ * claim the first down (the Transform layer's tap detector consumes it outright); waiting for an
+ * unconsumed one would mean never starting to track, and the pinch that follows would be missed.
+ */
+@Composable
+private fun CanvasNavigation(
+    onPanZoom: (pan: Offset, zoom: Float, centroid: Offset, rotation: Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        // Keyed on Unit so it never restarts: keying on the viewport would cancel and relaunch this
+        // block on every frame of a pan, dropping the in-flight gesture and making navigation feel
+        // dead. The camera state it needs comes from the events themselves, which are deltas.
+        modifier = modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val pressed = event.changes.count { it.pressed }
+                    if (pressed == 0) break
+                    // One finger is never the camera's — leave it entirely unclaimed.
+                    if (pressed < 2) continue
+                    val centroid = event.calculateCentroid()
+                    if (centroid != Offset.Unspecified) {
+                        onPanZoom(
+                            event.calculatePan(),
+                            event.calculateZoom(),
+                            centroid,
+                            event.calculateRotation(),
+                        )
+                    }
+                    event.changes.forEach { it.consume() }
+                }
+            }
+        }
+    )
+}
+
+/**
  * Draws the selection outline: the active layer's transformed content bounding box (four corners
  * from [CanvasHitTest.layerScreenCorners] connected cyclically), so the user can see which layer a
  * canvas tap selected. Non-interactive; nothing is drawn when there is no active layer.
@@ -684,6 +753,10 @@ private fun SelectionHandles(
                 var prevDist = (down.position - pivot).getDistance().coerceAtLeast(1f)
                 while (true) {
                     val event = awaitPointerEvent()
+                    // A second finger is canvas navigation, never a handle drag — same contract the
+                    // drawing surfaces keep. Holding on would consume one of the two pointers and
+                    // leave CanvasNavigation with half a pinch.
+                    if (event.changes.count { it.pressed } > 1) break
                     val change = event.changes.firstOrNull() ?: break
                     if (!change.pressed) break
                     if (onRotateHandle) {

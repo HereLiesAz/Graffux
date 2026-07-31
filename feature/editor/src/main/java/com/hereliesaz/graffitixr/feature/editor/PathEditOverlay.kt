@@ -94,6 +94,10 @@ fun PathEditOverlay(
                     var started = false
                     while (true) {
                         val event = awaitPointerEvent()
+                        // A second finger is canvas navigation, never node editing. Let go of the
+                        // node: holding on would keep consuming one of the two pointers, and a pinch
+                        // computed from a single unconsumed finger is not a pinch.
+                        if (event.changes.count { it.pressed } > 1) break
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
                         val local = toLocal(layer, change.position, w, h, uiState) ?: continue
