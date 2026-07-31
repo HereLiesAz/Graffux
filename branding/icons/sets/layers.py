@@ -116,14 +116,15 @@ icon("layer-unlock", "layers", ["unprotect", "open lock", "editable"],
      note="The same padlock, open on one side.")
 
 icon("layer-link", "layers", ["chain", "tie together", "move as one"],
-     s=[arc(9.6, 14.4, 4.6, -45, 225), arc(14.4, 9.6, 4.6, 135, 405)],
+     s=[rect(8.6, 3.4, 6.8, 9.8, 3.4), rect(8.6, 10.8, 6.8, 9.8, 3.4)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's link chain.",
      note="Two open rings, interlocked.")
 
 icon("layer-unlink", "layers", ["break chain", "release"],
-     s=[arc(6.6, 14.4, 4.2, -45, 225), arc(17.4, 9.6, 4.2, 135, 405)],
+     s=[rect(8.6, 2.6, 6.8, 8.4, 3.4), rect(8.6, 13.0, 6.8, 8.4, 3.4),
+        seq(line(6.4, 11.4, 4.4, 10.4), line(17.6, 11.4, 19.6, 10.4))],
      f=[],
      apps="PS/AI",
      basis="Photoshop's unlink — the same two rings, pulled apart.",

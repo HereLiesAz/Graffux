@@ -181,11 +181,11 @@ icon("channel-mixer", "color", ["per channel", "recombine"],
      note="Three rails set independently.")
 
 icon("color-lookup", "color", ["lut", "preset grade", "cube"],
-     s=[rect(3.4, 3.4, 17.2, 17.2),
-        seq(line(9.13, 3.4, 9.13, 20.6), line(14.87, 3.4, 14.87, 20.6),
-            line(3.4, 9.13, 20.6, 9.13), line(3.4, 14.87, 20.6, 14.87))],
-     f=[seq(rect(3.4, 3.4, 5.73, 5.73), rect(9.13, 9.13, 5.74, 5.74),
-            rect(14.87, 14.87, 5.73, 5.73))],
+     s=[rect(3.4, 5.4, 17.2, 13.2),
+        seq(line(9.1, 5.4, 9.1, 18.6), line(14.9, 5.4, 14.9, 18.6)),
+        seq(line(11.0, 8.0, 13.0, 8.0), line(11.0, 12.0, 13.0, 12.0),
+            line(11.0, 16.0, 13.0, 16.0))],
+     f=[rect(14.9, 5.4, 5.7, 13.2)],
      apps="PS",
      basis="Photoshop's Color Lookup — the LUT, which really is a cube of samples.",
      note="A colour cube with the identity ramp running corner to corner through it. Two cells "

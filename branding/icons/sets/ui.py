@@ -266,9 +266,9 @@ icon("gesture-pinch", "ui", ["two finger zoom"],
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[line(3.0, 19.6, 21.0, 19.6),
-        seq(rect(6.8, 5.0, 3.8, 12.0, 1.9), rect(13.4, 5.0, 3.8, 12.0, 1.9))],
-     f=[seq(dot(8.7, 18.2, 1.2), dot(15.3, 18.2, 1.2))],
+     s=[line(3.0, 19.4, 21.0, 19.4),
+        seq(poly([(6.2, 6.4), (8.6, 8.8), (11.0, 6.4)]), poly([(13.0, 6.4), (15.4, 8.8), (17.8, 6.4)]))],
+     f=[seq(dot(8.6, 14.4, 2.4), dot(15.4, 14.4, 2.4))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
      note="Two fingers landing together on the same surface.")
