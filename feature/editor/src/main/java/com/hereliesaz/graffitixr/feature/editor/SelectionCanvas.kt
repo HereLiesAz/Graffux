@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
@@ -60,10 +61,20 @@ fun SelectionCanvas(
     var lasso by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var moveDelta by remember { mutableStateOf<Offset?>(null) }
 
+    // Same reason as DrawingCanvas: the pointer loop below is keyed on `selection`, so committing or
+    // moving a selection tears it down. If that happens mid-drag the latch never clears, and a stuck
+    // latch silently disables every multi-finger gesture in the app.
+    DisposableEffect(gate) {
+        onDispose { gate.strokeActive = false }
+    }
+
     Canvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
             .pointerInput(selection) {
+                // Committing or moving a selection relaunches this block and kills the in-flight
+                // drag's loop; nothing is in progress the instant it starts, so start clean.
+                gate.strokeActive = false
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown()
