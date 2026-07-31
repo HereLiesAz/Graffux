@@ -18,7 +18,7 @@ data class GxIcon(
 /**
  * The Graffux icon set.
  *
- * 409 glyphs on a 24-unit grid, one 1.4-unit stroke weight, at most one solid
+ * 404 glyphs on a 24-unit grid, one 1.4-unit stroke weight, at most one solid
  * mark each — the keystone, which always sits where the operation acts.
  *
  * Reference them directly (`GraffuxIcons.Brush`) or look them up by key for a picker.
@@ -111,32 +111,22 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushLibrary: Int get() = R.drawable.ic_gx_brush_library
     /** Three rails; the middle one is the one being moved. */
     val BrushSettings: Int get() = R.drawable.ic_gx_brush_settings
-    /** One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. */
+    /** One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. The measure goes underneath: stood beside the footprint as a vertical bar between two arrowheads, the pair of them read as the letters Oi, and at small size that was the only thing left. */
     val BrushSize: Int get() = R.drawable.ic_gx_brush_size
     /** Half committed, half withheld. */
     val BrushOpacity: Int get() = R.drawable.ic_gx_brush_opacity
     /** Three drops at three depths of fall. */
     val BrushFlow: Int get() = R.drawable.ic_gx_brush_flow
-    /** A solid core, a broken halo, an outer edge. */
+    /** A hard footprint and a soft one, deliberately unequal in size. Side by side and near-equal a rater called them a pair of testicles, or breasts: two adjacent circles of about the same size at about that spacing are that, whatever is drawn inside them. Stacked one above the other instead, they were a snowman, and anatomical again. Concentric was never an option: a ring with a filled circle inside it is a nipple, which is what the burn tool was, and a broken ring around a solid centre is a target, which is what the brush size was. Unequal and side by side is the only arrangement of two round things that has come back clean, and it costs a family resemblance to brush-roundness. The two stand clear of each other: hard against the solid one, the small ring read as a piercing through it. */
     val BrushHardness: Int get() = R.drawable.ic_gx_brush_hardness
     /** Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn. */
     val BrushSpacing: Int get() = R.drawable.ic_gx_brush_spacing
-    /** Stamps thrown clear of the path they were meant to follow, the path itself broken because nothing was laid down on it. Drawn as a solid diagonal rule with two marks above it and two below, it was a percent sign at every size — a slash between two round things is that character and nothing else. Five marks, uneven, and a dashed path. */
+    /** One stamp landed, and four thrown clear of it at uneven distances, mostly to one side. No path drawn, because every path drawn turned into something else: on the diagonal with marks above and below it was a percent sign at every size, dashed or solid, through two drawings; laid horizontal and dashed, the dashes became a stitched-shut mouth and the marks around them eyes, and a rater called the glyph a goofy monster face; drawn as a curve it was a wavy mouth under two eyes, and a face again. Marks thrown to one side have no axis to hang a face on. */
     val BrushScatter: Int get() = R.drawable.ic_gx_brush_scatter
     /** An angle read off the baseline, solid where it points. */
     val BrushAngle: Int get() = R.drawable.ic_gx_brush_angle
-    /** A circle squeezed against its own limit. */
+    /** The footprint above, and the same footprint squashed below it. Set side by side — a ring with a solid flat lozenge against its right edge — it was a sperm cell, head left and tail right, at every size and more strongly the smaller it got. Stacked, the compression is along the axis it actually happens on, and there is no tail. */
     val BrushRoundness: Int get() = R.drawable.ic_gx_brush_roundness
-    /** A wandering parameter above a fixed baseline. */
-    val BrushJitter: Int get() = R.drawable.ic_gx_brush_jitter
-    /** One stroke, thin at both ends. */
-    val BrushTaper: Int get() = R.drawable.ic_gx_brush_taper
-    /** A loaded drop over the rings it has already made. Outlined, with an arc floating inside it, the drop is a pointed hood with an eye slit cut in it. */
-    val BrushWet: Int get() = R.drawable.ic_gx_brush_wet
-    /** Three passes over the same ground. */
-    val BrushBuildup: Int get() = R.drawable.ic_gx_brush_buildup
-    /** A smaller footprint carried by a larger one. */
-    val BrushDual: Int get() = R.drawable.ic_gx_brush_dual
     /** One footprint, bitten all round by the tooth, inside the swatch of paper that bit it.
 
 Ten drawings. The first eight were strokes, and the brush family does not draw strokes: size is two discs on one centre, hardness a solid core inside a broken halo, roundness a circle beside an ellipse, spacing three stamps on a run. The ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one — which is the hardness glyph's own composition, and it read as a donut next to a squashed spider. Drawn with twelve vertices at alternating long and short radii, which is the obvious way to rough up a circle, it was a six-pointed star and a rater said Star of David. Sixteen vertices at radii that vary a little and never alternate give a roughened disc with no points on it.
@@ -921,11 +911,6 @@ The trap under all of it is that two similar elongated marks side by side are al
         GxIcon("brush-scatter", R.drawable.ic_gx_brush_scatter, GxIconCategory.TOOLS, listOf("jitter", "spread", "random")),
         GxIcon("brush-angle", R.drawable.ic_gx_brush_angle, GxIconCategory.TOOLS, listOf("rotation", "nib angle", "protractor")),
         GxIcon("brush-roundness", R.drawable.ic_gx_brush_roundness, GxIconCategory.TOOLS, listOf("flatten", "squash", "ellipse nib")),
-        GxIcon("brush-jitter", R.drawable.ic_gx_brush_jitter, GxIconCategory.TOOLS, listOf("variance", "wobble", "noise")),
-        GxIcon("brush-taper", R.drawable.ic_gx_brush_taper, GxIconCategory.TOOLS, listOf("pressure taper", "stroke ends", "swell")),
-        GxIcon("brush-wet", R.drawable.ic_gx_brush_wet, GxIconCategory.TOOLS, listOf("wet mix", "dilute", "bleed")),
-        GxIcon("brush-buildup", R.drawable.ic_gx_brush_buildup, GxIconCategory.TOOLS, listOf("accumulate", "density", "layering")),
-        GxIcon("brush-dual", R.drawable.ic_gx_brush_dual, GxIconCategory.TOOLS, listOf("dual brush", "second tip", "combine")),
         GxIcon("brush-texture", R.drawable.ic_gx_brush_texture, GxIconCategory.TOOLS, listOf("grain", "tooth", "paper")),
         GxIcon("brush-import", R.drawable.ic_gx_brush_import, GxIconCategory.TOOLS, listOf("load brush", "install", "abr")),
         GxIcon("stylus", R.drawable.ic_gx_stylus, GxIconCategory.TOOLS, listOf("pen hardware", "pencil", "digitiser")),

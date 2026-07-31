@@ -6,16 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-hardness: A solid core, a broken halo, an outer edge. -->
-    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — solid core, soft shoulder, outer limit. -->
+    <!-- brush-hardness: A hard footprint and a soft one, deliberately unequal in size. Side by side and near-equal a rater called them a pair of testicles, or breasts: two adjacent circles of about the same size at about that spacing are that, whatever is drawn inside them. Stacked one above the other instead, they were a snowman, and anatomical again. Concentric was never an option: a ring with a filled circle inside it is a nipple, which is what the burn tool was, and a broken ring around a solid centre is a target, which is what the brush size was. Unequal and side by side is the only arrangement of two round things that has come back clean, and it costs a family resemblance to brush-roundness. The two stand clear of each other: hard against the solid one, the small ring read as a piercing through it. -->
+    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — the same footprint hard and soft. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M21,12A4.4,4.4 0 0,1 19.97,14.83 M18.8,15.81A4.4,4.4 0 0,1 15.84,16.33 M14.4,15.81A4.4,4.4 0 0,1 12.47,13.5 M12.2,12A4.4,4.4 0 0,1 13.23,9.17 M14.4,8.19A4.4,4.4 0 0,1 17.36,7.67 M18.8,8.19A4.4,4.4 0 0,1 20.73,10.5" />
+        android:pathData="M20.8,12A2.6,2.6 0 0,1 20.25,13.6 M19.5,14.25A2.6,2.6 0 0,1 17.84,14.57 M16.9,14.25A2.6,2.6 0 0,1 15.79,12.97 M15.6,12A2.6,2.6 0 0,1 16.15,10.4 M16.9,9.75A2.6,2.6 0 0,1 18.56,9.43 M19.5,9.75A2.6,2.6 0 0,1 20.61,11.03" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3,12A4.4,4.4 0 1,0 11.8,12A4.4,4.4 0 1,0 3,12Z" />
+        android:pathData="M3.4,12A5.4,5.4 0 1,0 14.2,12A5.4,5.4 0 1,0 3.4,12Z" />
 </vector>

@@ -459,8 +459,8 @@ icon("brush-settings", "tools", ["brush studio", "parameters", "engine"],
      note="Three rails; the middle one is the one being moved.")
 
 icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
-     s=[circle(9.4, 12, 6.0), line(18.6, 7.0, 18.6, 17.0)],
-     f=[seq(tip(18.6, 5.4, 2.0, 90), tip(18.6, 18.6, 2.0, 270))],
+     s=[circle(12, 9.6, 5.6), line(6.6, 18.8, 17.4, 18.8)],
+     f=[seq(tip(4.8, 18.8, 2.0, 180), tip(19.2, 18.8, 2.0, 0))],
      apps="PS/AI/PR",
      basis="Photoshop's brush-size preview, measured the way any width is measured.",
      note="One footprint with its size taken off beside it. Drawn as two rings on one centre "
@@ -468,7 +468,9 @@ icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
           "dartboard with a dart in it, and at small size the rings merged and the radius "
           "became the bar of a no-entry sign. Concentric rings around a centre are a target "
           "whatever is meant by them, which is the same finding that took the ring off the "
-          "brush cursor and the register mark.")
+          "brush cursor and the register mark. The measure goes underneath: stood beside "
+          "the footprint as a vertical bar between two arrowheads, the pair of them read "
+          "as the letters Oi, and at small size that was the only thing left.")
 
 icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
      s=[seq(arc(12, 12, 8.4, -80, -20), arc(12, 12, 8.4, 20, 80))],
@@ -485,11 +487,22 @@ icon("brush-flow", "tools", ["rate", "load", "delivery"],
      note="Three drops at three depths of fall.")
 
 icon("brush-hardness", "tools", ["edge", "falloff", "core"],
-     s=[seq(*[arc(16.6, 12, 4.4, a, a + 40) for a in (0, 60, 120, 180, 240, 300)])],
-     f=[circle(7.4, 12, 4.4)],
+     s=[seq(*[arc(18.2, 12, 2.6, a, a + 38) for a in (0, 60, 120, 180, 240, 300)])],
+     f=[circle(8.8, 12, 5.4)],
      apps="PS/AI/PR",
-     basis="Photoshop's hardness preview — solid core, soft shoulder, outer limit.",
-     note="A solid core, a broken halo, an outer edge.")
+     basis="Photoshop's hardness preview — the same footprint hard and soft.",
+     note="A hard footprint and a soft one, deliberately unequal in size. Side by "
+          "side and near-equal a rater called them a pair of testicles, or breasts: "
+          "two adjacent circles of about the same size at about that spacing are "
+          "that, whatever is drawn inside them. Stacked one above the other instead, "
+          "they were a snowman, and anatomical again. Concentric was never an "
+          "option: a ring with a filled circle inside it is a nipple, which is what "
+          "the burn tool was, and a broken ring around a solid centre is a target, "
+          "which is what the brush size was. Unequal and side by side is the only "
+          "arrangement of two round things that has come back clean, and it costs a "
+          "family resemblance to brush-roundness. The two stand clear of each other: hard "
+          "against the solid one, the small ring read as a piercing through it."
+)
 
 icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
      s=[circle(5.6, 15.8, 2.6), circle(18.4, 8.2, 2.6)],
@@ -505,16 +518,20 @@ icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
           "line that is actually drawn.")
 
 icon("brush-scatter", "tools", ["jitter", "spread", "random"],
-     s=[dashed(2.8, 17.2, 21.2, 6.8, 5, 0.55), circle(7.0, 10.4, 1.6), circle(17.4, 15.2, 1.5),
-        circle(13.0, 7.2, 1.3), circle(19.4, 9.0, 1.15)],
-     f=[dot(9.6, 17.8, 1.35)],
+     s=[circle(16.0, 6.4, 1.5), circle(19.6, 12.4, 1.2), circle(16.8, 18.0, 1.35),
+        circle(6.0, 5.8, 1.0)],
+     f=[dot(9.4, 13.2, 2.4)],
      apps="PS/PR",
-     basis="Photoshop's Scattering — marks thrown off the path they were meant to follow.",
-     note="Stamps thrown clear of the path they were meant to follow, the path itself broken "
-          "because nothing was laid down on it. Drawn as a solid diagonal rule with two marks "
-          "above it and two below, it was a percent sign at every size — a slash between two "
-          "round things is that character and nothing else. Five marks, uneven, and a dashed "
-          "path.")
+     basis="Photoshop's Scattering — marks thrown clear of where they were aimed.",
+     note="One stamp landed, and four thrown clear of it at uneven distances, mostly "
+          "to one side. No path drawn, because every path drawn turned into "
+          "something else: on the diagonal with marks above and below it was a "
+          "percent sign at every size, dashed or solid, through two drawings; laid "
+          "horizontal and dashed, the dashes became a stitched-shut mouth and the "
+          "marks around them eyes, and a rater called the glyph a goofy monster "
+          "face; drawn as a curve it was a wavy mouth under two eyes, and a face "
+          "again. Marks thrown to one side have no axis to hang a face on."
+)
 
 icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      s=[line(3.4, 19.4, 20.6, 19.4), line(4.6, 19.4, 16.6, 7.4), arc(4.6, 19.4, 7.6, 315, 360)],
@@ -524,51 +541,16 @@ icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      note="An angle read off the baseline, solid where it points.")
 
 icon("brush-roundness", "tools", ["flatten", "squash", "ellipse nib"],
-     s=[circle(6.8, 12, 3.8)],
-     f=[ellipse(16.2, 12, 4.6, 2.2)],
+     s=[ellipse(12, 17.6, 5.0, 2.2)],
+     f=[circle(12, 7.8, 4.2)],
      apps="PS/AI/PR",
      basis="Photoshop's Roundness control — a round footprint compressed on one axis.",
-     note="A circle squeezed against its own limit.")
-
-icon("brush-jitter", "tools", ["variance", "wobble", "noise"],
-     s=[line(3.0, 12, 21.0, 12),
-        seq(line(5.4, 12, 5.4, 6.6), line(8.4, 12, 8.4, 16.4), line(11.4, 12, 11.4, 8.4),
-            line(14.4, 12, 14.4, 17.6), line(17.4, 12, 17.4, 7.8), line(20.0, 12, 20.0, 14.8))],
-     f=[],
-     apps="PS/PR",
-     basis="Photoshop's jitter controls — a value that refuses to hold still.",
-     note="A wandering parameter above a fixed baseline.")
-
-icon("brush-taper", "tools", ["pressure taper", "stroke ends", "swell"],
-     s=[seq(line(2.4, 12, 4.6, 12), line(19.4, 12, 21.6, 12))],
-     f=[poly([(4.6, 12), (9.2, 8.6), (14.8, 8.6), (19.4, 12),
-              (14.8, 15.4), (9.2, 15.4)], close=True)],
-     apps="PR",
-     basis="Procreate's Taper settings — a stroke that opens, swells and closes.",
-     note="One stroke, thin at both ends.")
-
-icon("brush-wet", "tools", ["wet mix", "dilute", "bleed"],
-     s=[seq(arc(12, 17.4, 4.0, 200, 340), arc(12, 17.8, 7.6, 205, 335))],
-     f=[poly([(12, 2.8), (15.1, 7.4), (15.1, 10.0), (12, 12.6), (8.9, 10.0), (8.9, 7.4)],
-             close=True)],
-     apps="PS/PR",
-     basis="Procreate's Wet Mix — two loads bleeding into each other.",
-     note="A loaded drop over the rings it has already made. Outlined, with an arc floating "
-          "inside it, the drop is a pointed hood with an eye slit cut in it.")
-
-icon("brush-buildup", "tools", ["accumulate", "density", "layering"],
-     s=[seq(rect(3.0, 8.0, 5.6, 8.0), rect(9.2, 8.0, 5.6, 8.0), rect(15.4, 8.0, 5.6, 8.0))],
-     f=[seq(rect(9.2, 12.6, 5.6, 3.4), rect(15.4, 8.0, 5.6, 8.0))],
-     apps="PS/PR",
-     basis="Photoshop's Build-up airbrush behaviour — passes stacking over one another.",
-     note="Three passes over the same ground.")
-
-icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
-     s=[circle(9.2, 9.6, 5.0), circle(15.0, 14.6, 5.0)],
-     f=[dot(15.0, 14.6, 2.4)],
-     apps="PS",
-     basis="Photoshop's Dual Brush — a second tip riding inside the first.",
-     note="A smaller footprint carried by a larger one.")
+     note="The footprint above, and the same footprint squashed below it. Set side "
+          "by side — a ring with a solid flat lozenge against its right edge — it "
+          "was a sperm cell, head left and tail right, at every size and more "
+          "strongly the smaller it got. Stacked, the compression is along the axis "
+          "it actually happens on, and there is no tail."
+)
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
      s=[rect(3.0, 3.0, 18.0, 18.0)],
