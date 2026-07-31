@@ -185,10 +185,12 @@ icon("color-lookup", "color", ["lut", "preset grade", "cube"],
      s=[rect(3.4, 3.4, 17.2, 17.2),
         seq(line(9.13, 3.4, 9.13, 20.6), line(14.87, 3.4, 14.87, 20.6),
             line(3.4, 9.13, 20.6, 9.13), line(3.4, 14.87, 20.6, 14.87))],
-     f=[seq(rect(9.13, 3.4, 5.74, 5.73), rect(14.87, 14.87, 5.73, 5.73))],
+     f=[seq(rect(3.4, 3.4, 5.73, 5.73), rect(9.13, 9.13, 5.74, 5.74),
+            rect(14.87, 14.87, 5.73, 5.73))],
      apps="PS",
      basis="Photoshop's Color Lookup — the LUT, which really is a cube of samples.",
-     note="A colour cube with its origin marked.")
+     note="A colour cube with the identity ramp running corner to corner through it. Two cells "
+          "filled off-axis instead read, at a squint, as a swastika crop.")
 
 icon("gradient-map", "color", ["remap tone to colour", "duotone"],
      s=[poly([(3.4, 9.4), (10.2, 3.4), (17.0, 9.4)]), line(12.0, 11.6, 12.0, 14.6),
@@ -246,12 +248,13 @@ icon("color-history", "color", ["recent", "used", "last colours"],
      note="A row of what has been used, newest first.")
 
 icon("color-harmony", "color", ["complementary", "triad", "scheme"],
-     s=[arc(12, 12, 8.0, 250, 470),
-        seq(circle(12, 4.6, 2.0), circle(18.4, 15.4, 2.0), circle(5.6, 15.4, 2.0))],
-     f=[dot(12, 4.6, 0.9)],
+     s=[circle(12, 12, 8.2),
+        seq(circle(12, 3.8, 1.9), circle(19.1, 16.1, 1.9), circle(4.9, 16.1, 1.9))],
+     f=[dot(12, 3.8, 0.9)],
      apps="PR",
      basis="Procreate's Harmony modes — related hues found by geometry on the wheel.",
-     note="A triad inscribed in the wheel, with the lead hue solid.")
+     note="A triad inscribed in a closed wheel, with the lead hue solid. Left open at the tail, "
+          "the arc and its one loaded head are a sperm.")
 
 icon("gradient", "color", ["ramp", "blend", "fade"],
      s=[rect(3.4, 8.6, 17.2, 6.8),
@@ -333,10 +336,9 @@ icon("grain", "color", ["noise", "film", "texture"],
      note="A field with an uneven record laid across it.")
 
 icon("histogram", "color", ["distribution", "readout", "levels display"],
-     s=[line(3.0, 19.4, 21.0, 19.4),
-        smooth([(3.4, 19.2), (7.0, 17.6), (9.6, 5.4), (12.6, 4.2), (15.4, 12.6), (18.0, 17.0),
-                (20.6, 19.2)])],
-     f=[],
+     s=[line(3.0, 19.6, 21.0, 19.6)],
+     f=[seq(rect(3.8, 15.2, 2.4, 4.4), rect(7.0, 9.8, 2.4, 9.8), rect(10.2, 4.6, 2.4, 15.0),
+            rect(13.4, 8.2, 2.4, 11.4), rect(16.6, 14.0, 2.4, 5.6))],
      apps="PS",
      basis="Photoshop's Histogram panel.",
      note="What the image contains, counted.")

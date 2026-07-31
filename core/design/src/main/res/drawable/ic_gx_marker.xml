@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- marker: Fat banded barrel, cut off at a solid chisel wedge. -->
+    <!-- marker: Barrel with a rounded top, a collar just above the tip, and a felt tip cut hard across at an angle. A shallow bevel left it a USB stick; the chisel has to be the loudest thing in the glyph, because the chisel is the whole tool. -->
     <!-- lineage (PS/PR): Procreate's inking and marker brush families — a fat barrel cut to a chisel. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M19.5,8.32L14.4,13.41A1.1,1.1 0 0,1 12.85,13.41L10.59,11.15A1.1,1.1 0 0,1 10.59,9.6L15.68,4.5A1.1,1.1 0 0,1 17.23,4.5L19.5,6.77A1.1,1.1 0 0,1 19.5,8.32Z" />
+        android:pathData="M9.8,3.4L14.2,3.4A1.6,1.6 0 0,1 15.8,5L15.8,13.2A1.6,1.6 0 0,1 14.2,14.8L9.8,14.8A1.6,1.6 0 0,1 8.2,13.2L8.2,5A1.6,1.6 0 0,1 9.8,3.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M17.16,10.66L13.34,6.84" />
+        android:pathData="M8.2,12.4L15.8,12.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M13.63,14.19L7.55,20.27L5.35,18.08L9.81,10.37Z" />
+        android:pathData="M8.2,14.8L15.8,14.8L15.8,20.6L8.2,16.8Z" />
 </vector>

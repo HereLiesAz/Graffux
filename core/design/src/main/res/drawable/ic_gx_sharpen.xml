@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- sharpen: The cone, solid at the tip that does the work. -->
+    <!-- sharpen: The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base it is a pointed hood over a plinth, which is a Klansman, and once seen it cannot be unseen. The lean costs nothing and removes it. -->
     <!-- lineage (PS/AI/PR): Photoshop's Sharpen tool — the sharpening cone next to the blur drop. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -31,5 +31,5 @@
         android:pathData="M2.8,20.4L21.2,20.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12,3.4L14.6,16.8L9.4,16.8Z" />
+        android:pathData="M16.2,3.4L14.6,16.8L9.4,16.8Z" />
 </vector>

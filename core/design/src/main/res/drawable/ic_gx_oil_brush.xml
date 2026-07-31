@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- oil-brush: Flat ferrule with splayed bristles. -->
+    <!-- oil-brush: Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick. -->
     <!-- lineage (PS/PR): Photoshop's bristle-tip brushes — the only tool that shows its hairs. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M18.36,5.64L13.84,10.16" />
+        android:pathData="M12,3L12,8" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M13.84,14.4L8.04,20.2L7.76,17.94L5.57,18.01L5.78,15.68L3.94,15.82L9.6,10.16" />
+        android:pathData="M9.4,8L14.6,8L14.6,11.4L9.4,11.4Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M15.96,12.28L13.84,14.4L9.6,10.16L11.72,8.04Z" />
+        android:pathData="M9.4,11.4L14.6,11.4L16.2,20.6L13.6,18.4L12,20.6L10.4,18.4L7.8,20.6Z" />
 </vector>

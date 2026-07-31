@@ -47,11 +47,14 @@ icon("filter-blur-motion", "filters", ["speed", "streak", "movement"],
      note="A mark trailing behind where it used to be.")
 
 icon("filter-blur-radial", "filters", ["zoom blur", "spin blur"],
-     s=[rays(12, 12, 3.0, 9.4, 12)],
-     f=[dot(12, 12, 1.7)],
+     s=[seq(line(16.4, 7.6, 20.6, 3.4), line(7.6, 7.6, 3.4, 3.4),
+            line(16.4, 16.4, 20.6, 20.6), line(7.6, 16.4, 3.4, 20.6))],
+     f=[square(12, 12, 9.0)],
      apps="PS",
-     basis="Photoshop's Radial Blur — spokes standing for the zoom or the spin.",
-     note="A burst of lines from one still centre.")
+     basis="Photoshop's Radial Blur — the subject held still while everything streaks past it.",
+     note="A subject with the streaks flying off its four corners. Drawn the obvious way — a "
+          "solid centre inside a full ring of evenly spaced spokes — it is an arsehole, and no "
+          "amount of intent survives that. Four streaks, and only from the corners.")
 
 icon("filter-blur-lens", "filters", ["depth of field", "bokeh"],
      s=[circle(12, 12, 8.4)],
@@ -155,11 +158,14 @@ icon("filter-halftone", "filters", ["dots", "print screen", "ben-day"],
      note="A field of dots that grow toward one corner.")
 
 icon("filter-glow", "filters", ["outer glow", "bloom"],
-     s=[circle(12, 12, 8.2)],
-     f=[circle(12, 12, 3.2)],
+     s=[seq(arc(12, 12, 8.2, 12, 78), arc(12, 12, 8.2, 102, 168),
+            arc(12, 12, 8.2, 192, 258), arc(12, 12, 8.2, 282, 348))],
+     f=[dot(12, 12, 3.4)],
      apps="PS/AI/PR",
      basis="Photoshop's Outer Glow effect.",
-     note="A core with its light spreading past its own edge.")
+     note="A core with its light spreading past its own edge, the halo broken into four arcs so "
+          "it reads as light rather than as an edge. An unbroken ring around a solid centre is "
+          "a nipple, and it is also every target in the set.")
 
 icon("filter-shadow-drop", "filters", ["cast shadow", "depth"],
      s=[square(9.0, 9.0, 11.2)],

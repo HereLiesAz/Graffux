@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/oil-brush — Flat ferrule with splayed bristles. -->
-  <path d="M18.36,5.64L13.84,10.16"/>
-  <path d="M13.84,14.4L8.04,20.2L7.76,17.94L5.57,18.01L5.78,15.68L3.94,15.82L9.6,10.16"/>
-  <path d="M15.96,12.28L13.84,14.4L9.6,10.16L11.72,8.04Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/oil-brush — Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick. -->
+  <path d="M12,3L12,8"/>
+  <path d="M9.4,8L14.6,8L14.6,11.4L9.4,11.4Z"/>
+  <path d="M9.4,11.4L14.6,11.4L16.2,20.6L13.6,18.4L12,20.6L10.4,18.4L7.8,20.6Z" fill="currentColor" stroke="none"/>
 </svg>

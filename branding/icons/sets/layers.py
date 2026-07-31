@@ -180,11 +180,12 @@ icon("layer-to-back", "layers", ["send to back", "bottom"],
      note="A plate driven to the bottom of the stack.")
 
 icon("layer-opacity", "layers", ["transparency", "alpha", "fade"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[dot(13.4, 12, 3.0)],
+     s=[rect(3.4, 8.0, 17.2, 8.0)],
+     f=[seq(rect(3.4, 8.0, 5.8, 8.0), rect(10.6, 8.0, 3.0, 8.0), rect(15.0, 8.0, 1.6, 8.0))],
      apps="PS/AI/PR",
-     basis="Photoshop's Opacity field over the transparency chequer.",
-     note="Half a plate laid on the chequer that shows through it.")
+     basis="Photoshop's Opacity field — one tone thinning until the ground shows through.",
+     note="A bar of colour breaking up as it fades out. A single bead threaded on a rule, which "
+          "is what this was, is a nipple piercing.")
 
 icon("layer-blend", "layers", ["blend mode", "mix", "interaction"],
      s=[circle(9.4, 12, 6.0), circle(14.6, 12, 6.0)],

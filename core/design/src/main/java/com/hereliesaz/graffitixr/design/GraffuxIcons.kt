@@ -25,29 +25,29 @@ data class GxIcon(
  */
 object GraffuxIcons {
 
-    /** Handle, ferrule, solid tapered head. */
+    /** Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the handle. A head longer than its handle is a spear; two bands across the joint are a hilt. Both were in an earlier draft and both had to go. */
     val Brush: Int get() = R.drawable.ic_gx_brush
     /** Shaft, collar, sharpened cone with a solid graphite point. */
     val Pencil: Int get() = R.drawable.ic_gx_pencil
-    /** Canister, cone of air, one landed particle. */
+    /** Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land. */
     val Airbrush: Int get() = R.drawable.ic_gx_airbrush
-    /** Fat banded barrel, cut off at a solid chisel wedge. */
+    /** Barrel with a rounded top, a collar just above the tip, and a felt tip cut hard across at an angle. A shallow bevel left it a USB stick; the chisel has to be the loudest thing in the glyph, because the chisel is the whole tool. */
     val Marker: Int get() = R.drawable.ic_gx_marker
-    /** Pointed nib, split down the middle, solid at the point. */
+    /** The nib on its own, at full size, with the two things only a nib has: a round breather hole and the slit running from it to the point. No handle — a handle is what made this a stick with a wedge on it. */
     val PenInk: Int get() = R.drawable.ic_gx_pen_ink
-    /** Slim holder and a solid broad edge canted off the axis. */
+    /** Shaft curving to the cut point at lower left, with the vane solid against it. */
     val Calligraphy: Int get() = R.drawable.ic_gx_calligraphy
-    /** Short barrel with wrapper bands, worn to a blunt solid nose. */
+    /** Fat and short, with the paper label banded round the middle and the wax worn to a cone with a small flat left on it. A slim body with a sharp point is the pencil; a flat foot under a banded box is a battery, and a domed top over a banded box is a rifle cartridge. Flat top, and a cone with barely any flat left on it. */
     val Crayon: Int get() = R.drawable.ic_gx_crayon
-    /** Square stick, blunt at the solid end, shedding dust. */
+    /** A plain stick lying at the shallow angle chalk is actually held at, worn away at one corner and shedding powder. Left square, the filled end beside the open barrel read as a screen beside a button — some handheld device. The wear makes it a stick again. The powder is dots; charcoal's marks are lines, and that is all that separates them. */
     val Chalk: Int get() = R.drawable.ic_gx_chalk
-    /** Irregular chunk, solid where it has been worn flat. */
+    /** No handle at all: a solid irregular lump with the grainy marks running out from under it. Detached, the marks read as speed lines and the lump becomes a meteor; touching, the lump is plainly what made them. */
     val Charcoal: Int get() = R.drawable.ic_gx_charcoal
     /** Round brush above the water it has already put down. */
     val Watercolor: Int get() = R.drawable.ic_gx_watercolor
-    /** Flat ferrule with splayed bristles. */
+    /** Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick. */
     val OilBrush: Int get() = R.drawable.ic_gx_oil_brush
-    /** A brush laying down a closed form rather than a line. */
+    /** A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. Everything about the brush's placement is forced: on a stalk above a round blob it is a bomb with a lit fuse, cropped to a stub against a pointed blob it is a beak and the blob is a bird. Laid flat across the top, pointing into the shape, it is a brush. */
     val BlobBrush: Int get() = R.drawable.ic_gx_blob_brush
     /** Rattle can, nozzle out the side, one landed burst. */
     val SprayCan: Int get() = R.drawable.ic_gx_spray_can
@@ -63,11 +63,11 @@ object GraffuxIcons {
     val EraserHard: Int get() = R.drawable.ic_gx_eraser_hard
     /** The same block against a broken rule — the edge dissolves. */
     val EraserSoft: Int get() = R.drawable.ic_gx_eraser_soft
-    /** A solid pad pulled out into three trailing lines. */
+    /** A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob. Every rounded version of this — with a thumb, with knuckle bumps, filled or outlined — came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed. */
     val Smudge: Int get() = R.drawable.ic_gx_smudge
     /** The drop, with the detail under it collapsing into bands. */
     val Blur: Int get() = R.drawable.ic_gx_blur
-    /** The cone, solid at the tip that does the work. */
+    /** The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base it is a pointed hood over a plinth, which is a Klansman, and once seen it cannot be unseen. The lean costs nothing and removes it. */
     val Sharpen: Int get() = R.drawable.ic_gx_sharpen
     /** Paddle, rod, and the light it holds off the paper. */
     val Dodge: Int get() = R.drawable.ic_gx_dodge
@@ -125,17 +125,17 @@ object GraffuxIcons {
     val BrushTexture: Int get() = R.drawable.ic_gx_brush_texture
     /** A brush dropped into the shelf that holds them. */
     val BrushImport: Int get() = R.drawable.ic_gx_brush_import
-    /** A stylus on the tool diagonal. */
+    /** Stood on the glass it writes on: a slim capsule barrel, one grip band, and a fine point actually touching the surface line. The surface is what makes it hardware rather than another stick of colour. */
     val Stylus: Int get() = R.drawable.ic_gx_stylus
-    /** A tip pressed hard enough into the surface to ring. */
+    /** A point bearing down hard enough to bow the surface under it, and nothing else. A stroke swelling thin to thick, the first attempt, is the universal sign for volume; an arrowhead above it, the second, is the universal sign for download; strain marks flying off the contact, the third, made it a firework. The dent alone says force. */
     val Pressure: Int get() = R.drawable.ic_gx_pressure
-    /** An angle measured off the plane the tool rests on. */
+    /** The same capsule barrel as the stylus, leant over, with the angle it makes against the surface swept out beneath it. */
     val Tilt: Int get() = R.drawable.ic_gx_tilt
     /** Raw input over corrected output. */
     val Streamline: Int get() = R.drawable.ic_gx_streamline
     /** A wobble becoming a circle. */
     val Quickshape: Int get() = R.drawable.ic_gx_quickshape
-    /** A dropped colour flooding what it lands in. */
+    /** An actual drop, with shoulders, falling into what it will flood. A bare triangle over a box is a pointed hood on a plinth. */
     val Colordrop: Int get() = R.drawable.ic_gx_colordrop
     /** Paint may land only where pixels already are. */
     val AlphaLock: Int get() = R.drawable.ic_gx_alpha_lock
@@ -189,7 +189,7 @@ object GraffuxIcons {
     val SelectReselect: Int get() = R.drawable.ic_gx_select_reselect
     /** Held ground and released ground have traded places. */
     val SelectInvert: Int get() = R.drawable.ic_gx_select_invert
-    /** An edge pushed out to a wider one. */
+    /** An edge pushed out to a wider one, the pressure applied at the middle of each side. Four solid wedges driven out of the four corners instead is an Iron Cross, which is not a thing you can ship however you meant it. */
     val SelectGrow: Int get() = R.drawable.ic_gx_select_grow
     /** An edge pulled in to a tighter one. */
     val SelectShrink: Int get() = R.drawable.ic_gx_select_shrink
@@ -265,7 +265,7 @@ object GraffuxIcons {
     val LayerToFront: Int get() = R.drawable.ic_gx_layer_to_front
     /** A plate driven to the bottom of the stack. */
     val LayerToBack: Int get() = R.drawable.ic_gx_layer_to_back
-    /** Half a plate laid on the chequer that shows through it. */
+    /** A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing. */
     val LayerOpacity: Int get() = R.drawable.ic_gx_layer_opacity
     /** Two fields overlapping, with nothing yet asserted about the result. */
     val LayerBlend: Int get() = R.drawable.ic_gx_layer_blend
@@ -337,7 +337,7 @@ object GraffuxIcons {
     val PhotoFilter: Int get() = R.drawable.ic_gx_photo_filter
     /** Three rails set independently. */
     val ChannelMixer: Int get() = R.drawable.ic_gx_channel_mixer
-    /** A colour cube with its origin marked. */
+    /** A colour cube with the identity ramp running corner to corner through it. Two cells filled off-axis instead read, at a squint, as a swastika crop. */
     val ColorLookup: Int get() = R.drawable.ic_gx_color_lookup
     /** A run of tone becoming a run of steps. */
     val GradientMap: Int get() = R.drawable.ic_gx_gradient_map
@@ -353,7 +353,7 @@ object GraffuxIcons {
     val ColorSwatches: Int get() = R.drawable.ic_gx_color_swatches
     /** A row of what has been used, newest first. */
     val ColorHistory: Int get() = R.drawable.ic_gx_color_history
-    /** A triad inscribed in the wheel, with the lead hue solid. */
+    /** A triad inscribed in a closed wheel, with the lead hue solid. Left open at the tail, the arc and its one loaded head are a sperm. */
     val ColorHarmony: Int get() = R.drawable.ic_gx_color_harmony
     /** A ramp read as a rhythm that opens out. */
     val Gradient: Int get() = R.drawable.ic_gx_gradient
@@ -391,7 +391,7 @@ object GraffuxIcons {
     val FilterBlurGaussian: Int get() = R.drawable.ic_gx_filter_blur_gaussian
     /** A mark trailing behind where it used to be. */
     val FilterBlurMotion: Int get() = R.drawable.ic_gx_filter_blur_motion
-    /** A burst of lines from one still centre. */
+    /** A subject with the streaks flying off its four corners. Drawn the obvious way — a solid centre inside a full ring of evenly spaced spokes — it is an arsehole, and no amount of intent survives that. Four streaks, and only from the corners. */
     val FilterBlurRadial: Int get() = R.drawable.ic_gx_filter_blur_radial
     /** An aperture and the soft discs behind it. */
     val FilterBlurLens: Int get() = R.drawable.ic_gx_filter_blur_lens
@@ -419,7 +419,7 @@ object GraffuxIcons {
     val FilterCrystallize: Int get() = R.drawable.ic_gx_filter_crystallize
     /** A field of dots that grow toward one corner. */
     val FilterHalftone: Int get() = R.drawable.ic_gx_filter_halftone
-    /** A core with its light spreading past its own edge. */
+    /** A core with its light spreading past its own edge, the halo broken into four arcs so it reads as light rather than as an edge. An unbroken ring around a solid centre is a nipple, and it is also every target in the set. */
     val FilterGlow: Int get() = R.drawable.ic_gx_filter_glow
     /** A crisp plate over a softer, rounded shadow offset behind it. */
     val FilterShadowDrop: Int get() = R.drawable.ic_gx_filter_shadow_drop

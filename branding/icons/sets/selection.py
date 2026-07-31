@@ -202,11 +202,13 @@ icon("select-invert", "selection", ["inverse", "everything else", "swap"],
 
 icon("select-grow", "selection", ["expand", "dilate", "outward"],
      s=[rect(8.6, 8.6, 6.8, 6.8), rect(2.8, 2.8, 18.4, 18.4)],
-     f=[seq(tip(3.6, 3.6, 2.6, 225), tip(20.4, 3.6, 2.6, 315),
-            tip(20.4, 20.4, 2.6, 45), tip(3.6, 20.4, 2.6, 135))],
+     f=[seq(tip(12, 3.4, 2.6, 270), tip(20.6, 12, 2.6, 0),
+            tip(12, 20.6, 2.6, 90), tip(3.4, 12, 2.6, 180))],
      apps="PS",
      basis="Photoshop's Modify > Expand.",
-     note="An edge pushed out to a wider one.")
+     note="An edge pushed out to a wider one, the pressure applied at the middle of each side. "
+          "Four solid wedges driven out of the four corners instead is an Iron Cross, which is "
+          "not a thing you can ship however you meant it.")
 
 icon("select-shrink", "selection", ["contract", "erode", "inward"],
      s=[rect(8.6, 8.6, 6.8, 6.8), rect(2.8, 2.8, 18.4, 18.4)],

@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- color-lookup: A colour cube with its origin marked. -->
+    <!-- color-lookup: A colour cube with the identity ramp running corner to corner through it. Two cells filled off-axis instead read, at a squint, as a swastika crop. -->
     <!-- lineage (PS): Photoshop's Color Lookup — the LUT, which really is a cube of samples. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -24,5 +24,5 @@
         android:pathData="M9.13,3.4L9.13,20.6 M14.87,3.4L14.87,20.6 M3.4,9.13L20.6,9.13 M3.4,14.87L20.6,14.87" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M9.13,3.4L14.87,3.4L14.87,9.13L9.13,9.13Z M14.87,14.87L20.6,14.87L20.6,20.6L14.87,20.6Z" />
+        android:pathData="M3.4,3.4L9.13,3.4L9.13,9.13L3.4,9.13Z M9.13,9.13L14.87,9.13L14.87,14.87L9.13,14.87Z M14.87,14.87L20.6,14.87L20.6,20.6L14.87,20.6Z" />
 </vector>

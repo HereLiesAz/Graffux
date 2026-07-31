@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush: Handle, ferrule, solid tapered head. -->
+    <!-- brush: Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the handle. A head longer than its handle is a spear; two bands across the joint are a hilt. Both were in an earlier draft and both had to go. -->
     <!-- lineage (PS/AI/PR): Photoshop's slanted brush and Procreate's brush tip — handle up-right, tip down-left. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M18.36,5.64L13.56,10.44" />
+        android:pathData="M18.36,5.64L13.41,10.59" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M15.18,12.07L11.93,8.82" />
+        android:pathData="M14.55,11.72L12.78,13.48L10.52,11.22L12.28,9.45Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M15.18,12.07L11.22,15.46L6.56,19L7.83,16.6L5.35,18.08L7.19,15.39L5.28,16.31L8.54,12.78L11.93,8.82Z" />
+        android:pathData="M12.99,13.7L10.8,15.61L5.64,18.36L8.39,13.2L10.3,11.01Z" />
 </vector>

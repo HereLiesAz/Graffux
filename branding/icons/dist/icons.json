@@ -89,7 +89,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's slanted brush and Procreate's brush tip \u2014 handle up-right, tip down-left.",
-      "note": "Handle, ferrule, solid tapered head."
+      "note": "Long handle, a boxed metal ferrule, and a head that is slim and much shorter than the handle. A head longer than its handle is a spear; two bands across the joint are a hilt. Both were in an earlier draft and both had to go."
     },
     {
       "key": "pencil",
@@ -116,8 +116,8 @@
         "mist"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone.",
-      "note": "Canister, cone of air, one landed particle."
+      "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone of mist.",
+      "note": "Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land."
     },
     {
       "key": "marker",
@@ -130,7 +130,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Procreate's inking and marker brush families \u2014 a fat barrel cut to a chisel.",
-      "note": "Fat banded barrel, cut off at a solid chisel wedge."
+      "note": "Barrel with a rounded top, a collar just above the tip, and a felt tip cut hard across at an angle. A shallow bevel left it a USB stick; the chisel has to be the loudest thing in the glyph, because the chisel is the whole tool."
     },
     {
       "key": "pen-ink",
@@ -144,7 +144,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Procreate's technical pen and Photoshop's ink brushes \u2014 a split dip-pen nib.",
-      "note": "Pointed nib, split down the middle, solid at the point."
+      "note": "The nib on its own, at full size, with the two things only a nib has: a round breather hole and the slit running from it to the point. No handle \u2014 a handle is what made this a stick with a wedge on it."
     },
     {
       "key": "calligraphy",
@@ -156,8 +156,8 @@
         "italic nib"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Illustrator's calligraphic brush \u2014 a flat edge held at a fixed angle to the stroke.",
-      "note": "Slim holder and a solid broad edge canted off the axis."
+      "basis": "The quill \u2014 the broad-edge pen every calligraphic hand was cut from, and the one writing implement nobody mistakes for anything else.",
+      "note": "Shaft curving to the cut point at lower left, with the vane solid against it."
     },
     {
       "key": "crayon",
@@ -170,7 +170,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Artistic set \u2014 the wrapped wax stub.",
-      "note": "Short barrel with wrapper bands, worn to a blunt solid nose."
+      "note": "Fat and short, with the paper label banded round the middle and the wax worn to a cone with a small flat left on it. A slim body with a sharp point is the pencil; a flat foot under a banded box is a battery, and a domed top over a banded box is a rifle cartridge. Flat top, and a cone with barely any flat left on it."
     },
     {
       "key": "chalk",
@@ -183,7 +183,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's chalk and soft-pastel brushes \u2014 a square stick that sheds.",
-      "note": "Square stick, blunt at the solid end, shedding dust."
+      "note": "A plain stick lying at the shallow angle chalk is actually held at, worn away at one corner and shedding powder. Left square, the filled end beside the open barrel read as a screen beside a button \u2014 some handheld device. The wear makes it a stick again. The powder is dots; charcoal's marks are lines, and that is all that separates them."
     },
     {
       "key": "charcoal",
@@ -195,8 +195,8 @@
         "dry media"
       ],
       "apps": "PR",
-      "basis": "Procreate's charcoal brushes \u2014 a broken stick, never a manufactured one.",
-      "note": "Irregular chunk, solid where it has been worn flat."
+      "basis": "Procreate's charcoal brushes \u2014 a broken lump, never a manufactured stick.",
+      "note": "No handle at all: a solid irregular lump with the grainy marks running out from under it. Detached, the marks read as speed lines and the lump becomes a meteor; touching, the lump is plainly what made them."
     },
     {
       "key": "watercolor",
@@ -222,7 +222,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's bristle-tip brushes \u2014 the only tool that shows its hairs.",
-      "note": "Flat ferrule with splayed bristles."
+      "note": "Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick."
     },
     {
       "key": "blob-brush",
@@ -235,7 +235,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Blob Brush \u2014 a brush whose strokes fuse into one filled shape.",
-      "note": "A brush laying down a closed form rather than a line."
+      "note": "A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate \u2014 but it has to be lumpy while it does it. Everything about the brush's placement is forced: on a stalk above a round blob it is a bomb with a lit fuse, cropped to a stub against a pointed blob it is a beak and the blob is a bird. Laid flat across the top, pointing into the shape, it is a brush."
     },
     {
       "key": "spray-can",
@@ -338,8 +338,8 @@
         "blend"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Smudge and Procreate's Smudge \u2014 a fingertip dragging wet pigment.",
-      "note": "A solid pad pulled out into three trailing lines."
+      "basis": "Photoshop's Smudge tool \u2014 a closed hand with the index finger put out.",
+      "note": "A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob. Every rounded version of this \u2014 with a thumb, with knuckle bumps, filled or outlined \u2014 came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed."
     },
     {
       "key": "blur",
@@ -365,7 +365,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Sharpen tool \u2014 the sharpening cone next to the blur drop.",
-      "note": "The cone, solid at the tip that does the work."
+      "note": "The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base it is a pointed hood over a plinth, which is a Klansman, and once seen it cannot be unseen. The lean costs nothing and removes it."
     },
     {
       "key": "dodge",
@@ -743,7 +743,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's stylus settings \u2014 the barrel and the tip the digitiser reads.",
-      "note": "A stylus on the tool diagonal."
+      "note": "Stood on the glass it writes on: a slim capsule barrel, one grip band, and a fine point actually touching the surface line. The surface is what makes it hardware rather than another stick of colour."
     },
     {
       "key": "pressure",
@@ -756,7 +756,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Pressure curve \u2014 force registered at the point of contact.",
-      "note": "A tip pressed hard enough into the surface to ring."
+      "note": "A point bearing down hard enough to bow the surface under it, and nothing else. A stroke swelling thin to thick, the first attempt, is the universal sign for volume; an arrowhead above it, the second, is the universal sign for download; strain marks flying off the contact, the third, made it a firework. The dent alone says force."
     },
     {
       "key": "tilt",
@@ -769,7 +769,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Tilt settings \u2014 the lean of the barrel against the surface.",
-      "note": "An angle measured off the plane the tool rests on."
+      "note": "The same capsule barrel as the stylus, leant over, with the angle it makes against the surface swept out beneath it."
     },
     {
       "key": "streamline",
@@ -808,7 +808,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's ColorDrop \u2014 colour dragged into a closed region, which takes it whole.",
-      "note": "A dropped colour flooding what it lands in."
+      "note": "An actual drop, with shoulders, falling into what it will flood. A bare triangle over a box is a pointed hood on a plinth."
     },
     {
       "key": "alpha-lock",
@@ -1154,7 +1154,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Modify > Expand.",
-      "note": "An edge pushed out to a wider one."
+      "note": "An edge pushed out to a wider one, the pressure applied at the middle of each side. Four solid wedges driven out of the four corners instead is an Iron Cross, which is not a thing you can ship however you meant it."
     },
     {
       "key": "select-shrink",
@@ -1633,8 +1633,8 @@
         "fade"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's Opacity field over the transparency chequer.",
-      "note": "Half a plate laid on the chequer that shows through it."
+      "basis": "Photoshop's Opacity field \u2014 one tone thinning until the ground shows through.",
+      "note": "A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing."
     },
     {
       "key": "layer-blend",
@@ -2091,7 +2091,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Color Lookup \u2014 the LUT, which really is a cube of samples.",
-      "note": "A colour cube with its origin marked."
+      "note": "A colour cube with the identity ramp running corner to corner through it. Two cells filled off-axis instead read, at a squint, as a swastika crop."
     },
     {
       "key": "gradient-map",
@@ -2192,7 +2192,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Harmony modes \u2014 related hues found by geometry on the wheel.",
-      "note": "A triad inscribed in the wheel, with the lead hue solid."
+      "note": "A triad inscribed in a closed wheel, with the lead hue solid. Left open at the tail, the arc and its one loaded head are a sperm."
     },
     {
       "key": "gradient",
@@ -2431,8 +2431,8 @@
         "spin blur"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Radial Blur \u2014 spokes standing for the zoom or the spin.",
-      "note": "A burst of lines from one still centre."
+      "basis": "Photoshop's Radial Blur \u2014 the subject held still while everything streaks past it.",
+      "note": "A subject with the streaks flying off its four corners. Drawn the obvious way \u2014 a solid centre inside a full ring of evenly spaced spokes \u2014 it is an arsehole, and no amount of intent survives that. Four streaks, and only from the corners."
     },
     {
       "key": "filter-blur-lens",
@@ -2605,7 +2605,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Outer Glow effect.",
-      "note": "A core with its light spreading past its own edge."
+      "note": "A core with its light spreading past its own edge, the halo broken into four arcs so it reads as light rather than as an edge. An unbroken ring around a solid centre is a nipple, and it is also every target in the set."
     },
     {
       "key": "filter-shadow-drop",

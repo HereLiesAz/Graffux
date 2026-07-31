@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/colordrop — A dropped colour flooding what it lands in. -->
-  <path d="M3.4,12.6L20.6,12.6L20.6,20.6L3.4,20.6Z"/>
-  <path d="M12,3L16.2,12L7.8,12Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/colordrop — An actual drop, with shoulders, falling into what it will flood. A bare triangle over a box is a pointed hood on a plinth. -->
+  <path d="M3.4,13.8L20.6,13.8L20.6,20.6L3.4,20.6Z"/>
+  <path d="M12,2.8L15,8L15.6,10.4L14,12.4L10,12.4L8.4,10.4L9,8Z" fill="currentColor" stroke="none"/>
 </svg>

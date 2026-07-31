@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/filter-blur-radial — A burst of lines from one still centre. -->
-  <path d="M15,12L21.4,12 M14.6,13.5L20.14,16.7 M13.5,14.6L16.7,20.14 M12,15L12,21.4 M10.5,14.6L7.3,20.14 M9.4,13.5L3.86,16.7 M9,12L2.6,12 M9.4,10.5L3.86,7.3 M10.5,9.4L7.3,3.86 M12,9L12,2.6 M13.5,9.4L16.7,3.86 M14.6,10.5L20.14,7.3"/>
-  <path d="M10.3,12A1.7,1.7 0 1,0 13.7,12A1.7,1.7 0 1,0 10.3,12Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/filter-blur-radial — A subject with the streaks flying off its four corners. Drawn the obvious way — a solid centre inside a full ring of evenly spaced spokes — it is an arsehole, and no amount of intent survives that. Four streaks, and only from the corners. -->
+  <path d="M16.4,7.6L20.6,3.4 M7.6,7.6L3.4,3.4 M16.4,16.4L20.6,20.6 M7.6,16.4L3.4,20.6"/>
+  <path d="M7.5,7.5L16.5,7.5L16.5,16.5L7.5,16.5Z" fill="currentColor" stroke="none"/>
 </svg>
