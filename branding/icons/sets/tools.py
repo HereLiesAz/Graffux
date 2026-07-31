@@ -247,9 +247,9 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
 
 icon("smudge", "tools", ["finger", "drag", "blend"],
      s=[],
-     f=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.4), (12.6, 7.0), (14.6, 7.8), (16.6, 6.8),
+     f=[poly([(3.0, 18.2), (9.3, 13.6), (10.4, 8.4), (12.6, 7.0), (14.6, 7.8), (16.6, 6.8),
               (18.6, 7.8), (20.0, 10.0), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6), (11.6, 17.6),
-              (11.1, 16.0), (4.3, 20.9)], close=True)],
+              (10.9, 15.7), (4.6, 20.3)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
      note="A fist with the index put out, pointing exactly where the brush tip and the pencil "
@@ -259,7 +259,9 @@ icon("smudge", "tools", ["finger", "drag", "blend"],
           "a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, "
           "a syringe. The constraint was the diagonal, not the drawing. Solid rather than "
           "outlined, because at 1.4 stroke a finger-wide tube has no inside left, and the "
-          "curled knuckles are bumps along the back of the fist rather than separate columns. "
+          "curled knuckles are bumps along the back of the fist rather than separate columns. The "
+          "finger has to be thin, too: drawn at the width of the earlier versions it reads as "
+          "a forearm and the glyph becomes a fist punching. "
           "Distinct from the pan hand, which is an open palm with all five splayed.")
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],

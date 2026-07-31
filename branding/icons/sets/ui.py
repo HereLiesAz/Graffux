@@ -251,7 +251,7 @@ icon("keyboard-shortcut", "ui", ["hotkeys", "key command"],
 icon("brush-cursor", "ui", ["custom cursor", "tool preview"],
      s=[seq(arc(12, 12, 7.0, 12, 78), arc(12, 12, 7.0, 102, 168),
             arc(12, 12, 7.0, 192, 258), arc(12, 12, 7.0, 282, 348))],
-     f=[dot(12, 12, 1.2)],
+     f=[dot(16.9, 16.9, 1.5)],
      apps="PS/PR",
      basis="The live brush-size cursor ring Photoshop and Procreate both draw.",
      note="A footprint ring with the cursor arrow still touching it.")

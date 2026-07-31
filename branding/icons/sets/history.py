@@ -52,7 +52,7 @@ icon("history-snapshot", "history", ["checkpoint", "save state"],
 
 icon("history-brush", "history", ["restore from history", "paint back"],
      s=[line(20.6, 3.4, 15.2, 8.8), line(13.2, 8.2, 15.8, 10.8),
-        arc(8.6, 15.0, 5.0, 200, 460)],
+        arc(8.0, 15.4, 3.2, 200, 470)],
      f=[poly([(12.6, 8.6), (14.8, 13.0), (10.4, 10.8)], close=True)],
      apps="PS",
      basis="Photoshop's History Brush — a brush that paints an earlier state back in.",
