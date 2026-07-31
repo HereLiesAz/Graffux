@@ -117,7 +117,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone of mist.",
-      "note": "Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land."
+      "note": "Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land.\n\nThe fan is kept narrow. Widened to reach the frame edges \u2014 which was done to separate it from brush-flow, also a nozzle with marks under it \u2014 the nozzle assembly above a spreading spray was named as an ejaculating penis. Brush-flow gave up its nozzle instead."
     },
     {
       "key": "marker",
@@ -574,7 +574,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Flow control \u2014 how much arrives per pass, not how dark it ends up.",
-      "note": "Three drops at three depths of fall."
+      "note": "A loaded stroke with the paint running off it, three runs at three lengths.\n\nIt was a tall box with two rules across it and the bottom third filled, which is a battery at a third charge and nothing else \u2014 a rectangle part-filled along one edge is a fill gauge before it is anything, the same finding as the eraser and the mask, and it put this glyph and mask in one batch reading as one object. Redrawn as a nozzle with drops falling from it, it was accurate to its own note for the first time and immediately collided with the airbrush, which is also a nozzle with marks under it; widening the airbrush's spray to separate them made that glyph anatomical. So the nozzle is gone from this one. There is no emitter in the frame, only what was delivered."
     },
     {
       "key": "brush-hardness",
@@ -586,8 +586,8 @@
         "core"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's hardness preview \u2014 a solid core inside a falloff.",
-      "note": "A solid core with its falloff stepping away from it \u2014 the whole parameter is in how fast the ticks run out. It shares that gesture with layer-opacity, which is also bars shrinking to the right, and at 24 pixels the two are hard to tell apart; a rater read this one as a volume meter fading out.\n\nIt was two footprints before, one solid and one a broken ring, and that is the trap the entire brush-parameter family sits in. Two adjacent circles of about the same size are a pair of testicles whatever is drawn inside them, and a rater said so twice; stacked instead they are a snowman and still anatomical; made deliberately unequal they became a dividing cell. A circle is the honest picture of a brush footprint and it is the one shape that cannot carry a second circle beside it.\n\nDrawn in section instead \u2014 a solid wedge standing on the surface, hard wall one side and ramp the other \u2014 it was a doorstop, and at 24 pixels it was the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them. Anything resting on a heavy baseline at this size is a triangle on a line."
+      "basis": "Photoshop's hardness preview \u2014 a solid core with its edge stepping away from it.",
+      "note": "A solid core with the falloff cut into its own edge as steps.\n\nRecorded as unresolved. It reads as a descending staircase, which is wrong and harmless, and it collides with filter-mosaic \u2014 whose whole subject is a staircase \u2014 at every size. It is kept because all six forms tried were worse or no better:\n\n  two footprints, one solid and one a broken ring: a pair of testicles, named twice by two raters, and a dividing cell once the two were made unequal. Stacked instead they are a snowman and still anatomical.\n  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them, because anything on a heavy baseline at this size is a triangle on a line.\n  a solid block with shrinking bars beside it: the system volume icon, functionally identical in a rater\u2019s words, and indistinguishable from layer-opacity.\n  steps cut symmetrically into both halves of the right edge: a pixelated speaker, because a solid block with a symmetrical flare on one side is that icon whatever the flare is made of.\n  the same steps cut one way only, coarse or fine: a staircase either way. Five small steps merge at 24 pixels into the same three the coarse version had.\n\nThe trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns."
     },
     {
       "key": "brush-spacing",
@@ -1368,7 +1368,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Duplicate Layer \u2014 the stack, with the copy landing on top of it.",
-      "note": "One plate, and the same plate again below it and out of register \u2014 two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab."
+      "note": "One plate, and the same plate again below it and out of register \u2014 two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. Both plates are the same size, which is the only thing that says copy: with the lower one narrower they were simply two different plates, and a rater read the pair as an italic equals sign."
     },
     {
       "key": "layer-group",
@@ -1568,8 +1568,8 @@
         "fade"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's Opacity field \u2014 one tone thinning until the ground shows through.",
-      "note": "A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing."
+      "basis": "Photoshop's Opacity field \u2014 one plate, half of it laid down.",
+      "note": "A plate of the stack, solid at one end and thinning to nothing at the other, on the family's shear.\n\nIt was three free-standing blocks shrinking to the right, which is a barcode, and which is also what brush-hardness became when its falloff was drawn as shrinking bars \u2014 a rater could not tell those two apart at 24 pixels. Before that it was a single bead threaded on a rule, which is a nipple piercing. Filling the far end with the transparency chequer instead put white blocks inside a slanted black plate, and a rater called it a racing decal with a letter cut out of it; at 24 pixels it was an illegible smear. The chequer needs an upright frame to read, which is why it stays on brush-opacity and alpha-lock and cannot come here."
     },
     {
       "key": "layer-blend",

@@ -20,8 +20,8 @@ from kit import (
 )
 
 # The stack: three plates, 4.4 tall, on a 6.4 pitch. Nothing else in the family moves.
-_W, _X, _H = 17.2, 3.4, 4.4
-_Y = (3.4, 9.8, 16.2)
+_W, _X, _H = 17.2, 3.4, 5.6
+_Y = (3.4, 8.8, 14.2)
 
 
 _SHEAR = 2.4
@@ -44,8 +44,10 @@ def plate(i, x=_X, w=_W):
     above it, and is a little narrower.
 
     Three parallelograms of equal width on an even pitch, all sheared the same way, is the
-    Solana mark — a rater named it for two glyphs in one pass. The stagger is what makes it a
-    stack receding rather than a row of identical slanted bars.
+    Solana mark — a rater named it for two glyphs in one pass, and named it again after a
+    stagger was added. What separates a stack from that mark is not the stagger but the gap:
+    Solana's bars float clear of each other, and sheets in a pile touch. The pitch is now
+    barely more than the plate height, so the stack closes up.
     """
     return sheet(x + _STAGGER[i], _Y[i], w - _STAGGER[i] * 1.4, _H)
 
@@ -92,8 +94,8 @@ icon("layer-delete", "layers", ["remove layer", "discard"],
           "match the plus — a mark centred over stacked slabs is a monument.")
 
 icon("layer-duplicate", "layers", ["copy layer", "clone layer"],
-     s=[plate(0)],
-     f=[sheet(5.6, 9.2, 15.2, 4.4)],
+     s=[sheet(3.4, 4.0, 14.0, 5.0)],
+     f=[sheet(7.2, 10.6, 14.0, 5.0)],
      apps="PS/AI/PR",
      basis="Photoshop's Duplicate Layer — the stack, with the copy landing on top of it.",
      note="One plate, and the same plate again below it and out of register — two, not three, "
@@ -105,7 +107,10 @@ icon("layer-duplicate", "layers", ["copy layer", "clone layer"],
           "rather than sitting clear below it: clear of it, the pair was the "
           "merge-down glyph, which is also one plate over one solid slab. Overlapping it "
           "outright, the two ran together into a single swoosh a rater called an "
-          "automotive marque, so the copy sits just clear and is a plate thick, not a slab.")
+          "automotive marque, so the copy sits just clear and is a plate thick, not a slab. "
+          "Both plates are the same size, which is the only thing that says copy: with "
+          "the lower one narrower they were simply two different plates, and a rater "
+          "read the pair as an italic equals sign.")
 
 icon("layer-group", "layers", ["folder", "nest", "group"],
      s=[poly([(2.8, 20.6), (2.8, 5.0), (9.2, 5.0), (11.0, 7.6), (21.2, 7.6), (21.2, 20.6)],
@@ -222,12 +227,23 @@ icon("layer-to-back", "layers", ["send to back", "bottom"],
      note="A plate driven to the bottom of the stack.")
 
 icon("layer-opacity", "layers", ["transparency", "alpha", "fade"],
-     s=[],
-     f=[seq(rect(3.4, 8.0, 6.4, 8.0), rect(11.4, 8.0, 3.6, 8.0), rect(16.6, 8.0, 1.8, 8.0))],
+     s=[sheet(3.4, 8.4, 17.2, 7.2)],
+     f=[poly([(5.8, 8.4), (13.2, 8.4), (10.8, 15.6), (3.4, 15.6)], close=True)],
      apps="PS/AI/PR",
-     basis="Photoshop's Opacity field — one tone thinning until the ground shows through.",
-     note="A bar of colour breaking up as it fades out. A single bead threaded on a rule, which "
-          "is what this was, is a nipple piercing.")
+     basis="Photoshop's Opacity field — one plate, half of it laid down.",
+     note="A plate of the stack, solid at one end and thinning to nothing at the "
+          "other, on the family's shear.\n\n"
+          "It was three free-standing blocks shrinking to the right, which is a "
+          "barcode, and which is also what brush-hardness became when its falloff "
+          "was drawn as shrinking bars — a rater could not tell those two apart at "
+          "24 pixels. Before that it was a single bead threaded on a rule, which is "
+          "a nipple piercing. Filling the far end with the transparency chequer "
+          "instead put white blocks inside a slanted black plate, and a rater "
+          "called it a racing decal with a letter cut out of it; at 24 pixels it "
+          "was an illegible smear. The chequer needs an upright frame to read, "
+          "which is why it stays on brush-opacity and alpha-lock and cannot come "
+          "here."
+)
 
 icon("layer-blend", "layers", ["blend mode", "mix", "interaction"],
      s=[circle(9.4, 12, 6.0), circle(14.6, 12, 6.0)],

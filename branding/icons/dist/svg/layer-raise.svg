@@ -2,7 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/layer-raise — A plate moved one place up the stack. -->
-  <path d="M7.1,9.8L20.08,9.8L17.68,14.2L4.7,14.2Z M8.4,16.2L19.56,16.2L17.16,20.6L6,20.6Z"/>
+  <path d="M7.1,8.8L20.08,8.8L17.68,14.4L4.7,14.4Z M8.4,14.2L19.56,14.2L17.16,19.8L6,19.8Z"/>
   <path d="M12,7.6L12,3.4"/>
   <path d="M12,2L9.84,5L14.16,5Z" fill="currentColor" stroke="none"/>
 </svg>

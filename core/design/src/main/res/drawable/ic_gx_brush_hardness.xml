@@ -6,20 +6,19 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-hardness: A solid core with its falloff stepping away from it — the whole parameter is in how fast the ticks run out. It shares that gesture with layer-opacity, which is also bars shrinking to the right, and at 24 pixels the two are hard to tell apart; a rater read this one as a volume meter fading out.
+    <!-- brush-hardness: A solid core with the falloff cut into its own edge as steps.
 
-It was two footprints before, one solid and one a broken ring, and that is the trap the entire brush-parameter family sits in. Two adjacent circles of about the same size are a pair of testicles whatever is drawn inside them, and a rater said so twice; stacked instead they are a snowman and still anatomical; made deliberately unequal they became a dividing cell. A circle is the honest picture of a brush footprint and it is the one shape that cannot carry a second circle beside it.
+Recorded as unresolved. It reads as a descending staircase, which is wrong and harmless, and it collides with filter-mosaic — whose whole subject is a staircase — at every size. It is kept because all six forms tried were worse or no better:
 
-Drawn in section instead — a solid wedge standing on the surface, hard wall one side and ramp the other — it was a doorstop, and at 24 pixels it was the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them. Anything resting on a heavy baseline at this size is a triangle on a line. -->
-    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — a solid core inside a falloff. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M14,7.6L14,16.4 M17,9.4L17,14.6 M19.8,11L19.8,13" />
+  two footprints, one solid and one a broken ring: a pair of testicles, named twice by two raters, and a dividing cell once the two were made unequal. Stacked instead they are a snowman and still anatomical.
+  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them, because anything on a heavy baseline at this size is a triangle on a line.
+  a solid block with shrinking bars beside it: the system volume icon, functionally identical in a rater’s words, and indistinguishable from layer-opacity.
+  steps cut symmetrically into both halves of the right edge: a pixelated speaker, because a solid block with a symmetrical flare on one side is that icon whatever the flare is made of.
+  the same steps cut one way only, coarse or fine: a staircase either way. Five small steps merge at 24 pixels into the same three the coarse version had.
+
+The trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns. -->
+    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — a solid core with its edge stepping away from it. -->
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M4.2,6.4L11.6,6.4L11.6,17.6L4.2,17.6Z" />
+        android:pathData="M4.6,5.4L11.4,5.4L11.4,7.8L13.2,7.8L13.2,10.2L15,10.2L15,12.6L16.8,12.6L16.8,15L18.6,15L18.6,20.2L4.6,20.2Z" />
 </vector>

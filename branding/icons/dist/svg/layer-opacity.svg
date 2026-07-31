@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/layer-opacity — A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing. -->
-  <path d="M3.4,8L9.8,8L9.8,16L3.4,16Z M11.4,8L15,8L15,16L11.4,16Z M16.6,8L18.4,8L18.4,16L16.6,16Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/layer-opacity — A plate of the stack, solid at one end and thinning to nothing at the other, on the family's shear.
+
+It was three free-standing blocks shrinking to the right, which is a barcode, and which is also what brush-hardness became when its falloff was drawn as shrinking bars — a rater could not tell those two apart at 24 pixels. Before that it was a single bead threaded on a rule, which is a nipple piercing. Filling the far end with the transparency chequer instead put white blocks inside a slanted black plate, and a rater called it a racing decal with a letter cut out of it; at 24 pixels it was an illegible smear. The chequer needs an upright frame to read, which is why it stays on brush-opacity and alpha-lock and cannot come here. -->
+  <path d="M5.8,8.4L20.6,8.4L18.2,15.6L3.4,15.6Z"/>
+  <path d="M5.8,8.4L13.2,8.4L10.8,15.6L3.4,15.6Z" fill="currentColor" stroke="none"/>
 </svg>

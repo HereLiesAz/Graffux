@@ -73,7 +73,11 @@ icon("airbrush", "tools", ["spray", "atomiser", "soft", "mist"],
      basis="Photoshop's airbrush option — a nozzle throwing a widening cone of mist.",
      note="Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling "
           "two straight edges onto that cone turned the pair of them into the legs of a drafting "
-          "compass, so the cone is described only by where the particles land.")
+          "compass, so the cone is described only by where the particles land.\n\n"
+          "The fan is kept narrow. Widened to reach the frame edges — which was done to "
+          "separate it from brush-flow, also a nozzle with marks under it — the nozzle "
+          "assembly above a spreading spray was named as an ejaculating penis. Brush-flow "
+          "gave up its nozzle instead.")
 
 icon("marker", "tools", ["felt tip", "chisel", "highlighter"],
      s=[rect(7.6, 3.4, 8.0, 4.2, 1.0), line(16.6, 4.6, 16.6, 9.0), rect(8.8, 7.6, 5.6, 6.4)],
@@ -503,34 +507,55 @@ icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
 )
 
 icon("brush-flow", "tools", ["rate", "load", "delivery"],
-     s=[rect(7.0, 3.4, 10.0, 17.2), seq(line(7.0, 9.0, 17.0, 9.0), line(7.0, 14.8, 17.0, 14.8))],
-     f=[rect(7.0, 14.8, 10.0, 5.8)],
+     s=[],
+     f=[seq(rect(3.4, 5.6, 17.2, 4.2),
+            poly([(6.6, 9.8), (9.0, 9.8), (8.4, 15.4), (7.2, 15.4)], close=True),
+            poly([(11.2, 9.8), (13.6, 9.8), (13.0, 19.4), (11.8, 19.4)], close=True),
+            poly([(15.8, 9.8), (18.2, 9.8), (17.6, 13.2), (16.4, 13.2)], close=True))],
      apps="PS/PR",
      basis="Photoshop's Flow control — how much arrives per pass, not how dark it ends up.",
-     note="Three drops at three depths of fall.")
+     note="A loaded stroke with the paint running off it, three runs at three lengths.\n\n"
+          "It was a tall box with two rules across it and the bottom third filled, which is a "
+          "battery at a third charge and nothing else — a rectangle part-filled along one edge "
+          "is a fill gauge before it is anything, the same finding as the eraser and the mask, "
+          "and it put this glyph and mask in one batch reading as one object. Redrawn as a "
+          "nozzle with drops falling from it, it was accurate to its own note for the first "
+          "time and immediately collided with the airbrush, which is also a nozzle with marks "
+          "under it; widening the airbrush's spray to separate them made that glyph anatomical. "
+          "So the nozzle is gone from this one. There is no emitter in the frame, only what "
+          "was delivered."
+)
+
 
 icon("brush-hardness", "tools", ["edge", "falloff", "core"],
-     s=[seq(line(14.0, 7.6, 14.0, 16.4), line(17.0, 9.4, 17.0, 14.6),
-            line(19.8, 11.0, 19.8, 13.0))],
-     f=[rect(4.2, 6.4, 7.4, 11.2)],
+     s=[],
+     f=[poly([(4.6, 5.4), (11.4, 5.4), (11.4, 7.8), (13.2, 7.8), (13.2, 10.2), (15.0, 10.2),
+              (15.0, 12.6), (16.8, 12.6), (16.8, 15.0), (18.6, 15.0), (18.6, 20.2),
+              (4.6, 20.2)], close=True)],
      apps="PS/AI/PR",
-     basis="Photoshop's hardness preview — a solid core inside a falloff.",
-     note="A solid core with its falloff stepping away from it — the whole parameter is in "
-          "how fast the ticks run out. It shares that gesture with layer-opacity, which is "
-          "also bars shrinking to the right, and at 24 pixels the two are hard to tell "
-          "apart; a rater read this one as a volume meter fading out.\n\n"
-          "It was two footprints before, one solid and one a broken ring, and that "
-          "is the trap the entire brush-parameter family sits in. Two adjacent "
-          "circles of about the same size are a pair of testicles whatever is drawn "
-          "inside them, and a rater said so twice; stacked instead they are a "
-          "snowman and still anatomical; made deliberately unequal they became a "
-          "dividing cell. A circle is the honest picture of a brush footprint and "
-          "it is the one shape that cannot carry a second circle beside it.\n\n"
-          "Drawn in section instead — a solid wedge standing on the surface, hard wall "
-          "one side and ramp the other — it was a doorstop, and at 24 pixels it was the same "
+     basis="Photoshop's hardness preview — a solid core with its edge stepping away from it.",
+     note="A solid core with the falloff cut into its own edge as steps.\n\n"
+          "Recorded as unresolved. It reads as a descending staircase, which is wrong and "
+          "harmless, and it collides with filter-mosaic — whose whole subject is a staircase — "
+          "at every size. It is kept because all six forms tried were worse or no better:\n\n"
+          "  two footprints, one solid and one a broken ring: a pair of testicles, named twice "
+          "by two raters, and a dividing cell once the two were made unequal. Stacked instead "
+          "they are a snowman and still anatomical.\n"
+          "  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same "
           "small black triangle on a dash as brush-angle. Mirroring the slope did not separate "
-          "them. Anything resting on a heavy baseline at this size is a triangle on a line."
+          "them, because anything on a heavy baseline at this size is a triangle on a line.\n"
+          "  a solid block with shrinking bars beside it: the system volume icon, functionally "
+          "identical in a rater\u2019s words, and indistinguishable from layer-opacity.\n"
+          "  steps cut symmetrically into both halves of the right edge: a pixelated speaker, "
+          "because a solid block with a symmetrical flare on one side is that icon whatever "
+          "the flare is made of.\n"
+          "  the same steps cut one way only, coarse or fine: a staircase either way. Five "
+          "small steps merge at 24 pixels into the same three the coarse version had.\n\n"
+          "The trap under all of it is that the brush-parameter family has no vocabulary but "
+          "filled dots and outlined rings, and every escape from a circle lands on a shape "
+          "some other icon already owns."
 )
+
 
 icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
      s=[circle(5.6, 15.8, 2.6), circle(18.4, 8.2, 2.6)],

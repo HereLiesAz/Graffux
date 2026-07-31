@@ -29,7 +29,9 @@ object GraffuxIcons {
     val Brush: Int get() = R.drawable.ic_gx_brush
     /** Shaft, collar, sharpened cone with a solid graphite point. */
     val Pencil: Int get() = R.drawable.ic_gx_pencil
-    /** Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land. */
+    /** Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land.
+
+The fan is kept narrow. Widened to reach the frame edges — which was done to separate it from brush-flow, also a nozzle with marks under it — the nozzle assembly above a spreading spray was named as an ejaculating penis. Brush-flow gave up its nozzle instead. */
     val Airbrush: Int get() = R.drawable.ic_gx_airbrush
     /** A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. The step at the cap is what stops it: a single rounded barrel of even width, banded or not, is a phone. A shallow bevel on the tip made it a USB stick, so the chisel is the loudest thing in the glyph — the chisel is the whole tool. */
     val Marker: Int get() = R.drawable.ic_gx_marker
@@ -119,13 +121,21 @@ Drawn as two rings on one centre with a radius struck through them — the liter
     val BrushSize: Int get() = R.drawable.ic_gx_brush_size
     /** One swatch, solid at one end and down to the chequer at the other. Drawn as a disc with one half laid down and the other half a broken arc — the obvious picture of half-committed — it was the dark-mode toggle almost exactly, and this set has one of those: theme-toggle is a disc with one half solid and rays on the light side. A split disc belongs to day and night and cannot be borrowed. The chequer is three cells across and not two: at two cells it was the same diagonal pair of squares that sits inside alpha-lock, and a rater called this one a credit card with the chip knocked out. It runs solid, then chequer, then nothing, across three thirds: half solid against half chequer left the swatch mostly black with white notches in it, and a rater read the notches as a bar chart in negative. */
     val BrushOpacity: Int get() = R.drawable.ic_gx_brush_opacity
-    /** Three drops at three depths of fall. */
+    /** A loaded stroke with the paint running off it, three runs at three lengths.
+
+It was a tall box with two rules across it and the bottom third filled, which is a battery at a third charge and nothing else — a rectangle part-filled along one edge is a fill gauge before it is anything, the same finding as the eraser and the mask, and it put this glyph and mask in one batch reading as one object. Redrawn as a nozzle with drops falling from it, it was accurate to its own note for the first time and immediately collided with the airbrush, which is also a nozzle with marks under it; widening the airbrush's spray to separate them made that glyph anatomical. So the nozzle is gone from this one. There is no emitter in the frame, only what was delivered. */
     val BrushFlow: Int get() = R.drawable.ic_gx_brush_flow
-    /** A solid core with its falloff stepping away from it — the whole parameter is in how fast the ticks run out. It shares that gesture with layer-opacity, which is also bars shrinking to the right, and at 24 pixels the two are hard to tell apart; a rater read this one as a volume meter fading out.
+    /** A solid core with the falloff cut into its own edge as steps.
 
-It was two footprints before, one solid and one a broken ring, and that is the trap the entire brush-parameter family sits in. Two adjacent circles of about the same size are a pair of testicles whatever is drawn inside them, and a rater said so twice; stacked instead they are a snowman and still anatomical; made deliberately unequal they became a dividing cell. A circle is the honest picture of a brush footprint and it is the one shape that cannot carry a second circle beside it.
+Recorded as unresolved. It reads as a descending staircase, which is wrong and harmless, and it collides with filter-mosaic — whose whole subject is a staircase — at every size. It is kept because all six forms tried were worse or no better:
 
-Drawn in section instead — a solid wedge standing on the surface, hard wall one side and ramp the other — it was a doorstop, and at 24 pixels it was the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them. Anything resting on a heavy baseline at this size is a triangle on a line. */
+  two footprints, one solid and one a broken ring: a pair of testicles, named twice by two raters, and a dividing cell once the two were made unequal. Stacked instead they are a snowman and still anatomical.
+  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them, because anything on a heavy baseline at this size is a triangle on a line.
+  a solid block with shrinking bars beside it: the system volume icon, functionally identical in a rater’s words, and indistinguishable from layer-opacity.
+  steps cut symmetrically into both halves of the right edge: a pixelated speaker, because a solid block with a symmetrical flare on one side is that icon whatever the flare is made of.
+  the same steps cut one way only, coarse or fine: a staircase either way. Five small steps merge at 24 pixels into the same three the coarse version had.
+
+The trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns. */
     val BrushHardness: Int get() = R.drawable.ic_gx_brush_hardness
     /** Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn. */
     val BrushSpacing: Int get() = R.drawable.ic_gx_brush_spacing
@@ -255,7 +265,7 @@ The plus could not be placed anywhere. A rectangle with a white panel down one s
     val LayerAdd: Int get() = R.drawable.ic_gx_layer_add
     /** The top plate taken out of the stack, the cross set off to one side to match the plus — a mark centred over stacked slabs is a monument. */
     val LayerDelete: Int get() = R.drawable.ic_gx_layer_delete
-    /** One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. */
+    /** One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. Both plates are the same size, which is the only thing that says copy: with the lower one narrower they were simply two different plates, and a rater read the pair as an italic equals sign. */
     val LayerDuplicate: Int get() = R.drawable.ic_gx_layer_duplicate
     /** A folder with a plate in it. */
     val LayerGroup: Int get() = R.drawable.ic_gx_layer_group
@@ -287,7 +297,9 @@ The plus could not be placed anywhere. A rectangle with a white panel down one s
     val LayerToFront: Int get() = R.drawable.ic_gx_layer_to_front
     /** A plate driven to the bottom of the stack. */
     val LayerToBack: Int get() = R.drawable.ic_gx_layer_to_back
-    /** A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing. */
+    /** A plate of the stack, solid at one end and thinning to nothing at the other, on the family's shear.
+
+It was three free-standing blocks shrinking to the right, which is a barcode, and which is also what brush-hardness became when its falloff was drawn as shrinking bars — a rater could not tell those two apart at 24 pixels. Before that it was a single bead threaded on a rule, which is a nipple piercing. Filling the far end with the transparency chequer instead put white blocks inside a slanted black plate, and a rater called it a racing decal with a letter cut out of it; at 24 pixels it was an illegible smear. The chequer needs an upright frame to read, which is why it stays on brush-opacity and alpha-lock and cannot come here. */
     val LayerOpacity: Int get() = R.drawable.ic_gx_layer_opacity
     /** Two fields overlapping, with nothing yet asserted about the result. */
     val LayerBlend: Int get() = R.drawable.ic_gx_layer_blend
