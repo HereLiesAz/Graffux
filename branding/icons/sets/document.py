@@ -208,10 +208,10 @@ icon("view-cmyk-preview", "document", ["gamut warning", "print preview"],
      note="A ring marking the limit of what can be reproduced.")
 
 icon("full-screen", "document", ["immersive mode", "hide panels"],
-     s=[seq(poly([(3.4, 7.4), (3.4, 3.4), (7.4, 3.4)]), poly([(16.6, 3.4), (20.6, 3.4), (20.6, 7.4)]),
-            poly([(20.6, 16.6), (20.6, 20.6), (16.6, 20.6)]),
-            poly([(7.4, 20.6), (3.4, 20.6), (3.4, 16.6)]))],
-     f=[],
+     s=[seq(line(4.4, 4.4, 9.4, 9.4), line(19.6, 4.4, 14.6, 9.4),
+            line(19.6, 19.6, 14.6, 14.6), line(4.4, 19.6, 9.4, 14.6))],
+     f=[seq(tip(3.4, 3.4, 2.4, 225), tip(20.6, 3.4, 2.4, 315),
+            tip(20.6, 20.6, 2.4, 45), tip(3.4, 20.6, 2.4, 135))],
      apps="PS/AI/PR",
      basis="Every editor's full-screen toggle.",
      note="Four corner marks with nothing held between them.")

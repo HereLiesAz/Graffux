@@ -248,9 +248,8 @@ icon("trace-image", "vector", ["image trace", "raster to vector"],
      note="A pixel block on one side, a traced outline on the other.")
 
 icon("vectorize", "vector", ["auto vector", "convert to path"],
-     s=[seq(line(3.4, 5.4, 3.4, 3.4), line(3.4, 3.4, 5.4, 3.4), line(18.6, 3.4, 20.6, 3.4),
-            line(20.6, 3.4, 20.6, 5.4), line(20.6, 18.6, 20.6, 20.6), line(20.6, 20.6, 18.6, 20.6),
-            line(5.4, 20.6, 3.4, 20.6), line(3.4, 20.6, 3.4, 18.6))],
+     s=[seq(square(5.6, 6.4, 2.4), square(18.0, 5.6, 2.4), square(17.2, 18.0, 2.4),
+            square(6.0, 17.6, 2.4))],
      f=[smooth([(9.0, 15.0), (7.6, 9.4), (12.6, 6.6), (17.0, 10.0), (14.6, 15.4)], close=True)],
      apps="new",
      note="A raster field of crop marks resolving into one solid vector shape.")

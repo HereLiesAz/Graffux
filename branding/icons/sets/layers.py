@@ -16,6 +16,7 @@ from kit import (
     seq,
     slash,
     tip,
+    square,
 )
 
 # The stack: three plates, 4.4 tall, on a 6.4 pitch. Nothing else in the family moves.
@@ -297,11 +298,8 @@ icon("layer-background", "layers", ["backdrop", "base", "foundation"],
      note="The chequer that means there is nothing behind.")
 
 icon("layer-frame", "layers", ["frame tool", "placeholder", "crop into"],
-     s=[seq(poly([(3.4, 8.0), (3.4, 3.4), (8.0, 3.4)]),
-            poly([(16.0, 3.4), (20.6, 3.4), (20.6, 8.0)]),
-            poly([(20.6, 16.0), (20.6, 20.6), (16.0, 20.6)]),
-            poly([(8.0, 20.6), (3.4, 20.6), (3.4, 16.0)]))],
-     f=[],
+     s=[rect(3.4, 5.0, 17.2, 14.0), line(3.4, 19.0, 20.6, 5.0)],
+     f=[square(3.4, 5.0, 2.4)],
      apps="PS",
      basis="Photoshop's Frame tool — a placeholder waiting for content.",
      note="Corner marks around nothing yet placed.")

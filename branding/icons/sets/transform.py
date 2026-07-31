@@ -168,7 +168,7 @@ icon("align-top", "transform", ["align objects top"],
      note="Two frames flush to a single edge overhead.")
 
 icon("align-middle-v", "transform", ["align objects centre vertical"],
-     s=[line(3.4, 12, 20.6, 12), rect(6.4, 8.0, 4.0, 8.0), rect(13.6, 5.5, 4.0, 13.0)],
+     s=[line(3.0, 12, 21.0, 12), rect(5.0, 8.6, 6.4, 6.8), rect(12.6, 6.4, 6.4, 11.2)],
      f=[],
      apps="PS/AI/PR",
      basis="The vertical-centre glyph, matching align-centre-horizontal at ninety degrees.",

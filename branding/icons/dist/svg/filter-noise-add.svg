@@ -4,5 +4,5 @@
   <!-- graffux/filter-noise-add — A field with an uneven record laid across it. -->
   <path d="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z"/>
   <path d="M6.6,9.6L7.6,9.6 M11.4,8.2L12.4,8.2 M15.2,12.2L16.2,12.2 M7.4,14L8.4,14 M12.4,16.4L13.4,16.4 M9,18.4L10,18.4"/>
-  <path d="M17.4,5.2L17.4,8.4 M15.8,6.8L19,6.8"/>
+  <path d="M20.6,3L20.6,6.2 M19,4.6L22.2,4.6"/>
 </svg>
