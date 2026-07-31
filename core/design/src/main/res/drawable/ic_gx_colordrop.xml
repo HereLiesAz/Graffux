@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- colordrop: A dropped colour flooding what it lands in. -->
+    <!-- colordrop: An actual drop, with shoulders, falling into what it will flood. A bare triangle over a box is a pointed hood on a plinth. -->
     <!-- lineage (PR): Procreate's ColorDrop — colour dragged into a closed region, which takes it whole. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +14,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,12.6L20.6,12.6L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M12,2.8L14.6,7.2L15.2,9.4L13.8,11.2L10.2,11.2L8.8,9.4L9.4,7.2Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12,3L16.2,12L7.8,12Z" />
+        android:pathData="M3.4,13.4L20.6,13.4L20.6,20.6L3.4,20.6Z" />
 </vector>

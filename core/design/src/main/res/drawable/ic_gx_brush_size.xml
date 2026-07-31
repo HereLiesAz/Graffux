@@ -6,30 +6,27 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-size: Two diameters measured out from a single origin. -->
-    <!-- lineage (PS/AI/PR): Photoshop's brush-size preview — nested footprints on one centre. -->
+    <!-- brush-size: One footprint with its diameter measured across it, the arrowheads breaking the outline on both sides.
+
+The measure has to run through the circle. Set underneath it, a ring above a double-headed width arrow is the universal girth gesture — a rater called it a condom-size chart and said the crude reading arrived first. Stood beside the footprint as a vertical bar between two arrowheads, the pair read as the letters Oi, and at small size that was the only thing left. What it costs is small size: with the arrowheads gone the tiny render is a bar across a circle, which is a prohibition sign. That is a wrong meaning rather than a crude one, and it is the trade taken.
+
+Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. -->
+    <!-- lineage (PS/AI/PR): Photoshop's brush-size preview, dimensioned the way any width is dimensioned. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z" />
+        android:pathData="M5.6,12A6.4,6.4 0 1,0 18.4,12A6.4,6.4 0 1,0 5.6,12Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.8,12A4.2,4.2 0 1,0 16.2,12A4.2,4.2 0 1,0 7.8,12Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,12L17.9,6.1" />
+        android:pathData="M7.8,12L16.2,12" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M10.65,12A1.35,1.35 0 1,0 13.35,12A1.35,1.35 0 1,0 10.65,12Z" />
+        android:pathData="M5.4,12L7.8,13.73L7.8,10.27Z M18.6,12L16.2,10.27L16.2,13.73Z" />
 </vector>

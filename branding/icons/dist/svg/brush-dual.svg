@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/brush-dual — A smaller footprint carried by a larger one. -->
-  <path d="M3.8,13.2A6.6,6.6 0 1,0 17,13.2A6.6,6.6 0 1,0 3.8,13.2Z"/>
-  <path d="M14,8.4A3,3 0 1,0 20,8.4A3,3 0 1,0 14,8.4Z" fill="currentColor" stroke="none"/>
-</svg>

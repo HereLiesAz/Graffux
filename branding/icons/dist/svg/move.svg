@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/move — Four arrows sharing one centre — free movement, no axis preferred. -->
+  <!-- graffux/move — Four arrows sharing one centre — free movement, no axis preferred. The shafts are not decoration: heads alone read as four loose arrowheads round a hole. -->
+  <path d="M12,5.6L12,18.4"/>
+  <path d="M5.6,12L18.4,12"/>
   <path d="M12,3.4L13.58,1.2L10.42,1.2Z M12,20.6L10.42,22.8L13.58,22.8Z M3.4,12L1.2,10.42L1.2,13.58Z M20.6,12L22.8,13.58L22.8,10.42Z" fill="currentColor" stroke="none"/>
 </svg>

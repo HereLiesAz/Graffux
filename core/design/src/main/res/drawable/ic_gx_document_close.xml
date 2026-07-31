@@ -6,30 +6,41 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- document-close: A page with its own corner folding shut. -->
-    <!-- lineage (PS/AI/PR): The document page, with the corner tucked away as it closes. -->
+    <!-- document-close: A page struck through by the universal close mark. -->
+    <!-- lineage (PS/AI/PR): The document page, closed off by the same cross every other close control uses. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.4,3.4L14.6,3.4L18.6,7.4L18.6,20.6L5.4,20.6Z" />
+        android:pathData="M4.6,3.4L12.6,3.4L16.6,7.4L16.6,20.6L4.6,20.6Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M14.6,3.4L14.6,7.4" />
+        android:pathData="M12.6,3.4L12.6,7.4" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M14.6,7.4L18.6,7.4" />
+        android:pathData="M12.6,7.4L16.6,7.4" />
     <path
-        android:fillColor="@android:color/white"
-        android:pathData="M19.6,20.6L19.16,17.92L16.92,20.16Z" />
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M18,15.6L21.4,19" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M21.4,15.6L18,19" />
 </vector>

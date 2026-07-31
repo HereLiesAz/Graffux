@@ -6,23 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- calligraphy: Slim holder and a solid broad edge canted off the axis. -->
-    <!-- lineage (PS/AI/PR): Illustrator's calligraphic brush — a flat edge held at a fixed angle to the stroke. -->
+    <!-- calligraphy: Shaft curving to the cut point at lower left, with the vane solid against it. -->
+    <!-- lineage (PS/AI/PR): The quill — the broad-edge pen every calligraphic hand was cut from, and the one writing implement nobody mistakes for anything else. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M18.36,5.64L12.99,11.01" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M14.19,13.2L11.36,16.03A0.7,0.7 0 0,1 10.37,16.03L7.97,13.63A0.7,0.7 0 0,1 7.97,12.64L10.8,9.81A0.7,0.7 0 0,1 11.79,9.81L14.19,12.21A0.7,0.7 0 0,1 14.19,13.2Z" />
+        android:pathData="M5,20.6Q11.4,12 19,3.6" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M11.72,17.37L6.48,19.21L4.79,17.52L6.63,12.28Z" />
+        android:pathData="M19,3.6 Q9.4,10.4 7.4,17.6 Q3.4,8.2 19,3.6Z" />
 </vector>

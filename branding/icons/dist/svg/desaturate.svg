@@ -2,7 +2,8 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/desaturate — A divided wheel: sectors on one side, nothing on the other. -->
-  <path d="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z"/>
-  <path d="M12,3.6L12,20.4"/>
-  <path d="M8.19,9.8L4.73,7.8 M15.81,9.8L19.27,7.8 M12,16.4L12,20.4"/>
+  <path d="M3,8L21,8L21,16L3,16Z"/>
+  <path d="M12,8L12,16"/>
+  <path d="M5,12A2.4,2.4 0 1,0 9.8,12A2.4,2.4 0 1,0 5,12Z M14.2,12A2.4,2.4 0 1,0 19,12A2.4,2.4 0 1,0 14.2,12Z"/>
+  <path d="M7.4,12L7.4,14.4A2.4,2.4 0 0,1 7.4,9.6Z" fill="currentColor" stroke="none"/>
 </svg>

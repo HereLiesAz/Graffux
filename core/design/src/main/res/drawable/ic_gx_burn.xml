@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- burn: A cupped C with the light it funnels burning solid at the centre. -->
+    <!-- burn: A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola — a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it. -->
     <!-- lineage (PS): Photoshop's Burn tool — the hand cupped into an aperture to concentrate exposure. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +14,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z" />
+        android:pathData="M17.6,5L10.6,4.6L5.2,7.4L3.6,12.4L5.6,17.4L11,19.6L17.6,19L13.4,16.2L9.6,15.6L7.6,12.4L9.4,9L13.2,8Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12,12L19.89,14.87A8.4,8.4 0 1,1 19.89,9.13Z" />
+        android:pathData="M4.6,19.4L19.4,19.4L19.4,21.6L4.6,21.6Z" />
 </vector>

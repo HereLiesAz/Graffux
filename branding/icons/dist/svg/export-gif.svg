@@ -2,7 +2,8 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/export-gif — A camera with the two-headed mark that says its output repeats. -->
-  <path d="M3.4,6.4L3.4,17.6L14.6,17.6L14.6,6.4Z"/>
-  <path d="M14.6,9.4L20.6,6.4L20.6,17.6L14.6,14.6Z"/>
-  <path d="M19.6,18.9L19.32,17.2L17.9,18.62Z M19.6,21.1L19.88,22.8L21.3,21.38Z" fill="currentColor" stroke="none"/>
+  <path d="M2.6,4.6L2.6,14.6L12.6,14.6L12.6,4.6Z"/>
+  <path d="M12.6,7.2L17.8,4.6L17.8,14.6L12.6,12Z"/>
+  <path d="M20.33,19.19A2.9,2.9 0 1,1 20.33,17.21"/>
+  <path d="M20,15.9L19.58,14.23L18.28,15.77Z M15.2,20.5L15.62,22.17L16.92,20.63Z" fill="currentColor" stroke="none"/>
 </svg>

@@ -89,7 +89,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's slanted brush and Procreate's brush tip \u2014 handle up-right, tip down-left.",
-      "note": "Handle, ferrule, solid tapered head."
+      "note": "Long handle, a boxed metal ferrule, and a head that flares wider than the ferrule before breaking into three hair points. Any smooth solid wedge on a slanted stick is a garden trowel \u2014 that is what a trowel is \u2014 and the only thing that has ever broken the reading is visible bristles. A head longer than its handle is a spear."
     },
     {
       "key": "pencil",
@@ -116,8 +116,8 @@
         "mist"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone.",
-      "note": "Canister, cone of air, one landed particle."
+      "basis": "Photoshop's airbrush option \u2014 a nozzle throwing a widening cone of mist.",
+      "note": "Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land.\n\nThe fan is kept narrow. Widened to reach the frame edges \u2014 which was done to separate it from brush-flow, also a nozzle with marks under it \u2014 the nozzle assembly above a spreading spray was named as an ejaculating penis. Brush-flow gave up its nozzle instead."
     },
     {
       "key": "marker",
@@ -130,7 +130,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Procreate's inking and marker brush families \u2014 a fat barrel cut to a chisel.",
-      "note": "Fat banded barrel, cut off at a solid chisel wedge."
+      "note": "A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. The step at the cap is what stops it: a single rounded barrel of even width, banded or not, is a phone. A shallow bevel on the tip made it a USB stick, so the chisel is the loudest thing in the glyph \u2014 the chisel is the whole tool."
     },
     {
       "key": "pen-ink",
@@ -144,7 +144,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Procreate's technical pen and Photoshop's ink brushes \u2014 a split dip-pen nib.",
-      "note": "Pointed nib, split down the middle, solid at the point."
+      "note": "The nib on its own, at full size, with the two things only a nib has: a round breather hole and the slit running from it to the point. No handle \u2014 a handle is what made this a stick with a wedge on it."
     },
     {
       "key": "calligraphy",
@@ -156,8 +156,8 @@
         "italic nib"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Illustrator's calligraphic brush \u2014 a flat edge held at a fixed angle to the stroke.",
-      "note": "Slim holder and a solid broad edge canted off the axis."
+      "basis": "The quill \u2014 the broad-edge pen every calligraphic hand was cut from, and the one writing implement nobody mistakes for anything else.",
+      "note": "Shaft curving to the cut point at lower left, with the vane solid against it."
     },
     {
       "key": "crayon",
@@ -170,7 +170,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Artistic set \u2014 the wrapped wax stub.",
-      "note": "Short barrel with wrapper bands, worn to a blunt solid nose."
+      "note": "Fat and short, with the paper label banded round the middle and the wax worn to a cone with a small flat left on it. A slim body with a sharp point is the pencil; a flat foot under a banded box is a battery, and a domed top over a banded box is a rifle cartridge. Flat top, a cone with barely any flat left on it, and the wrapper torn along its upper edge \u2014 a clean band left it in a pile with the eyedropper and the stylus, all three of which came back as \"a fountain pen nib\". Only the torn paper belongs to a crayon and nothing else."
     },
     {
       "key": "chalk",
@@ -183,7 +183,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's chalk and soft-pastel brushes \u2014 a square stick that sheds.",
-      "note": "Square stick, blunt at the solid end, shedding dust."
+      "note": "A plain stick lying at the shallow angle chalk is actually held at, worn away at one corner and shedding powder. Left square, the filled end beside the open barrel read as a screen beside a button \u2014 some handheld device. The wear makes it a stick again. The powder is dots; charcoal's marks are lines, and that is all that separates them."
     },
     {
       "key": "charcoal",
@@ -195,8 +195,8 @@
         "dry media"
       ],
       "apps": "PR",
-      "basis": "Procreate's charcoal brushes \u2014 a broken stick, never a manufactured one.",
-      "note": "Irregular chunk, solid where it has been worn flat."
+      "basis": "Procreate's charcoal brushes \u2014 a broken lump, never a manufactured stick.",
+      "note": "No handle at all: a solid irregular lump with the grainy marks running out from under it. Detached, the marks read as speed lines and the lump becomes a meteor; touching, the lump is plainly what made them."
     },
     {
       "key": "watercolor",
@@ -222,7 +222,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's bristle-tip brushes \u2014 the only tool that shows its hairs.",
-      "note": "Flat ferrule with splayed bristles."
+      "note": "Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick."
     },
     {
       "key": "blob-brush",
@@ -235,7 +235,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Blob Brush \u2014 a brush whose strokes fuse into one filled shape.",
-      "note": "A brush laying down a closed form rather than a line."
+      "note": "A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate \u2014 but it has to be lumpy while it does it. There is no brush in the glyph at all any more, because every position tried for one turned the pair into an animal or an object: on a stalk above the blob it was a bomb with a lit fuse, cropped short against it a beak, laid flat across the top a frying pan. The mark carries the idea on its own \u2014 a stroke that came out as a closed lumpy form instead of a line is the whole tool."
     },
     {
       "key": "spray-can",
@@ -274,7 +274,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Clone Stamp \u2014 the rubber stamp, unchanged since 1990.",
-      "note": "Knob, plate, and the solid face that transfers the sample."
+      "note": "A wide grip, a short neck, the plate, and the solid face that transfers the sample, resting on the surface it prints onto. A small knob on a long narrow stem above a flared base is a butt plug, and the proportions are the whole of the difference."
     },
     {
       "key": "stamp-pattern",
@@ -299,8 +299,8 @@
         "undo mark"
       ],
       "apps": "PS/AI/PR",
-      "basis": "The Photoshop and Procreate block eraser \u2014 held flat, not angled like a brush.",
-      "note": "A rubber block, banded, solid at the face doing the wiping."
+      "basis": "The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
+      "note": "A rubber block held at the angle it is used at, divided end to end with the working end solid, and the mark it has come to the end of running in from the left.\n\nWhich way the block is divided decides what it is. Divided across, into a pale strip over a dark one, it is a container with a lid: square to the frame it was a file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and tilted it was an open laptop and a ballot box with a coin slot. Undivided and solid it stopped being a container and became a spade blade. Divided end to end it is neither, and it is also how a two-tone eraser is actually made.\n\nCrumbs were tried three ways and failed three ways: in a row underneath they were wheels and the block a delivery van; round, they were soap suds and the block a washing machine; as short flecks they closed into a two-lobed lump a rater called a bone, then a pair of testicles. Small marks clustered beside a body do not stay abstract, so the mark being rubbed out does that work instead."
     },
     {
       "key": "eraser-hard",
@@ -338,8 +338,8 @@
         "blend"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Smudge and Procreate's Smudge \u2014 a fingertip dragging wet pigment.",
-      "note": "A solid pad pulled out into three trailing lines."
+      "basis": "Photoshop's Smudge tool \u2014 a closed hand with the index finger put out.",
+      "note": "A fist with the index put out along the tool diagonal, pointing where the brush tip and the pencil point point. The hand stands upright; only the finger is on the diagonal. Outlined, with the pad solid where it meets the pixel.\n\nThis is the weakest glyph in the set and it is the twenty-fourth drawing of it. It is the version that gets named correctly at first glance \u2014 a rater with no context called it a clenched fist \u2014 but it carries a knuckle-duster and a stubby handgun as second readings, and it has been read as a molar tooth and an old-fashioned key by other raters. Every alternative tried was worse in a way that mattered more:\n\nFace-on, pointing down, one finger extended \u2014 the obvious way to aim a finger at the bottom of the frame where the eraser's face and the pen's nib are \u2014 is a hand giving the finger, and two separate raters named the gesture before naming anything else in the drawing. Moving the extended digit from the middle of the hand to the index at the edge of the group did not fix it, and nor did holding the thumb out sideways where no finger could be. A fist with a digit out of it reads as that gesture at any angle it is drawn.\n\nAdding a cuff at the wrist does fix the key and the tooth \u2014 a band across the wrist says the mass is attached to an arm, and the manicule has carried one since the twelfth century \u2014 but a fist on a cuffed forearm is the raised-fist salute, and the same rater who named that also named an obscene reading. A political symbol is a worse failure than a knuckle-duster. Without the cuff and without the solid pad the same outline is a key with a phallic second reading; the pad is what stops that, and the pad is also what makes the knuckle-duster. There is no configuration of this glyph that is clean.\n\nTurning the whole hand is worse than turning nothing. The pan hand's own outline, folded and rotated 225 degrees so the index lay on the diagonal, came back as a kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a manicule in profile \u2014 hand, cuff, curled fingers, thumb on top, laid along the diagonal \u2014 it was a torch at three different sets of proportions.\n\nBefore those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read as two different objects on two viewings of the same path. Interior creases did not settle it, because a crease is a line on a mass and a gap is two objects. Drawing the folded fingers as separate rolls made the hand a key head.\n\nDistinct from the pan hand, which is a hand face-on, upright, open, with all five splayed, and which has never once been misread by anyone."
     },
     {
       "key": "blur",
@@ -365,7 +365,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Sharpen tool \u2014 the sharpening cone next to the blur drop.",
-      "note": "The cone, solid at the tip that does the work."
+      "note": "The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base it is a pointed hood over a plinth, which is a Klansman, and once seen it cannot be unseen. The lean costs nothing and removes it."
     },
     {
       "key": "dodge",
@@ -378,7 +378,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Dodge tool \u2014 the darkroom paddle on its wire, throwing light back.",
-      "note": "Paddle, rod, and the light it holds off the paper."
+      "note": "An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it \u2014 the obvious way to say a disc has depth \u2014 it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell."
     },
     {
       "key": "burn",
@@ -392,7 +392,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Burn tool \u2014 the hand cupped into an aperture to concentrate exposure.",
-      "note": "A cupped C with the light it funnels burning solid at the centre."
+      "note": "A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola \u2014 a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it."
     },
     {
       "key": "sponge",
@@ -404,8 +404,8 @@
         "porous"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Sponge tool \u2014 a porous block that pulls colour out or drives it in.",
-      "note": "Pores, one of them filled where the colour is being taken."
+      "basis": "Photoshop's Sponge tool \u2014 a block being squeezed until the colour comes out of it.",
+      "note": "A solid block with suds coming off it. Six drawings, and the first five all tried to draw the sponge itself. As a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two pores overlapped into eye sockets: holes in a blob are cheese. With the underside wrung into points, the points were fangs and the drops were drool \u2014 a row of points along a solid edge is a jaw, which is what went wrong with the brush texture in the same round. Pinched at the waist it was a ticket stub. Given a soft irregular outline it was a thought bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is anything else; the block is a plain rectangle for that reason, and the bubbles carry the whole meaning. The block is deep rather than wide: flat and wide with bubbles over it, it was a bathtub. The bubbles rise in a line off one corner and are three, not two: two marks side by side above a mass are eyes, and a rater called the pair of them a blank cartoon face at every size, more strongly the smaller it got."
     },
     {
       "key": "heal",
@@ -496,7 +496,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The Photoshop and Illustrator eyedropper \u2014 bulb, barrel, point.",
-      "note": "The dropper, solid where it takes the sample."
+      "note": "A round squeeze bulb on a thin barrel, solid where it takes the sample. Tapered instead of round, the bulb is just the wide end of a nib."
     },
     {
       "key": "mixer-brush",
@@ -547,8 +547,8 @@
         "scale brush"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's brush-size preview \u2014 nested footprints on one centre.",
-      "note": "Two diameters measured out from a single origin."
+      "basis": "Photoshop's brush-size preview, dimensioned the way any width is dimensioned.",
+      "note": "One footprint with its diameter measured across it, the arrowheads breaking the outline on both sides.\n\nThe measure has to run through the circle. Set underneath it, a ring above a double-headed width arrow is the universal girth gesture \u2014 a rater called it a condom-size chart and said the crude reading arrived first. Stood beside the footprint as a vertical bar between two arrowheads, the pair read as the letters Oi, and at small size that was the only thing left. What it costs is small size: with the arrowheads gone the tiny render is a bar across a circle, which is a prohibition sign. That is a wrong meaning rather than a crude one, and it is the trade taken.\n\nDrawn as two rings on one centre with a radius struck through them \u2014 the literal picture of a diameter \u2014 it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark."
     },
     {
       "key": "brush-opacity",
@@ -560,8 +560,8 @@
         "translucent"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Procreate's opacity slider thumb \u2014 one disc half laid down.",
-      "note": "Half committed, half withheld."
+      "basis": "The chequer every editor shows through a partly transparent pixel, which is also what alpha-lock is drawn from.",
+      "note": "One swatch, solid at one end and down to the chequer at the other. Drawn as a disc with one half laid down and the other half a broken arc \u2014 the obvious picture of half-committed \u2014 it was the dark-mode toggle almost exactly, and this set has one of those: theme-toggle is a disc with one half solid and rays on the light side. A split disc belongs to day and night and cannot be borrowed. The chequer is three cells across and not two: at two cells it was the same diagonal pair of squares that sits inside alpha-lock, and a rater called this one a credit card with the chip knocked out. It runs solid, then chequer, then nothing, across three thirds: half solid against half chequer left the swatch mostly black with white notches in it, and a rater read the notches as a bar chart in negative."
     },
     {
       "key": "brush-flow",
@@ -574,7 +574,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Flow control \u2014 how much arrives per pass, not how dark it ends up.",
-      "note": "Three drops at three depths of fall."
+      "note": "A loaded stroke with the paint running off it, three runs at three lengths.\n\nIt was a tall box with two rules across it and the bottom third filled, which is a battery at a third charge and nothing else \u2014 a rectangle part-filled along one edge is a fill gauge before it is anything, the same finding as the eraser and the mask, and it put this glyph and mask in one batch reading as one object. Redrawn as a nozzle with drops falling from it, it was accurate to its own note for the first time and immediately collided with the airbrush, which is also a nozzle with marks under it; widening the airbrush's spray to separate them made that glyph anatomical. So the nozzle is gone from this one. There is no emitter in the frame, only what was delivered."
     },
     {
       "key": "brush-hardness",
@@ -586,8 +586,8 @@
         "core"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's hardness preview \u2014 solid core, soft shoulder, outer limit.",
-      "note": "A solid core, a broken halo, an outer edge."
+      "basis": "Photoshop's hardness preview \u2014 a solid core with its edge stepping away from it.",
+      "note": "A solid core with the falloff cut into its own edge as steps.\n\nRecorded as unresolved. It reads as a descending staircase, which is wrong and harmless, and it collides with filter-mosaic \u2014 whose whole subject is a staircase \u2014 at every size. It is kept because all six forms tried were worse or no better:\n\n  two footprints, one solid and one a broken ring: a pair of testicles, named twice by two raters, and a dividing cell once the two were made unequal. Stacked instead they are a snowman and still anatomical.\n  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them, because anything on a heavy baseline at this size is a triangle on a line.\n  a solid block with shrinking bars beside it: the system volume icon, functionally identical in a rater\u2019s words, and indistinguishable from layer-opacity.\n  steps cut symmetrically into both halves of the right edge: a pixelated speaker, because a solid block with a symmetrical flare on one side is that icon whatever the flare is made of.\n  the same steps cut one way only, coarse or fine: a staircase either way. Five small steps merge at 24 pixels into the same three the coarse version had.\n\nThe trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns."
     },
     {
       "key": "brush-spacing",
@@ -600,7 +600,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Spacing setting \u2014 a brush is a run of stamps, not a line.",
-      "note": "Three stamps on a measured run; the middle one just landed."
+      "note": "Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn."
     },
     {
       "key": "brush-scatter",
@@ -612,8 +612,8 @@
         "random"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Scattering \u2014 marks thrown off the path they were meant to follow.",
-      "note": "A stroke path with its stamps scattered around it."
+      "basis": "Photoshop's Scattering \u2014 marks thrown clear of where they were aimed.",
+      "note": "One stamp landed, and four thrown clear of it at uneven distances, mostly to one side. No path drawn, because every path drawn turned into something else: on the diagonal with marks above and below it was a percent sign at every size, dashed or solid, through two drawings; laid horizontal and dashed, the dashes became a stitched-shut mouth and the marks around them eyes, and a rater called the glyph a goofy monster face; drawn as a curve it was a wavy mouth under two eyes, and a face again. Marks thrown to one side have no axis to hang a face on."
     },
     {
       "key": "brush-angle",
@@ -639,72 +639,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Roundness control \u2014 a round footprint compressed on one axis.",
-      "note": "A circle squeezed against its own limit."
-    },
-    {
-      "key": "brush-jitter",
-      "category": "tools",
-      "drawable": "ic_gx_brush_jitter",
-      "keywords": [
-        "variance",
-        "wobble",
-        "noise"
-      ],
-      "apps": "PS/PR",
-      "basis": "Photoshop's jitter controls \u2014 a value that refuses to hold still.",
-      "note": "A wandering parameter above a fixed baseline."
-    },
-    {
-      "key": "brush-taper",
-      "category": "tools",
-      "drawable": "ic_gx_brush_taper",
-      "keywords": [
-        "pressure taper",
-        "stroke ends",
-        "swell"
-      ],
-      "apps": "PR",
-      "basis": "Procreate's Taper settings \u2014 a stroke that opens, swells and closes.",
-      "note": "One stroke, thin at both ends."
-    },
-    {
-      "key": "brush-wet",
-      "category": "tools",
-      "drawable": "ic_gx_brush_wet",
-      "keywords": [
-        "wet mix",
-        "dilute",
-        "bleed"
-      ],
-      "apps": "PS/PR",
-      "basis": "Procreate's Wet Mix \u2014 two loads bleeding into each other.",
-      "note": "Two footprints overlapping; the wet edge is where they meet."
-    },
-    {
-      "key": "brush-buildup",
-      "category": "tools",
-      "drawable": "ic_gx_brush_buildup",
-      "keywords": [
-        "accumulate",
-        "density",
-        "layering"
-      ],
-      "apps": "PS/PR",
-      "basis": "Photoshop's Build-up airbrush behaviour \u2014 passes stacking over one another.",
-      "note": "Three passes over the same ground."
-    },
-    {
-      "key": "brush-dual",
-      "category": "tools",
-      "drawable": "ic_gx_brush_dual",
-      "keywords": [
-        "dual brush",
-        "second tip",
-        "combine"
-      ],
-      "apps": "PS",
-      "basis": "Photoshop's Dual Brush \u2014 a second tip riding inside the first.",
-      "note": "A smaller footprint carried by a larger one."
+      "note": "The round footprint, and the same footprint flattened and turned off the horizontal.\n\nThe tilt is not decoration. A horizontal ellipse is an orifice in every company it has been put in, and four arrangements produced four anatomical readings from four raters. Side by side, a ring with a solid flat lozenge against its edge was a sperm cell. Filled, between a mark above and a mark below, it was a vulva. Hollowed, with the compression arrows moved inside it, two solid triangles converging at the centre of a dark oval was an anus. Stacked under a solid disc \u2014 the plainest before-and-after there is \u2014 it was a butthole under a head. Anything pressing inward on a round outline is an orifice, and a squat horizontal lens is one on its own, with nothing else in the frame."
     },
     {
       "key": "brush-texture",
@@ -716,8 +651,8 @@
         "paper"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 paper tooth as a field.",
-      "note": "Tooth recorded as a field of marks, one of them struck."
+      "basis": "Photoshop's Texture setting and Procreate's grain source \u2014 a stroke running dry over the tooth of the paper.",
+      "note": "One footprint, bitten all round by the tooth, inside the swatch of paper that bit it.\n\nTen drawings. The first eight were strokes, and the brush family does not draw strokes: size is two discs on one centre, hardness a solid core inside a broken halo, roundness a circle beside an ellipse, spacing three stamps on a run. The ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one \u2014 which is the hardness glyph's own composition, and it read as a donut next to a squashed spider. Drawn with twelve vertices at alternating long and short radii, which is the obvious way to rough up a circle, it was a six-pointed star and a rater said Star of David. Sixteen vertices at radii that vary a little and never alternate give a roughened disc with no points on it.\n\nWhat the strokes were: spilled rice, and the fourth icon in the set drawn as a field of scattered dashes \u2014 the same picture as Add Noise, Reduce Noise and Grain. A band with a sawtooth underside was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature; over loose hatching a strikethrough on a scribble; over boxed hatching a hazard barricade; over unboxed hatching claw marks with a lightning bolt. Alone and ragged on both edges, it was a strip of torn tape."
     },
     {
       "key": "brush-import",
@@ -743,7 +678,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's stylus settings \u2014 the barrel and the tip the digitiser reads.",
-      "note": "A stylus on the tool diagonal."
+      "note": "Stood on the glass it writes on: a slim capsule barrel, one grip band, and a fine point actually touching the surface line. The surface is what makes it hardware rather than another stick of colour."
     },
     {
       "key": "pressure",
@@ -756,7 +691,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Pressure curve \u2014 force registered at the point of contact.",
-      "note": "A tip pressed hard enough into the surface to ring."
+      "note": "A point bearing down hard enough to bow the surface under it, and nothing else. A stroke swelling thin to thick, the first attempt, is the universal sign for volume; an arrowhead above it, the second, is the universal sign for download; strain marks flying off the contact, the third, made it a firework. The dent alone says force."
     },
     {
       "key": "tilt",
@@ -769,7 +704,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Tilt settings \u2014 the lean of the barrel against the surface.",
-      "note": "An angle measured off the plane the tool rests on."
+      "note": "The same capsule barrel as the stylus, leant over, with the angle it makes against the surface swept out beneath it."
     },
     {
       "key": "streamline",
@@ -808,7 +743,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's ColorDrop \u2014 colour dragged into a closed region, which takes it whole.",
-      "note": "A dropped colour flooding what it lands in."
+      "note": "An actual drop, with shoulders, falling into what it will flood. A bare triangle over a box is a pointed hood on a plinth."
     },
     {
       "key": "alpha-lock",
@@ -870,7 +805,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Quadrant symmetry \u2014 both axes live at once.",
-      "note": "One mark becomes four."
+      "note": "A field quartered by both live axes, with one quarter marked \u2014 the mark made in it appears in all four. Drawn as four wedges arranged round a cross, which was the previous attempt, it is an Iron Cross."
     },
     {
       "key": "symmetry-radial",
@@ -908,7 +843,7 @@
         "recede"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Illustrator's Perspective Grid and Procreate's Perspective guide.",
+      "basis": "Illustrator's Perspective Grid and Procreate's Perspective guide. The horizon is not decoration: without it the converging lines rise to a knob on a post and the whole glyph is a gallows.",
       "note": "Lines converging on a single solid vanishing point."
     },
     {
@@ -1141,7 +1076,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Inverse and Procreate's Invert selection.",
-      "note": "Held ground and released ground have traded places."
+      "note": "Held ground and released ground have traded places, the boundary still marching. A solid frame around a solid square is a QR finder pattern, and phones will try to read it."
     },
     {
       "key": "select-grow",
@@ -1154,7 +1089,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Modify > Expand.",
-      "note": "An edge pushed out to a wider one."
+      "note": "An edge pushed out to a wider one, the pressure applied at the middle of each side. Four solid wedges driven out of the four corners instead is an Iron Cross, which is not a thing you can ship however you meant it."
     },
     {
       "key": "select-shrink",
@@ -1271,7 +1206,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's layer-mask thumbnail \u2014 half revealed, half concealed.",
-      "note": "One plate, half of it withheld."
+      "note": "One plate, half of it withheld. A rater calls this a half-charged battery, or an open book, because a rectangle part-filled along one edge is a fill gauge before it is anything else \u2014 the same thing that kept the eraser from being an eraser. It is kept anyway, because the alternative was worse: given a hand-painted zigzag boundary instead of a ruled one, the notch and the wedge inside it made a bat silhouette, and a rater named the DC mark. A diagonal split was not available either \u2014 that is view-actual-colors. Neutral and wrong beats close to a trademark."
     },
     {
       "key": "mask-add",
@@ -1283,7 +1218,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Add Layer Mask button and Procreate's Mask.",
-      "note": "A mask attached to what did not have one."
+      "note": "A mask arriving at the plate, drawn as an arrow driving into it rather than as a plus.\n\nThe plus could not be placed anywhere. A rectangle with a white panel down one side and a bold equal-armed cross on it is a Bible, and a rater named a Bible or a hymnal before naming anything else, at three separate placements. Hung clear of the corner it was a cross standing beside a closed book. Lapped over the filled half it is drawn in the same ink as the fill and simply vanishes, leaving a stub that made the glyph a battery with a terminal on it. Moved to the far corner it was a Bible again, and making the plate landscape to break the book proportion did not help. Delete keeps its cross, because a cross drawn across a plate is a cancellation and not a crucifix."
     },
     {
       "key": "mask-delete",
@@ -1409,7 +1344,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's New Layer button and Procreate's plus.",
-      "note": "A plate added above the stack."
+      "note": "A plate added above the stack, the plus set off to one side. Centred over the stack it was a cross standing on stacked stone \u2014 a grave marker to one rater, a Red Cross to the same one, and both readings got stronger as the glyph got smaller. An equal-armed cross squarely on top of a plinth is a monument, whatever the plinth is made of."
     },
     {
       "key": "layer-delete",
@@ -1421,7 +1356,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Delete Layer.",
-      "note": "The top plate taken out of the stack."
+      "note": "The top plate taken out of the stack, the cross set off to one side to match the plus \u2014 a mark centred over stacked slabs is a monument."
     },
     {
       "key": "layer-duplicate",
@@ -1432,8 +1367,8 @@
         "clone layer"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's Duplicate Layer \u2014 the same plate, offset once.",
-      "note": "One plate, twice, out of register."
+      "basis": "Photoshop's Duplicate Layer \u2014 the stack, with the copy landing on top of it.",
+      "note": "One plate, and the same plate again below it and out of register \u2014 two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. Both plates are the same size, which is the only thing that says copy: with the lower one narrower they were simply two different plates, and a rater read the pair as an italic equals sign."
     },
     {
       "key": "layer-group",
@@ -1549,7 +1484,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Merge Down and Procreate's pinch-to-merge.",
-      "note": "The upper plate driven into the one below."
+      "note": "The upper plate driven down into the one below, with the direction shown. Without the arrow this was one plate above one solid slab, which is also what duplicate is, and a rater called the two of them the same drawing."
     },
     {
       "key": "layer-merge-visible",
@@ -1573,7 +1508,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Flatten Image \u2014 everything pressed into one plate.",
-      "note": "Three rules pressed down into one solid plate."
+      "note": "Three sheets pressed down into one solid plate, each closer to it than the last. The rules are stepped to match the stack: left flush while the plate under them leaned, the two halves disagreed and the glyph was a hamburger menu sitting on a doormat."
     },
     {
       "key": "layer-raise",
@@ -1633,8 +1568,8 @@
         "fade"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's Opacity field over the transparency chequer.",
-      "note": "Half a plate laid on the chequer that shows through it."
+      "basis": "Photoshop's Opacity field \u2014 one plate, half of it laid down.",
+      "note": "A plate of the stack, solid at one end and thinning to nothing at the other, on the family's shear.\n\nIt was three free-standing blocks shrinking to the right, which is a barcode, and which is also what brush-hardness became when its falloff was drawn as shrinking bars \u2014 a rater could not tell those two apart at 24 pixels. Before that it was a single bead threaded on a rule, which is a nipple piercing. Filling the far end with the transparency chequer instead put white blocks inside a slanted black plate, and a rater called it a racing decal with a letter cut out of it; at 24 pixels it was an illegible smear. The chequer needs an upright frame to read, which is why it stays on brush-opacity and alpha-lock and cannot come here."
     },
     {
       "key": "layer-blend",
@@ -1820,7 +1755,7 @@
       "keywords": [
         "backdrop",
         "base",
-        "chequer"
+        "foundation"
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's transparency chequer, which is what a missing background looks like.",
@@ -1991,7 +1926,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Hue/Saturation \u2014 hue as a rotation about the wheel.",
-      "note": "An angle turned about the centre of the wheel."
+      "note": "A marker carried round the wheel by the turn beneath it. Spokes drawn from the hub to the rim make the wheel a dharmachakra."
     },
     {
       "key": "saturation",
@@ -2091,7 +2026,7 @@
       ],
       "apps": "PS",
       "basis": "Photoshop's Color Lookup \u2014 the LUT, which really is a cube of samples.",
-      "note": "A colour cube with its origin marked."
+      "note": "A colour cube with the identity ramp running corner to corner through it. Two cells filled off-axis instead read, at a squint, as a swastika crop."
     },
     {
       "key": "gradient-map",
@@ -2192,7 +2127,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's Harmony modes \u2014 related hues found by geometry on the wheel.",
-      "note": "A triad inscribed in the wheel, with the lead hue solid."
+      "note": "A triad inscribed in a closed wheel, with the lead hue solid. Left open at the tail, the arc and its one loaded head are a sperm."
     },
     {
       "key": "gradient",
@@ -2317,8 +2252,8 @@
         "texture"
       ],
       "apps": "PS/PR",
-      "basis": "Photoshop's Add Noise and Camera Raw's Grain.",
-      "note": "A field with an uneven record laid across it."
+      "basis": "Camera Raw's Grain \u2014 grain is a property of film, so this is film: a strip with sprocket holes down both margins and speckle in the frame.",
+      "note": "A film strip with speckle on it. Drawn as a square field of dashes it was a saltine cracker, indistinguishable from the noise filter; drawn with the sprockets as ticks outside the strip it was an integrated circuit with pins down both sides. The holes have to sit inside the film's own width, behind a margin rule, or they are legs.\n\nThe speckle is five equal dashes and no round mark. With three dashes and a dot in the frame it read as sperm under a microscope \u2014 a tapered stroke leading a blob is a tail leading a head, and round caps make every short stroke tapered."
     },
     {
       "key": "histogram",
@@ -2431,8 +2366,8 @@
         "spin blur"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Radial Blur \u2014 spokes standing for the zoom or the spin.",
-      "note": "A burst of lines from one still centre."
+      "basis": "Photoshop's Radial Blur \u2014 the subject held still while everything streaks past it.",
+      "note": "A subject with the streaks flying off its four corners. Drawn the obvious way \u2014 a solid centre inside a full ring of evenly spaced spokes \u2014 it is an arsehole, and no amount of intent survives that. Four streaks, and only from the corners."
     },
     {
       "key": "filter-blur-lens",
@@ -2468,8 +2403,8 @@
         "speckle"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Add Noise.",
-      "note": "A field with an uneven record laid across it."
+      "basis": "Photoshop's Add Noise, drawn as the thing everybody has actually seen noise on: a screen full of snow.",
+      "note": "A screen packed with static, and a plus. The stand under it is doing all the work \u2014 a bordered square with marks inside it is a saltine cracker, a dice face, a seed tray, a pan, or the broken-image placeholder, and five drafts of this glyph were each of those in turn. Put a stand under the same square and it is a screen, and snow on a screen is the one picture of noise nobody has to be taught.\n\nThe density is the other half. Six marks evenly spread is a dice face; noise is more marks than you can count, at angles. Drawn as a signal trace \u2014 flat, then erupting \u2014 it was an EKG, and Reduce Noise as the mirror of it was a seismograph; mirroring is not a difference anyone sees at a glance."
     },
     {
       "key": "filter-noise-reduce",
@@ -2481,8 +2416,8 @@
         "smooth grain"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Reduce Noise \u2014 the same field, mostly settled, corners softened.",
-      "note": "The noise field with most of the speckle gone."
+      "basis": "Photoshop's Reduce Noise \u2014 the same screen as Add Noise, nearly clear, minus.",
+      "note": "The same screen with almost all the snow gone, and a minus. The pair differs by density and by sign, which is how pen-add differs from pen-remove and layer-add from layer-delete: one recognisable object, signed both ways."
     },
     {
       "key": "filter-distort-pinch",
@@ -2567,8 +2502,8 @@
         "blocks"
       ],
       "apps": "PS",
-      "basis": "Photoshop's Mosaic / Pixelate \u2014 detail coarsened into a fixed grid.",
-      "note": "A field reduced to a grid of flat tiles."
+      "basis": "Photoshop's Mosaic / Pixelate \u2014 a smooth edge coarsened onto a fixed grid.",
+      "note": "A frame with one diagonal edge in it, climbing in square steps instead of running straight. Drawn as a ruled grid with two of its cells filled \u2014 the literal picture of a mosaic \u2014 it was a hashtag with two squares stuffed into it, or a tic-tac-toe board mid-game. A grid on its own is not pixelation; a staircase where a diagonal should be is the only thing that is. Cut as a white staircase out of a solid black square, which is the strongest way to draw it, it is the Flipboard mark."
     },
     {
       "key": "filter-crystallize",
@@ -2605,7 +2540,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Photoshop's Outer Glow effect.",
-      "note": "A core with its light spreading past its own edge."
+      "note": "A core with its light spreading past its own edge, the halo broken into four arcs so it reads as light rather than as an edge. An unbroken ring around a solid centre is a nipple, and it is also every target in the set."
     },
     {
       "key": "filter-shadow-drop",
@@ -2799,7 +2734,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Add Anchor Point tool.",
-      "note": "A curve with a new node placed on it."
+      "note": "A curve with a new anchor dropped onto it, the plus straddling the anchor itself. Floating clear of the curve, the plus was a Red Cross \u2014 a bold equal-armed cross alone in white space is that, and the curve under it made the whole glyph a medical heartbeat readout. Anchors are squares, as they are in every vector tool, and not the round beads that made this a sperm cell."
     },
     {
       "key": "pen-remove",
@@ -2835,7 +2770,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Direct Selection \u2014 the white arrow that edits nodes, not objects.",
-      "note": "An open arrowhead with a hollow anchor at its own origin."
+      "note": "A hollow arrow reaching for one anchor on a path, that anchor solid. Without the anchors it is exactly the group-select arrow, and at 24 pixels neither could be told from the other."
     },
     {
       "key": "path-select-group",
@@ -2847,7 +2782,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Selection tool \u2014 the black arrow that moves whole objects.",
-      "note": "The same arrow, solid \u2014 it takes the whole object, not one node."
+      "note": "The solid arrow with a whole object's bounds marching around it \u2014 it takes the object, not one node, and the bounds are what say so."
     },
     {
       "key": "path-close",
@@ -2882,8 +2817,8 @@
         "clean path"
       ],
       "apps": "AI/PS",
-      "basis": "Illustrator's Simplify \u2014 a jagged run reduced to fewer, truer segments.",
-      "note": "A zigzag with most of its corners already gone."
+      "basis": "Illustrator's Simplify \u2014 the same path carrying fewer anchors.",
+      "note": "One path, crowded with anchors along the first half and carrying two along the rest, drawn as the squares every vector tool draws anchors as \u2014 hollow where they are about to go, solid where they are kept. The meaning is in the density.\n\nDrawn as a jagged run with beads on its peaks above a smooth curve below, it was a crown over a bow, and a face: points along the top with a curve under them is a mouth with teeth before it is anything to do with a path. Drawn as one curve with its anchors spread evenly along it, it was a sawtooth waveform with knobs on the ends \u2014 evenly spaced anchors are a zigzag, and the end ones read as terminals."
     },
     {
       "key": "path-outline-stroke",
@@ -3264,8 +3199,8 @@
         "font weight axis"
       ],
       "apps": "PS/AI",
-      "basis": "A light A beside a bold one.",
-      "note": "The same letter, thin then heavy."
+      "basis": "One letter at full weight beside the axis that sets it.",
+      "note": "A heavy letter and the weight ramp that produced it. Drawn as a light A beside a bold one it was a second AA, which is already type-allcaps, and which a stranger reads as the Alcoholics Anonymous mark before anything else."
     },
     {
       "key": "type-bold",
@@ -3523,7 +3458,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The four-way move cross every editor uses for the Move tool.",
-      "note": "Four arrows sharing one centre \u2014 free movement, no axis preferred."
+      "note": "Four arrows sharing one centre \u2014 free movement, no axis preferred. The shafts are not decoration: heads alone read as four loose arrowheads round a hole."
     },
     {
       "key": "scale",
@@ -3603,8 +3538,8 @@
         "flip left right"
       ],
       "apps": "PS/AI/PR",
-      "basis": "The two arrowheads flanking an axis every flip toggle uses.",
-      "note": "A shape and its mirror, meeting at a vertical hinge."
+      "basis": "The shape-and-mirror pair every flip toggle uses.",
+      "note": "One shape and its mirror across a marked axis, both blunt on the outside. Drawn as two points meeting at the seam they are labia being held apart, which is then the clearest thing in the glyph and not the intended one."
     },
     {
       "key": "flip-vertical",
@@ -3708,7 +3643,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The align-centre glyph shared by every design tool.",
-      "note": "Two frames centred on a single axis."
+      "note": "Two frames centred on a single axis. Drawn as thin bars rather than frames, a stem crossing two of them is the Cross of Lorraine."
     },
     {
       "key": "align-right",
@@ -3741,7 +3676,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The vertical-centre glyph, matching align-centre-horizontal at ninety degrees.",
-      "note": "Two frames centred on a single horizontal axis."
+      "note": "Two frames centred on a single horizontal axis \u2014 the exact transpose of align-centre-horizontal. Narrower frames left the axis sticking out far enough either side that the whole thing was a plus sign."
     },
     {
       "key": "align-bottom",
@@ -3866,8 +3801,8 @@
         "close file"
       ],
       "apps": "PS/AI/PR",
-      "basis": "The document page, with the corner tucked away as it closes.",
-      "note": "A page with its own corner folding shut."
+      "basis": "The document page, closed off by the same cross every other close control uses.",
+      "note": "A page struck through by the universal close mark."
     },
     {
       "key": "document-revert",
@@ -4129,8 +4064,8 @@
         "grid view"
       ],
       "apps": "PS/PR",
-      "basis": "Procreate's Gallery grid.",
-      "note": "Four pages laid out as a set to choose from."
+      "basis": "Procreate's Gallery \u2014 one page open at size with the rest of the set beside it.",
+      "note": "One large panel with smaller ones ranged around it. An even grid of identical cells is a waffle, or a chocolate bar, or a brick wall \u2014 three raters, three foods and a wall \u2014 and at small size it fills in to a solid dark rectangle with no grid visible at all. Panels of different sizes cannot do either."
     },
     {
       "key": "bleed-marks",
@@ -4321,7 +4256,7 @@
       ],
       "apps": "PS/AI",
       "basis": "Photoshop's Timeline \u2014 a track with frames marked along it.",
-      "note": "A track with three marks and the playhead sitting on one."
+      "note": "A track with three frame marks hanging below it and the playhead on one. Crossing the track instead of hanging from it makes three crosses on a hill, which is Calvary."
     },
     {
       "key": "keyframe",
@@ -4333,7 +4268,7 @@
       ],
       "apps": "PS/AI",
       "basis": "The diamond every timeline uses to mark a keyframe.",
-      "note": "A single diamond set on the track."
+      "note": "A single diamond standing on the track. Run the track through the diamond's waist instead and the pair of them are a vulva."
     },
     {
       "key": "keyframe-add",
@@ -4542,7 +4477,7 @@
         "ai outpaint",
         "generative expand"
       ],
-      "apps": "new",
+      "apps": "PS",
       "basis": "Photoshop's Generative Expand \u2014 a frame growing past its own edge.",
       "note": "A held frame with new ground opening around it."
     },
@@ -4554,7 +4489,7 @@
         "ai remove",
         "smart erase"
       ],
-      "apps": "new",
+      "apps": "PS",
       "basis": "Photoshop's Generative Fill used to remove \u2014 a gap the model closes.",
       "note": "An empty region with the sparkle that will resolve it."
     },
@@ -5038,7 +4973,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "The universal light/dark split disc.",
-      "note": "One disc, half in each mode."
+      "note": "One disc, half in each mode, and nothing else. The three rays that used to sit on the light side were legs: at 24 pixels the glyph read as a tick, or a mite \u2014 a dark round body with spikes coming off one side is an insect, and rays on one side only are never a sun."
     },
     {
       "key": "language",
@@ -5097,7 +5032,7 @@
       ],
       "apps": "PR",
       "basis": "Procreate's two-finger-tap undo gesture.",
-      "note": "Two fingers landing together on the same surface."
+      "note": "Two fingers of unequal length coming down together on one surface.\n\nTen drawings, and this is the least bad of them rather than a good one. It is recorded here as unresolved. A rater with no context calls it two chopsticks in a holder, or two cigarettes, or a pair of skis \u2014 all wrong, all harmless, which is more than any other version managed.\n\nWhat the others were. Upright as two chevrons over two dots over a rule: an angry cartoon face, two V eyebrows over two eyes over a flat mouth, because anything symmetrical with two marks above two marks above a bar is a face. Upright as pointed shapes standing on the rule with the contacts below: two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Long, thin and outlined with the ripples curling at their feet: two straight razors, then two scalpels. Outlined and blunt with the contact solid inside the tip: the letters oo, then two pill capsules, then two sperm cells. Outlined, blunt, standing on curved arcs: two tombstones on rocker feet. Solid and anchored off the top-right corner so that the hand would be implied: two shafts with rounded bulges at the base, which a rater named as two erect penises.\n\nThe trap under all of it is that two similar elongated marks side by side are always a pair of something, and the viewer supplies the something. Nothing about fingers survives at this size; only the pairing does."
     },
     {
       "key": "undo-history-slider",

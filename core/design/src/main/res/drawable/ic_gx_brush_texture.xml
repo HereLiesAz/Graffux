@@ -6,16 +6,20 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-texture: Tooth recorded as a field of marks, one of them struck. -->
-    <!-- lineage (PS/PR): Photoshop's Texture setting and Procreate's grain source — paper tooth as a field. -->
+    <!-- brush-texture: One footprint, bitten all round by the tooth, inside the swatch of paper that bit it.
+
+Ten drawings. The first eight were strokes, and the brush family does not draw strokes: size is two discs on one centre, hardness a solid core inside a broken halo, roundness a circle beside an ellipse, spacing three stamps on a run. The ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one — which is the hardness glyph's own composition, and it read as a donut next to a squashed spider. Drawn with twelve vertices at alternating long and short radii, which is the obvious way to rough up a circle, it was a six-pointed star and a rater said Star of David. Sixteen vertices at radii that vary a little and never alternate give a roughened disc with no points on it.
+
+What the strokes were: spilled rice, and the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. A band with a sawtooth underside was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature; over loose hatching a strikethrough on a scribble; over boxed hatching a hazard barricade; over unboxed hatching claw marks with a lightning bolt. Alone and ragged on both edges, it was a strip of torn tape. -->
+    <!-- lineage (PS/PR): Photoshop's Texture setting and Procreate's grain source — a stroke running dry over the tooth of the paper. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4.4,7L5.6,7 M11,8.6L12.2,8.6 M17.4,6.6L18.6,6.6 M6.2,13.4L7.4,13.4 M14,12.2L15.2,12.2 M4.8,18.6L6,18.6 M12.6,17.4L13.8,17.4" />
+        android:pathData="M3,3L21,3L21,21L3,21Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M18.1,17.4A1.1,1.1 0 1,0 20.3,17.4A1.1,1.1 0 1,0 18.1,17.4Z" />
+        android:pathData="M16.1,12.8L15.3,14.2L14.1,15.1L12.8,16L11.3,15.7L9.7,15.5L9,14L8.1,12.8L7.8,11.2L8.8,9.9L9.7,8.6L11.3,8.4L12.8,7.9L14.2,8.7L15,10L16,11.2Z" />
 </vector>

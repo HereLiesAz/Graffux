@@ -6,7 +6,13 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- gesture-two-finger-tap: Two fingers landing together on the same surface. -->
+    <!-- gesture-two-finger-tap: Two fingers of unequal length coming down together on one surface.
+
+Ten drawings, and this is the least bad of them rather than a good one. It is recorded here as unresolved. A rater with no context calls it two chopsticks in a holder, or two cigarettes, or a pair of skis — all wrong, all harmless, which is more than any other version managed.
+
+What the others were. Upright as two chevrons over two dots over a rule: an angry cartoon face, two V eyebrows over two eyes over a flat mouth, because anything symmetrical with two marks above two marks above a bar is a face. Upright as pointed shapes standing on the rule with the contacts below: two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Long, thin and outlined with the ripples curling at their feet: two straight razors, then two scalpels. Outlined and blunt with the contact solid inside the tip: the letters oo, then two pill capsules, then two sperm cells. Outlined, blunt, standing on curved arcs: two tombstones on rocker feet. Solid and anchored off the top-right corner so that the hand would be implied: two shafts with rounded bulges at the base, which a rater named as two erect penises.
+
+The trap under all of it is that two similar elongated marks side by side are always a pair of something, and the viewer supplies the something. Nothing about fingers survives at this size; only the pairing does. -->
     <!-- lineage (PR): Procreate's two-finger-tap undo gesture. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +20,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,16.4L20.6,16.4L20.6,20.6L3.4,20.6Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M8.4,16.4L8.4,10.4 M15.6,16.4L15.6,10.4" />
+        android:pathData="M3.4,20.2L20.6,20.2" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M6.7,8.4A1.7,1.7 0 1,0 10.1,8.4A1.7,1.7 0 1,0 6.7,8.4Z M13.9,8.4A1.7,1.7 0 1,0 17.3,8.4A1.7,1.7 0 1,0 13.9,8.4Z" />
+        android:pathData="M15.34,4.38L8.64,19.22L10.16,19.98L17.86,5.62Z M19.49,8.33L13.52,19.19L14.88,20.01L21.71,9.67Z" />
 </vector>

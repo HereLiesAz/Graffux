@@ -6,16 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- charcoal: Irregular chunk, solid where it has been worn flat. -->
-    <!-- lineage (PR): Procreate's charcoal brushes — a broken stick, never a manufactured one. -->
+    <!-- charcoal: No handle at all: a solid irregular lump with the grainy marks running out from under it. Detached, the marks read as speed lines and the lump becomes a meteor; touching, the lump is plainly what made them. -->
+    <!-- lineage (PR): Procreate's charcoal brushes — a broken lump, never a manufactured stick. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M18.79,7.19L17.8,10.16L14.26,12.85L12.57,15.68L8.11,11.79L11.43,9.17L13.41,6.34L16.53,5.21Z" />
+        android:pathData="M10.4,11.6L20,17.2 M8,12.2L17.4,19.4 M6.6,14.4L13.4,20.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12.57,15.68L8.04,18.51L5.71,15.61L8.11,11.79Z" />
+        android:pathData="M8.2,3.6L14.6,5L17.6,8.2L15.4,12.4L9.6,12.8L6.6,8.6L7.2,5.2Z" />
 </vector>

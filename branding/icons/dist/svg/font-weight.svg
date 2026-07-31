@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/font-weight — The same letter, thin then heavy. -->
-  <path d="M7.4,6.4L3.6,18.4 M7.4,6.4L11.2,18.4 M5.58,13.84L9.22,13.84"/>
-  <path d="M17,4.4L12,19.4 M17,4.4L22,19.4 M14.6,13.7L19.4,13.7" fill="currentColor" stroke="none"/>
+  <!-- graffux/font-weight — A heavy letter and the weight ramp that produced it. Drawn as a light A beside a bold one it was a second AA, which is already type-allcaps, and which a stranger reads as the Alcoholics Anonymous mark before anything else. -->
+  <path d="M7.8,4.87L2.07,18.96L4.73,19.84L8.6,5.13Z M7.8,5.13L11.67,19.84L14.33,18.96L8.6,4.87Z M5.32,13.24L11.08,13.24L11.08,15.2L5.32,15.2Z M15.8,6.6L21,6.6L21,7.7L15.8,7.7Z M15.8,10.4L21,10.4L21,12.6L15.8,12.6Z M15.8,15.4L21,15.4L21,19L15.8,19Z" fill="currentColor" stroke="none"/>
 </svg>

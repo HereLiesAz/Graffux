@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- tilt: An angle measured off the plane the tool rests on. -->
+    <!-- tilt: The same capsule barrel as the stylus, leant over, with the angle it makes against the surface swept out beneath it. -->
     <!-- lineage (PR): Procreate's Tilt settings — the lean of the barrel against the surface. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,22 +14,29 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M8.53,18.11L15.64,7.96L18.42,9.91L11.31,20.06Z" />
+        android:pathData="M9.04,15.53L12.75,9.59A2,2 0 0,1 15.51,8.95L15.68,9.06A2,2 0 0,1 16.32,11.81L12.61,17.75A2,2 0 0,1 9.85,18.39L9.68,18.28A2,2 0 0,1 9.04,15.53Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3,20.4L21,20.4" />
+        android:pathData="M10.21,13.66L13.77,15.89" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12.1,15.98A5.4,5.4 0 0,1 14.4,20.4" />
+        android:pathData="M3,20.2L21,20.2" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M11.57,15.45A5.6,5.6 0 0,1 14.2,20.2" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M9,20.4L8.53,18.11L11.31,20.06Z" />
+        android:pathData="M8.49,17.54L8.38,19.24L7.36,18.6L6.72,19.62L9.95,21.63L10.58,20.61L9.56,19.98L11.04,19.13Z" />
 </vector>

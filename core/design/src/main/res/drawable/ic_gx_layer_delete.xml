@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-delete: The top plate taken out of the stack. -->
+    <!-- layer-delete: The top plate taken out of the stack, the cross set off to one side to match the plus — a mark centred over stacked slabs is a monument. -->
     <!-- lineage (PS/AI/PR): Photoshop's Delete Layer. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,12 +14,19 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,9.8L20.6,9.8L20.6,14.2L3.4,14.2Z M3.4,16.2L20.6,16.2L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M7.1,8.8L20.08,8.8L17.68,14.4L4.7,14.4Z M8.4,14.2L19.56,14.2L17.16,19.8L6,19.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9.3,4.3L14.7,4.3" />
+        android:pathData="M15.3,2.4L19.9,7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M19.9,2.4L15.3,7" />
 </vector>

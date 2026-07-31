@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/chalk — Square stick, blunt at the solid end, shedding dust. -->
-  <path d="M19.21,8.46L12,15.68L8.32,12L15.54,4.79Z"/>
-  <path d="M8.32,20.2L8.11,21.4 M4.22,16.67L3.02,17.02"/>
-  <path d="M12,15.68L9.03,18.65L5.35,14.97L8.32,12Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/chalk — A plain stick lying at the shallow angle chalk is actually held at, worn away at one corner and shedding powder. Left square, the filled end beside the open barrel read as a screen beside a button — some handheld device. The wear makes it a stick again. The powder is dots; charcoal's marks are lines, and that is all that separates them. -->
+  <path d="M15.25,16.4A0.55,0.55 0 1,0 16.35,16.4A0.55,0.55 0 1,0 15.25,16.4Z M18.05,18.2A0.55,0.55 0 1,0 19.15,18.2A0.55,0.55 0 1,0 18.05,18.2Z M13.25,19.2A0.55,0.55 0 1,0 14.35,19.2A0.55,0.55 0 1,0 13.25,19.2Z"/>
+  <path d="M2.75,10.39L4.99,9.43L15.66,6.76L16.38,9.68L14.88,11.91L5.76,14.18L3.62,13.89Z" fill="currentColor" stroke="none"/>
 </svg>

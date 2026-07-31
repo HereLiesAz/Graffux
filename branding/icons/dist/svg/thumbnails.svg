@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/thumbnails — Four pages laid out as a set to choose from. -->
-  <path d="M3.4,3.4L9.8,3.4L9.8,9.8L3.4,9.8Z M14.2,3.4L20.6,3.4L20.6,9.8L14.2,9.8Z M3.4,14.2L9.8,14.2L9.8,20.6L3.4,20.6Z M14.2,14.2L20.6,14.2L20.6,20.6L14.2,20.6Z"/>
+  <!-- graffux/thumbnails — One large panel with smaller ones ranged around it. An even grid of identical cells is a waffle, or a chocolate bar, or a brick wall — three raters, three foods and a wall — and at small size it fills in to a solid dark rectangle with no grid visible at all. Panels of different sizes cannot do either. -->
+  <path d="M3.4,4.6L14.2,4.6L14.2,15.4L3.4,15.4Z"/>
+  <path d="M16,4.6L20.6,4.6L20.6,9.2L16,9.2Z M16,10.8L20.6,10.8L20.6,15.4L16,15.4Z M3.4,16.8L8,16.8L8,19.4L3.4,19.4Z M9.6,16.8L14.2,16.8L14.2,19.4L9.6,19.4Z"/>
 </svg>

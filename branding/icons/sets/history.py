@@ -18,6 +18,7 @@ from kit import (
     seq,
     square,
     tip,
+    xf,
 )
 
 icon("undo", "history", ["step back", "ctrl z"],
@@ -50,8 +51,9 @@ icon("history-snapshot", "history", ["checkpoint", "save state"],
      note="A camera with the lens that took the picture.")
 
 icon("history-brush", "history", ["restore from history", "paint back"],
-     s=[circle(9.0, 15.0, 4.6), arc(9.0, 15.0, 4.6, -60, 220)],
-     f=[dot(15.0, 9.0, 1.6)],
+     s=[line(20.6, 3.4, 15.2, 8.8), line(13.2, 8.2, 15.8, 10.8),
+        arc(8.0, 15.4, 3.2, 200, 470)],
+     f=[poly([(12.6, 8.6), (14.8, 13.0), (10.4, 10.8)], close=True)],
      apps="PS",
      basis="Photoshop's History Brush — a brush that paints an earlier state back in.",
      note="A brush working from an earlier point on the clock it is bound to.")
@@ -114,7 +116,8 @@ icon("version-compare", "history", ["diff", "compare states"],
      note="Two states side by side, with the one difference between them solid.")
 
 icon("checkpoint-restore", "history", ["roll back", "go to state"],
-     s=[seq(dot(3.4, 12, 1.1), dot(8.6, 12, 1.1), dot(13.8, 12, 1.1)), line(3.4, 12, 17.4, 12)],
-     f=[dot(19.0, 12, 1.6)],
+     s=[line(3.0, 20.0, 21.0, 20.0), line(8.0, 20.0, 8.0, 4.0),
+        arc(14.0, 20.0, 6.4, 200, 250)],
+     f=[poly([(8.0, 4.0), (17.0, 6.6), (8.0, 9.2)], close=True)],
      apps="new",
      note="A run of states with the live one held at the far end.")

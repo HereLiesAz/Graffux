@@ -16,15 +16,40 @@ from kit import (
     seq,
     slash,
     tip,
+    square,
 )
 
 # The stack: three plates, 4.4 tall, on a 6.4 pitch. Nothing else in the family moves.
-_W, _X, _H = 17.2, 3.4, 4.4
-_Y = (3.4, 9.8, 16.2)
+_W, _X, _H = 17.2, 3.4, 5.6
+_Y = (3.4, 8.8, 14.2)
+
+
+_SHEAR = 2.4
+_STAGGER = (0.0, 1.3, 2.6)
+
+
+def sheet(x, y, w, h):
+    """One plate, sheared: sheets in a stack are seen at an angle, not flush.
+
+    Drawn as flush rectangles the stack is a hamburger menu — three bars of equal width on an
+    even pitch is that glyph and nothing else, and a rater with no context named the menu for
+    both `layers` and `layer-duplicate` before naming anything to do with sheets. The shear is
+    the whole difference between a stack and a list.
+    """
+    return poly([(x + _SHEAR, y), (x + w, y), (x + w - _SHEAR, y + h), (x, y + h)], close=True)
 
 
 def plate(i, x=_X, w=_W):
-    return rect(x, _Y[i], w, _H)
+    """Plate i of the stack, sheared and stepped: each sheet sits a little right of the one
+    above it, and is a little narrower.
+
+    Three parallelograms of equal width on an even pitch, all sheared the same way, is the
+    Solana mark — a rater named it for two glyphs in one pass, and named it again after a
+    stagger was added. What separates a stack from that mark is not the stagger but the gap:
+    Solana's bars float clear of each other, and sheets in a pile touch. The pitch is now
+    barely more than the plate height, so the stack closes up.
+    """
+    return sheet(x + _STAGGER[i], _Y[i], w - _STAGGER[i] * 1.4, _H)
 
 
 def plates(*idx):
@@ -32,8 +57,14 @@ def plates(*idx):
 
 
 def eye():
-    """A lens 17.2 wide and 7.2 deep, struck as two circular arcs that meet at the corners."""
-    return seq(arc(12, 20.47, 12.07, 224.6, 315.4), arc(12, 3.53, 12.07, 44.6, 135.4))
+    """An eye, deliberately asymmetric: a high-arcing upper lid over a nearly flat lower one.
+
+    A symmetric pointed almond — which is what two matched arcs give you — does not read as
+    an eye to a viewer with no context. It reads as a vulva. The lids are unequal in life and
+    have to be unequal here.
+    """
+    return seq(arc(12, 15.5, 9.1, 202.6, 337.4),      # upper lid: chord 16.8, sagitta 5.6
+               arc(12, 2.58, 12.63, 48.3, 131.7))    # lower lid: same chord, sagitta 3.2
 
 
 icon("layers", "layers", ["stack", "sheets", "panel"],
@@ -44,25 +75,42 @@ icon("layers", "layers", ["stack", "sheets", "panel"],
      note="Three plates; the one being worked on is solid.")
 
 icon("layer-add", "layers", ["new layer", "plus"],
-     s=[plates(1, 2), seq(line(12, 2.2, 12, 6.8), line(9.7, 4.5, 14.3, 4.5))],
+     s=[plates(1, 2), seq(line(17.6, 2.4, 17.6, 7.0), line(15.3, 4.7, 19.9, 4.7))],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's New Layer button and Procreate's plus.",
-     note="A plate added above the stack.")
+     note="A plate added above the stack, the plus set off to one side. Centred over the "
+          "stack it was a cross standing on stacked stone — a grave marker to one rater, a "
+          "Red Cross to the same one, and both readings got stronger as the glyph got "
+          "smaller. An equal-armed cross squarely on top of a plinth is a monument, whatever "
+          "the plinth is made of.")
 
 icon("layer-delete", "layers", ["remove layer", "discard"],
-     s=[plates(1, 2), line(9.3, 4.3, 14.7, 4.3)],
+     s=[plates(1, 2), line(15.3, 2.4, 19.9, 7.0), line(19.9, 2.4, 15.3, 7.0)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's Delete Layer.",
-     note="The top plate taken out of the stack.")
+     note="The top plate taken out of the stack, the cross set off to one side to "
+          "match the plus — a mark centred over stacked slabs is a monument.")
 
 icon("layer-duplicate", "layers", ["copy layer", "clone layer"],
-     s=[rect(3.4, 3.4, 14.2, 14.2)],
-     f=[rect(6.4, 6.4, 14.2, 14.2)],
+     s=[sheet(3.4, 4.0, 14.0, 5.0)],
+     f=[sheet(7.2, 10.6, 14.0, 5.0)],
      apps="PS/AI/PR",
-     basis="Photoshop's Duplicate Layer — the same plate, offset once.",
-     note="One plate, twice, out of register.")
+     basis="Photoshop's Duplicate Layer — the stack, with the copy landing on top of it.",
+     note="One plate, and the same plate again below it and out of register — two, not three, "
+          "because three plates in this family is the stack itself. Drawn as two big offset "
+          "squares with one solid, it was the same picture as the boolean union in the "
+          "selection family, and it stood outside the layer family's language. Drawn as three "
+          "plates it was the plain layers glyph with a different plate filled in, and a rater "
+          "called the two of them one icon in two states. The copy overlaps the original "
+          "rather than sitting clear below it: clear of it, the pair was the "
+          "merge-down glyph, which is also one plate over one solid slab. Overlapping it "
+          "outright, the two ran together into a single swoosh a rater called an "
+          "automotive marque, so the copy sits just clear and is a plate thick, not a slab. "
+          "Both plates are the same size, which is the only thing that says copy: with "
+          "the lower one narrower they were simply two different plates, and a rater "
+          "read the pair as an italic equals sign.")
 
 icon("layer-group", "layers", ["folder", "nest", "group"],
      s=[poly([(2.8, 20.6), (2.8, 5.0), (9.2, 5.0), (11.0, 7.6), (21.2, 7.6), (21.2, 20.6)],
@@ -73,23 +121,23 @@ icon("layer-group", "layers", ["folder", "nest", "group"],
      note="A folder with a plate in it.")
 
 icon("layer-ungroup", "layers", ["release", "unnest", "flatten group"],
-     s=[poly([(2.8, 20.6), (2.8, 8.0), (9.2, 8.0), (11.0, 10.6), (21.2, 10.6), (21.2, 20.6)],
+     s=[poly([(2.8, 20.6), (2.8, 11.4), (9.2, 11.4), (11.0, 14.0), (21.2, 14.0), (21.2, 20.6)],
              close=True),
-        line(15.6, 6.0, 15.6, 11.6)],
-     f=[tip(15.6, 4.6, 3.0, 270)],
+        rect(7.6, 5.4, 8.8, 4.4)],
+     f=[],
      apps="AI",
      basis="Illustrator's Ungroup — contents leaving the folder.",
      note="A plate lifted back out of its folder.")
 
 icon("layer-visible", "layers", ["show", "eye", "toggle"],
-     s=[eye(), circle(12, 12, 3.2)],
-     f=[dot(12, 12, 1.3)],
+     s=[eye(), circle(12, 11.4, 3.0)],
+     f=[dot(12, 11.4, 1.25)],
      apps="PS/AI/PR",
      basis="Photoshop's eye column — the oldest control in the panel.",
      note="An open eye.")
 
 icon("layer-hidden", "layers", ["hide", "eye off", "invisible"],
-     s=[eye(), slash(12, 12, 9.4)],
+     s=[eye(), slash(12, 12, 9.2)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's eye column, switched off.",
@@ -110,39 +158,45 @@ icon("layer-unlock", "layers", ["unprotect", "open lock", "editable"],
      note="The same padlock, open on one side.")
 
 icon("layer-link", "layers", ["chain", "tie together", "move as one"],
-     s=[arc(9.6, 14.4, 4.6, -45, 225), arc(14.4, 9.6, 4.6, 135, 405)],
+     s=[rect(8.6, 3.4, 6.8, 9.8, 3.4), rect(8.6, 10.8, 6.8, 9.8, 3.4)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's link chain.",
      note="Two open rings, interlocked.")
 
 icon("layer-unlink", "layers", ["break chain", "release"],
-     s=[arc(6.6, 14.4, 4.2, -45, 225), arc(17.4, 9.6, 4.2, 135, 405)],
+     s=[rect(8.6, 2.6, 6.8, 8.4, 3.4), rect(8.6, 13.0, 6.8, 8.4, 3.4),
+        seq(line(6.4, 11.4, 4.4, 10.4), line(17.6, 11.4, 19.6, 10.4))],
      f=[],
      apps="PS/AI",
      basis="Photoshop's unlink — the same two rings, pulled apart.",
      note="Two open rings that no longer touch.")
 
 icon("layer-merge-down", "layers", ["combine", "flatten two", "down"],
-     s=[plate(0)],
-     f=[rect(3.4, 13.4, 17.2, 7.2)],
+     s=[plate(0), line(12.4, 8.6, 12.4, 11.4)],
+     f=[seq(sheet(3.4, 13.8, 17.2, 6.8), tip(12.4, 12.8, 2.4, 90))],
      apps="PS/AI/PR",
      basis="Photoshop's Merge Down and Procreate's pinch-to-merge.",
-     note="The upper plate driven into the one below.")
+     note="The upper plate driven down into the one below, with the direction shown. Without "
+          "the arrow this was one plate above one solid slab, which is also what duplicate is, "
+          "and a rater called the two of them the same drawing.")
 
 icon("layer-merge-visible", "layers", ["merge shown", "collapse visible"],
-     s=[plate(0), eye()],
-     f=[rect(3.4, 13.4, 17.2, 7.2)],
+     s=[plate(0), circle(18.6, 7.4, 2.6), line(12, 9.2, 12, 12.6)],
+     f=[seq(sheet(3.4, 15.0, 17.2, 5.6), dot(18.6, 7.4, 1.0), tip(12, 14.0, 2.4, 90))],
      apps="PS",
      basis="Photoshop's Merge Visible — a merge with the eye column as its condition.",
      note="A merge, qualified.")
 
 icon("layer-flatten", "layers", ["one layer", "collapse all"],
-     s=[seq(line(3.4, 5.0, 20.6, 5.0), line(3.4, 9.2, 20.6, 9.2), line(3.4, 13.4, 20.6, 13.4))],
-     f=[rect(3.4, 17.0, 17.2, 3.6)],
+     s=[seq(line(4.2, 5.6, 20.6, 3.6), line(6.0, 10.0, 20.0, 8.4), line(7.8, 14.2, 19.4, 13.0))],
+     f=[sheet(3.4, 15.4, 17.2, 5.2)],
      apps="PS/AI/PR",
      basis="Photoshop's Flatten Image — everything pressed into one plate.",
-     note="Three rules pressed down into one solid plate.")
+     note="Three sheets pressed down into one solid plate, each closer to it than the "
+          "last. The rules are stepped to match the stack: left flush while the "
+          "plate under them leaned, the two halves disagreed and the glyph was a hamburger "
+          "menu sitting on a doormat.")
 
 icon("layer-raise", "layers", ["bring forward", "up one"],
      s=[plates(1, 2), line(12, 7.6, 12, 3.4)],
@@ -173,11 +227,23 @@ icon("layer-to-back", "layers", ["send to back", "bottom"],
      note="A plate driven to the bottom of the stack.")
 
 icon("layer-opacity", "layers", ["transparency", "alpha", "fade"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[dot(13.4, 12, 3.0)],
+     s=[sheet(3.4, 8.4, 17.2, 7.2)],
+     f=[poly([(5.8, 8.4), (13.2, 8.4), (10.8, 15.6), (3.4, 15.6)], close=True)],
      apps="PS/AI/PR",
-     basis="Photoshop's Opacity field over the transparency chequer.",
-     note="Half a plate laid on the chequer that shows through it.")
+     basis="Photoshop's Opacity field — one plate, half of it laid down.",
+     note="A plate of the stack, solid at one end and thinning to nothing at the "
+          "other, on the family's shear.\n\n"
+          "It was three free-standing blocks shrinking to the right, which is a "
+          "barcode, and which is also what brush-hardness became when its falloff "
+          "was drawn as shrinking bars — a rater could not tell those two apart at "
+          "24 pixels. Before that it was a single bead threaded on a rule, which is "
+          "a nipple piercing. Filling the far end with the transparency chequer "
+          "instead put white blocks inside a slanted black plate, and a rater "
+          "called it a racing decal with a letter cut out of it; at 24 pixels it "
+          "was an illegible smear. The chequer needs an upright frame to read, "
+          "which is why it stays on brush-opacity and alpha-lock and cannot come "
+          "here."
+)
 
 icon("layer-blend", "layers", ["blend mode", "mix", "interaction"],
      s=[circle(9.4, 12, 6.0), circle(14.6, 12, 6.0)],
@@ -280,19 +346,16 @@ icon("artboard-add", "layers", ["new artboard", "new page"],
      basis="Illustrator's New Artboard.",
      note="A second page being started.")
 
-icon("layer-background", "layers", ["backdrop", "base", "chequer"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), line(12, 3.4, 12, 20.6), line(3.4, 12, 20.6, 12)],
-     f=[seq(rect(3.4, 3.4, 8.6, 8.6), rect(12, 12, 8.6, 8.6))],
+icon("layer-background", "layers", ["backdrop", "base", "foundation"],
+     s=[seq(plate(0), plate(1)), line(2.2, 19.0, 21.8, 19.0)],
+     f=[rect(2.2, 19.0, 19.6, 2.6)],
      apps="PS/PR",
      basis="Photoshop's transparency chequer, which is what a missing background looks like.",
      note="The chequer that means there is nothing behind.")
 
 icon("layer-frame", "layers", ["frame tool", "placeholder", "crop into"],
-     s=[seq(poly([(3.4, 8.0), (3.4, 3.4), (8.0, 3.4)]),
-            poly([(16.0, 3.4), (20.6, 3.4), (20.6, 8.0)]),
-            poly([(20.6, 16.0), (20.6, 20.6), (16.0, 20.6)]),
-            poly([(8.0, 20.6), (3.4, 20.6), (3.4, 16.0)]))],
-     f=[],
+     s=[rect(3.4, 5.0, 17.2, 14.0), line(3.4, 19.0, 20.6, 5.0)],
+     f=[square(3.4, 5.0, 2.4)],
      apps="PS",
      basis="Photoshop's Frame tool — a placeholder waiting for content.",
      note="Corner marks around nothing yet placed.")

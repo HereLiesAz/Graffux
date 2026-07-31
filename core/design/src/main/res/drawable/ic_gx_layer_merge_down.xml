@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-merge-down: The upper plate driven into the one below. -->
+    <!-- layer-merge-down: The upper plate driven down into the one below, with the direction shown. Without the arrow this was one plate above one solid slab, which is also what duplicate is, and a rater called the two of them the same drawing. -->
     <!-- lineage (PS/AI/PR): Photoshop's Merge Down and Procreate's pinch-to-merge. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L20.6,3.4L20.6,7.8L3.4,7.8Z" />
+        android:pathData="M5.8,3.4L20.6,3.4L18.2,9L3.4,9Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12.4,8.6L12.4,11.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3.4,13.4L20.6,13.4L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M5.8,13.8L20.6,13.8L18.2,20.6L3.4,20.6Z M12.4,12.8L14.13,10.4L10.67,10.4Z" />
 </vector>

@@ -1,6 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/path-simplify — A zigzag with most of its corners already gone. -->
-  <path d="M3.4,8L7,16 M7,16L10.6,8 M10.6,8L14.2,16 M14.2,16L17.8,8"/>
+  <!-- graffux/path-simplify — One path, crowded with anchors along the first half and carrying two along the rest, drawn as the squares every vector tool draws anchors as — hollow where they are about to go, solid where they are kept. The meaning is in the density.
+
+Drawn as a jagged run with beads on its peaks above a smooth curve below, it was a crown over a bow, and a face: points along the top with a curve under them is a mouth with teeth before it is anything to do with a path. Drawn as one curve with its anchors spread evenly along it, it was a sawtooth waveform with knobs on the ends — evenly spaced anchors are a zigzag, and the end ones read as terminals. -->
+  <path d="M3.4,13C3.83,12.6 5.13,10.53 6,10.6C6.87,10.67 7.73,13.37 8.6,13.4C9.47,13.43 9.97,10.53 11.2,10.8C12.43,11.07 14.43,15.17 16,15C17.57,14.83 19.83,10.67 20.6,9.8"/>
+  <path d="M5.3,9.9L6.7,9.9L6.7,11.3L5.3,11.3Z M7.9,12.7L9.3,12.7L9.3,14.1L7.9,14.1Z M10.5,10.1L11.9,10.1L11.9,11.5L10.5,11.5Z"/>
+  <path d="M15.1,14.1L16.9,14.1L16.9,15.9L15.1,15.9Z M19.7,8.9L21.5,8.9L21.5,10.7L19.7,10.7Z" fill="currentColor" stroke="none"/>
 </svg>

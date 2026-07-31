@@ -8,6 +8,7 @@ follow Photoshop's Timeline panel: a filmstrip, a diamond for a keyframe, onion-
 from kit import (
     arc,
     circle,
+    dashed_rect,
     dot,
     icon,
     line,
@@ -19,30 +20,36 @@ from kit import (
 )
 
 icon("timeline", "animation", ["frames track", "animation panel"],
-     s=[line(3.4, 12, 20.6, 12),
-        seq(line(6.4, 8.6, 6.4, 15.4), line(12.0, 8.6, 12.0, 15.4), line(17.6, 8.6, 17.6, 15.4))],
-     f=[dot(12.0, 12, 1.4)],
+     s=[line(3.4, 12.6, 20.6, 12.6),
+        seq(line(6.4, 12.6, 6.4, 17.4), line(12.0, 12.6, 12.0, 17.4),
+            line(17.6, 12.6, 17.6, 17.4))],
+     f=[poly([(9.8, 5.6), (14.2, 5.6), (12.0, 12.6)], close=True)],
      apps="PS/AI",
      basis="Photoshop's Timeline — a track with frames marked along it.",
-     note="A track with three marks and the playhead sitting on one.")
+     note="A track with three frame marks hanging below it and the playhead on one. Crossing "
+          "the track instead of hanging from it makes three crosses on a hill, which is "
+          "Calvary.")
 
 icon("keyframe", "animation", ["key state", "diamond marker"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[poly([(12, 7.4), (16.6, 12), (12, 16.6), (7.4, 12)], close=True)],
+     s=[line(3.4, 19.6, 20.6, 19.6)],
+     f=[poly([(12, 8.8), (17.4, 14.2), (12, 19.6), (6.6, 14.2)], close=True)],
      apps="PS/AI",
      basis="The diamond every timeline uses to mark a keyframe.",
-     note="A single diamond set on the track.")
+     note="A single diamond standing on the track. Run the track through the diamond's waist "
+          "instead and the pair of them are a vulva.")
 
 icon("keyframe-add", "animation", ["set key", "record state"],
-     s=[line(3.4, 12, 20.6, 12), poly([(12, 7.4), (16.6, 12), (12, 16.6), (7.4, 12)], close=True)],
+     s=[line(3.4, 19.6, 20.6, 19.6),
+        poly([(9.0, 10.4), (13.6, 15.0), (9.0, 19.6), (4.4, 15.0)], close=True),
+        seq(line(18.0, 5.6, 18.0, 12.0), line(14.8, 8.8, 21.2, 8.8))],
      f=[],
      apps="PS/AI",
      basis="An empty diamond, waiting to be committed.",
      note="A diamond marked but not yet solid.")
 
 icon("onion-skin", "animation", ["ghost frames", "previous next frame"],
-     s=[line(5.0, 18.0, 7.4, 8.0), line(17.0, 18.0, 14.6, 8.0)],
-     f=[poly([(12, 4.0), (16.0, 10.0), (12, 20.0), (8.0, 10.0)], close=True)],
+     s=[rect(2.6, 4.4, 8.0, 10.0), rect(7.0, 6.6, 8.0, 10.0)],
+     f=[rect(11.4, 8.8, 8.0, 10.0)],
      apps="PS/PR",
      basis="Procreate's Onion Skin and Photoshop's Ghost frames.",
      note="A solid current frame between two faint marks either side.")
@@ -63,7 +70,7 @@ icon("frame-duplicate", "animation", ["copy frame", "hold frame"],
      note="One frame, twice, held in a row.")
 
 icon("frame-delete", "animation", ["remove frame"],
-     s=[rect(9.8, 5.4, 6.0, 13.2)],
+     s=[rect(9.8, 5.4, 6.0, 13.2), line(9.8, 5.4, 15.8, 18.6), line(15.8, 5.4, 9.8, 18.6)],
      f=[],
      apps="PS/PR",
      basis="A frame taken out of the strip, leaving a gap.",
@@ -119,8 +126,9 @@ icon("loop-playback", "animation", ["repeat", "cycle"],
      note="A ring with both ends arrowed, so it never runs out.")
 
 icon("motion-tween", "animation", ["interpolate", "in between frames"],
-     s=[circle(4.6, 19.4, 1.6), circle(19.4, 4.6, 1.6), line(4.6, 19.4, 19.4, 4.6)],
-     f=[dot(12, 12, 1.3)],
+     s=[seq(rect(3.0, 8.4, 4.4, 7.2), rect(16.6, 8.4, 4.4, 7.2)),
+        seq(line(9.6, 10.0, 9.6, 14.0), line(12.0, 10.0, 12.0, 14.0), line(14.4, 10.0, 14.4, 14.0))],
+     f=[],
      apps="AI",
      basis="Illustrator's tweening between two keyframes.",
      note="Two held states with the computed step between them.")
@@ -134,9 +142,10 @@ icon("export-video", "animation", ["render animation", "save as video"],
      note="A camera with the mark that says its output is being written out.")
 
 icon("export-gif", "animation", ["animated gif", "loop export"],
-     s=[poly([(3.4, 6.4), (3.4, 17.6), (14.6, 17.6), (14.6, 6.4)], close=True),
-        poly([(14.6, 9.4), (20.6, 6.4), (20.6, 17.6), (14.6, 14.6)], close=True)],
-     f=[seq(tip(19.6, 18.9, 1.4, 45), tip(19.6, 21.1, 1.4, 225))],
+     s=[poly([(2.6, 4.6), (2.6, 14.6), (12.6, 14.6), (12.6, 4.6)], close=True),
+        poly([(12.6, 7.2), (17.8, 4.6), (17.8, 14.6), (12.6, 12.0)], close=True),
+        arc(17.6, 18.2, 2.9, 20, 340)],
+     f=[seq(tip(20.0, 15.9, 1.4, 40), tip(15.2, 20.5, 1.4, 220))],
      apps="PS/PR",
      basis="The same camera, marked with a loop rather than a single arrow out.",
      note="A camera with the two-headed mark that says its output repeats.")

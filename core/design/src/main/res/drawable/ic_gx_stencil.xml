@@ -9,13 +9,7 @@
     <!-- stencil: A card with a letterform cut clean through it. -->
     <!-- lineage (new): GraffitiXR's stencil generation for physical spraying. -->
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z" />
-    <path
         android:fillColor="@android:color/white"
-        android:pathData="M9,6.4L15,6.4L15,11L12.6,11L12.6,17.6L9.4,17.6L9.4,11L9,11Z" />
+        android:fillType="evenOdd"
+        android:pathData="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z M12,6.6L6.6,12L12,17.4L17.4,12Z" />
 </vector>

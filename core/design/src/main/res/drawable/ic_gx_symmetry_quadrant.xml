@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- symmetry-quadrant: One mark becomes four. -->
+    <!-- symmetry-quadrant: A field quartered by both live axes, with one quarter marked — the mark made in it appears in all four. Drawn as four wedges arranged round a cross, which was the previous attempt, it is an Iron Cross. -->
     <!-- lineage (PR): Procreate's Quadrant symmetry — both axes live at once. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,29 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,2.6L12,21.4 M2.6,12L21.4,12" />
+        android:pathData="M4,12A8,8 0 1,0 20,12A8,8 0 1,0 4,12Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9.6,9.6L4.8,9.6L9.6,4.8Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M14.4,9.6L19.2,9.6L14.4,4.8Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M9.6,14.4L4.8,14.4L9.6,19.2Z" />
+        android:pathData="M12,4.2L12,7.06 M12,9.4L12,12.26 M12,14.6L12,17.46 M4.2,12L7.06,12 M9.4,12L12.26,12 M14.6,12L17.46,12" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M14.4,14.4L19.2,14.4L14.4,19.2Z" />
+        android:pathData="M12,12L4,12A8,8 0 0,1 12,4Z" />
 </vector>

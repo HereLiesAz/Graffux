@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- stamp: Knob, plate, and the solid face that transfers the sample. -->
+    <!-- stamp: A wide grip, a short neck, the plate, and the solid face that transfers the sample, resting on the surface it prints onto. A small knob on a long narrow stem above a flared base is a butt plug, and the proportions are the whole of the difference. -->
     <!-- lineage (PS): Photoshop's Clone Stamp — the rubber stamp, unchanged since 1990. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,29 +14,29 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9.2,3.6L14.8,3.6L16,10.4L8,10.4Z" />
+        android:pathData="M8.4,3.4L15.6,3.4A1.4,1.4 0 0,1 17,4.8L17,6.2A1.4,1.4 0 0,1 15.6,7.6L8.4,7.6A1.4,1.4 0 0,1 7,6.2L7,4.8A1.4,1.4 0 0,1 8.4,3.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6.7,12.6L17.3,12.6A0.9,0.9 0 0,1 18.2,13.5L18.2,15.3A0.9,0.9 0 0,1 17.3,16.2L6.7,16.2A0.9,0.9 0 0,1 5.8,15.3L5.8,13.5A0.9,0.9 0 0,1 6.7,12.6Z" />
+        android:pathData="M10.4,7.6L13.6,7.6L13.6,10.4L10.4,10.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.8,16.2L7.8,19" />
+        android:pathData="M5,10.4L19,10.4L19,13.8L5,13.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M16.2,16.2L16.2,19" />
+        android:pathData="M3.4,20.6L20.6,20.6" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M5.8,21.35L18.2,21.35L18.2,19.45L5.8,19.45Z" />
+        android:pathData="M3.4,13.8L20.6,13.8L20.6,17.4L3.4,17.4Z" />
 </vector>

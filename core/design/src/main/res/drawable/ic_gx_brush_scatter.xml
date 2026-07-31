@@ -6,37 +6,37 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-scatter: A stroke path with its stamps scattered around it. -->
-    <!-- lineage (PS/PR): Photoshop's Scattering — marks thrown off the path they were meant to follow. -->
+    <!-- brush-scatter: One stamp landed, and four thrown clear of it at uneven distances, mostly to one side. No path drawn, because every path drawn turned into something else: on the diagonal with marks above and below it was a percent sign at every size, dashed or solid, through two drawings; laid horizontal and dashed, the dashes became a stitched-shut mouth and the marks around them eyes, and a rater called the glyph a goofy monster face; drawn as a curve it was a wavy mouth under two eyes, and a face again. Marks thrown to one side have no axis to hang a face on. -->
+    <!-- lineage (PS/PR): Photoshop's Scattering — marks thrown clear of where they were aimed. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M2.8,17.2L21.2,6.8" />
+        android:pathData="M14.5,6.4A1.5,1.5 0 1,0 17.5,6.4A1.5,1.5 0 1,0 14.5,6.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.9,10.2A1.7,1.7 0 1,0 9.3,10.2A1.7,1.7 0 1,0 5.9,10.2Z" />
+        android:pathData="M18.4,12.4A1.2,1.2 0 1,0 20.8,12.4A1.2,1.2 0 1,0 18.4,12.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M15.1,15.4A1.7,1.7 0 1,0 18.5,15.4A1.7,1.7 0 1,0 15.1,15.4Z" />
+        android:pathData="M15.45,18A1.35,1.35 0 1,0 18.15,18A1.35,1.35 0 1,0 15.45,18Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,7.6A1.4,1.4 0 1,0 14.8,7.6A1.4,1.4 0 1,0 12,7.6Z" />
+        android:pathData="M5,5.8A1,1 0 1,0 7,5.8A1,1 0 1,0 5,5.8Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M8.65,17.6A1.35,1.35 0 1,0 11.35,17.6A1.35,1.35 0 1,0 8.65,17.6Z" />
+        android:pathData="M7,13.2A2.4,2.4 0 1,0 11.8,13.2A2.4,2.4 0 1,0 7,13.2Z" />
 </vector>
