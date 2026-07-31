@@ -150,7 +150,7 @@ icon("select-color-range", "selection", ["by colour", "tolerance", "sample"],
      note="A sampled colour driving the range beneath it.")
 
 icon("select-focus", "selection", ["focus area", "depth", "sharp region"],
-     s=[circle(12, 12, 5.0),
+     s=[seq(circle(7.6, 13.4, 3.2), circle(16.0, 8.0, 5.4)),
         seq(poly([(3.4, 7.4), (3.4, 3.4), (7.4, 3.4)]),
             poly([(16.6, 3.4), (20.6, 3.4), (20.6, 7.4)]),
             poly([(20.6, 16.6), (20.6, 20.6), (16.6, 20.6)]),

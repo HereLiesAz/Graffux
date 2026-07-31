@@ -113,9 +113,10 @@ icon("filter-distort-wave", "filters", ["ripple", "undulate"],
      note="A frame with a sine passed through it.")
 
 icon("filter-distort-twirl", "filters", ["swirl", "vortex"],
-     s=[smooth([(18.8, 12), (17.6, 7.6), (12.8, 5.2), (7.8, 7.0), (6.4, 12.2), (9.6, 16.2),
-                (14.2, 15.2), (15.2, 11.4), (12.4, 9.6)])],
-     f=[dot(12.4, 9.6, 1.2)],
+     s=[rect(2.6, 2.6, 18.8, 18.8),
+        smooth([(17.4, 12), (16.4, 8.4), (12.6, 6.4), (8.4, 7.8), (7.2, 12.2), (9.8, 15.4),
+                (13.6, 14.6), (14.4, 11.4), (12.2, 9.8)])],
+     f=[dot(12.2, 9.8, 1.1)],
      apps="PS/PR",
      basis="Photoshop's Twirl — the same spiral as Liquify, applied whole.",
      note="A frame's contents wound into a spiral.")

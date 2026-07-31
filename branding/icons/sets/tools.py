@@ -605,13 +605,14 @@ icon("symmetry-horizontal", "tools", ["mirror y", "top bottom"],
      note="Horizontal axis, lower half generated.")
 
 icon("symmetry-quadrant", "tools", ["four way", "kaleidoscope"],
-     s=[seq(dashed(12, 2.6, 12, 21.4, 5), dashed(2.6, 12, 21.4, 12, 5)),
-        seq(poly([(8.6, 4.4), (5.0, 4.4), (5.0, 8.0)]), poly([(15.4, 4.4), (19.0, 4.4), (19.0, 8.0)]),
-            poly([(8.6, 19.6), (5.0, 19.6), (5.0, 16.0)]))],
-     f=[poly([(15.4, 19.6), (19.0, 19.6), (19.0, 16.0)], close=True)],
+     s=[circle(12, 12, 8.0),
+        seq(dashed(12, 4.2, 12, 19.8, 3), dashed(4.2, 12, 19.8, 12, 3))],
+     f=[pie(12, 12, 8.0, 180, 270)],
      apps="PR",
      basis="Procreate's Quadrant symmetry — both axes live at once.",
-     note="One mark becomes four.")
+     note="A field quartered by both live axes, with one quarter marked — the mark made in it "
+          "appears in all four. Drawn as four wedges arranged round a cross, which was the "
+          "previous attempt, it is an Iron Cross.")
 
 icon("symmetry-radial", "tools", ["rotational", "mandala", "spokes"],
      s=[seq(line(12, 12, 12, 4.6), line(12, 12, 19.0, 9.7), line(12, 12, 16.4, 18.0),

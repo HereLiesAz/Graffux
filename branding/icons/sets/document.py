@@ -201,9 +201,8 @@ icon("view-actual-colors", "document", ["proof colours", "soft proof"],
      note="Two fields held side by side, neither one favoured.")
 
 icon("view-cmyk-preview", "document", ["gamut warning", "print preview"],
-     s=[circle(12, 12, 6.6), line(12, 2.6, 12, 4.6), line(12, 19.4, 12, 21.4),
-        line(2.6, 12, 4.6, 12), line(19.4, 12, 21.4, 12)],
-     f=[],
+     s=[rect(2.6, 6.0, 8.6, 12.0), rect(12.8, 6.0, 8.6, 12.0)],
+     f=[rect(12.8, 6.0, 8.6, 12.0)],
      apps="PS",
      basis="Photoshop's Gamut Warning — a ring where a colour cannot be printed.",
      note="A ring marking the limit of what can be reproduced.")
@@ -225,7 +224,8 @@ icon("split-view", "document", ["compare", "before after"],
      note="One frame, half of it showing the result.")
 
 icon("multi-window", "document", ["new window", "second view"],
-     s=[square(9.4, 9.4, 9.0), square(6.6, 6.6, 9.0)],
+     s=[rect(3.0, 4.6, 12.0, 10.4), line(3.0, 7.4, 15.0, 7.4),
+        rect(9.0, 9.0, 12.0, 10.4), line(9.0, 11.8, 21.0, 11.8)],
      f=[],
      apps="PS/AI",
      basis="Photoshop's New Window for the same document.",

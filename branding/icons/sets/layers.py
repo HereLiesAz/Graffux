@@ -290,8 +290,8 @@ icon("artboard-add", "layers", ["new artboard", "new page"],
      note="A second page being started.")
 
 icon("layer-background", "layers", ["backdrop", "base", "foundation"],
-     s=[plates(0, 1)],
-     f=[rect(2.2, 16.2, 19.6, 5.2)],
+     s=[seq(plate(0), plate(1)), line(2.2, 19.0, 21.8, 19.0)],
+     f=[rect(2.2, 19.0, 19.6, 2.6)],
      apps="PS/PR",
      basis="Photoshop's transparency chequer, which is what a missing background looks like.",
      note="The chequer that means there is nothing behind.")

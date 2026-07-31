@@ -249,9 +249,8 @@ icon("keyboard-shortcut", "ui", ["hotkeys", "key command"],
      note="A key row, standing for the whole board.")
 
 icon("brush-cursor", "ui", ["custom cursor", "tool preview"],
-     s=[circle(12, 12, 6.4),
-        seq(line(12, 2.6, 12, 5.0), line(12, 19.0, 12, 21.4),
-            line(2.6, 12, 5.0, 12), line(19.0, 12, 21.4, 12))],
+     s=[seq(arc(12, 12, 7.0, 12, 78), arc(12, 12, 7.0, 102, 168),
+            arc(12, 12, 7.0, 192, 258), arc(12, 12, 7.0, 282, 348))],
      f=[dot(12, 12, 1.2)],
      apps="PS/PR",
      basis="The live brush-size cursor ring Photoshop and Procreate both draw.",

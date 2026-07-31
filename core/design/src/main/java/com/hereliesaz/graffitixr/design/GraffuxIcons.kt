@@ -147,7 +147,7 @@ This one is not solved. Nine drawings in, a blind viewer still calls it a sledge
     val SymmetryVertical: Int get() = R.drawable.ic_gx_symmetry_vertical
     /** Horizontal axis, lower half generated. */
     val SymmetryHorizontal: Int get() = R.drawable.ic_gx_symmetry_horizontal
-    /** One mark becomes four. */
+    /** A field quartered by both live axes, with one quarter marked — the mark made in it appears in all four. Drawn as four wedges arranged round a cross, which was the previous attempt, it is an Iron Cross. */
     val SymmetryQuadrant: Int get() = R.drawable.ic_gx_symmetry_quadrant
     /** A mark repeated around the wheel. */
     val SymmetryRadial: Int get() = R.drawable.ic_gx_symmetry_radial
