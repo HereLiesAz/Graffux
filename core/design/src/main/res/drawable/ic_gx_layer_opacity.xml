@@ -9,13 +9,6 @@
     <!-- layer-opacity: A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing. -->
     <!-- lineage (PS/AI/PR): Photoshop's Opacity field — one tone thinning until the ground shows through. -->
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M3.4,8L20.6,8L20.6,16L3.4,16Z" />
-    <path
         android:fillColor="@android:color/white"
-        android:pathData="M3.4,8L9.2,8L9.2,16L3.4,16Z M10.6,8L13.6,8L13.6,16L10.6,16Z M15,8L16.6,8L16.6,16L15,16Z" />
+        android:pathData="M3.4,8L9.8,8L9.8,16L3.4,16Z M11.4,8L15,8L15,16L11.4,16Z M16.6,8L18.4,8L18.4,16L16.6,16Z" />
 </vector>

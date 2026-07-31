@@ -247,8 +247,8 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
 
 icon("smudge", "tools", ["finger", "drag", "blend"],
      s=[],
-     f=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.4), (12.6, 7.0), (14.6, 7.8), (16.6, 6.8),
-              (18.6, 7.8), (20.0, 10.0), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6), (11.6, 17.6),
+     f=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.8), (12.4, 6.0), (14.4, 8.4), (16.6, 6.0),
+              (18.8, 8.4), (20.0, 10.6), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6), (11.6, 17.6),
               (11.1, 16.0), (4.3, 20.9)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
@@ -260,7 +260,8 @@ icon("smudge", "tools", ["finger", "drag", "blend"],
           "a syringe. The constraint was the diagonal, not the drawing. Solid rather than "
           "outlined, because at 1.4 stroke a finger-wide tube has no inside left, and the "
           "curled knuckles are bumps along the back of the fist rather than separate columns. The "
-          "finger was thinned once, to stop it reading as a forearm, and that took the whole "
+          "knuckles have to be deep — a bump of under a unit is under a pixel at final size, and "
+          "a fist with a smooth back is a lollipop head. The finger was thinned once, to stop it reading as a forearm, and that took the whole "
           "glyph back to a blob on a stick — below this width the fist stops reading as a "
           "fist. A finger that is slightly too thick is the price. "
           "Distinct from the pan hand, which is an open palm with all five splayed.")

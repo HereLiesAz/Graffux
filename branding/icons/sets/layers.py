@@ -181,8 +181,8 @@ icon("layer-to-back", "layers", ["send to back", "bottom"],
      note="A plate driven to the bottom of the stack.")
 
 icon("layer-opacity", "layers", ["transparency", "alpha", "fade"],
-     s=[rect(3.4, 8.0, 17.2, 8.0)],
-     f=[seq(rect(3.4, 8.0, 5.8, 8.0), rect(10.6, 8.0, 3.0, 8.0), rect(15.0, 8.0, 1.6, 8.0))],
+     s=[],
+     f=[seq(rect(3.4, 8.0, 6.4, 8.0), rect(11.4, 8.0, 3.6, 8.0), rect(16.6, 8.0, 1.8, 8.0))],
      apps="PS/AI/PR",
      basis="Photoshop's Opacity field — one tone thinning until the ground shows through.",
      note="A bar of colour breaking up as it fades out. A single bead threaded on a rule, which "
