@@ -311,6 +311,16 @@ def ring(cx, cy, r_outer, r_inner) -> Path:
     return Path(f"{outer.d} {inner.d}", outer.pts + inner.pts, evenodd=True)
 
 
+def cut(outer: Path, inner: Path) -> Path:
+    """A solid shape with `inner` genuinely punched through it, via even-odd fill.
+
+    Use this rather than relying on opposite winding: winding is easy to get wrong by
+    hand (and silently renders as a solid blob when you do), whereas even-odd holes
+    regardless of the direction either contour happens to be drawn in.
+    """
+    return Path(f"{outer.d} {inner.d}", outer.pts + inner.pts, evenodd=True)
+
+
 def ring_rect(x, y, w, h, thick) -> Path:
     """A solid rectangular frame: an outer rect and a counter-wound inner rect that holes it."""
     outer = poly([(x, y), (x + w, y), (x + w, y + h), (x, y + h)], close=True)

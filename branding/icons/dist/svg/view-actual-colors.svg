@@ -2,6 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/view-actual-colors — Two fields held side by side, neither one favoured. -->
-  <path d="M4,9A5,5 0 1,0 14,9A5,5 0 1,0 4,9Z"/>
-  <path d="M10,15A5,5 0 1,0 20,15A5,5 0 1,0 10,15Z"/>
+  <path d="M3.6,9.4A5.4,5.4 0 1,0 14.4,9.4A5.4,5.4 0 1,0 3.6,9.4Z"/>
+  <path d="M9.6,9.4A5.4,5.4 0 1,0 20.4,9.4A5.4,5.4 0 1,0 9.6,9.4Z"/>
+  <path d="M6.6,15A5.4,5.4 0 1,0 17.4,15A5.4,5.4 0 1,0 6.6,15Z"/>
 </svg>

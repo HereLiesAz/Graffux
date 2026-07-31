@@ -6,16 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-opacity: Half a plate laid on the chequer that shows through it. -->
-    <!-- lineage (PS/AI/PR): Photoshop's Opacity field over the transparency chequer. -->
+    <!-- layer-opacity: A bar of colour breaking up as it fades out. A single bead threaded on a rule, which is what this was, is a nipple piercing. -->
+    <!-- lineage (PS/AI/PR): Photoshop's Opacity field — one tone thinning until the ground shows through. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,12L20.6,12" />
+        android:pathData="M3.4,8L20.6,8L20.6,16L3.4,16Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M10.4,12A3,3 0 1,0 16.4,12A3,3 0 1,0 10.4,12Z" />
+        android:pathData="M3.4,8L9.2,8L9.2,16L3.4,16Z M10.6,8L13.6,8L13.6,16L10.6,16Z M15,8L16.6,8L16.6,16L15,16Z" />
 </vector>

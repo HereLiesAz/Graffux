@@ -2,7 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/onion-skin — A solid current frame between two faint marks either side. -->
-  <path d="M5,18L7.4,8"/>
-  <path d="M17,18L14.6,8"/>
-  <path d="M12,4L16,10L12,20L8,10Z" fill="currentColor" stroke="none"/>
+  <path d="M3,7L11,7L11,17L3,17Z"/>
+  <path d="M6.4,7L14.4,7L14.4,17L6.4,17Z"/>
+  <path d="M9.8,7L17.8,7L17.8,17L9.8,17Z" fill="currentColor" stroke="none"/>
 </svg>

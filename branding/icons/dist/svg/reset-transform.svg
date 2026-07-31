@@ -3,5 +3,6 @@
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/reset-transform — A frame's transform being wound back to nothing. -->
   <path d="M6.6,6.6L17.4,6.6L17.4,17.4L6.6,17.4Z"/>
-  <path d="M4.65,5.83A9.6,9.6 0 1,1 5.83,19.35"/>
+  <path d="M5.26,6.34A8.8,8.8 0 1,1 7.6,19.62"/>
+  <path d="M12,3.2L14.2,4.78L14.2,1.62Z" fill="currentColor" stroke="none"/>
 </svg>

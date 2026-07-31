@@ -2,9 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/symmetry-quadrant — One mark becomes four. -->
-  <path d="M12,2.6L12,21.4 M2.6,12L21.4,12"/>
-  <path d="M9.6,9.6L4.8,9.6L9.6,4.8Z"/>
-  <path d="M14.4,9.6L19.2,9.6L14.4,4.8Z"/>
-  <path d="M9.6,14.4L4.8,14.4L9.6,19.2Z"/>
-  <path d="M14.4,14.4L19.2,14.4L14.4,19.2Z" fill="currentColor" stroke="none"/>
+  <path d="M12,2.6L12,4.67 M12,6.36L12,8.43 M12,10.12L12,12.19 M12,13.88L12,15.95 M12,17.64L12,19.71 M2.6,12L4.67,12 M6.36,12L8.43,12 M10.12,12L12.19,12 M13.88,12L15.95,12 M17.64,12L19.71,12"/>
+  <path d="M8.6,4.4L5,4.4L5,8 M15.4,4.4L19,4.4L19,8 M8.6,19.6L5,19.6L5,16"/>
+  <path d="M15.4,19.6L19,19.6L19,16Z" fill="currentColor" stroke="none"/>
 </svg>

@@ -6,16 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- smudge: A solid pad pulled out into three trailing lines. -->
-    <!-- lineage (PS/PR): Photoshop's Smudge and Procreate's Smudge — a fingertip dragging wet pigment. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M18.22,5.78L16.24,7.76 M14.97,9.03L13.56,10.44" />
+    <!-- smudge: A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob, and the thumb is another square column rather than a spur — drawn as a spur off the wrist it is the hammer of a revolver, and the whole silhouette becomes a handgun. Every rounded version of this came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed. -->
+    <!-- lineage (PS/PR): Photoshop's Smudge tool — a closed hand with the index finger put out. -->
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M14.26,13.7L9.45,16.53L5.92,18.08L7.47,14.55L10.3,9.74Z" />
+        android:pathData="M5.35,21.19L3.8,19.64L9.74,13.7L6.91,10.87L8.32,9.45L9.88,11.01L10.73,10.16L9.17,8.61L10.59,7.19L12.14,8.75L14.4,6.48L17.52,9.6L15.82,11.29L17.52,12.99L16.24,14.26L14.55,12.57L11.58,15.54L11.29,15.25Z" />
 </vector>

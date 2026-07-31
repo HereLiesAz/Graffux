@@ -10,5 +10,5 @@
     <!-- lineage (PS/AI/PR): The solid B every bold toggle in every text editor uses. -->
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M6.4,4L13,4L16.6,6.8L16.6,9.6L14.6,11.2L17.2,13L17.2,16.6L13.4,20L6.4,20Z" />
+        android:pathData="M6.6,3.6L14,3.6L16.8,6.4L16.8,9.6L14,11.4L17.4,13.2L17.4,17.2L14.2,20.4L6.6,20.4Z M10,6.6L10,10L13.2,10L13.2,6.6Z M10,14L10,17.4L13.6,17.4L13.6,14Z" />
 </vector>

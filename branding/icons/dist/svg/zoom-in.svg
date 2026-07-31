@@ -4,4 +4,6 @@
   <!-- graffux/zoom-in — A glass with the plus that grows what is under it. -->
   <path d="M3.4,10.2A6.8,6.8 0 1,0 17,10.2A6.8,6.8 0 1,0 3.4,10.2Z"/>
   <path d="M15,15L20.6,20.6"/>
+  <path d="M7,10.2L13.4,10.2"/>
+  <path d="M10.2,7L10.2,13.4"/>
 </svg>

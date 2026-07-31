@@ -45,16 +45,18 @@ def handle(cx, cy):
     return square(cx, cy, 2.6)
 
 
-# Two discs, r 6, centres 6.4 apart, crossing at (12.4, 6.93) and (12.4, 17.07). Every
-# boolean icon is built from this one pair, so the four results can be read against each
-# other at a glance. Nonzero winding does the rest.
-_A, _B, _R = (9.2, 12.0), (15.6, 12.0), 6.0
-_LENS = Path("M12.4,6.93A6,6 0 0,1 12.4,17.07A6,6 0 0,1 12.4,6.93Z", [(9.6, 6.9), (15.2, 17.1)])
-_LEFT = Path("M12.4,17.07A6,6 0 1,1 12.4,6.93A6,6 0 0,0 12.4,17.07Z", [(3.2, 6), (15.2, 18)])
-_RIGHT = Path("M12.4,6.93A6,6 0 1,1 12.4,17.07A6,6 0 0,0 12.4,6.93Z", [(9.6, 6), (21.6, 18)])
+# Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
+# in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
+# circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
+_SQ_A = (4.0, 4.0, 10.0, 10.0)
+_SQ_B = (10.0, 10.0, 10.0, 10.0)
+_UNION = poly([(4, 4), (14, 4), (14, 10), (20, 10), (20, 20), (10, 20), (10, 14), (4, 14)],
+              close=True)
+_ONLY_A = poly([(4, 4), (14, 4), (14, 10), (10, 10), (10, 14), (4, 14)], close=True)
+_ONLY_B = poly([(20, 20), (10, 20), (10, 14), (14, 14), (14, 10), (20, 10)], close=True)
+_CORE = rect(10, 10, 4, 4)
 
 _WAND = xf(12.4, 12.4, 135)
-_QUICK = xf(13.0, 10.2, 135)
 
 # ---------------------------------------------------------------------------------------
 # Making a selection
@@ -75,9 +77,10 @@ icon("select-ellipse", "selection", ["marquee", "oval", "round"],
      note="Elliptical marquee with its handle on the diagonal.")
 
 icon("select-lasso", "selection", ["freehand", "draw selection", "loop"],
-     s=[smooth([(7.6, 6.4), (15.4, 4.0), (19.0, 10.4), (12.4, 15.2), (5.4, 11.4), (7.6, 6.4)]),
-        line(7.6, 6.4, 9.6, 20.4)],
-     f=[dot(9.6, 20.4, 1.3)],
+     s=[smooth([(9.0, 14.6), (4.6, 9.6), (9.6, 4.0), (17.2, 5.0), (19.4, 11.0), (14.0, 15.0),
+                (7.6, 14.4)]),
+        smooth([(7.6, 14.4), (10.4, 17.6), (6.0, 19.4), (9.4, 21.0)])],
+     f=[],
      apps="PS/AI/PR",
      basis="Photoshop's Lasso and Procreate's Freehand selection.",
      note="A loop drawn by hand, still hanging from where it started.")
@@ -90,9 +93,9 @@ icon("select-polygon", "selection", ["polygonal lasso", "straight", "vertices"],
      note="Straight runs between placed vertices; the live one is solid.")
 
 icon("select-magnetic", "selection", ["snap to edge", "magnetic lasso", "cling"],
-     s=[seq(line(4.8, 18.6, 4.8, 13.0), arc(12, 13.0, 7.2, 180, 360), line(19.2, 13.0, 19.2, 18.6)),
-        seq(line(8.4, 18.6, 8.4, 13.0), arc(12, 13.0, 3.6, 180, 360), line(15.6, 13.0, 15.6, 18.6))],
-     f=[seq(rect(4.8, 17.2, 3.6, 1.6), rect(15.6, 17.2, 3.6, 1.6))],
+     s=[line(5.4, 20.0, 5.4, 11.4), arc(12, 11.4, 6.6, 180, 360), line(18.6, 20.0, 18.6, 11.4),
+        line(9.4, 6.2, 9.4, 3.2), line(14.6, 6.2, 14.6, 3.2)],
+     f=[seq(rect(3.8, 20.0, 3.2, 2.0), rect(17.0, 20.0, 3.2, 2.0))],
      apps="PS",
      basis="Photoshop's Magnetic Lasso — a path pulled onto the nearest edge.",
      note="A path clinging to a hard edge.")
@@ -105,10 +108,12 @@ icon("select-wand", "selection", ["magic wand", "similar pixels", "tolerance"],
      basis="Photoshop's Magic Wand and Procreate's Automatic selection.",
      note="A wand and the sparks it throws.")
 
+_QUICK2 = xf(16.6, 7.4, 135)
+
 icon("select-quick", "selection", ["quick selection", "brush select", "grow"],
-     s=[dashed(3.4, 19.0, 20.6, 19.0, 3),
-        poly([(-8.0, -1.8), (0.6, -1.8), (0.6, 1.8), (-8.0, 1.8)], close=True, t=_QUICK)],
-     f=[poly([(0.6, -2.4), (6.6, 0), (0.6, 2.4)], close=True, t=_QUICK)],
+     s=[ants_circle(8.6, 15.4, 6.2),
+        poly([(-4.6, -1.4), (0.4, -1.4), (0.4, 1.4), (-4.6, 1.4)], close=True, t=_QUICK2)],
+     f=[poly([(0.4, -1.9), (4.4, 0), (0.4, 1.9)], close=True, t=_QUICK2)],
      apps="PS",
      basis="Photoshop's Quick Selection — a brush that paints a selection edge.",
      note="A brush laying down ants instead of pixels.")
@@ -129,15 +134,17 @@ icon("select-subject", "selection", ["person", "cut out", "isolate"],
      note="A figure held solid inside the frame it was found in.")
 
 icon("select-sky", "selection", ["sky replacement", "horizon", "upper region"],
-     s=[dashed(2.8, 5.4, 21.2, 5.4, 4), circle(7.4, 9.6, 2.2)],
-     f=[poly([(2.8, 19.6), (8.6, 12.4), (13.4, 17.0), (17.0, 13.2), (21.2, 19.6)], close=True)],
+     s=[dashed_rect(2.8, 2.8, 18.4, 12.6, 3),
+        poly([(2.8, 20.6), (7.4, 15.4), (11.4, 18.2), (15.4, 14.4), (21.2, 20.6)])],
+     f=[dot(16.6, 7.4, 2.4)],
      apps="PS",
      basis="Photoshop's Select Sky.",
      note="Everything above the ridge line, sun included.")
 
 icon("select-color-range", "selection", ["by colour", "tolerance", "sample"],
-     s=[arc(12, 17.0, 8.4, 180, 360), arc(12, 17.0, 5.8, 180, 360), arc(12, 17.0, 3.2, 180, 360)],
-     f=[],
+     s=[seq(rect(3.0, 8.0, 5.4, 8.0), rect(15.6, 8.0, 5.4, 8.0)),
+        dashed_rect(8.8, 6.4, 6.4, 11.2, 2)],
+     f=[rect(15.6, 8.0, 5.4, 8.0)],
      apps="PS",
      basis="Photoshop's Color Range dialog.",
      note="A sampled colour driving the range beneath it.")
@@ -187,22 +194,29 @@ icon("select-reselect", "selection", ["restore selection", "again"],
      note="The last selection called back.")
 
 icon("select-invert", "selection", ["inverse", "everything else", "swap"],
-     s=[rect(8.6, 8.6, 6.8, 6.8)],
-     f=[ring_rect(2.8, 2.8, 18.4, 18.4, 4.0)],
+     s=[seq(arc(12, 12, 5.0, 15, 75), arc(12, 12, 5.0, 105, 165),
+            arc(12, 12, 5.0, 195, 255), arc(12, 12, 5.0, 285, 345))],
+     f=[ring_rect(2.8, 2.8, 18.4, 18.4, 3.2)],
      apps="PS/AI/PR",
      basis="Photoshop's Inverse and Procreate's Invert selection.",
-     note="Held ground and released ground have traded places.")
+     note="Held ground and released ground have traded places, the boundary still marching. A "
+          "solid frame around a solid square is a QR finder pattern, and phones will try to "
+          "read it.")
 
 icon("select-grow", "selection", ["expand", "dilate", "outward"],
      s=[rect(8.6, 8.6, 6.8, 6.8), rect(2.8, 2.8, 18.4, 18.4)],
-     f=[seq(tip(4.4, 4.4, 3.4, 225), tip(19.6, 19.6, 3.4, 45))],
+     f=[seq(tip(12, 3.4, 2.6, 270), tip(20.6, 12, 2.6, 0),
+            tip(12, 20.6, 2.6, 90), tip(3.4, 12, 2.6, 180))],
      apps="PS",
      basis="Photoshop's Modify > Expand.",
-     note="An edge pushed out to a wider one.")
+     note="An edge pushed out to a wider one, the pressure applied at the middle of each side. "
+          "Four solid wedges driven out of the four corners instead is an Iron Cross, which is "
+          "not a thing you can ship however you meant it.")
 
 icon("select-shrink", "selection", ["contract", "erode", "inward"],
      s=[rect(8.6, 8.6, 6.8, 6.8), rect(2.8, 2.8, 18.4, 18.4)],
-     f=[seq(tip(7.4, 7.4, 3.4, 45), tip(16.6, 16.6, 3.4, 225))],
+     f=[seq(tip(6.8, 6.8, 2.6, 45), tip(17.2, 6.8, 2.6, 135),
+            tip(17.2, 17.2, 2.6, 225), tip(6.8, 17.2, 2.6, 315))],
      apps="PS",
      basis="Photoshop's Modify > Contract.",
      note="An edge pulled in to a tighter one.")
@@ -216,18 +230,17 @@ icon("select-feather", "selection", ["soften edge", "falloff", "blur selection"]
      note="A hard edge that gives out over three steps.")
 
 icon("select-refine", "selection", ["refine edge", "hair", "detail"],
-     s=[dashed(8.0, 3.4, 8.0, 20.6, 4),
-        seq(quad((8, 7.0), (14, 5.4), (18.4, 8.6)), quad((8, 12.0), (15, 11.2), (20.0, 13.4)),
-            quad((8, 17.0), (14, 16.6), (17.6, 19.4)))],
+     s=[dashed(5.4, 3.0, 5.4, 21.0, 4), circle(13.6, 12, 6.4),
+        seq(quad((10.4, 8.0), (13.4, 9.6), (10.8, 12.0)), quad((10.6, 12.6), (13.8, 13.6), (11.0, 16.2)))],
      f=[],
      apps="PS",
      basis="Photoshop's Select and Mask / Refine Edge.",
      note="Detail recovered from beyond a straight edge.")
 
 icon("select-transform", "selection", ["transform selection", "handles", "resize"],
-     s=[rect(5.6, 5.6, 12.8, 12.8)],
-     f=[seq(square(5.6, 5.6, 2.8), square(18.4, 5.6, 2.8),
-            square(18.4, 18.4, 2.8), square(5.6, 18.4, 2.8))],
+     s=[rect(6.0, 6.0, 12.0, 12.0), arc(18.0, 6.0, 4.4, 270, 360)],
+     f=[seq(square(6.0, 6.0, 2.6), square(18.0, 6.0, 2.6),
+            square(18.0, 18.0, 2.6), square(6.0, 18.0, 2.6))],
      apps="PS/AI",
      basis="Photoshop's Transform Selection.",
      note="A selection edge under its own handles.")
@@ -237,29 +250,29 @@ icon("select-transform", "selection", ["transform selection", "handles", "resize
 # ---------------------------------------------------------------------------------------
 
 icon("select-add", "selection", ["union", "unite", "add to selection"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[seq(circle(*_A, _R), circle(*_B, _R))],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_UNION],
      apps="PS/AI/PR",
      basis="Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
      note="Both regions held.")
 
 icon("select-subtract", "selection", ["minus front", "remove", "take away"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[_LEFT],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_ONLY_A],
      apps="PS/AI/PR",
      basis="Illustrator's Minus Front and Photoshop's Subtract from Selection.",
      note="What is left of the first once the second is taken out.")
 
 icon("select-intersect", "selection", ["overlap", "common", "both"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[_LENS],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[_CORE],
      apps="PS/AI/PR",
      basis="Illustrator's Intersect and Photoshop's Intersect with Selection.",
      note="Only the ground both regions hold.")
 
 icon("select-exclude", "selection", ["difference", "xor", "either but not both"],
-     s=[circle(*_A, _R), circle(*_B, _R)],
-     f=[seq(_LEFT, _RIGHT)],
+     s=[rect(*_SQ_A), rect(*_SQ_B)],
+     f=[seq(_ONLY_A, _ONLY_B)],
      apps="AI",
      basis="Illustrator's Pathfinder Exclude.",
      note="Everything except the ground they share.")
@@ -330,9 +343,9 @@ icon("mask-quick", "selection", ["quick mask", "rubylith", "paint a selection"],
      note="A temporary overlay, hatched so it is never mistaken for art.")
 
 icon("mask-luminance", "selection", ["luminosity mask", "by tone", "highlights"],
-     s=[rect(3.0, 4.6, 18.0, 14.8),
-        seq(line(7.0, 16.4, 7.0, 12.4), line(12.0, 16.4, 12.0, 8.4), line(17.0, 16.4, 17.0, 12.4))],
-     f=[dot(12.0, 6.6, 1.2)],
+     s=[rect(3.0, 5.4, 18.0, 13.2)],
+     f=[seq(rect(5.4, 13.6, 2.6, 3.0), rect(9.0, 9.4, 2.6, 7.2),
+            rect(12.6, 11.4, 2.6, 5.2), rect(16.2, 14.8, 2.6, 1.8))],
      apps="PS",
      basis="Photoshop's luminosity masking, read off the tonal distribution.",
      note="A mask taken from the histogram rather than drawn.")

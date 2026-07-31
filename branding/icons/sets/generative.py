@@ -8,6 +8,7 @@ stencil icons are original to Graffux, drawn from GraffitiXR's own mural-project
 
 from kit import (
     circle,
+    cut,
     dashed,
     dashed_rect,
     dot,
@@ -44,14 +45,14 @@ icon("generate-variations", "generative", ["ai variations", "reroll"],
 icon("generate-expand", "generative", ["ai outpaint", "generative expand"],
      s=[rect(7.4, 7.4, 9.2, 9.2), dashed_rect(3.0, 3.0, 18.0, 18.0)],
      f=[spark(19.4, 4.6, 2.2)],
-     apps="new",
+     apps="PS",
      basis="Photoshop's Generative Expand — a frame growing past its own edge.",
      note="A held frame with new ground opening around it.")
 
 icon("generate-remove", "generative", ["ai remove", "smart erase"],
      s=[circle(10.4, 10.4, 5.4)],
      f=[spark(17.4, 17.4, 2.6)],
-     apps="new",
+     apps="PS",
      basis="Photoshop's Generative Fill used to remove — a gap the model closes.",
      note="An empty region with the sparkle that will resolve it.")
 
@@ -98,9 +99,9 @@ icon("gallery-import", "generative", ["photo library", "import image"],
      note="A frame with the picture already loaded into it.")
 
 icon("stencil", "generative", ["screen mask", "spray template"],
-     s=[rect(3.4, 3.4, 17.2, 17.2)],
-     f=[poly([(9.0, 6.4), (15.0, 6.4), (15.0, 11.0), (12.6, 11.0), (12.6, 17.6), (9.4, 17.6),
-              (9.4, 11.0), (9.0, 11.0)], close=True)],
+     s=[],
+     f=[cut(rect(3.4, 3.4, 17.2, 17.2),
+            poly([(12, 6.6), (6.6, 12), (12, 17.4), (17.4, 12)], close=True))],
      apps="new",
      basis="GraffitiXR's stencil generation for physical spraying.",
      note="A card with a letterform cut clean through it.")

@@ -2,7 +2,9 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/filter-sky-replace — A new horizon dropped in above the ants. -->
-  <path d="M2.8,6.4L5.33,6.4 M7.4,6.4L9.93,6.4 M12,6.4L14.53,6.4 M16.6,6.4L19.13,6.4"/>
-  <path d="M5.2,10.6A2.2,2.2 0 1,0 9.6,10.6A2.2,2.2 0 1,0 5.2,10.6Z"/>
-  <path d="M2.8,20.6L8.6,13.4L13.4,18L17,14.2L21.2,20.6Z" fill="currentColor" stroke="none"/>
+  <path d="M2.8,2.8L2.8,4.74 M2.8,6.33L2.8,8.28 M2.8,9.87L2.8,11.81"/>
+  <path d="M2.8,2.8L4.82,2.8 M6.48,2.8L8.5,2.8 M10.16,2.8L12.18,2.8 M13.84,2.8L15.86,2.8 M17.52,2.8L19.54,2.8"/>
+  <path d="M21.2,2.8L21.2,4.74 M21.2,6.33L21.2,8.28 M21.2,9.87L21.2,11.81"/>
+  <path d="M2.8,20.6L7.4,15.4L11.4,18.2L15.4,14.4L21.2,20.6"/>
+  <path d="M14.4,7.4A2.2,2.2 0 1,0 18.8,7.4A2.2,2.2 0 1,0 14.4,7.4Z" fill="currentColor" stroke="none"/>
 </svg>

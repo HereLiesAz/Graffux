@@ -2,8 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/brush-flow — Three drops at three depths of fall. -->
-  <path d="M8.6,3.2L15.4,3.2L13.8,6.8L10.2,6.8Z"/>
-  <path d="M10.7,10.2A1.3,1.3 0 1,0 13.3,10.2A1.3,1.3 0 1,0 10.7,10.2Z"/>
-  <path d="M10.1,14.2A1.9,1.9 0 1,0 13.9,14.2A1.9,1.9 0 1,0 10.1,14.2Z"/>
-  <path d="M9.4,19A2.6,2.6 0 1,0 14.6,19A2.6,2.6 0 1,0 9.4,19Z" fill="currentColor" stroke="none"/>
+  <path d="M7,3.4L17,3.4L17,20.6L7,20.6Z"/>
+  <path d="M7,9L17,9 M7,14.8L17,14.8"/>
+  <path d="M7,14.8L17,14.8L17,20.6L7,20.6Z" fill="currentColor" stroke="none"/>
 </svg>

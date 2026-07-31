@@ -32,8 +32,14 @@ def plates(*idx):
 
 
 def eye():
-    """A lens 17.2 wide and 7.2 deep, struck as two circular arcs that meet at the corners."""
-    return seq(arc(12, 20.47, 12.07, 224.6, 315.4), arc(12, 3.53, 12.07, 44.6, 135.4))
+    """An eye, deliberately asymmetric: a high-arcing upper lid over a nearly flat lower one.
+
+    A symmetric pointed almond — which is what two matched arcs give you — does not read as
+    an eye to a viewer with no context. It reads as a vulva. The lids are unequal in life and
+    have to be unequal here.
+    """
+    return seq(arc(12, 15.5, 9.1, 202.6, 337.4),      # upper lid: chord 16.8, sagitta 5.6
+               arc(12, 2.58, 12.63, 48.3, 131.7))    # lower lid: same chord, sagitta 3.2
 
 
 icon("layers", "layers", ["stack", "sheets", "panel"],
@@ -51,7 +57,7 @@ icon("layer-add", "layers", ["new layer", "plus"],
      note="A plate added above the stack.")
 
 icon("layer-delete", "layers", ["remove layer", "discard"],
-     s=[plates(1, 2), line(9.3, 4.3, 14.7, 4.3)],
+     s=[plates(1, 2), line(9.4, 2.2, 14.6, 6.8), line(14.6, 2.2, 9.4, 6.8)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's Delete Layer.",
@@ -73,23 +79,23 @@ icon("layer-group", "layers", ["folder", "nest", "group"],
      note="A folder with a plate in it.")
 
 icon("layer-ungroup", "layers", ["release", "unnest", "flatten group"],
-     s=[poly([(2.8, 20.6), (2.8, 8.0), (9.2, 8.0), (11.0, 10.6), (21.2, 10.6), (21.2, 20.6)],
+     s=[poly([(2.8, 20.6), (2.8, 11.4), (9.2, 11.4), (11.0, 14.0), (21.2, 14.0), (21.2, 20.6)],
              close=True),
-        line(15.6, 6.0, 15.6, 11.6)],
-     f=[tip(15.6, 4.6, 3.0, 270)],
+        rect(7.6, 5.4, 8.8, 4.4)],
+     f=[],
      apps="AI",
      basis="Illustrator's Ungroup — contents leaving the folder.",
      note="A plate lifted back out of its folder.")
 
 icon("layer-visible", "layers", ["show", "eye", "toggle"],
-     s=[eye(), circle(12, 12, 3.2)],
-     f=[dot(12, 12, 1.3)],
+     s=[eye(), circle(12, 11.4, 3.0)],
+     f=[dot(12, 11.4, 1.25)],
      apps="PS/AI/PR",
      basis="Photoshop's eye column — the oldest control in the panel.",
      note="An open eye.")
 
 icon("layer-hidden", "layers", ["hide", "eye off", "invisible"],
-     s=[eye(), slash(12, 12, 9.4)],
+     s=[eye(), slash(12, 12, 9.2)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's eye column, switched off.",
@@ -110,14 +116,15 @@ icon("layer-unlock", "layers", ["unprotect", "open lock", "editable"],
      note="The same padlock, open on one side.")
 
 icon("layer-link", "layers", ["chain", "tie together", "move as one"],
-     s=[arc(9.6, 14.4, 4.6, -45, 225), arc(14.4, 9.6, 4.6, 135, 405)],
+     s=[rect(8.6, 3.4, 6.8, 9.8, 3.4), rect(8.6, 10.8, 6.8, 9.8, 3.4)],
      f=[],
      apps="PS/AI/PR",
      basis="Photoshop's link chain.",
      note="Two open rings, interlocked.")
 
 icon("layer-unlink", "layers", ["break chain", "release"],
-     s=[arc(6.6, 14.4, 4.2, -45, 225), arc(17.4, 9.6, 4.2, 135, 405)],
+     s=[rect(8.6, 2.6, 6.8, 8.4, 3.4), rect(8.6, 13.0, 6.8, 8.4, 3.4),
+        seq(line(6.4, 11.4, 4.4, 10.4), line(17.6, 11.4, 19.6, 10.4))],
      f=[],
      apps="PS/AI",
      basis="Photoshop's unlink — the same two rings, pulled apart.",
@@ -131,15 +138,16 @@ icon("layer-merge-down", "layers", ["combine", "flatten two", "down"],
      note="The upper plate driven into the one below.")
 
 icon("layer-merge-visible", "layers", ["merge shown", "collapse visible"],
-     s=[plate(0), eye()],
-     f=[rect(3.4, 13.4, 17.2, 7.2)],
+     s=[plate(0), circle(18.6, 7.4, 2.6), line(12, 9.2, 12, 12.6)],
+     f=[seq(rect(3.4, 15.0, 17.2, 5.6), dot(18.6, 7.4, 1.0), tip(12, 14.0, 2.4, 90))],
      apps="PS",
      basis="Photoshop's Merge Visible — a merge with the eye column as its condition.",
      note="A merge, qualified.")
 
 icon("layer-flatten", "layers", ["one layer", "collapse all"],
-     s=[seq(line(3.4, 5.0, 20.6, 5.0), line(3.4, 9.2, 20.6, 9.2), line(3.4, 13.4, 20.6, 13.4))],
-     f=[rect(3.4, 17.0, 17.2, 3.6)],
+     s=[line(3.4, 4.2, 20.6, 4.2), line(4.8, 8.2, 19.2, 8.2), line(6.2, 12.2, 17.8, 12.2),
+        line(6.6, 15.4, 6.6, 12.2), line(17.4, 15.4, 17.4, 12.2)],
+     f=[rect(3.4, 15.4, 17.2, 5.2)],
      apps="PS/AI/PR",
      basis="Photoshop's Flatten Image — everything pressed into one plate.",
      note="Three rules pressed down into one solid plate.")
@@ -173,11 +181,12 @@ icon("layer-to-back", "layers", ["send to back", "bottom"],
      note="A plate driven to the bottom of the stack.")
 
 icon("layer-opacity", "layers", ["transparency", "alpha", "fade"],
-     s=[line(3.4, 12, 20.6, 12)],
-     f=[dot(13.4, 12, 3.0)],
+     s=[rect(3.4, 8.0, 17.2, 8.0)],
+     f=[seq(rect(3.4, 8.0, 5.8, 8.0), rect(10.6, 8.0, 3.0, 8.0), rect(15.0, 8.0, 1.6, 8.0))],
      apps="PS/AI/PR",
-     basis="Photoshop's Opacity field over the transparency chequer.",
-     note="Half a plate laid on the chequer that shows through it.")
+     basis="Photoshop's Opacity field — one tone thinning until the ground shows through.",
+     note="A bar of colour breaking up as it fades out. A single bead threaded on a rule, which "
+          "is what this was, is a nipple piercing.")
 
 icon("layer-blend", "layers", ["blend mode", "mix", "interaction"],
      s=[circle(9.4, 12, 6.0), circle(14.6, 12, 6.0)],
@@ -280,9 +289,9 @@ icon("artboard-add", "layers", ["new artboard", "new page"],
      basis="Illustrator's New Artboard.",
      note="A second page being started.")
 
-icon("layer-background", "layers", ["backdrop", "base", "chequer"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), line(12, 3.4, 12, 20.6), line(3.4, 12, 20.6, 12)],
-     f=[seq(rect(3.4, 3.4, 8.6, 8.6), rect(12, 12, 8.6, 8.6))],
+icon("layer-background", "layers", ["backdrop", "base", "foundation"],
+     s=[plates(0, 1)],
+     f=[rect(2.2, 16.2, 19.6, 5.2)],
      apps="PS/PR",
      basis="Photoshop's transparency chequer, which is what a missing background looks like.",
      note="The chequer that means there is nothing behind.")

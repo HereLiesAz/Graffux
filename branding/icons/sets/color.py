@@ -122,11 +122,12 @@ icon("auto-tone", "color", ["auto levels", "fix", "one tap"],
 # ---------------------------------------------------------------------------------------
 
 icon("hue", "color", ["colour angle", "shift hue", "wheel"],
-     s=[circle(12, 12, 8.0), rays(12, 12, 2.6, 8.0, 6, 30)],
-     f=[dot(12, 4.0, 2.0)],
+     s=[circle(12, 12, 8.2), arc(12, 12, 4.6, 200, 340)],
+     f=[seq(dot(12, 4.4, 1.8), tip(16.2, 14.4, 1.8, 35))],
      apps="PS/AI/PR",
      basis="Photoshop's Hue/Saturation — hue as a rotation about the wheel.",
-     note="An angle turned about the centre of the wheel.")
+     note="A marker carried round the wheel by the turn beneath it. Spokes drawn from the hub "
+          "to the rim make the wheel a dharmachakra.")
 
 icon("saturation", "color", ["intensity", "chroma", "vivid"],
      s=[circle(12, 12, 8.4)],
@@ -143,30 +144,29 @@ icon("vibrance", "color", ["smart saturation", "protect skin"],
      note="A wedge, solid only where it is already strong.")
 
 icon("desaturate", "color", ["greyscale", "remove colour"],
-     s=[circle(12, 12, 8.4), line(12, 3.6, 12, 20.4), rays(12, 12, 4.4, 8.4, 3, 210)],
-     f=[],
+     s=[rect(3.0, 8.0, 18.0, 8.0), line(12.0, 8.0, 12.0, 16.0),
+        seq(circle(7.4, 12, 2.4), circle(16.6, 12, 2.4))],
+     f=[pie(7.4, 12, 2.4, 90, 270)],
      apps="PS/AI/PR",
      basis="Photoshop's Desaturate — the wheel with one half left with nothing in it.",
      note="A divided wheel: sectors on one side, nothing on the other.")
 
 icon("color-balance", "color", ["cast", "cool warm", "scales"],
-     s=[line(12, 4.0, 12, 20.4), line(5.6, 8.6, 18.4, 8.6),
-        seq(arc(5.6, 8.6, 3.2, 0, 180), arc(18.4, 8.6, 3.2, 0, 180)),
-        line(7.4, 20.4, 16.6, 20.4)],
-     f=[],
+     s=[seq(line(3.4, 8.6, 20.6, 8.6), line(3.4, 15.4, 20.6, 15.4)), line(12, 4.6, 12, 19.4)],
+     f=[seq(dot(7.4, 8.6, 2.0), dot(16.6, 15.4, 2.0))],
      apps="PS",
      basis="Photoshop's Color Balance — a beam balance between two casts.",
      note="Two pans on one beam.")
 
 icon("black-white", "color", ["mono", "channel mix to grey"],
-     s=[circle(9.0, 12, 6.2), circle(15.0, 12, 6.2)],
-     f=[pie(9.0, 12, 6.2, 90, 270)],
+     s=[rect(3.4, 3.4, 17.2, 17.2), circle(12, 12, 5.2)],
+     f=[pie(12, 12, 5.2, 90, 270)],
      apps="PS",
      basis="Photoshop's Black & White — colour resolved into two tones.",
      note="Two discs, one filled, one not.")
 
 icon("photo-filter", "color", ["warming filter", "gel", "lens filter"],
-     s=[ellipse(12, 12, 8.6, 5.6), ellipse(12, 12, 5.8, 3.2)],
+     s=[rect(3.0, 3.4, 13.0, 13.0), circle(15.0, 15.4, 5.4)],
      f=[],
      apps="PS",
      basis="Photoshop's Photo Filter — the glass gel that screws onto a lens.",
@@ -181,25 +181,27 @@ icon("channel-mixer", "color", ["per channel", "recombine"],
      note="Three rails set independently.")
 
 icon("color-lookup", "color", ["lut", "preset grade", "cube"],
-     s=[rect(3.4, 3.4, 17.2, 17.2),
-        seq(line(9.13, 3.4, 9.13, 20.6), line(14.87, 3.4, 14.87, 20.6),
-            line(3.4, 9.13, 20.6, 9.13), line(3.4, 14.87, 20.6, 14.87))],
-     f=[seq(rect(9.13, 3.4, 5.74, 5.73), rect(14.87, 14.87, 5.73, 5.73))],
+     s=[rect(3.4, 5.4, 17.2, 13.2),
+        seq(line(9.1, 5.4, 9.1, 18.6), line(14.9, 5.4, 14.9, 18.6)),
+        seq(line(11.0, 8.0, 13.0, 8.0), line(11.0, 12.0, 13.0, 12.0),
+            line(11.0, 16.0, 13.0, 16.0))],
+     f=[rect(14.9, 5.4, 5.7, 13.2)],
      apps="PS",
      basis="Photoshop's Color Lookup — the LUT, which really is a cube of samples.",
-     note="A colour cube with its origin marked.")
+     note="A colour cube with the identity ramp running corner to corner through it. Two cells "
+          "filled off-axis instead read, at a squint, as a swastika crop.")
 
 icon("gradient-map", "color", ["remap tone to colour", "duotone"],
-     s=[line(3.4, 6.6, 20.6, 6.6), line(12, 9.0, 12, 13.4),
-        seq(line(3.4, 17.0, 6.8, 17.0), line(9.0, 17.0, 11.6, 17.0), line(13.4, 17.0, 15.2, 17.0))],
-     f=[seq(tip(12, 15.4, 2.6, 90), rect(16.4, 16.2, 4.2, 1.6))],
+     s=[poly([(3.4, 9.4), (10.2, 3.4), (17.0, 9.4)]), line(12.0, 11.6, 12.0, 14.6),
+        rect(3.4, 17.4, 17.2, 3.6)],
+     f=[seq(tip(12.0, 15.8, 2.2, 90), rect(3.4, 17.4, 6.0, 3.6))],
      apps="PS",
      basis="Photoshop's Gradient Map — a tonal range mapped onto a ramp.",
      note="A run of tone becoming a run of steps.")
 
 icon("selective-color", "color", ["one hue only", "target colour"],
-     s=[circle(8.4, 8.4, 4.4), circle(15.6, 15.6, 4.4)],
-     f=[dot(15.6, 15.6, 2.4)],
+     s=[circle(12, 12, 8.4)],
+     f=[pie(12, 12, 8.4, -90, -30)],
      apps="PS",
      basis="Photoshop's Selective Color — one colour singled out of the set.",
      note="Two fields; only one of them is being touched.")
@@ -237,31 +239,34 @@ icon("color-swatches", "color", ["palette", "library", "saved colours"],
      note="A grid of chips with one of them chosen.")
 
 icon("color-history", "color", ["recent", "used", "last colours"],
-     s=[seq(rect(9.4, 8.6, 5.6, 6.8), rect(15.4, 8.6, 5.6, 6.8)), line(3.4, 18.6, 20.6, 18.6)],
-     f=[rect(3.4, 8.6, 5.6, 6.8)],
+     s=[seq(rect(7.2, 8.0, 4.4, 7.4), rect(12.0, 8.0, 4.4, 7.4), rect(16.8, 8.0, 4.4, 7.4)),
+        line(2.4, 18.8, 21.2, 18.8)],
+     f=[rect(2.4, 8.0, 4.4, 7.4)],
      apps="PR",
      basis="Procreate's recent-colours row.",
      note="A row of what has been used, newest first.")
 
 icon("color-harmony", "color", ["complementary", "triad", "scheme"],
-     s=[circle(12, 12, 8.0), poly([(12, 4.4), (18.9, 15.8), (5.1, 15.8)], close=True)],
-     f=[dot(12, 4.4, 1.7)],
+     s=[circle(12, 12, 8.2),
+        seq(circle(12, 3.8, 1.9), circle(19.1, 16.1, 1.9), circle(4.9, 16.1, 1.9))],
+     f=[dot(12, 3.8, 0.9)],
      apps="PR",
      basis="Procreate's Harmony modes — related hues found by geometry on the wheel.",
-     note="A triad inscribed in the wheel, with the lead hue solid.")
+     note="A triad inscribed in a closed wheel, with the lead hue solid. Left open at the tail, "
+          "the arc and its one loaded head are a sperm.")
 
 icon("gradient", "color", ["ramp", "blend", "fade"],
-     s=[rect(3.4, 6.4, 17.2, 11.2),
-        seq(line(11.4, 6.4, 11.4, 17.6), line(14.4, 6.4, 14.4, 17.6),
-            line(18.4, 6.4, 18.4, 17.6))],
-     f=[rect(3.4, 6.4, 6.2, 11.2)],
+     s=[rect(3.4, 8.6, 17.2, 6.8),
+        seq(circle(13.4, 12, 0.5), circle(15.8, 12, 0.5), circle(18.4, 12, 0.5))],
+     f=[rect(3.4, 8.6, 8.0, 6.8)],
      apps="PS/AI/PR",
      basis="Photoshop's Gradient tool — solid giving way to nothing by measured steps.",
      note="A ramp read as a rhythm that opens out.")
 
 icon("gradient-linear", "color", ["axis ramp", "straight"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), seq(line(12.4, 3.4, 12.4, 20.6), line(16.0, 3.4, 16.0, 20.6))],
-     f=[rect(3.4, 3.4, 6.6, 17.2)],
+     s=[rect(3.4, 3.4, 17.2, 17.2),
+        seq(circle(13.4, 12, 0.5), circle(15.8, 12, 0.5), circle(18.2, 12, 0.5))],
+     f=[rect(3.4, 3.4, 8.0, 17.2)],
      apps="PS/AI",
      basis="Photoshop's Linear Gradient.",
      note="A ramp running one way across the frame.")
@@ -290,25 +295,26 @@ icon("gradient-mesh", "color", ["mesh", "surface", "multi point"],
      note="A surface with colour held at its intersections.")
 
 icon("temperature", "color", ["warm cool", "kelvin", "white balance"],
-     s=[seq(line(5.0, 15.4, 5.0, 6.0), arc(6.8, 6.0, 1.8, 180, 360), line(8.6, 6.0, 8.6, 15.4)),
-        circle(6.8, 17.4, 3.4),
-        seq(line(14.0, 8.0, 20.6, 8.0), line(14.0, 12.4, 20.6, 12.4), line(14.0, 16.8, 20.6, 16.8))],
-     f=[dot(6.8, 17.4, 1.6)],
+     s=[seq(line(8.0, 14.6, 8.0, 5.4), arc(10.4, 5.4, 2.4, 180, 360), line(12.8, 5.4, 12.8, 14.6)),
+        circle(10.4, 17.0, 4.2),
+        seq(line(12.8, 7.6, 16.6, 7.6), line(12.8, 10.2, 15.4, 10.2),
+            line(12.8, 12.8, 16.6, 12.8))],
+     f=[dot(10.4, 17.0, 2.2)],
      apps="PS",
      basis="Camera Raw's Temperature slider — a thermometer against a scale.",
      note="A bulb and the graduations it is read against.")
 
 icon("tint", "color", ["cast", "shift", "green magenta"],
-     s=[rect(4.0, 15.4, 16.0, 5.2),
-        seq(line(12, 3.4, 15.4, 8.0), arc(12, 10.4, 4.0, 311, 589), line(8.6, 8.0, 12, 3.4))],
-     f=[rect(12, 15.4, 8.0, 5.2)],
+     s=[seq(line(7.0, 3.0, 9.9, 6.9), arc(7.0, 9.0, 3.6, 313, 587), line(4.1, 6.9, 7.0, 3.0)),
+        rect(3.0, 15.0, 18.0, 5.6)],
+     f=[rect(12.0, 15.0, 9.0, 5.6)],
      apps="PS",
      basis="Camera Raw's Tint slider — a drop of cast let into the whole field.",
      note="One drop above a field that has taken half of it.")
 
 icon("clarity", "color", ["local contrast", "punch", "dehaze"],
-     s=[seq(line(3.4, 6.0, 20.6, 6.0), line(6.4, 9.6, 20.6, 9.6))],
-     f=[poly([(3.4, 20.6), (9.4, 12.6), (14.0, 17.4), (17.6, 13.4), (20.6, 20.6)], close=True)],
+     s=[smooth([(3.4, 14.6), (7.4, 12.4), (11.0, 13.6)])],
+     f=[poly([(11.0, 20.6), (13.6, 8.6), (16.2, 14.6), (18.6, 11.0), (20.6, 20.6)], close=True)],
      apps="PS",
      basis="Camera Raw's Clarity and Dehaze — detail recovered from under a flat sky.",
      note="A ridge coming clear of the haze above it.")
@@ -330,10 +336,9 @@ icon("grain", "color", ["noise", "film", "texture"],
      note="A field with an uneven record laid across it.")
 
 icon("histogram", "color", ["distribution", "readout", "levels display"],
-     s=[seq(line(4.4, 19.4, 4.4, 15.0), line(7.4, 19.4, 7.4, 9.4), line(10.4, 19.4, 10.4, 4.6),
-            line(13.4, 19.4, 13.4, 7.6), line(16.4, 19.4, 16.4, 12.4), line(19.4, 19.4, 19.4, 16.6)),
-        line(3.0, 19.4, 21.0, 19.4)],
-     f=[],
+     s=[line(3.0, 19.6, 21.0, 19.6)],
+     f=[seq(rect(3.8, 15.2, 2.4, 4.4), rect(7.0, 9.8, 2.4, 9.8), rect(10.2, 4.6, 2.4, 15.0),
+            rect(13.4, 8.2, 2.4, 11.4), rect(16.6, 14.0, 2.4, 5.6))],
      apps="PS",
      basis="Photoshop's Histogram panel.",
      note="What the image contains, counted.")
@@ -361,8 +366,8 @@ icon("color-cmyk", "color", ["subtractive", "print", "process"],
      note="Four plates, one of them black.")
 
 icon("color-alpha", "color", ["transparency", "opacity channel"],
-     s=[circle(12, 12, 8.4), line(12, 3.6, 12, 20.4), line(3.6, 12, 20.4, 12)],
-     f=[seq(pie(12, 12, 8.4, 180, 270), pie(12, 12, 8.4, 0, 90))],
+     s=[rect(3.4, 3.4, 17.2, 17.2), line(12, 3.4, 12, 20.6), line(3.4, 12, 20.6, 12)],
+     f=[seq(rect(3.4, 3.4, 8.6, 8.6), rect(12, 12, 8.6, 8.6))],
      apps="PS/PR",
      basis="The transparency chequer, wrapped onto a disc.",
      note="A footprint that is only half there.")

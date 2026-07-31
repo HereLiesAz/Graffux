@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/pen-ink — Pointed nib, split down the middle, solid at the point. -->
-  <path d="M18.36,5.64L13.84,10.16"/>
-  <path d="M15.68,12L5.64,18.36L12,8.32Z"/>
-  <path d="M11.72,12.28L8.04,15.96"/>
-  <path d="M8.41,16.75L5.64,18.36L7.25,15.59Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/pen-ink — The nib on its own, at full size, with the two things only a nib has: a round breather hole and the slit running from it to the point. No handle — a handle is what made this a stick with a wedge on it. -->
+  <path d="M7.2,6.6L9,4L15,4L16.8,6.6L12,20.6Z"/>
+  <path d="M10.5,9.4A1.5,1.5 0 1,0 13.5,9.4A1.5,1.5 0 1,0 10.5,9.4Z"/>
+  <path d="M12,10.9L12,16.4"/>
+  <path d="M10.6,16.4L13.4,16.4L12,20.6Z" fill="currentColor" stroke="none"/>
 </svg>

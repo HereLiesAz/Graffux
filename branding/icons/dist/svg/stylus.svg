@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/stylus — A stylus on the tool diagonal. -->
-  <path d="M19.71,6.98L10.94,15.75L8.25,13.06L17.02,4.29Z"/>
-  <path d="M16.17,10.52L13.48,7.83"/>
-  <path d="M10.94,15.75L5.64,18.36L8.25,13.06Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/stylus — Stood on the glass it writes on: a slim capsule barrel, one grip band, and a fine point actually touching the surface line. The surface is what makes it hardware rather than another stick of colour. -->
+  <path d="M12,2.6L12,2.6A2.4,2.4 0 0,1 14.4,5L14.4,12.8A2.4,2.4 0 0,1 12,15.2L12,15.2A2.4,2.4 0 0,1 9.6,12.8L9.6,5A2.4,2.4 0 0,1 12,2.6Z"/>
+  <path d="M9.6,8.6L14.4,8.6 M9.6,11L14.4,11"/>
+  <path d="M10.4,15.2L13.6,15.2L13,18.6L14.2,18.6L14.2,19.9L9.8,19.9L9.8,18.6L11,18.6Z" fill="currentColor" stroke="none"/>
 </svg>

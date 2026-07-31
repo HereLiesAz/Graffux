@@ -91,8 +91,13 @@ def validate(icons):
         # Anything the three apps already have must say whose metaphor it inherits.
         if ic["apps"] != "new" and not ic["basis"]:
             errors.append(f"{key}: claims lineage ({ic['apps']}) but records no basis")
-        if ic["apps"] == "new" and ic["basis"]:
-            warnings.append(f"{key}: marked new but records a basis — set apps instead")
+        # "new" + basis is fine when the lineage is Graffux's own (GraffitiXR) or a named
+        # feature none of PS/AI/PR actually ships as an icon — only flag the ambiguous case
+        # where the basis text itself claims one of the three apps' tools.
+        if ic["apps"] == "new" and ic["basis"] and any(
+            app in ic["basis"] for app in ("Photoshop's", "Illustrator's", "Procreate's")
+        ):
+            warnings.append(f"{key}: basis names an app tool but apps is \"new\" — check attribution")
     return errors, warnings
 
 

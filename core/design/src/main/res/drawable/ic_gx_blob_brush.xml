@@ -6,23 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- blob-brush: A brush laying down a closed form rather than a line. -->
+    <!-- blob-brush: A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. There is no brush in the glyph at all any more, because every position tried for one turned the pair into an animal or an object: on a stalk above the blob it was a bomb with a lit fuse, cropped short against it a beak, laid flat across the top a frying pan. The mark carries the idea on its own — a stroke that came out as a closed lumpy form instead of a line is the whole tool. -->
     <!-- lineage (AI): Illustrator's Blob Brush — a brush whose strokes fuse into one filled shape. -->
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M18.36,5.64L13.84,10.16" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M15.39,11.72L11.15,14.55L9.45,12.85L12.28,8.61Z" />
-    <path
         android:fillColor="@android:color/white"
-        android:pathData="M4.2,14.8C3.9,13.43 5.33,11 6.6,10.4C7.87,9.8 10.8,10.27 11.8,11.2C12.8,12.13 13.17,14.77 12.6,16C12.03,17.23 9.8,18.8 8.4,18.6C7,18.4 4.5,16.17 4.2,14.8Z" />
+        android:pathData="M3.4,19.4L5,12.4L9.6,8L15.4,6.8L19.6,9.4L20.6,13.8L16.4,17.4L10.4,18.2L6.6,21Z" />
 </vector>

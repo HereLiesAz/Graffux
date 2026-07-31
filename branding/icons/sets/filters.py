@@ -6,6 +6,8 @@ noise, a bent grid for distortion, stacked frames for stylize. That literalism i
 """
 
 from kit import (
+    Path,
+    arc,
     circle,
     dashed,
     dot,
@@ -21,9 +23,18 @@ from kit import (
     square,
 )
 
+
+def broken_ring(cx, cy, r, n=8):
+    """A ring with a gap at every spoke — falloff dissolving, not a crisp target."""
+    step = 360.0 / n
+    return seq(*[arc(cx, cy, r, i * step, i * step + step * 0.6) for i in range(n)])
+
+
 icon("filter-blur-gaussian", "filters", ["soft focus", "smooth"],
-     s=[circle(12, 12, 8.4), circle(12, 12, 4.8)],
-     f=[dot(12, 12, 1.4)],
+     s=[poly([(20.6, 4.6), (3.4, 4.6), (3.4, 19.4), (20.6, 19.4)]),
+        seq(line(20.6, 4.6, 20.6, 7.6), line(20.6, 10.0, 20.6, 14.0),
+            line(20.6, 16.4, 20.6, 19.4))],
+     f=[circle(10.4, 12, 3.6)],
      apps="PS",
      basis="Photoshop's Gaussian Blur — falloff read as concentric rings.",
      note="Rings closing on a single point of focus.")
@@ -36,11 +47,14 @@ icon("filter-blur-motion", "filters", ["speed", "streak", "movement"],
      note="A mark trailing behind where it used to be.")
 
 icon("filter-blur-radial", "filters", ["zoom blur", "spin blur"],
-     s=[rays(12, 12, 3.0, 9.4, 12)],
-     f=[dot(12, 12, 1.7)],
+     s=[seq(line(16.4, 7.6, 20.6, 3.4), line(7.6, 7.6, 3.4, 3.4),
+            line(16.4, 16.4, 20.6, 20.6), line(7.6, 16.4, 3.4, 20.6))],
+     f=[square(12, 12, 9.0)],
      apps="PS",
-     basis="Photoshop's Radial Blur — spokes standing for the zoom or the spin.",
-     note="A burst of lines from one still centre.")
+     basis="Photoshop's Radial Blur — the subject held still while everything streaks past it.",
+     note="A subject with the streaks flying off its four corners. Drawn the obvious way — a "
+          "solid centre inside a full ring of evenly spaced spokes — it is an arsehole, and no "
+          "amount of intent survives that. Four streaks, and only from the corners.")
 
 icon("filter-blur-lens", "filters", ["depth of field", "bokeh"],
      s=[circle(12, 12, 8.4)],
@@ -58,8 +72,9 @@ icon("filter-sharpen-unsharp", "filters", ["edge contrast", "unsharp mask"],
 
 icon("filter-noise-add", "filters", ["grain", "static", "speckle"],
      s=[rect(3.4, 3.4, 17.2, 17.2),
-        seq(line(6.6, 7.4, 7.6, 7.4), line(12.6, 6.4, 13.6, 6.4), line(16.4, 10.4, 17.4, 10.4),
-            line(7.4, 13.4, 8.4, 13.4), line(13.4, 15.4, 14.4, 15.4), line(9.4, 17.6, 10.4, 17.6))],
+        seq(line(6.6, 9.6, 7.6, 9.6), line(11.4, 8.2, 12.4, 8.2), line(15.2, 12.2, 16.2, 12.2),
+            line(7.4, 14.0, 8.4, 14.0), line(12.4, 16.4, 13.4, 16.4), line(9.0, 18.4, 10.0, 18.4)),
+        seq(line(17.4, 5.2, 17.4, 8.4), line(15.8, 6.8, 19.0, 6.8))],
      f=[],
      apps="PS",
      basis="Photoshop's Add Noise.",
@@ -67,7 +82,8 @@ icon("filter-noise-add", "filters", ["grain", "static", "speckle"],
 
 icon("filter-noise-reduce", "filters", ["denoise", "clean up", "smooth grain"],
      s=[rect(3.4, 3.4, 17.2, 17.2, 6.0),
-        seq(line(6.6, 7.4, 7.6, 7.4), line(16.4, 10.4, 17.4, 10.4), line(9.4, 17.6, 10.4, 17.6))],
+        seq(line(7.2, 11.2, 8.2, 11.2), line(14.0, 14.6, 15.0, 14.6), line(10.0, 17.8, 11.0, 17.8)),
+        line(15.8, 6.8, 19.0, 6.8)],
      f=[],
      apps="PS",
      basis="Photoshop's Reduce Noise — the same field, mostly settled, corners softened.",
@@ -82,7 +98,7 @@ icon("filter-distort-pinch", "filters", ["squeeze", "implode"],
      note="A grid bent inward on itself.")
 
 icon("filter-distort-spherize", "filters", ["bulge", "inflate", "fisheye"],
-     s=[rect(3.4, 3.4, 17.2, 17.2)],
+     s=[rect(3.4, 3.4, 17.2, 17.2), arc(9.6, 9.6, 2.4, 200, 340)],
      f=[circle(12, 12, 6.4)],
      apps="PS/AI",
      basis="Photoshop's Spherize — a plane with a sphere pushing through it.",
@@ -127,9 +143,10 @@ icon("filter-mosaic", "filters", ["pixelate", "blocks"],
      note="A field reduced to a grid of flat tiles.")
 
 icon("filter-crystallize", "filters", ["facets", "voronoi"],
-     s=[seq(poly([(12, 3.4), (18.6, 8.4), (16.2, 16.0), (7.8, 16.0), (5.4, 8.4)], close=True),
-            line(12, 3.4, 12, 12), line(18.6, 8.4, 12, 12), line(16.2, 16.0, 12, 12),
-            line(7.8, 16.0, 12, 12), line(5.4, 8.4, 12, 12))],
+     s=[seq(poly([(3.4, 9.2), (9.6, 3.4), (15.2, 6.8), (12.4, 12.6), (5.0, 13.4)], close=True),
+            poly([(12.4, 12.6), (15.2, 6.8), (20.6, 10.2), (18.0, 17.0)], close=True),
+            poly([(5.0, 13.4), (12.4, 12.6), (18.0, 17.0), (11.8, 20.6), (6.0, 19.0)],
+                 close=True))],
      f=[],
      apps="PS/AI",
      basis="Photoshop's Crystallize — a field broken into irregular facets.",
@@ -144,11 +161,14 @@ icon("filter-halftone", "filters", ["dots", "print screen", "ben-day"],
      note="A field of dots that grow toward one corner.")
 
 icon("filter-glow", "filters", ["outer glow", "bloom"],
-     s=[circle(12, 12, 8.2)],
-     f=[circle(12, 12, 3.2)],
+     s=[seq(arc(12, 12, 8.2, 12, 78), arc(12, 12, 8.2, 102, 168),
+            arc(12, 12, 8.2, 192, 258), arc(12, 12, 8.2, 282, 348))],
+     f=[dot(12, 12, 3.4)],
      apps="PS/AI/PR",
      basis="Photoshop's Outer Glow effect.",
-     note="A core with its light spreading past its own edge.")
+     note="A core with its light spreading past its own edge, the halo broken into four arcs so "
+          "it reads as light rather than as an edge. An unbroken ring around a solid centre is "
+          "a nipple, and it is also every target in the set.")
 
 icon("filter-shadow-drop", "filters", ["cast shadow", "depth"],
      s=[square(9.0, 9.0, 11.2)],
@@ -180,23 +200,24 @@ icon("filter-stroke-outline", "filters", ["outline effect", "border"],
      note="A shape traced by a second, larger edge.")
 
 icon("filter-vanishing-point", "filters", ["perspective clone", "3d plane"],
-     s=[poly([(3.0, 20.4), (9.0, 8.4), (15.0, 8.4), (21.0, 20.4)], close=True),
-        line(9.0, 8.4, 15.0, 8.4)],
-     f=[dot(12, 8.4, 1.4)],
+     s=[line(2.6, 20.6, 21.4, 20.6),
+        seq(line(2.6, 20.6, 17.0, 5.0), line(9.4, 20.6, 17.0, 5.0), line(16.0, 20.6, 17.0, 5.0))],
+     f=[dot(17.6, 4.2, 1.5)],
      apps="PS",
      basis="Photoshop's Vanishing Point — a plane defined in perspective.",
      note="A plane tipped back to a vanishing edge.")
 
 icon("filter-lens-flare", "filters", ["light leak", "sun flare"],
-     s=[circle(6.6, 6.6, 2.2), circle(9.8, 9.8, 1.2),
-        rays(16.6, 16.6, 2.6, 4.4, 8)],
-     f=[dot(16.6, 16.6, 1.4)],
+     s=[rays(7.4, 16.6, 3.2, 5.0, 8),
+        seq(circle(11.8, 12.2, 1.7), circle(15.2, 8.8, 2.5), circle(18.6, 5.4, 1.2))],
+     f=[dot(6.6, 17.4, 2.2)],
      apps="PS",
      basis="Photoshop's Lens Flare.",
      note="A chain of ghosts running toward one bright source.")
 
 icon("filter-render-clouds", "filters", ["procedural sky", "fractal"],
-     s=[smooth([(3.4, 15.0), (7.0, 11.0), (10.6, 14.6), (14.2, 9.0), (17.8, 13.4), (20.6, 11.0)])],
+     s=[Path("M3.4,16.2A3.4,3.4 0 0,1 8.4,11.8A4.2,4.2 0 0,1 16.4,11.4"
+             "A3.4,3.4 0 0,1 20.6,16.2Z", [(3.4, 8.6), (20.6, 16.2)])],
      f=[],
      apps="PS",
      basis="Photoshop's Clouds render filter.",
@@ -211,8 +232,8 @@ icon("filter-vignette-post", "filters", ["darken corners", "frame edge"],
      note="Four corners closing in on an untouched centre.")
 
 icon("filter-clone-source", "filters", ["sample point", "reference"],
-     s=[circle(8.4, 8.4, 4.4), rect(11.6, 11.6, 9.0, 9.0)],
-     f=[dot(8.4, 8.4, 1.4)],
+     s=[circle(7.4, 7.4, 3.8), rect(11.6, 11.6, 9.0, 9.0), dashed(9.8, 9.8, 12.4, 12.4, 2)],
+     f=[dot(7.4, 7.4, 1.3)],
      apps="PS",
      basis="Photoshop's Clone Source panel — the sample and the frame it will be copied into.",
      note="A sampled point and the frame waiting to receive it.")
@@ -242,14 +263,16 @@ icon("filter-content-aware-fill", "filters", ["ai fill", "remove and fill"],
      note="A grid with one tile regrown from its neighbours.")
 
 icon("filter-sky-replace", "filters", ["ai sky", "replace background"],
-     s=[dashed(2.8, 6.4, 21.2, 6.4, 4), circle(7.4, 10.6, 2.2)],
-     f=[poly([(2.8, 20.6), (8.6, 13.4), (13.4, 18.0), (17.0, 14.2), (21.2, 20.6)], close=True)],
+     s=[dashed(2.8, 2.8, 2.8, 13.4, 3), dashed(2.8, 2.8, 21.2, 2.8, 5), dashed(21.2, 2.8, 21.2, 13.4, 3),
+        poly([(2.8, 20.6), (7.4, 15.4), (11.4, 18.2), (15.4, 14.4), (21.2, 20.6)])],
+     f=[dot(16.6, 7.4, 2.2)],
      apps="PS",
      basis="Photoshop's Sky Replacement.",
      note="A new horizon dropped in above the ants.")
 
 icon("filter-generative-fill", "filters", ["ai generate", "text to image fill"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), square(12, 12, 6.0)],
-     f=[poly([(12, 8.8), (15.2, 12), (12, 15.2), (8.8, 12)], close=True)],
+     s=[rect(3.4, 3.4, 17.2, 17.2)],
+     f=[poly([(12, 7.4), (13.4, 10.6), (16.6, 12), (13.4, 13.4), (12, 16.6), (10.6, 13.4),
+              (7.4, 12), (10.6, 10.6)], close=True)],
      apps="new",
      note="A gap in the frame with a generated form taking its place.")

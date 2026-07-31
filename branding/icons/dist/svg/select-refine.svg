@@ -2,6 +2,7 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/select-refine — Detail recovered from beyond a straight edge. -->
-  <path d="M8,3.4L8,5.77 M8,7.7L8,10.07 M8,12L8,14.37 M8,16.3L8,18.67"/>
-  <path d="M8,7Q14,5.4 18.4,8.6 M8,12Q15,11.2 20,13.4 M8,17Q14,16.6 17.6,19.4"/>
+  <path d="M5.4,3L5.4,5.47 M5.4,7.5L5.4,9.97 M5.4,12L5.4,14.47 M5.4,16.5L5.4,18.98"/>
+  <path d="M7.2,12A6.4,6.4 0 1,0 20,12A6.4,6.4 0 1,0 7.2,12Z"/>
+  <path d="M10.4,8Q13.4,9.6 10.8,12 M10.6,12.6Q13.8,13.6 11,16.2"/>
 </svg>
