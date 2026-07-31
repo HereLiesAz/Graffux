@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- select-add: Both regions held. -->
+    <!-- select-add: Both regions held. The two squares overlap across most of their width: at a four-unit overlap the union was a staircase, and a staircase reads as two offset squares, which is the duplicate-layer glyph. -->
     <!-- lineage (PS/AI/PR): Illustrator's Pathfinder Unite and Photoshop's Add to Selection. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L14.8,3.4L14.8,14.8L3.4,14.8Z" />
+        android:pathData="M3.4,3.4L15.8,3.4L15.8,15.8L3.4,15.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M9.2,9.2L20.6,9.2L20.6,20.6L9.2,20.6Z" />
+        android:pathData="M8.2,8.2L20.6,8.2L20.6,20.6L8.2,20.6Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3.4,3.4L14.8,3.4L14.8,9.2L20.6,9.2L20.6,20.6L9.2,20.6L9.2,14.8L3.4,14.8Z" />
+        android:pathData="M3.4,3.4L15.8,3.4L15.8,8.2L20.6,8.2L20.6,20.6L8.2,20.6L8.2,15.8L3.4,15.8Z" />
 </vector>

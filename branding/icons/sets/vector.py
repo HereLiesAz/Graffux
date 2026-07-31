@@ -119,17 +119,22 @@ icon("path-open", "vector", ["cut path", "scissors"],
      note="A closed loop with one gap opened in its edge.")
 
 icon("path-simplify", "vector", ["reduce points", "clean path"],
-     s=[smooth([(3.4, 16.4), (6.4, 8.6), (10.4, 14.2), (14.4, 7.4), (17.4, 13.0), (20.6, 8.0)]),
-        seq(square(3.4, 16.4, 1.9), square(6.4, 8.6, 1.9), square(10.4, 14.2, 1.9),
-            square(14.4, 7.4, 1.9))],
-     f=[seq(square(17.4, 13.0, 1.9), square(20.6, 8.0, 1.9))],
+     s=[smooth([(3.4, 15.6), (5.2, 12.4), (7.0, 14.0), (8.8, 10.8), (10.6, 12.4),
+                (15.0, 8.2), (20.6, 10.4)]),
+        seq(square(3.4, 15.6, 1.3), square(5.2, 12.4, 1.3), square(7.0, 14.0, 1.3),
+            square(8.8, 10.8, 1.3), square(10.6, 12.4, 1.3))],
+     f=[seq(square(15.0, 8.2, 1.7), square(20.6, 10.4, 1.7))],
      apps="AI/PS",
      basis="Illustrator's Simplify — the same path carrying fewer anchors.",
-     note="One curve with its anchors drawn as the squares every vector tool draws them as, "
-          "hollow where they are about to go and solid where they are kept. Drawn as a jagged "
-          "run with beads on its peaks above a smooth curve below, it was a crown over a bow, "
-          "and a face — points along the top with a curve under them is a mouth with teeth, or "
-          "eyebrows over a grin, before it is anything to do with a path.")
+     note="One path, crowded with anchors along the first half and carrying two along the "
+          "rest, drawn as the squares every vector tool draws anchors as — hollow where they "
+          "are about to go, solid where they are kept. The meaning is in the density.\n\n"
+          "Drawn as a jagged run with beads on its peaks above a smooth curve below, it was a "
+          "crown over a bow, and a face: points along the top with a curve under them is a "
+          "mouth with teeth before it is anything to do with a path. Drawn as one curve with "
+          "its anchors spread evenly along it, it was a sawtooth waveform with knobs on the "
+          "ends — evenly spaced anchors are a zigzag, and the end ones read as terminals."
+)
 
 icon("path-outline-stroke", "vector", ["stroke to fill", "expand stroke"],
      s=[line(3.4, 12, 10.0, 12),

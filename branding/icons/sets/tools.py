@@ -221,19 +221,22 @@ icon("stamp-pattern", "tools", ["pattern stamp", "tile", "repeat"],
 # ---------------------------------------------------------------------------------------
 
 icon("eraser", "tools", ["rub out", "delete", "undo mark"],
-     s=[poly([(5.4, 6.6), (15.4, 6.6), (18.6, 9.8), (18.6, 15.8), (5.4, 15.8)], close=True),
-        line(5.4, 10.8, 18.6, 10.8),
-        seq(circle(4.4, 19.0, 0.6), circle(8.2, 20.4, 0.6), circle(12.0, 18.8, 0.6))],
-     f=[poly([(5.4, 10.8), (18.6, 10.8), (18.6, 15.8), (5.4, 15.8)], close=True)],
+     s=[rect(7.4, 5.0, 13.2, 11.4), line(7.4, 9.6, 20.6, 9.6), line(2.8, 16.4, 7.4, 16.4)],
+     f=[rect(7.4, 9.6, 13.2, 6.8)],
      apps="PS/AI/PR",
      basis="The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
-     note="A rubber block, banded, solid at the face doing the wiping, with the rubbings it "
-           "has shed lying under it. The crumbs are the whole difference. Without them the "
-           "block was a file folder with a dog-eared corner, a wallet, and a battery at sixty "
-           "per cent — a rectangle part-filled along one edge is a fill gauge before it is an "
-           "object. Redrawn as a block seen at an angle with the line it was clearing running "
-           "out from under it, it was an open cardboard box with a stray bar floating "
-           "underneath. Nothing sheds crumbs but an eraser."
+     note="A rubber block, banded, solid at the face doing the wiping, sitting on the mark it "
+           "has come to the end of — the line runs in from the left and stops where the block "
+           "is.\n\n"
+           "No crumbs. On its own the block was a file folder with a dog-eared corner, a "
+           "wallet, and a battery at sixty per cent: a rectangle part-filled along one edge is "
+           "a fill gauge before it is an object. Crumbs were tried three times and failed three "
+           "different ways — in a row underneath they were wheels and the block above them a "
+           "delivery van; drawn round and up the side they were soap suds and the block a "
+           "washing machine; drawn as short flecks they closed into a two-lobed lump that a "
+           "rater called a bone, and then a pair of testicles. Small marks clustered beside a "
+           "body do not stay abstract. The mark being rubbed out does the same work and cannot "
+           "become anatomy."
 )
 
 icon("eraser-hard", "tools", ["hard edge", "crisp", "block"],
@@ -341,16 +344,22 @@ icon("burn", "tools", ["darken", "shade", "cupped hand", "aperture"],
 )
 
 icon("sponge", "tools", ["saturation", "soak", "porous"],
-     s=[poly([(4.6, 5.4), (19.4, 5.4), (19.4, 9.6), (16.6, 11.8), (19.4, 14.0), (19.4, 17.4),
-              (4.6, 17.4), (4.6, 14.0), (7.4, 11.8), (4.6, 9.6)], close=True)],
-     f=[seq(dot(9.4, 20.2, 1.1), dot(14.6, 19.4, 0.85))],
+     s=[seq(circle(8.0, 6.6, 1.3), circle(12.4, 4.4, 0.95), circle(16.2, 7.0, 0.7))],
+     f=[rect(4.4, 10.0, 15.2, 9.4, 1.6)],
      apps="PS",
      basis="Photoshop's Sponge tool — a block being squeezed until the colour comes out of it.",
-     note="A block with a wrung, dripping underside and the drops falling from it. Drawn as a "
-          "torn blob with three round pores in it, which is what a sponge actually looks like, "
-          "it was a slice of Swiss cheese to every rater who saw it, and a skull at small size "
-          "once two of the pores overlapped into a pair of eye sockets. Holes in a blob are "
-          "cheese. What is unique to a sponge is not its holes but that it gives up liquid, so this is the block pinched at the waist with what it gave up falling below it. Drawn with the underside wrung into points, the points were fangs and the drops were drool: a row of points along a solid edge is a jaw, every time, which is the same thing that went wrong with the brush texture.")
+     note="A solid block with suds coming off it. Six drawings, and the first five all tried "
+           "to draw the sponge itself. As a torn blob with three round pores in it, which is "
+           "what a sponge actually looks like, it was a slice of Swiss cheese to every rater "
+           "who saw it, and a skull at small size once two pores overlapped into eye sockets: "
+           "holes in a blob are cheese. With the underside wrung into points, the points were "
+           "fangs and the drops were drool — a row of points along a solid edge is a jaw, "
+           "which is what went wrong with the brush texture in the same round. Pinched at the "
+           "waist it was a ticket stub. Given a soft irregular outline it was a thought "
+           "bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is "
+           "anything else; the block is a plain rectangle for that reason, and the bubbles "
+           "carry the whole meaning."
+)
 
 icon("heal", "tools", ["healing brush", "plaster", "repair"],
      s=[rect(-8.4, -3.4, 16.8, 6.8, 3.4, t=T),
@@ -538,24 +547,26 @@ icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
      note="A smaller footprint carried by a larger one.")
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
-     s=[smooth([(3.4, 15.4), (7.6, 11.0), (13.0, 14.4), (20.6, 7.6)])],
-     f=[seq(poly([(4.0, 17.0), (7.2, 13.2), (8.4, 14.2), (5.2, 18.0)], close=True),
-            poly([(9.0, 14.0), (10.6, 13.4), (11.0, 14.8), (9.4, 15.4)], close=True),
-            poly([(12.4, 15.6), (15.6, 12.6), (16.6, 13.6), (13.4, 16.6)], close=True),
-            poly([(17.4, 12.0), (18.4, 11.2), (19.0, 12.2), (18.0, 13.0)], close=True))],
-          apps="PS/PR",
+     s=[],
+     f=[poly([(3.4, 9.8), (6.2, 8.4), (8.0, 9.4), (11.4, 7.6), (14.2, 8.8), (17.0, 7.0),
+              (20.6, 8.2), (20.6, 12.4), (17.4, 11.6), (14.6, 13.4), (11.0, 12.2),
+              (8.4, 14.0), (5.8, 12.6), (3.4, 13.8)], close=True)],
+     apps="PS/PR",
      basis="Photoshop's Texture setting and Procreate's grain source — a stroke running dry "
            "over the tooth of the paper.",
-     note="A stroke, and the broken shadow it lays down where the tooth of the paper caught "
-          "it. The grain is in the shadow's gaps, not in the stroke.\n\n"
-          "Four drawings before this one. As a bare field of scattered dashes it was spilled "
-          "rice, and it was the fourth icon in the set drawn as a field of scattered dashes — "
-          "the same picture as Add Noise, Reduce Noise and Grain. As a black band with a "
-          "sawtooth underside it was a mouth full of bared teeth. Broken into slivers of even "
-          "width it was a barcode; made uneven in width and height it was still a barcode, then "
-          "road dashes in perspective. A row of separated blocks along a horizontal is a bar "
-          "chart or a barcode no matter how irregular the blocks are — the marks have to sit "
-          "on something that is visibly a stroke."
+     note="One stroke, ragged along both edges, where the tooth of the paper has eaten into "
+          "it from above and below. Nothing beside it and nothing behind it.\n\n"
+          "Eight drawings. Everything that put the grain somewhere other than in the stroke's "
+          "own outline failed, and failed differently every time. As a bare field of scattered "
+          "dashes it was spilled rice, and the fourth icon in the set drawn as a field of "
+          "scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a band "
+          "with a sawtooth underside it was a mouth full of bared teeth, because a row of "
+          "points along a solid edge is a jaw. Broken into slivers it was a barcode at even "
+          "and uneven widths both, then road markings in perspective. Over a broken shadow it "
+          "was a crossed-out signature. Over loose hatching, a strikethrough on a scribble; "
+          "over boxed hatching, a hazard barricade with the stroke redacting it; over "
+          "unboxed hatching, claw marks with a lightning bolt through them. Ragged on both "
+          "edges there is only one object in the glyph, and it has nothing to cross out."
 )
 
 icon("brush-import", "tools", ["load brush", "install", "abr"],

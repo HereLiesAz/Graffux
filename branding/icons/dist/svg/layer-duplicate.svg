@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/layer-duplicate — One plate, twice, out of register. -->
-  <path d="M3.4,3.4L17.6,3.4L17.6,17.6L3.4,17.6Z"/>
-  <path d="M6.4,6.4L20.6,6.4L20.6,20.6L6.4,20.6Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/layer-duplicate — One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. -->
+  <path d="M5.8,3.4L20.6,3.4L18.2,7.8L3.4,7.8Z"/>
+  <path d="M10,6.6L21.4,6.6L19,11L7.6,11Z" fill="currentColor" stroke="none"/>
 </svg>

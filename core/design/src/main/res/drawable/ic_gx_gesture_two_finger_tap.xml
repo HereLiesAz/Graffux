@@ -6,7 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- gesture-two-finger-tap: Two fingers reaching in from the upper right, of unequal length, coming down together on one surface. Drawn upright as two chevrons over two dots over a rule — the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. Anything symmetrical with two marks above two marks above a bar is a face and a face is all anyone sees. Redrawn upright as two pointed shapes standing on the rule with the contacts below it, it was two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled, unequal and touching the surface directly, there is no symmetry left to fall into. -->
+    <!-- gesture-two-finger-tap: Two short blunt fingertips leaning in from the upper right, unequal, each with its contact solid at the end of it.
+
+Upright as two chevrons over two dots over a rule — the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. Anything symmetrical with two marks above two marks above a bar is a face and a face is all anyone sees. Upright as two pointed shapes standing on the rule with the contacts below, it was two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled onto the rule it was two chopsticks in a holder. Angled and solid with ripples at the tips, it was two lit cigarettes with smoke. Outlined, long and thin with the ripples curling at the base, it was two straight razors, and then two scalpels. A long thin outlined blade with anything hooked at its foot is a blade — the fingers have to be short, wide and round-ended. -->
     <!-- lineage (PR): Procreate's two-finger-tap undo gesture. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +16,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,20.2L20.6,20.2" />
+        android:pathData="M10.95,7.99L10.95,7.99A2.2,2.2 0 0,1 11.86,10.96L9.23,15.91A2.2,2.2 0 0,1 6.25,16.81L6.25,16.81A2.2,2.2 0 0,1 5.34,13.84L7.97,8.89A2.2,2.2 0 0,1 10.95,7.99Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M16.48,11.07L16.48,11.07A2.1,2.1 0 0,1 17.35,13.91L15.56,17.26A2.1,2.1 0 0,1 12.72,18.13L12.72,18.13A2.1,2.1 0 0,1 11.85,15.29L13.64,11.94A2.1,2.1 0 0,1 16.48,11.07Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M15.34,4.38L8.64,19.22L10.16,19.98L17.86,5.62Z M19.49,8.33L13.52,19.19L14.88,20.01L21.71,9.67Z" />
+        android:pathData="M4.8,18.4A1.2,1.2 0 1,0 7.2,18.4A1.2,1.2 0 1,0 4.8,18.4Z M11.2,20.2A1.2,1.2 0 1,0 13.6,20.2A1.2,1.2 0 1,0 11.2,20.2Z" />
 </vector>

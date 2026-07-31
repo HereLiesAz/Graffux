@@ -48,14 +48,16 @@ def handle(cx, cy):
 # Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
 # in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
 # circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
-_SQ_A = (3.4, 3.4, 11.4, 11.4)
-_SQ_B = (9.2, 9.2, 11.4, 11.4)
-_UNION = poly([(3.4, 3.4), (14.8, 3.4), (14.8, 9.2), (20.6, 9.2), (20.6, 20.6), (9.2, 20.6),
-               (9.2, 14.8), (3.4, 14.8)],
+_SQ_A = (3.4, 3.4, 12.4, 12.4)
+_SQ_B = (8.2, 8.2, 12.4, 12.4)
+_UNION = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (20.6, 8.2), (20.6, 20.6), (8.2, 20.6),
+               (8.2, 15.8), (3.4, 15.8)],
               close=True)
-_ONLY_A = poly([(4, 4), (14, 4), (14, 10), (10, 10), (10, 14), (4, 14)], close=True)
-_ONLY_B = poly([(20, 20), (10, 20), (10, 14), (14, 14), (14, 10), (20, 10)], close=True)
-_CORE = rect(10, 10, 4, 4)
+_ONLY_A = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (8.2, 8.2), (8.2, 15.8),
+                (3.4, 15.8)], close=True)
+_ONLY_B = poly([(20.6, 20.6), (8.2, 20.6), (8.2, 15.8), (15.8, 15.8), (15.8, 8.2),
+                (20.6, 8.2)], close=True)
+_CORE = rect(8.2, 8.2, 7.6, 7.6)
 
 _WAND = xf(12.4, 12.4, 135)
 
@@ -255,7 +257,9 @@ icon("select-add", "selection", ["union", "unite", "add to selection"],
      f=[_UNION],
      apps="PS/AI/PR",
      basis="Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
-     note="Both regions held.")
+     note="Both regions held. The two squares overlap across most of their width: at "
+          "a four-unit overlap the union was a staircase, and a staircase reads as "
+          "two offset squares, which is the duplicate-layer glyph.")
 
 icon("select-subtract", "selection", ["minus front", "remove", "take away"],
      s=[rect(*_SQ_A), rect(*_SQ_B)],

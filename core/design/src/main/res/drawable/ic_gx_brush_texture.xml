@@ -6,18 +6,11 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-texture: A stroke, and the broken shadow it lays down where the tooth of the paper caught it. The grain is in the shadow's gaps, not in the stroke.
+    <!-- brush-texture: One stroke, ragged along both edges, where the tooth of the paper has eaten into it from above and below. Nothing beside it and nothing behind it.
 
-Four drawings before this one. As a bare field of scattered dashes it was spilled rice, and it was the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a black band with a sawtooth underside it was a mouth full of bared teeth. Broken into slivers of even width it was a barcode; made uneven in width and height it was still a barcode, then road dashes in perspective. A row of separated blocks along a horizontal is a bar chart or a barcode no matter how irregular the blocks are — the marks have to sit on something that is visibly a stroke. -->
+Eight drawings. Everything that put the grain somewhere other than in the stroke's own outline failed, and failed differently every time. As a bare field of scattered dashes it was spilled rice, and the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a band with a sawtooth underside it was a mouth full of bared teeth, because a row of points along a solid edge is a jaw. Broken into slivers it was a barcode at even and uneven widths both, then road markings in perspective. Over a broken shadow it was a crossed-out signature. Over loose hatching, a strikethrough on a scribble; over boxed hatching, a hazard barricade with the stroke redacting it; over unboxed hatching, claw marks with a lightning bolt through them. Ragged on both edges there is only one object in the glyph, and it has nothing to cross out. -->
     <!-- lineage (PS/PR): Photoshop's Texture setting and Procreate's grain source — a stroke running dry over the tooth of the paper. -->
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M3.4,15.4C4.1,14.67 6,11.17 7.6,11C9.2,10.83 10.83,14.97 13,14.4C15.17,13.83 19.33,8.73 20.6,7.6" />
-    <path
         android:fillColor="@android:color/white"
-        android:pathData="M4,17L7.2,13.2L8.4,14.2L5.2,18Z M9,14L10.6,13.4L11,14.8L9.4,15.4Z M12.4,15.6L15.6,12.6L16.6,13.6L13.4,16.6Z M17.4,12L18.4,11.2L19,12.2L18,13Z" />
+        android:pathData="M3.4,9.8L6.2,8.4L8,9.4L11.4,7.6L14.2,8.8L17,7L20.6,8.2L20.6,12.4L17.4,11.6L14.6,13.4L11,12.2L8.4,14L5.8,12.6L3.4,13.8Z" />
 </vector>

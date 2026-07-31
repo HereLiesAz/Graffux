@@ -22,6 +22,7 @@ from kit import (
     square,
     taper,
     tip,
+    xf,
 )
 
 icon("menu", "ui", ["hamburger", "nav rail", "more"],
@@ -268,18 +269,23 @@ icon("gesture-pinch", "ui", ["two finger zoom"],
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[line(3.4, 20.2, 20.6, 20.2)],
-     f=[seq(taper(16.6, 5.0, 9.4, 19.6, 2.8, 1.7), taper(20.6, 9.0, 14.2, 19.6, 2.6, 1.6))],
+     s=[rect(-2.2, -5.0, 4.4, 10.0, 2.2, t=xf(8.6, 12.4, 28)),
+        rect(-2.1, -4.0, 4.2, 8.0, 2.1, t=xf(14.6, 14.6, 28))],
+     f=[seq(dot(6.0, 18.4, 1.2), dot(12.4, 20.2, 1.2))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
-     note="Two fingers reaching in from the upper right, of unequal length, coming down "
-          "together on one surface. Drawn upright as two chevrons over two dots over a rule — "
-          "the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, "
-          "two eyes and a flat mouth. Anything symmetrical with two marks above two marks "
-          "above a bar is a face and a face is all anyone sees. Redrawn upright as two "
-          "pointed shapes standing on the rule with the contacts below it, it was two houses "
-          "on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled, "
-          "unequal and touching the surface directly, there is no symmetry left to fall into."
+     note="Two short blunt fingertips leaning in from the upper right, unequal, each with its "
+          "contact solid at the end of it.\n\n"
+          "Upright as two chevrons over two dots over a rule — the obvious shorthand for "
+          "pressing — it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. "
+          "Anything symmetrical with two marks above two marks above a bar is a face and a "
+          "face is all anyone sees. Upright as two pointed shapes standing on the rule with "
+          "the contacts below, it was two houses on a wheeled cart, the points reading as "
+          "roofs and the contacts as wheels. Angled onto the rule it was two chopsticks in a "
+          "holder. Angled and solid with ripples at the tips, it was two lit cigarettes with "
+          "smoke. Outlined, long and thin with the ripples curling at the base, it was two "
+          "straight razors, and then two scalpels. A long thin outlined blade with anything "
+          "hooked at its foot is a blade — the fingers have to be short, wide and round-ended."
 )
 
 icon("undo-history-slider", "ui", ["scrub history", "time slider"],

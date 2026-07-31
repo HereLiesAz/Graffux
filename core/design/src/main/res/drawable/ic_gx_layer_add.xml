@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-add: A plate added above the stack. -->
+    <!-- layer-add: A plate added above the stack, the plus set off to one side. Centred over the stack it was a cross standing on stacked stone — a grave marker to one rater, a Red Cross to the same one, and both readings got stronger as the glyph got smaller. An equal-armed cross squarely on top of a plinth is a monument, whatever the plinth is made of. -->
     <!-- lineage (PS/AI/PR): Photoshop's New Layer button and Procreate's plus. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,12 +14,12 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,9.8L20.6,9.8L20.6,14.2L3.4,14.2Z M3.4,16.2L20.6,16.2L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M7.1,9.8L20.08,9.8L17.68,14.2L4.7,14.2Z M8.4,16.2L19.56,16.2L17.16,20.6L6,20.6Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,2.2L12,6.8 M9.7,4.5L14.3,4.5" />
+        android:pathData="M17.6,2.4L17.6,7 M15.3,4.7L19.9,4.7" />
 </vector>
