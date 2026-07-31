@@ -268,8 +268,9 @@ icon("text-color", "type", ["font colour", "fill text"],
      note="A letter standing on the colour it will be filled with.")
 
 icon("text-outline-convert", "type", ["create outlines", "text to shape"],
-     s=[glyph_a(7.4, 5.4, 13.2, 8.6)],
-     f=[glyph_a_solid(17.2, 5.4, 13.2, 8.6)],
+     s=[glyph_a(12, 4.6, 14.4, 12.0),
+        seq(square(12, 4.6, 2.4), square(6.0, 19.0, 2.4), square(18.0, 19.0, 2.4))],
+     f=[square(12, 4.6, 2.4)],
      apps="AI",
      basis="Illustrator's Create Outlines — a live letter beside its converted, solid twin.",
      note="One editable letter and one converted to a fixed shape.")

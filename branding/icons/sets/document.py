@@ -194,50 +194,54 @@ icon("grid-overlay", "document", ["pixel grid", "show grid"],
      note="A frame divided into an even field.")
 
 icon("view-actual-colors", "document", ["proof colours", "soft proof"],
-     s=[circle(9.0, 9.4, 5.4), circle(15.0, 9.4, 5.4), circle(12.0, 15.0, 5.4)],
-     f=[],
+     s=[rect(3.4, 5.0, 17.2, 14.0), line(9.0, 5.0, 15.0, 19.0)],
+     f=[poly([(15.0, 19.0), (9.0, 5.0), (20.6, 5.0), (20.6, 19.0)], close=True)],
      apps="PS",
      basis="Photoshop's Proof Colors — the working view against the output simulation.",
      note="Two fields held side by side, neither one favoured.")
 
 icon("view-cmyk-preview", "document", ["gamut warning", "print preview"],
-     s=[circle(12, 12, 6.6), line(12, 2.6, 12, 4.6), line(12, 19.4, 12, 21.4),
-        line(2.6, 12, 4.6, 12), line(19.4, 12, 21.4, 12)],
-     f=[],
+     s=[rect(2.6, 6.0, 8.6, 12.0), rect(12.8, 6.0, 8.6, 12.0)],
+     f=[rect(12.8, 6.0, 8.6, 12.0)],
      apps="PS",
      basis="Photoshop's Gamut Warning — a ring where a colour cannot be printed.",
      note="A ring marking the limit of what can be reproduced.")
 
 icon("full-screen", "document", ["immersive mode", "hide panels"],
-     s=[seq(poly([(3.4, 7.4), (3.4, 3.4), (7.4, 3.4)]), poly([(16.6, 3.4), (20.6, 3.4), (20.6, 7.4)]),
-            poly([(20.6, 16.6), (20.6, 20.6), (16.6, 20.6)]),
-            poly([(7.4, 20.6), (3.4, 20.6), (3.4, 16.6)]))],
-     f=[],
+     s=[seq(line(4.4, 4.4, 9.4, 9.4), line(19.6, 4.4, 14.6, 9.4),
+            line(19.6, 19.6, 14.6, 14.6), line(4.4, 19.6, 9.4, 14.6))],
+     f=[seq(tip(3.4, 3.4, 2.4, 225), tip(20.6, 3.4, 2.4, 315),
+            tip(20.6, 20.6, 2.4, 45), tip(3.4, 20.6, 2.4, 135))],
      apps="PS/AI/PR",
      basis="Every editor's full-screen toggle.",
      note="Four corner marks with nothing held between them.")
 
 icon("split-view", "document", ["compare", "before after"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), line(12, 3.4, 12, 20.6)],
-     f=[rect(12, 3.4, 8.6, 17.2)],
+     s=[rect(3.4, 3.4, 17.2, 17.2), line(3.4, 12, 20.6, 12)],
+     f=[rect(3.4, 12, 17.2, 8.6)],
      apps="PS/PR",
      basis="Procreate's before/after slider and Photoshop's split preview.",
      note="One frame, half of it showing the result.")
 
 icon("multi-window", "document", ["new window", "second view"],
-     s=[square(9.4, 9.4, 9.0), square(6.6, 6.6, 9.0)],
+     s=[rect(3.0, 4.6, 12.0, 10.4), line(3.0, 7.4, 15.0, 7.4),
+        rect(9.0, 9.0, 12.0, 10.4), line(9.0, 11.8, 21.0, 11.8)],
      f=[],
      apps="PS/AI",
      basis="Photoshop's New Window for the same document.",
      note="A second frame opened onto the same page.")
 
 icon("thumbnails", "document", ["gallery", "grid view"],
-     s=[seq(rect(3.4, 5.6, 5.2, 5.2), rect(9.4, 5.6, 5.2, 5.2), rect(15.4, 5.6, 5.2, 5.2),
-            rect(3.4, 13.2, 5.2, 5.2), rect(9.4, 13.2, 5.2, 5.2), rect(15.4, 13.2, 5.2, 5.2))],
+     s=[rect(3.4, 4.6, 10.8, 10.8),
+        seq(rect(16.0, 4.6, 4.6, 4.6), rect(16.0, 10.8, 4.6, 4.6), rect(3.4, 16.8, 4.6, 2.6),
+            rect(9.6, 16.8, 4.6, 2.6))],
      f=[],
      apps="PS/PR",
-     basis="Procreate's Gallery grid.",
-     note="Four pages laid out as a set to choose from.")
+     basis="Procreate's Gallery — one page open at size with the rest of the set beside it.",
+     note="One large panel with smaller ones ranged around it. An even grid of identical cells "
+          "is a waffle, or a chocolate bar, or a brick wall — three raters, three foods and a "
+          "wall — and at small size it fills in to a solid dark rectangle with no grid visible "
+          "at all. Panels of different sizes cannot do either.")
 
 icon("bleed-marks", "document", ["print bleed", "trim marks"],
      s=[rect(6.6, 6.6, 10.8, 10.8),

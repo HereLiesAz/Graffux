@@ -6,23 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-opacity: Half committed, half withheld. -->
-    <!-- lineage (PS/AI/PR): Procreate's opacity slider thumb — one disc half laid down. -->
+    <!-- brush-opacity: One swatch, solid at one end and down to the chequer at the other. Drawn as a disc with one half laid down and the other half a broken arc — the obvious picture of half-committed — it was the dark-mode toggle almost exactly, and this set has one of those: theme-toggle is a disc with one half solid and rays on the light side. A split disc belongs to day and night and cannot be borrowed. The chequer is three cells across and not two: at two cells it was the same diagonal pair of squares that sits inside alpha-lock, and a rater called this one a credit card with the chip knocked out. It runs solid, then chequer, then nothing, across three thirds: half solid against half chequer left the swatch mostly black with white notches in it, and a rater read the notches as a bar chart in negative. -->
+    <!-- lineage (PS/AI/PR): The chequer every editor shows through a partly transparent pixel, which is also what alpha-lock is drawn from. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,3.6L12,20.4" />
+        android:pathData="M3.4,7L20.6,7L20.6,17L3.4,17Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12,12L12,20.4A8.4,8.4 0 0,1 12,3.6Z" />
+        android:pathData="M3.4,7L9.1,7L9.1,17L3.4,17Z M9.1,7L11.95,7L11.95,12L9.1,12Z M11.95,12L14.8,12L14.8,17L11.95,17Z" />
 </vector>

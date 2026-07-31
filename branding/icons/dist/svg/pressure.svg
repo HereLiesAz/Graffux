@@ -3,5 +3,5 @@
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/pressure — A point bearing down hard enough to bow the surface under it, and nothing else. A stroke swelling thin to thick, the first attempt, is the universal sign for volume; an arrowhead above it, the second, is the universal sign for download; strain marks flying off the contact, the third, made it a firework. The dent alone says force. -->
   <path d="M3.4,15.8Q12,21.4 20.6,15.8"/>
-  <path d="M9.4,3.6L14.6,3.6L12,20.4Z" fill="currentColor" stroke="none"/>
+  <path d="M8.6,3.6L15.4,3.6L13.4,12L12,20.4L10.6,12Z" fill="currentColor" stroke="none"/>
 </svg>

@@ -6,7 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- airbrush: Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land. -->
+    <!-- airbrush: Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling two straight edges onto that cone turned the pair of them into the legs of a drafting compass, so the cone is described only by where the particles land.
+
+The fan is kept narrow. Widened to reach the frame edges — which was done to separate it from brush-flow, also a nozzle with marks under it — the nozzle assembly above a spreading spray was named as an ejaculating penis. Brush-flow gave up its nozzle instead. -->
     <!-- lineage (PS/PR): Photoshop's airbrush option — a nozzle throwing a widening cone of mist. -->
     <path
         android:fillColor="@android:color/transparent"

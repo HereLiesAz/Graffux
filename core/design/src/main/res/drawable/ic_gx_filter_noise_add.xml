@@ -6,27 +6,43 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- filter-noise-add: A field with an uneven record laid across it. -->
-    <!-- lineage (PS): Photoshop's Add Noise. -->
+    <!-- filter-noise-add: A screen packed with static, and a plus. The stand under it is doing all the work — a bordered square with marks inside it is a saltine cracker, a dice face, a seed tray, a pan, or the broken-image placeholder, and five drafts of this glyph were each of those in turn. Put a stand under the same square and it is a screen, and snow on a screen is the one picture of noise nobody has to be taught.
+
+The density is the other half. Six marks evenly spread is a dice face; noise is more marks than you can count, at angles. Drawn as a signal trace — flat, then erupting — it was an EKG, and Reduce Noise as the mirror of it was a seismograph; mirroring is not a difference anyone sees at a glance. -->
+    <!-- lineage (PS): Photoshop's Add Noise, drawn as the thing everybody has actually seen noise on: a screen full of snow. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M2.6,3.4L16.8,3.4L16.8,14.4L2.6,14.4Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6.6,9.6L7.6,9.6 M11.4,8.2L12.4,8.2 M15.2,12.2L16.2,12.2 M7.4,14L8.4,14 M12.4,16.4L13.4,16.4 M9,18.4L10,18.4" />
+        android:pathData="M9.7,14.4L9.7,17" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M17.4,5.2L17.4,8.4 M15.8,6.8L19,6.8" />
+        android:pathData="M6.4,17L13,17" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.4,5.2L5.4,5.8 M8,4.8L9,5.8 M12.4,5.4L13.4,4.8 M5.8,8.2L6.8,7.4 M9.8,8.6L10.8,7.4 M13.6,7.6L14.8,8.4 M4.2,11.2L5.2,10.4 M8.4,10.6L9.4,11.4 M12.6,11.4L13.8,10.6 M6.4,13.2L7.4,13.8 M10.6,13.8L11.8,12.8" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M15.4,18L20.6,18 M18,15.4L18,20.6" />
 </vector>

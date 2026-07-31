@@ -6,16 +6,19 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-hardness: A solid core, a broken halo, an outer edge. -->
-    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — solid core, soft shoulder, outer limit. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M21,12A4.4,4.4 0 0,1 19.97,14.83 M18.8,15.81A4.4,4.4 0 0,1 15.84,16.33 M14.4,15.81A4.4,4.4 0 0,1 12.47,13.5 M12.2,12A4.4,4.4 0 0,1 13.23,9.17 M14.4,8.19A4.4,4.4 0 0,1 17.36,7.67 M18.8,8.19A4.4,4.4 0 0,1 20.73,10.5" />
+    <!-- brush-hardness: A solid core with the falloff cut into its own edge as steps.
+
+Recorded as unresolved. It reads as a descending staircase, which is wrong and harmless, and it collides with filter-mosaic — whose whole subject is a staircase — at every size. It is kept because all six forms tried were worse or no better:
+
+  two footprints, one solid and one a broken ring: a pair of testicles, named twice by two raters, and a dividing cell once the two were made unequal. Stacked instead they are a snowman and still anatomical.
+  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same small black triangle on a dash as brush-angle. Mirroring the slope did not separate them, because anything on a heavy baseline at this size is a triangle on a line.
+  a solid block with shrinking bars beside it: the system volume icon, functionally identical in a rater’s words, and indistinguishable from layer-opacity.
+  steps cut symmetrically into both halves of the right edge: a pixelated speaker, because a solid block with a symmetrical flare on one side is that icon whatever the flare is made of.
+  the same steps cut one way only, coarse or fine: a staircase either way. Five small steps merge at 24 pixels into the same three the coarse version had.
+
+The trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns. -->
+    <!-- lineage (PS/AI/PR): Photoshop's hardness preview — a solid core with its edge stepping away from it. -->
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3,12A4.4,4.4 0 1,0 11.8,12A4.4,4.4 0 1,0 3,12Z" />
+        android:pathData="M4.6,5.4L11.4,5.4L11.4,7.8L13.2,7.8L13.2,10.2L15,10.2L15,12.6L16.8,12.6L16.8,15L18.6,15L18.6,20.2L4.6,20.2Z" />
 </vector>

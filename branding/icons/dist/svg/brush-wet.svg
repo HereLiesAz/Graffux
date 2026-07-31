@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/brush-wet — A loaded drop over the rings it has already made. Outlined, with an arc floating inside it, the drop is a pointed hood with an eye slit cut in it. -->
-  <path d="M8.24,16.03A4,4 0 0,1 15.76,16.03 M5.11,14.59A7.6,7.6 0 0,1 18.89,14.59"/>
-  <path d="M12,2.8L15.1,7.4L15.1,10L12,12.6L8.9,10L8.9,7.4Z" fill="currentColor" stroke="none"/>
-</svg>

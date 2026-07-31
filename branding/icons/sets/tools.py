@@ -73,11 +73,15 @@ icon("airbrush", "tools", ["spray", "atomiser", "soft", "mist"],
      basis="Photoshop's airbrush option — a nozzle throwing a widening cone of mist.",
      note="Nozzle at the top and the mist under it, spreading and thinning as it falls. Ruling "
           "two straight edges onto that cone turned the pair of them into the legs of a drafting "
-          "compass, so the cone is described only by where the particles land.")
+          "compass, so the cone is described only by where the particles land.\n\n"
+          "The fan is kept narrow. Widened to reach the frame edges — which was done to "
+          "separate it from brush-flow, also a nozzle with marks under it — the nozzle "
+          "assembly above a spreading spray was named as an ejaculating penis. Brush-flow "
+          "gave up its nozzle instead.")
 
 icon("marker", "tools", ["felt tip", "chisel", "highlighter"],
-     s=[rect(7.4, 3.4, 9.2, 4.0, 1.0), rect(8.8, 7.6, 6.4, 7.2)],
-     f=[poly([(8.8, 14.8), (15.2, 14.8), (15.2, 20.6), (8.8, 16.8)], close=True)],
+     s=[rect(7.6, 3.4, 8.0, 4.2, 1.0), line(16.6, 4.6, 16.6, 9.0), rect(8.8, 7.6, 5.6, 6.4)],
+     f=[poly([(8.8, 14.0), (14.4, 14.0), (14.4, 20.6), (8.8, 16.6)], close=True)],
      apps="PS/PR",
      basis="Procreate's inking and marker brush families — a fat barrel cut to a chisel.",
      note="A cap wider than the barrel it sits on, and a felt tip cut hard across at an angle. "
@@ -104,11 +108,13 @@ icon("calligraphy", "tools", ["broad edge", "lettering", "italic nib"],
            "writing implement nobody mistakes for anything else.",
      note="Shaft curving to the cut point at lower left, with the vane solid against it.")
 
+_CRY = xf(12, 10.4, 18)
+
 icon("crayon", "tools", ["wax", "kids", "stub"],
-     s=[rect(7.6, 3.4, 8.8, 11.4),
-        poly([(7.6, 7.2), (9.6, 6.3), (11.6, 7.2), (13.6, 6.3), (16.4, 7.2)]),
-        line(7.6, 12.2, 16.4, 12.2)],
-     f=[poly([(7.6, 14.8), (16.4, 14.8), (12.7, 20.6), (11.3, 20.6)], close=True)],
+     s=[rect(-4.4, -4.4, 8.8, 11.2, t=_CRY),
+        poly([(-4.4, -0.6), (-2.4, -1.5), (-0.4, -0.6), (1.6, -1.5), (4.4, -0.6)], t=_CRY),
+        line(-4.4, 4.4, 4.4, 4.4, t=_CRY)],
+     f=[poly([(-4.4, 6.8), (4.4, 6.8), (0.7, 12.6), (-0.7, 12.6)], close=True, t=_CRY)],
      apps="PR",
      basis="Procreate's Artistic set — the wrapped wax stub.",
      note="Fat and short, with the paper label banded round the middle and the wax worn to a "
@@ -122,10 +128,9 @@ icon("crayon", "tools", ["wax", "kids", "stub"],
 _CHK = xf(11.0, 10.4, -14)
 
 icon("chalk", "tools", ["pastel", "dry media", "stick"],
-     s=[rect(-8.0, -2.4, 9.6, 4.8, t=_CHK),
-        seq(circle(15.8, 16.4, 0.55), circle(18.6, 18.2, 0.55), circle(13.8, 19.2, 0.55))],
-     f=[poly([(1.6, -2.4), (5.4, -2.4), (5.4, 0.6), (3.4, 2.4), (1.6, 2.4)], close=True,
-             t=_CHK)],
+     s=[seq(circle(15.8, 16.4, 0.55), circle(18.6, 18.2, 0.55), circle(13.8, 19.2, 0.55))],
+     f=[poly([(-8.0, -2.0), (-5.6, -2.4), (5.4, -2.4), (5.4, 0.6), (3.4, 2.4), (-6.0, 2.4),
+              (-8.0, 1.6)], close=True, t=_CHK)],
      apps="PR",
      basis="Procreate's chalk and soft-pastel brushes — a square stick that sheds.",
      note="A plain stick lying at the shallow angle chalk is actually held at, worn away at one "
@@ -219,13 +224,29 @@ icon("stamp-pattern", "tools", ["pattern stamp", "tile", "repeat"],
 # Retouch
 # ---------------------------------------------------------------------------------------
 
+_ERA = xf(12.6, 10.6, -20)
+
 icon("eraser", "tools", ["rub out", "delete", "undo mark"],
-     s=[poly([(5.4, 7.4), (15.4, 7.4), (18.6, 10.6), (18.6, 16.6), (5.4, 16.6)], close=True),
-        line(5.4, 11.6, 18.6, 11.6)],
-     f=[poly([(5.4, 11.6), (18.6, 11.6), (18.6, 16.6), (5.4, 16.6)], close=True)],
+     s=[rect(-6.0, -4.6, 12.0, 9.2, t=_ERA), line(-1.6, -4.6, -1.6, 4.6, t=_ERA),
+        line(2.6, 18.4, 7.0, 18.4)],
+     f=[poly([(-6.0, -4.6), (-1.6, -4.6), (-1.6, 4.6), (-6.0, 4.6)], close=True, t=_ERA)],
      apps="PS/AI/PR",
-     basis="The Photoshop and Procreate block eraser — held flat, not angled like a brush.",
-     note="A rubber block, banded, solid at the face doing the wiping.")
+     basis="The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
+     note="A rubber block held at the angle it is used at, divided end to end with the "
+           "working end solid, and the mark it has come to the end of running in from the "
+           "left.\n\n"
+           "Which way the block is divided decides what it is. Divided across, into a pale "
+           "strip over a dark one, it is a container with a lid: square to the frame it was a "
+           "file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and "
+           "tilted it was an open laptop and a ballot box with a coin slot. Undivided and "
+           "solid it stopped being a container and became a spade blade. Divided end to end "
+           "it is neither, and it is also how a two-tone eraser is actually made.\n\n"
+           "Crumbs were tried three ways and failed three ways: in a row underneath they were "
+           "wheels and the block a delivery van; round, they were soap suds and the block a "
+           "washing machine; as short flecks they closed into a two-lobed lump a rater called "
+           "a bone, then a pair of testicles. Small marks clustered beside a body do not stay "
+           "abstract, so the mark being rubbed out does that work instead."
+)
 
 icon("eraser-hard", "tools", ["hard edge", "crisp", "block"],
      s=[poly([(5.4, 7.4), (15.4, 7.4), (18.6, 10.6), (18.6, 16.6), (5.4, 16.6)], close=True),
@@ -245,22 +266,50 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
      note="The same block against a broken rule — the edge dissolves.")
 
 icon("smudge", "tools", ["finger", "drag", "blend"],
-     s=[],
-     f=[poly([(11.2, -1.8), (11.2, 0.4), (2.8, 0.4), (2.8, 4.4), (0.8, 4.4), (0.8, 2.2),
-              (-0.4, 2.2), (-0.4, 4.4), (-2.4, 4.4), (-2.4, 2.2), (-5.6, 2.2), (-5.6, -2.2),
-              (-3.2, -2.2), (-3.2, -4.6), (-1.4, -4.6), (-1.4, -2.2), (2.8, -2.2),
-              (2.8, -1.8)], close=True, t=T)],
+     s=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.8), (12.4, 6.4), (14.4, 8.6), (16.6, 6.4),
+              (18.8, 8.6), (20.0, 10.6), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6),
+              (11.6, 17.6), (11.1, 16.0), (4.3, 20.9)], close=True)],
+     f=[poly([(2.2, 17.9), (4.3, 20.9), (6.9, 19.7), (4.8, 16.7)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
-     note="A hand on the tool diagonal, index finger pointing exactly where the brush tip and "
-          "the pencil point do. Drawn the same way the pan hand is drawn, because it is the "
-          "only way a hand survives this size: the folded fingers are square columns with real "
-          "gaps between them, not scallops on a blob, and the thumb is another square column "
-          "rather than a spur — drawn as a spur off the wrist it is the hammer of a revolver, "
-          "and the whole silhouette becomes a handgun. Every rounded version of this came back "
-          "a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a "
-          "finger-wide tube has no inside left. Distinct from the pan hand, which is upright "
-          "with all five splayed.")
+     note="A fist with the index put out along the tool diagonal, pointing where the brush tip "
+          "and the pencil point point. The hand stands upright; only the finger is on the "
+          "diagonal. Outlined, with the pad solid where it meets the pixel.\n\n"
+          "This is the weakest glyph in the set and it is the twenty-fourth drawing of it. It "
+          "is the version that gets named correctly at first glance — a rater with no context "
+          "called it a clenched fist — but it carries a knuckle-duster and a stubby handgun as "
+          "second readings, and it has been read as a molar tooth and an old-fashioned key by "
+          "other raters. Every alternative tried was worse in a way that mattered more:\n\n"
+          "Face-on, pointing down, one finger extended — the obvious way to aim a finger at the "
+          "bottom of the frame where the eraser's face and the pen's nib are — is a hand giving "
+          "the finger, and two separate raters named the gesture before naming anything else in "
+          "the drawing. Moving the extended digit from the middle of the hand to the index at "
+          "the edge of the group did not fix it, and nor did holding the thumb out sideways "
+          "where no finger could be. A fist with a digit out of it reads as that gesture at any "
+          "angle it is drawn.\n\n"
+          "Adding a cuff at the wrist does fix the key and the tooth — a band across the wrist "
+          "says the mass is attached to an arm, and the manicule has carried one since the "
+          "twelfth century — but a fist on a cuffed forearm is the raised-fist salute, and the "
+          "same rater who named that also named an obscene reading. A political symbol is a "
+          "worse failure than a knuckle-duster. Without the cuff and without the solid pad the "
+          "same outline is a key with a phallic second reading; the pad is what stops that, and "
+          "the pad is also what makes the knuckle-duster. There is no configuration of this "
+          "glyph that is clean.\n\n"
+          "Turning the whole hand is worse than turning nothing. The pan hand's own outline, "
+          "folded and rotated 225 degrees so the index lay on the diagonal, came back as a "
+          "kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes "
+          "a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a "
+          "manicule in profile — hand, cuff, curled fingers, thumb on top, laid along the "
+          "diagonal — it was a torch at three different sets of proportions.\n\n"
+          "Before those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a "
+          "revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a "
+          "hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read "
+          "as two different objects on two viewings of the same path. Interior creases did not "
+          "settle it, because a crease is a line on a mass and a gap is two objects. Drawing "
+          "the folded fingers as separate rolls made the hand a key head.\n\n"
+          "Distinct from the pan hand, which is a hand face-on, upright, open, with all five "
+          "splayed, and which has never once been misread by anyone."
+)
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],
      s=[seq(line(12, 3.2, 16.99, 9.58), arc(12, 13.6, 6.4, 321.2, 578.8), line(7.01, 9.58, 12, 3.2)),
@@ -271,9 +320,9 @@ icon("blur", "tools", ["soften", "out of focus", "droplet"],
      note="The drop, with the detail under it collapsing into bands.")
 
 icon("sharpen", "tools", ["crisp", "detail", "cone"],
-     s=[smooth([(2.8, 17.0), (7.0, 15.6), (10.0, 16.4)]),
-        smooth([(14.0, 16.4), (17.0, 15.6), (21.2, 17.0)]), line(2.8, 20.4, 21.2, 20.4)],
-     f=[poly([(16.2, 3.4), (14.6, 16.8), (9.4, 16.8)], close=True)],
+     s=[ellipse(12, 16.4, 5.4, 1.9), line(6.6, 16.4, 12, 3.6), line(17.4, 16.4, 12, 3.6),
+        line(3.0, 20.6, 21.0, 20.6)],
+     f=[poly([(12, 3.6), (13.6, 7.4), (10.4, 7.4)], close=True)],
      apps="PS/AI/PR",
      basis="Photoshop's Sharpen tool — the sharpening cone next to the blur drop.",
      note="The cone, solid, leaning off vertical. Stood up straight and symmetrical on its base "
@@ -281,28 +330,49 @@ icon("sharpen", "tools", ["crisp", "detail", "cone"],
           "unseen. The lean costs nothing and removes it.")
 
 icon("dodge", "tools", ["lighten", "hold back", "darkroom"],
-     s=[circle(10.0, 8.8, 5.4), line(13.4, 12.6, 18.6, 19.4),
-        seq(circle(8.2, 7.0, 1.0), circle(11.8, 7.0, 1.0), circle(10.0, 10.4, 1.0))],
-     f=[],
+     s=[line(13.8, 13.0, 20.6, 19.8)],
+     f=[rect(4.4, 4.0, 9.6, 9.2, 2.4)],
      apps="PS",
      basis="Photoshop's Dodge tool — the darkroom paddle on its wire, throwing light back.",
-     note="Paddle, rod, and the light it holds off the paper.")
+     note="An opaque paddle on a bent wire, held between the lamp and the paper. The paddle is solid and empty: drawn hollow with three small circles in it — the obvious way to say a disc has depth — it was a bowling ball, then a face, then a US power outlet, in that order, from three different raters. Filled in and left round it was a sperm cell: a solid ball trailing a thin bent line is that silhouette exactly. The paddle is square because a darkroom paddle can be any shape, and a square one is neither a lens nor a cell.")
 
 icon("burn", "tools", ["darken", "shade", "cupped hand", "aperture"],
-     s=[arc(12, 12, 8.4, 35, 325), arc(12, 12, 4.4, 325, 395)],
-     f=[dot(12, 12, 2.0)],
+     s=[poly([(17.6, 5.0), (10.6, 4.6), (5.2, 7.4), (3.6, 12.4), (5.6, 17.4), (11.0, 19.6),
+              (17.6, 19.0), (13.4, 16.2), (9.6, 15.6), (7.6, 12.4), (9.4, 9.0), (13.2, 8.0)],
+             close=True)],
+     f=[poly([(4.6, 19.4), (19.4, 19.4), (19.4, 21.6), (4.6, 21.6)], close=True)],
      apps="PS",
      basis="Photoshop's Burn tool — the hand cupped into an aperture to concentrate exposure.",
-     note="A cupped C with the light it funnels burning solid at the centre.")
+     note="A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn "
+          "as a true C-ring with the solid mark at its exact centre, which is the obvious way "
+          "to draw an aperture, it was a nipple and areola — a ring with a filled circle "
+          "concentric inside it is that and very little else, whatever the ring is meant to be. "
+          "Drawn instead with the solid as a wedge of light narrowing into the cup, it was the "
+          "rewind button, and a vulva on the third guess. The solid is the result, not the "
+          "light: a band of paper gone dark under the hand that shaded it."
+)
 
 icon("sponge", "tools", ["saturation", "soak", "porous"],
-     s=[poly([(3.6, 8.6), (7.0, 6.0), (12.0, 7.2), (16.6, 5.6), (20.4, 8.8), (19.2, 14.2),
-              (20.0, 17.6), (15.0, 18.8), (10.0, 17.8), (4.6, 18.4), (4.0, 13.4)], close=True),
-        seq(circle(8.4, 11.4, 1.5), circle(15.2, 13.6, 1.7), circle(11.8, 15.6, 1.2))],
-     f=[],
+     s=[seq(circle(6.2, 7.8, 1.3), circle(9.0, 4.8, 0.95), circle(11.4, 2.6, 0.65))],
+     f=[rect(6.2, 10.4, 12.6, 10.0, 1.6)],
      apps="PS",
-     basis="Photoshop's Sponge tool — a porous block that pulls colour out or drives it in.",
-     note="Pores, one of them filled where the colour is being taken.")
+     basis="Photoshop's Sponge tool — a block being squeezed until the colour comes out of it.",
+     note="A solid block with suds coming off it. Six drawings, and the first five all tried "
+           "to draw the sponge itself. As a torn blob with three round pores in it, which is "
+           "what a sponge actually looks like, it was a slice of Swiss cheese to every rater "
+           "who saw it, and a skull at small size once two pores overlapped into eye sockets: "
+           "holes in a blob are cheese. With the underside wrung into points, the points were "
+           "fangs and the drops were drool — a row of points along a solid edge is a jaw, "
+           "which is what went wrong with the brush texture in the same round. Pinched at the "
+           "waist it was a ticket stub. Given a soft irregular outline it was a thought "
+           "bubble, a cloud, and a pair of buttocks. A lobed blob is a body before it is "
+           "anything else; the block is a plain rectangle for that reason, and the bubbles "
+           "carry the whole meaning. The block is deep rather than wide: flat and wide with "
+           "bubbles over it, it was a bathtub. The bubbles rise in a line off one corner "
+           "and are three, not two: two marks side by side above a mass are eyes, and a rater "
+           "called the pair of them a blank cartoon face at every size, more strongly the "
+           "smaller it got."
+)
 
 icon("heal", "tools", ["healing brush", "plaster", "repair"],
      s=[rect(-8.4, -3.4, 16.8, 6.8, 3.4, t=T),
@@ -393,47 +463,128 @@ icon("brush-settings", "tools", ["brush studio", "parameters", "engine"],
      note="Three rails; the middle one is the one being moved.")
 
 icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
-     s=[circle(12, 12, 8.4), circle(12, 12, 4.2), line(12, 12, 17.9, 6.1)],
-     f=[dot(12, 12, 1.35)],
+     s=[circle(12, 12, 6.4), line(7.8, 12, 16.2, 12)],
+     f=[seq(tip(5.4, 12, 2.4, 180), tip(18.6, 12, 2.4, 0))],
      apps="PS/AI/PR",
-     basis="Photoshop's brush-size preview — nested footprints on one centre.",
-     note="Two diameters measured out from a single origin.")
+     basis="Photoshop's brush-size preview, dimensioned the way any width is "
+           "dimensioned.",
+     note="One footprint with its diameter measured across it, the arrowheads "
+          "breaking the outline on both sides.\n\n"
+          "The measure has to run through the circle. Set underneath it, a ring "
+          "above a double-headed width arrow is the universal girth gesture — a "
+          "rater called it a condom-size chart and said the crude reading arrived "
+          "first. Stood beside the footprint as a vertical bar between two "
+          "arrowheads, the pair read as the letters Oi, and at small size that was "
+          "the only thing left. What it costs is small size: with the arrowheads gone "
+          "the tiny render is a bar across a circle, which is a prohibition sign. That is a "
+          "wrong meaning rather than a crude one, and it is the trade taken.\n\n"
+          "Drawn as two rings on one centre with a radius struck through them — the "
+          "literal picture of a diameter — it was a dartboard with a dart in it, "
+          "and at small size the rings merged and the radius became the bar of a "
+          "no-entry sign. Concentric rings around a centre are a target whatever is "
+          "meant by them, which is the same finding that took the ring off the "
+          "brush cursor and the register mark."
+)
 
 icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
-     s=[circle(12, 12, 8.4), line(12, 3.6, 12, 20.4)],
-     f=[pie(12, 12, 8.4, 90, 270)],
+     s=[rect(3.4, 7.0, 17.2, 10.0)],
+     f=[seq(rect(3.4, 7.0, 5.7, 10.0), rect(9.1, 7.0, 2.85, 5.0),
+            rect(11.95, 12.0, 2.85, 5.0))],
      apps="PS/AI/PR",
-     basis="Procreate's opacity slider thumb — one disc half laid down.",
-     note="Half committed, half withheld.")
+     basis="The chequer every editor shows through a partly transparent pixel, which "
+           "is also what alpha-lock is drawn from.",
+     note="One swatch, solid at one end and down to the chequer at the other. Drawn "
+          "as a disc with one half laid down and the other half a broken arc — the "
+          "obvious picture of half-committed — it was the dark-mode toggle almost "
+          "exactly, and this set has one of those: theme-toggle is a disc with one "
+          "half solid and rays on the light side. A split disc belongs to day and "
+          "night and cannot be borrowed. The chequer is three cells across and not two: at "
+          "two cells it was the same diagonal pair of squares that sits inside "
+          "alpha-lock, and a rater called this one a credit card with the chip "
+          "knocked out. It runs solid, then chequer, then nothing, across three thirds: "
+          "half solid against half chequer left the swatch mostly black with white "
+          "notches in it, and a rater read the notches as a bar chart in negative."
+)
 
 icon("brush-flow", "tools", ["rate", "load", "delivery"],
-     s=[rect(7.0, 3.4, 10.0, 17.2), seq(line(7.0, 9.0, 17.0, 9.0), line(7.0, 14.8, 17.0, 14.8))],
-     f=[rect(7.0, 14.8, 10.0, 5.8)],
+     s=[],
+     f=[seq(rect(3.4, 5.6, 17.2, 4.2),
+            poly([(6.6, 9.8), (9.0, 9.8), (8.4, 15.4), (7.2, 15.4)], close=True),
+            poly([(11.2, 9.8), (13.6, 9.8), (13.0, 19.4), (11.8, 19.4)], close=True),
+            poly([(15.8, 9.8), (18.2, 9.8), (17.6, 13.2), (16.4, 13.2)], close=True))],
      apps="PS/PR",
      basis="Photoshop's Flow control — how much arrives per pass, not how dark it ends up.",
-     note="Three drops at three depths of fall.")
+     note="A loaded stroke with the paint running off it, three runs at three lengths.\n\n"
+          "It was a tall box with two rules across it and the bottom third filled, which is a "
+          "battery at a third charge and nothing else — a rectangle part-filled along one edge "
+          "is a fill gauge before it is anything, the same finding as the eraser and the mask, "
+          "and it put this glyph and mask in one batch reading as one object. Redrawn as a "
+          "nozzle with drops falling from it, it was accurate to its own note for the first "
+          "time and immediately collided with the airbrush, which is also a nozzle with marks "
+          "under it; widening the airbrush's spray to separate them made that glyph anatomical. "
+          "So the nozzle is gone from this one. There is no emitter in the frame, only what "
+          "was delivered."
+)
+
 
 icon("brush-hardness", "tools", ["edge", "falloff", "core"],
-     s=[seq(*[arc(16.6, 12, 4.4, a, a + 40) for a in (0, 60, 120, 180, 240, 300)])],
-     f=[circle(7.4, 12, 4.4)],
+     s=[],
+     f=[poly([(4.6, 5.4), (11.4, 5.4), (11.4, 7.8), (13.2, 7.8), (13.2, 10.2), (15.0, 10.2),
+              (15.0, 12.6), (16.8, 12.6), (16.8, 15.0), (18.6, 15.0), (18.6, 20.2),
+              (4.6, 20.2)], close=True)],
      apps="PS/AI/PR",
-     basis="Photoshop's hardness preview — solid core, soft shoulder, outer limit.",
-     note="A solid core, a broken halo, an outer edge.")
+     basis="Photoshop's hardness preview — a solid core with its edge stepping away from it.",
+     note="A solid core with the falloff cut into its own edge as steps.\n\n"
+          "Recorded as unresolved. It reads as a descending staircase, which is wrong and "
+          "harmless, and it collides with filter-mosaic — whose whole subject is a staircase — "
+          "at every size. It is kept because all six forms tried were worse or no better:\n\n"
+          "  two footprints, one solid and one a broken ring: a pair of testicles, named twice "
+          "by two raters, and a dividing cell once the two were made unequal. Stacked instead "
+          "they are a snowman and still anatomical.\n"
+          "  a section wedge standing on a baseline: a doorstop, and at 24 pixels the same "
+          "small black triangle on a dash as brush-angle. Mirroring the slope did not separate "
+          "them, because anything on a heavy baseline at this size is a triangle on a line.\n"
+          "  a solid block with shrinking bars beside it: the system volume icon, functionally "
+          "identical in a rater\u2019s words, and indistinguishable from layer-opacity.\n"
+          "  steps cut symmetrically into both halves of the right edge: a pixelated speaker, "
+          "because a solid block with a symmetrical flare on one side is that icon whatever "
+          "the flare is made of.\n"
+          "  the same steps cut one way only, coarse or fine: a staircase either way. Five "
+          "small steps merge at 24 pixels into the same three the coarse version had.\n\n"
+          "The trap under all of it is that the brush-parameter family has no vocabulary but "
+          "filled dots and outlined rings, and every escape from a circle lands on a shape "
+          "some other icon already owns."
+)
+
 
 icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
-     s=[circle(6.0, 11.4, 2.7), circle(18.0, 11.4, 2.7), line(3.3, 18.6, 20.7, 18.6)],
-     f=[dot(12.0, 11.4, 2.7)],
+     s=[circle(5.6, 15.8, 2.6), circle(18.4, 8.2, 2.6)],
+     f=[dot(12.0, 12.0, 2.6)],
      apps="PS/PR",
      basis="Photoshop's Spacing setting — a brush is a run of stamps, not a line.",
-     note="Three stamps on a measured run; the middle one just landed.")
+     note="Three stamps stepping evenly up a run, the middle one just landed. No line "
+          "through them and no line under them. Set in a row above a separate rule they were "
+          "a traffic light on its side, or the letters OOO underlined; with the rule passed "
+          "through their centres instead, the two hollow ones became barred circles and the "
+          "pair of them a set of spectacles, with the solid one as a nose. The even step is "
+          "what carries the spacing. Distinct from scatter, whose stamps are thrown off a "
+          "line that is actually drawn.")
 
 icon("brush-scatter", "tools", ["jitter", "spread", "random"],
-     s=[line(2.8, 17.2, 21.2, 6.8), circle(7.6, 10.2, 1.7), circle(16.8, 15.4, 1.7),
-        circle(13.4, 7.6, 1.4)],
-     f=[dot(10.0, 17.6, 1.35)],
+     s=[circle(16.0, 6.4, 1.5), circle(19.6, 12.4, 1.2), circle(16.8, 18.0, 1.35),
+        circle(6.0, 5.8, 1.0)],
+     f=[dot(9.4, 13.2, 2.4)],
      apps="PS/PR",
-     basis="Photoshop's Scattering — marks thrown off the path they were meant to follow.",
-     note="A stroke path with its stamps scattered around it.")
+     basis="Photoshop's Scattering — marks thrown clear of where they were aimed.",
+     note="One stamp landed, and four thrown clear of it at uneven distances, mostly "
+          "to one side. No path drawn, because every path drawn turned into "
+          "something else: on the diagonal with marks above and below it was a "
+          "percent sign at every size, dashed or solid, through two drawings; laid "
+          "horizontal and dashed, the dashes became a stitched-shut mouth and the "
+          "marks around them eyes, and a rater called the glyph a goofy monster "
+          "face; drawn as a curve it was a wavy mouth under two eyes, and a face "
+          "again. Marks thrown to one side have no axis to hang a face on."
+)
 
 icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      s=[line(3.4, 19.4, 20.6, 19.4), line(4.6, 19.4, 16.6, 7.4), arc(4.6, 19.4, 7.6, 315, 360)],
@@ -443,60 +594,53 @@ icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      note="An angle read off the baseline, solid where it points.")
 
 icon("brush-roundness", "tools", ["flatten", "squash", "ellipse nib"],
-     s=[circle(6.8, 12, 3.8)],
-     f=[ellipse(16.2, 12, 4.6, 2.2)],
+     s=[Path("M10.67,18.1A5,2.2 -30 1,0 19.33,13.1A5,2.2 -30 1,0 10.67,18.1Z",
+             [(10.53, 15.6), (19.47, 15.6), (15.0, 12.46), (15.0, 18.74)])],
+     f=[circle(8.6, 8.4, 4.0)],
      apps="PS/AI/PR",
      basis="Photoshop's Roundness control — a round footprint compressed on one axis.",
-     note="A circle squeezed against its own limit.")
-
-icon("brush-jitter", "tools", ["variance", "wobble", "noise"],
-     s=[line(3.0, 12, 21.0, 12),
-        seq(line(5.4, 12, 5.4, 6.6), line(8.4, 12, 8.4, 16.4), line(11.4, 12, 11.4, 8.4),
-            line(14.4, 12, 14.4, 17.6), line(17.4, 12, 17.4, 7.8), line(20.0, 12, 20.0, 14.8))],
-     f=[],
-     apps="PS/PR",
-     basis="Photoshop's jitter controls — a value that refuses to hold still.",
-     note="A wandering parameter above a fixed baseline.")
-
-icon("brush-taper", "tools", ["pressure taper", "stroke ends", "swell"],
-     s=[seq(line(2.4, 12, 4.6, 12), line(19.4, 12, 21.6, 12))],
-     f=[poly([(4.6, 12), (9.2, 8.6), (14.8, 8.6), (19.4, 12),
-              (14.8, 15.4), (9.2, 15.4)], close=True)],
-     apps="PR",
-     basis="Procreate's Taper settings — a stroke that opens, swells and closes.",
-     note="One stroke, thin at both ends.")
-
-icon("brush-wet", "tools", ["wet mix", "dilute", "bleed"],
-     s=[seq(arc(12, 17.4, 4.0, 200, 340), arc(12, 17.8, 7.6, 205, 335))],
-     f=[poly([(12, 2.8), (15.1, 7.4), (15.1, 10.0), (12, 12.6), (8.9, 10.0), (8.9, 7.4)],
-             close=True)],
-     apps="PS/PR",
-     basis="Procreate's Wet Mix — two loads bleeding into each other.",
-     note="A loaded drop over the rings it has already made. Outlined, with an arc floating "
-          "inside it, the drop is a pointed hood with an eye slit cut in it.")
-
-icon("brush-buildup", "tools", ["accumulate", "density", "layering"],
-     s=[seq(rect(3.0, 8.0, 5.6, 8.0), rect(9.2, 8.0, 5.6, 8.0), rect(15.4, 8.0, 5.6, 8.0))],
-     f=[seq(rect(9.2, 12.6, 5.6, 3.4), rect(15.4, 8.0, 5.6, 8.0))],
-     apps="PS/PR",
-     basis="Photoshop's Build-up airbrush behaviour — passes stacking over one another.",
-     note="Three passes over the same ground.")
-
-icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
-     s=[circle(12, 12, 8.2), circle(12, 12, 4.6)],
-     f=[dot(12, 12, 2.0)],
-     apps="PS",
-     basis="Photoshop's Dual Brush — a second tip riding inside the first.",
-     note="A smaller footprint carried by a larger one.")
+     note="The round footprint, and the same footprint flattened and turned off "
+          "the horizontal.\n\n"
+          "The tilt is not decoration. A horizontal ellipse is an orifice in every "
+          "company it has been put in, and four arrangements produced four "
+          "anatomical readings from four raters. Side by side, a ring with a solid "
+          "flat lozenge against its edge was a sperm cell. Filled, between a mark "
+          "above and a mark below, it was a vulva. Hollowed, with the compression "
+          "arrows moved inside it, two solid triangles converging at the centre of "
+          "a dark oval was an anus. Stacked under a solid disc — the plainest "
+          "before-and-after there is — it was a butthole under a head. Anything "
+          "pressing inward on a round outline is an orifice, and a squat horizontal "
+          "lens is one on its own, with nothing else in the frame."
+)
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
-     s=[seq(line(4.4, 7.0, 5.6, 7.0), line(11.0, 8.6, 12.2, 8.6), line(17.4, 6.6, 18.6, 6.6),
-            line(6.2, 13.4, 7.4, 13.4), line(14.0, 12.2, 15.2, 12.2),
-            line(4.8, 18.6, 6.0, 18.6), line(12.6, 17.4, 13.8, 17.4))],
-     f=[dot(19.2, 17.4, 1.1)],
+     s=[rect(3.0, 3.0, 18.0, 18.0)],
+     f=[poly([(16.1, 12.8), (15.3, 14.2), (14.1, 15.1), (12.8, 16.0), (11.3, 15.7), (9.7, 15.5),
+              (9.0, 14.0), (8.1, 12.8), (7.8, 11.2), (8.8, 9.9), (9.7, 8.6), (11.3, 8.4),
+              (12.8, 7.9), (14.2, 8.7), (15.0, 10.0), (16.0, 11.2)], close=True)],
      apps="PS/PR",
-     basis="Photoshop's Texture setting and Procreate's grain source — paper tooth as a field.",
-     note="Tooth recorded as a field of marks, one of them struck.")
+     basis="Photoshop's Texture setting and Procreate's grain source — a stroke running dry "
+           "over the tooth of the paper.",
+     note="One footprint, bitten all round by the tooth, inside the swatch of paper that bit "
+          "it.\n\n"
+          "Ten drawings. The first eight were strokes, and the brush family does not draw "
+          "strokes: size is two discs on one centre, hardness a solid core inside a broken "
+          "halo, roundness a circle beside an ellipse, spacing three stamps on a run. The "
+          "ninth was a footprint, correctly, but drawn as a clean circle beside a ragged one — "
+          "which is the hardness glyph's own composition, and it read as a donut next to a "
+          "squashed spider. Drawn with twelve vertices at alternating long and short "
+          "radii, which is the obvious way to rough up a circle, it was a six-pointed "
+          "star and a rater said Star of David. Sixteen vertices at radii that vary a "
+          "little and never alternate give a roughened disc with no points on it.\n\n"
+          "What the strokes were: spilled rice, and the fourth icon in the set drawn as a "
+          "field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. "
+          "A band with a sawtooth underside was a mouth full of bared teeth, because a row of "
+          "points along a solid edge is a jaw. Broken into slivers it was a barcode at even "
+          "and uneven widths both, then road markings in perspective. Over a broken shadow it "
+          "was a crossed-out signature; over loose hatching a strikethrough on a scribble; "
+          "over boxed hatching a hazard barricade; over unboxed hatching claw marks with a "
+          "lightning bolt. Alone and ragged on both edges, it was a strip of torn tape."
+)
 
 icon("brush-import", "tools", ["load brush", "install", "abr"],
      s=[line(12, 3.0, 12, 10.4),
@@ -522,7 +666,7 @@ icon("stylus", "tools", ["pen hardware", "pencil", "digitiser"],
 
 icon("pressure", "tools", ["force", "hard press", "weight"],
      s=[quad((3.4, 15.8), (12, 21.4), (20.6, 15.8))],
-     f=[poly([(9.4, 3.6), (14.6, 3.6), (12, 20.4)], close=True)],
+     f=[poly([(8.6, 3.6), (15.4, 3.6), (13.4, 12.0), (12, 20.4), (10.6, 12.0)], close=True)],
      apps="PR",
      basis="Procreate's Pressure curve — force registered at the point of contact.",
      note="A point bearing down hard enough to bow the surface under it, and nothing else. A "
@@ -535,7 +679,8 @@ _TILT = xf(8.6, 20.2, -58)
 icon("tilt", "tools", ["angle", "shading", "lean"],
      s=[rect(2.2, -2.1, 11.0, 4.2, 2.0, t=_TILT), line(6.4, -2.1, 6.4, 2.1, t=_TILT),
         line(3.0, 20.2, 21.0, 20.2), arc(8.6, 20.2, 5.6, -58, 0)],
-     f=[poly([(0, 0), (2.2, -1.5), (2.2, 1.5)], close=True, t=_TILT)],
+     f=[poly([(2.2, -1.5), (0.7, -0.7), (0.7, -1.9), (-0.5, -1.9), (-0.5, 1.9), (0.7, 1.9),
+              (0.7, 0.7), (2.2, 1.5)], close=True, t=_TILT)],
      apps="PR",
      basis="Procreate's Tilt settings — the lean of the barrel against the surface.",
      note="The same capsule barrel as the stylus, leant over, with the angle it makes against "
@@ -559,9 +704,9 @@ icon("quickshape", "tools", ["snap to shape", "clean up", "auto shape"],
      note="A wobble becoming a circle.")
 
 icon("colordrop", "tools", ["flood fill", "drag colour", "drop"],
-     s=[rect(3.4, 13.8, 17.2, 6.8)],
-     f=[poly([(12, 2.8), (15.0, 8.0), (15.6, 10.4), (14.0, 12.4), (10.0, 12.4), (8.4, 10.4),
-              (9.0, 8.0)], close=True)],
+     s=[poly([(12, 2.8), (14.6, 7.2), (15.2, 9.4), (13.8, 11.2), (10.2, 11.2), (8.8, 9.4),
+              (9.4, 7.2)], close=True)],
+     f=[poly([(3.4, 13.4), (20.6, 13.4), (20.6, 20.6), (3.4, 20.6)], close=True)],
      apps="PR",
      basis="Procreate's ColorDrop — colour dragged into a closed region, which takes it whole.",
      note="An actual drop, with shoulders, falling into what it will flood. A bare triangle over "
@@ -603,13 +748,14 @@ icon("symmetry-horizontal", "tools", ["mirror y", "top bottom"],
      note="Horizontal axis, lower half generated.")
 
 icon("symmetry-quadrant", "tools", ["four way", "kaleidoscope"],
-     s=[seq(dashed(12, 2.6, 12, 21.4, 5), dashed(2.6, 12, 21.4, 12, 5)),
-        seq(poly([(8.6, 4.4), (5.0, 4.4), (5.0, 8.0)]), poly([(15.4, 4.4), (19.0, 4.4), (19.0, 8.0)]),
-            poly([(8.6, 19.6), (5.0, 19.6), (5.0, 16.0)]))],
-     f=[poly([(15.4, 19.6), (19.0, 19.6), (19.0, 16.0)], close=True)],
+     s=[circle(12, 12, 8.0),
+        seq(dashed(12, 4.2, 12, 19.8, 3), dashed(4.2, 12, 19.8, 12, 3))],
+     f=[pie(12, 12, 8.0, 180, 270)],
      apps="PR",
      basis="Procreate's Quadrant symmetry — both axes live at once.",
-     note="One mark becomes four.")
+     note="A field quartered by both live axes, with one quarter marked — the mark made in it "
+          "appears in all four. Drawn as four wedges arranged round a cross, which was the "
+          "previous attempt, it is an Iron Cross.")
 
 icon("symmetry-radial", "tools", ["rotational", "mandala", "spokes"],
      s=[seq(line(12, 12, 12, 4.6), line(12, 12, 19.0, 9.7), line(12, 12, 16.4, 18.0),
@@ -630,8 +776,9 @@ icon("guide-drawing", "tools", ["assist", "grid guide", "on rails"],
      note="A drawing that cannot leave the grid it was given.")
 
 icon("guide-perspective", "tools", ["vanishing point", "one point", "recede"],
-     s=[seq(line(2.6, 20.4, 21.4, 20.4), line(2.6, 11.0, 21.4, 11.0)),
-        seq(line(2.6, 20.4, 19.0, 11.0), line(9.0, 20.4, 19.0, 11.0), line(15.4, 20.4, 19.0, 11.0))],
+     s=[seq(line(2.6, 20.6, 21.4, 20.6), line(2.6, 10.6, 21.4, 10.6)),
+        seq(line(3.4, 20.6, 19.0, 10.6), line(9.4, 20.6, 19.0, 10.6),
+            line(15.0, 20.6, 19.0, 10.6))],
      f=[dot(19.0, 11.0, 1.5)],
      apps="PS/AI/PR",
      basis="Illustrator's Perspective Grid and Procreate's Perspective guide. The horizon is "

@@ -6,23 +6,34 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- eraser: A rubber block, banded, solid at the face doing the wiping. -->
-    <!-- lineage (PS/AI/PR): The Photoshop and Procreate block eraser — held flat, not angled like a brush. -->
+    <!-- eraser: A rubber block held at the angle it is used at, divided end to end with the working end solid, and the mark it has come to the end of running in from the left.
+
+Which way the block is divided decides what it is. Divided across, into a pale strip over a dark one, it is a container with a lid: square to the frame it was a file folder, a wallet, a battery at sixty per cent, a toaster and a briefcase, and tilted it was an open laptop and a ballot box with a coin slot. Undivided and solid it stopped being a container and became a spade blade. Divided end to end it is neither, and it is also how a two-tone eraser is actually made.
+
+Crumbs were tried three ways and failed three ways: in a row underneath they were wheels and the block a delivery van; round, they were soap suds and the block a washing machine; as short flecks they closed into a two-lobed lump a rater called a bone, then a pair of testicles. Small marks clustered beside a body do not stay abstract, so the mark being rubbed out does that work instead. -->
+    <!-- lineage (PS/AI/PR): The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.4,7.4L15.4,7.4L18.6,10.6L18.6,16.6L5.4,16.6Z" />
+        android:pathData="M5.39,8.33L16.66,4.23L19.81,12.87L8.54,16.97Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.4,11.6L18.6,11.6" />
+        android:pathData="M9.52,6.82L12.67,15.47" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.6,18.4L7,18.4" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M5.4,11.6L18.6,11.6L18.6,16.6L5.4,16.6Z" />
+        android:pathData="M5.39,8.33L9.52,6.82L12.67,15.47L8.54,16.97Z" />
 </vector>

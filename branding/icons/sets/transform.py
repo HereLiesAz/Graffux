@@ -29,12 +29,13 @@ def handles(x, y, w, h):
 
 
 icon("move", "transform", ["position", "pan object", "translate"],
-     s=[],
+     s=[line(12, 5.6, 12, 18.4), line(5.6, 12, 18.4, 12)],
      f=[seq(tip(12, 3.4, 2.2, 90), tip(12, 20.6, 2.2, 270),
             tip(3.4, 12, 2.2, 0), tip(20.6, 12, 2.2, 180))],
      apps="PS/AI/PR",
      basis="The four-way move cross every editor uses for the Move tool.",
-     note="Four arrows sharing one centre — free movement, no axis preferred.")
+     note="Four arrows sharing one centre — free movement, no axis preferred. The shafts are "
+          "not decoration: heads alone read as four loose arrowheads round a hole.")
 
 icon("scale", "transform", ["resize", "free transform"],
      s=[rect(6.6, 6.6, 10.8, 10.8)],
@@ -168,11 +169,13 @@ icon("align-top", "transform", ["align objects top"],
      note="Two frames flush to a single edge overhead.")
 
 icon("align-middle-v", "transform", ["align objects centre vertical"],
-     s=[line(3.4, 12, 20.6, 12), rect(6.4, 8.0, 4.0, 8.0), rect(13.6, 5.5, 4.0, 13.0)],
+     s=[line(3.0, 12, 21.0, 12), rect(5.0, 7.0, 6.4, 10.0), rect(13.0, 4.4, 6.4, 15.2)],
      f=[],
      apps="PS/AI/PR",
      basis="The vertical-centre glyph, matching align-centre-horizontal at ninety degrees.",
-     note="Two frames centred on a single horizontal axis.")
+     note="Two frames centred on a single horizontal axis — the exact transpose of "
+          "align-centre-horizontal. Narrower frames left the axis sticking out far enough "
+          "either side that the whole thing was a plus sign.")
 
 icon("align-bottom", "transform", ["align objects bottom"],
      s=[line(3.4, 20.0, 20.6, 20.0), rect(6.4, 12.0, 4.0, 8.0), rect(13.6, 7.0, 4.0, 13.0)],

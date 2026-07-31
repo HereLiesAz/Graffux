@@ -71,23 +71,37 @@ icon("filter-sharpen-unsharp", "filters", ["edge contrast", "unsharp mask"],
      note="A profile with one edge steepened.")
 
 icon("filter-noise-add", "filters", ["grain", "static", "speckle"],
-     s=[rect(3.4, 3.4, 17.2, 17.2),
-        seq(line(6.6, 9.6, 7.6, 9.6), line(11.4, 8.2, 12.4, 8.2), line(15.2, 12.2, 16.2, 12.2),
-            line(7.4, 14.0, 8.4, 14.0), line(12.4, 16.4, 13.4, 16.4), line(9.0, 18.4, 10.0, 18.4)),
-        seq(line(17.4, 5.2, 17.4, 8.4), line(15.8, 6.8, 19.0, 6.8))],
+     s=[rect(2.6, 3.4, 14.2, 11.0), line(9.7, 14.4, 9.7, 17.0), line(6.4, 17.0, 13.0, 17.0),
+        seq(line(4.4, 5.2, 5.4, 5.8), line(8.0, 4.8, 9.0, 5.8), line(12.4, 5.4, 13.4, 4.8),
+            line(5.8, 8.2, 6.8, 7.4), line(9.8, 8.6, 10.8, 7.4), line(13.6, 7.6, 14.8, 8.4),
+            line(4.2, 11.2, 5.2, 10.4), line(8.4, 10.6, 9.4, 11.4), line(12.6, 11.4, 13.8, 10.6),
+            line(6.4, 13.2, 7.4, 13.8), line(10.6, 13.8, 11.8, 12.8)),
+        seq(line(15.4, 18.0, 20.6, 18.0), line(18.0, 15.4, 18.0, 20.6))],
      f=[],
      apps="PS",
-     basis="Photoshop's Add Noise.",
-     note="A field with an uneven record laid across it.")
+     basis="Photoshop's Add Noise, drawn as the thing everybody has actually seen noise on: a "
+           "screen full of snow.",
+     note="A screen packed with static, and a plus. The stand under it is doing all the work — "
+          "a bordered square with marks inside it is a saltine cracker, a dice face, a seed "
+          "tray, a pan, or the broken-image placeholder, and five drafts of this glyph were "
+          "each of those in turn. Put a stand under the same square and it is a screen, and "
+          "snow on a screen is the one picture of noise nobody has to be taught.\n\n"
+          "The density is the other half. Six marks evenly spread is a dice face; noise is more "
+          "marks than you can count, at angles. Drawn as a signal trace — flat, then erupting — "
+          "it was an EKG, and Reduce Noise as the mirror of it was a seismograph; mirroring is "
+          "not a difference anyone sees at a glance.")
 
 icon("filter-noise-reduce", "filters", ["denoise", "clean up", "smooth grain"],
-     s=[rect(3.4, 3.4, 17.2, 17.2, 6.0),
-        seq(line(7.2, 11.2, 8.2, 11.2), line(14.0, 14.6, 15.0, 14.6), line(10.0, 17.8, 11.0, 17.8)),
-        line(15.8, 6.8, 19.0, 6.8)],
+     s=[rect(2.6, 3.4, 14.2, 11.0), line(9.7, 14.4, 9.7, 17.0), line(6.4, 17.0, 13.0, 17.0),
+        seq(line(4.4, 5.2, 5.4, 5.8), line(10.4, 5.4, 11.4, 4.8), line(8.4, 8.4, 9.2, 7.4),
+            line(14.4, 8.4, 15.2, 7.4), line(5.6, 13.0, 6.6, 13.6)),
+        line(15.4, 18.0, 20.6, 18.0)],
      f=[],
      apps="PS",
-     basis="Photoshop's Reduce Noise — the same field, mostly settled, corners softened.",
-     note="The noise field with most of the speckle gone.")
+     basis="Photoshop's Reduce Noise — the same screen as Add Noise, nearly clear, minus.",
+     note="The same screen with almost all the snow gone, and a minus. The pair differs by "
+          "density and by sign, which is how pen-add differs from pen-remove and layer-add from "
+          "layer-delete: one recognisable object, signed both ways.")
 
 icon("filter-distort-pinch", "filters", ["squeeze", "implode"],
      s=[seq(quad((3.4, 6.0), (12, 10.4), (20.6, 6.0)), quad((3.4, 18.0), (12, 13.6), (20.6, 18.0)),
@@ -113,9 +127,10 @@ icon("filter-distort-wave", "filters", ["ripple", "undulate"],
      note="A frame with a sine passed through it.")
 
 icon("filter-distort-twirl", "filters", ["swirl", "vortex"],
-     s=[smooth([(18.8, 12), (17.6, 7.6), (12.8, 5.2), (7.8, 7.0), (6.4, 12.2), (9.6, 16.2),
-                (14.2, 15.2), (15.2, 11.4), (12.4, 9.6)])],
-     f=[dot(12.4, 9.6, 1.2)],
+     s=[rect(2.6, 2.6, 18.8, 18.8),
+        smooth([(17.4, 12), (16.4, 8.4), (12.6, 6.4), (8.4, 7.8), (7.2, 12.2), (9.8, 15.4),
+                (13.6, 14.6), (14.4, 11.4), (12.2, 9.8)])],
+     f=[dot(12.2, 9.8, 1.1)],
      apps="PS/PR",
      basis="Photoshop's Twirl — the same spiral as Liquify, applied whole.",
      note="A frame's contents wound into a spiral.")
@@ -135,12 +150,18 @@ icon("filter-emboss", "filters", ["relief", "3d edge"],
      note="A flat plate with one raised bevel.")
 
 icon("filter-mosaic", "filters", ["pixelate", "blocks"],
-     s=[seq(line(9.13, 3.4, 9.13, 20.6), line(14.87, 3.4, 14.87, 20.6),
-            line(3.4, 9.13, 20.6, 9.13), line(3.4, 14.87, 20.6, 14.87))],
-     f=[seq(rect(9.13, 3.4, 5.74, 5.73), rect(14.87, 14.87, 5.73, 5.73))],
+     s=[rect(3.4, 3.4, 17.2, 17.2),
+        poly([(3.4, 17.6), (7.7, 17.6), (7.7, 13.3), (12.0, 13.3), (12.0, 9.0), (16.3, 9.0),
+              (16.3, 4.7), (20.6, 4.7)])],
+     f=[seq(rect(7.7, 13.3, 4.3, 4.3), rect(12.0, 9.0, 4.3, 4.3),
+            rect(3.4, 17.6, 4.3, 3.0), rect(16.3, 4.7, 4.3, 4.3))],
      apps="PS",
-     basis="Photoshop's Mosaic / Pixelate — detail coarsened into a fixed grid.",
-     note="A field reduced to a grid of flat tiles.")
+     basis="Photoshop's Mosaic / Pixelate — a smooth edge coarsened onto a fixed grid.",
+     note="A frame with one diagonal edge in it, climbing in square steps instead of running "
+          "straight. Drawn as a ruled grid with two of its cells filled — the literal picture "
+          "of a mosaic — it was a hashtag with two squares stuffed into it, or a tic-tac-toe "
+          "board mid-game. A grid on its own is not pixelation; a staircase where a diagonal "
+          "should be is the only thing that is. Cut as a white staircase out of a solid black square, which is the strongest way to draw it, it is the Flipboard mark.")
 
 icon("filter-crystallize", "filters", ["facets", "voronoi"],
      s=[seq(poly([(3.4, 9.2), (9.6, 3.4), (15.2, 6.8), (12.4, 12.6), (5.0, 13.4)], close=True),
@@ -224,7 +245,7 @@ icon("filter-render-clouds", "filters", ["procedural sky", "fractal"],
      note="A procedural horizon with nothing behind it yet.")
 
 icon("filter-vignette-post", "filters", ["darken corners", "frame edge"],
-     s=[circle(12, 12, 6.4)],
+     s=[rect(2.6, 2.6, 18.8, 18.8)],
      f=[seq(pie(5.4, 5.4, 4.0, 90, 180), pie(18.6, 5.4, 4.0, 0, 90),
             pie(18.6, 18.6, 4.0, 270, 360), pie(5.4, 18.6, 4.0, 180, 270))],
      apps="PS",

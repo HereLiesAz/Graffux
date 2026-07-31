@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- align-middle-v: Two frames centred on a single horizontal axis. -->
+    <!-- align-middle-v: Two frames centred on a single horizontal axis — the exact transpose of align-centre-horizontal. Narrower frames left the axis sticking out far enough either side that the whole thing was a plus sign. -->
     <!-- lineage (PS/AI/PR): The vertical-centre glyph, matching align-centre-horizontal at ninety degrees. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,19 +14,19 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,12L20.6,12" />
+        android:pathData="M3,12L21,12" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6.4,8L10.4,8L10.4,16L6.4,16Z" />
+        android:pathData="M5,7L11.4,7L11.4,17L5,17Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M13.6,5.5L17.6,5.5L17.6,18.5L13.6,18.5Z" />
+        android:pathData="M13,4.4L19.4,4.4L19.4,19.6L13,19.6Z" />
 </vector>

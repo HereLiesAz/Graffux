@@ -46,15 +46,39 @@ def handle(cx, cy):
 
 
 # Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
-# in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
-# circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
-_SQ_A = (4.0, 4.0, 10.0, 10.0)
-_SQ_B = (10.0, 10.0, 10.0, 10.0)
-_UNION = poly([(4, 4), (14, 4), (14, 10), (20, 10), (20, 20), (10, 20), (10, 14), (4, 14)],
+# across most of their width. Every boolean result is a plain polygon off this one pair.
+#
+# It was drawn as a square against a circle for six rounds, on the reasoning that the union of
+# two squares is a staircase and a staircase is two offset squares, which a rater named as the
+# copy icon. Every placement of the circle was worse:
+#
+#   shallow on the corner   all four named correctly as boolean operations, but the union was
+#                           a mass with a rounded head on a neck, and a rater called it a
+#                           phallus
+#   deep in the corner      the part of the circle outside the square shrank to a sliver, so
+#                           subtract and exclude differed by 1.2% of their pixels and all four
+#                           read as generic geometric logo filler
+#   on the right edge       the union is a clean D with no neck, and the whole family became
+#                           front-loading washing machines
+#   under the foot          three of the four were one drawing — a signet ring — collapsing at
+#                           small size into a black shield with a white mouth, i.e. a face,
+#                           and the union was called a blunt phallic silhouette again
+#
+# The lesson underneath all four: a solid square fused to a solid circle is a shaft with a
+# rounded end, in every arrangement where enough of the circle shows to tell the results apart.
+# Nothing in a single ink colour separates the sources from the result, so the result is always
+# read as one object — and one object with a bulb on it is always the same object. Two squares
+# give a union that is at worst a generic copy glyph, which is a misreading and not a hazard.
+_SQ_A = (3.4, 3.4, 12.4, 12.4)
+_SQ_B = (8.2, 8.2, 12.4, 12.4)
+_UNION = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (20.6, 8.2), (20.6, 20.6), (8.2, 20.6),
+               (8.2, 15.8), (3.4, 15.8)],
               close=True)
-_ONLY_A = poly([(4, 4), (14, 4), (14, 10), (10, 10), (10, 14), (4, 14)], close=True)
-_ONLY_B = poly([(20, 20), (10, 20), (10, 14), (14, 14), (14, 10), (20, 10)], close=True)
-_CORE = rect(10, 10, 4, 4)
+_ONLY_A = poly([(3.4, 3.4), (15.8, 3.4), (15.8, 8.2), (8.2, 8.2), (8.2, 15.8), (3.4, 15.8)],
+               close=True)
+_ONLY_B = poly([(20.6, 20.6), (8.2, 20.6), (8.2, 15.8), (15.8, 15.8), (15.8, 8.2), (20.6, 8.2)],
+               close=True)
+_CORE = rect(8.2, 8.2, 7.6, 7.6)
 
 _WAND = xf(12.4, 12.4, 135)
 
@@ -150,7 +174,7 @@ icon("select-color-range", "selection", ["by colour", "tolerance", "sample"],
      note="A sampled colour driving the range beneath it.")
 
 icon("select-focus", "selection", ["focus area", "depth", "sharp region"],
-     s=[circle(12, 12, 5.0),
+     s=[seq(circle(7.6, 13.4, 3.2), circle(16.0, 8.0, 5.4)),
         seq(poly([(3.4, 7.4), (3.4, 3.4), (7.4, 3.4)]),
             poly([(16.6, 3.4), (20.6, 3.4), (20.6, 7.4)]),
             poly([(20.6, 16.6), (20.6, 20.6), (16.6, 20.6)]),
@@ -286,15 +310,35 @@ icon("mask", "selection", ["layer mask", "reveal", "conceal"],
      f=[rect(12, 4.6, 9.0, 14.8)],
      apps="PS/PR",
      basis="Photoshop's layer-mask thumbnail — half revealed, half concealed.",
-     note="One plate, half of it withheld.")
+     note="One plate, half of it withheld. A rater calls this a half-charged battery, or "
+          "an open book, because a rectangle part-filled along one edge is a fill "
+          "gauge before it is anything else — the same thing that kept the eraser "
+          "from being an eraser. It is kept anyway, because the alternative was "
+          "worse: given a hand-painted zigzag boundary instead of a ruled one, the "
+          "notch and the wedge inside it made a bat silhouette, and a rater named "
+          "the DC mark. A diagonal split was not available either — that is "
+          "view-actual-colors. Neutral and wrong beats close to a trademark."
+)
 
 icon("mask-add", "selection", ["new mask", "attach mask"],
-     s=[rect(3.0, 3.6, 13.6, 13.6), line(9.8, 3.6, 9.8, 17.2),
-        seq(line(18.0, 15.4, 18.0, 21.4), line(15.0, 18.4, 21.0, 18.4))],
-     f=[rect(9.8, 3.6, 6.8, 13.6)],
+     s=[rect(2.6, 5.4, 14.0, 11.0), line(9.6, 5.4, 9.6, 16.4),
+        line(21.4, 10.9, 18.4, 10.9)],
+     f=[seq(rect(9.6, 5.4, 7.0, 11.0), tip(17.8, 10.9, 2.4, 180))],
      apps="PS/PR",
      basis="Photoshop's Add Layer Mask button and Procreate's Mask.",
-     note="A mask attached to what did not have one.")
+     note="A mask arriving at the plate, drawn as an arrow driving into it rather "
+          "than as a plus.\n\n"
+          "The plus could not be placed anywhere. A rectangle with a white panel "
+          "down one side and a bold equal-armed cross on it is a Bible, and a rater "
+          "named a Bible or a hymnal before naming anything else, at three separate "
+          "placements. Hung clear of the corner it was a cross standing beside a "
+          "closed book. Lapped over the filled half it is drawn in the same ink as "
+          "the fill and simply vanishes, leaving a stub that made the glyph a "
+          "battery with a terminal on it. Moved to the far corner it was a Bible "
+          "again, and making the plate landscape to break the book proportion did "
+          "not help. Delete keeps its cross, because a cross drawn across a plate "
+          "is a cancellation and not a crucifix."
+)
 
 icon("mask-delete", "selection", ["remove mask", "discard"],
      s=[rect(3.0, 3.6, 13.6, 13.6), line(9.8, 3.6, 9.8, 17.2),
@@ -351,8 +395,9 @@ icon("mask-luminance", "selection", ["luminosity mask", "by tone", "highlights"]
      note="A mask taken from the histogram rather than drawn.")
 
 icon("mask-channel", "selection", ["save selection", "alpha channel", "store"],
-     s=[rect(3.0, 3.4, 18.0, 5.2), rect(3.0, 9.4, 18.0, 5.2), rect(3.0, 15.4, 18.0, 5.2)],
-     f=[rect(3.0, 15.4, 9.0, 5.2)],
+     s=[rect(3.0, 5.4, 8.4, 13.2),
+        seq(rect(12.8, 5.4, 2.4, 13.2), rect(19.2, 5.4, 2.4, 13.2))],
+     f=[rect(16.0, 5.4, 2.4, 13.2)],
      apps="PS",
      basis="Photoshop's Channels panel — a selection stored as an alpha channel.",
      note="Three channels, the last carrying a stored selection.")

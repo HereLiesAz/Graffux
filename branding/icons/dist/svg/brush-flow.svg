@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/brush-flow — Three drops at three depths of fall. -->
-  <path d="M7,3.4L17,3.4L17,20.6L7,20.6Z"/>
-  <path d="M7,9L17,9 M7,14.8L17,14.8"/>
-  <path d="M7,14.8L17,14.8L17,20.6L7,20.6Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/brush-flow — A loaded stroke with the paint running off it, three runs at three lengths.
+
+It was a tall box with two rules across it and the bottom third filled, which is a battery at a third charge and nothing else — a rectangle part-filled along one edge is a fill gauge before it is anything, the same finding as the eraser and the mask, and it put this glyph and mask in one batch reading as one object. Redrawn as a nozzle with drops falling from it, it was accurate to its own note for the first time and immediately collided with the airbrush, which is also a nozzle with marks under it; widening the airbrush's spray to separate them made that glyph anatomical. So the nozzle is gone from this one. There is no emitter in the frame, only what was delivered. -->
+  <path d="M3.4,5.6L20.6,5.6L20.6,9.8L3.4,9.8Z M6.6,9.8L9,9.8L8.4,15.4L7.2,15.4Z M11.2,9.8L13.6,9.8L13,19.4L11.8,19.4Z M15.8,9.8L18.2,9.8L17.6,13.2L16.4,13.2Z" fill="currentColor" stroke="none"/>
 </svg>

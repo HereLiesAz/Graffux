@@ -75,11 +75,9 @@ icon("prompt", "generative", ["ai text input", "describe"],
      note="A field of text with the mark that says it will be read as an instruction.")
 
 icon("ar-view", "generative", ["augmented reality", "camera overlay"],
-     s=[poly([(4.0, 7.4), (4.0, 4.0), (7.4, 4.0)]),
-        poly([(16.6, 4.0), (20.0, 4.0), (20.0, 7.4)]),
-        poly([(4.0, 16.6), (4.0, 20.0), (7.4, 20.0)]),
-        poly([(20.0, 16.6), (20.0, 20.0), (16.6, 20.0)])],
-     f=[poly([(12, 8.0), (16.0, 12), (12, 16.0), (8.0, 12)], close=True)],
+     s=[line(2.6, 18.0, 21.4, 18.0),
+        seq(line(6.6, 21.2, 9.6, 18.0), line(17.4, 21.2, 14.4, 18.0))],
+     f=[poly([(12, 5.0), (16.6, 9.6), (12, 14.2), (7.4, 9.6)], close=True)],
      apps="new",
      basis="GraffitiXR's own AR mural-projection view.",
      note="A viewfinder with the projected form already inside it.")
@@ -128,8 +126,9 @@ icon("subject-isolate", "generative", ["ml cutout", "background removal"],
      note="A picture with its subject already lifted from behind it.")
 
 icon("registration-mark", "generative", ["alignment target", "print register"],
-     s=[circle(12, 12, 6.4), line(12, 3.4, 12, 20.6), line(3.4, 12, 20.6, 12)],
-     f=[],
+     s=[seq(line(17.4, 12.6, 17.4, 15.9), line(17.4, 18.9, 17.4, 22.2),
+            line(12.6, 17.4, 15.9, 17.4), line(18.9, 17.4, 22.2, 17.4))],
+     f=[rect(2.4, 2.4, 11.2, 11.2)],
      apps="new",
      note="The printer's own register mark, used here to align a stencil pass.")
 

@@ -6,16 +6,16 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-duplicate: One plate, twice, out of register. -->
-    <!-- lineage (PS/AI/PR): Photoshop's Duplicate Layer — the same plate, offset once. -->
+    <!-- layer-duplicate: One plate, and the same plate again below it and out of register — two, not three, because three plates in this family is the stack itself. Drawn as two big offset squares with one solid, it was the same picture as the boolean union in the selection family, and it stood outside the layer family's language. Drawn as three plates it was the plain layers glyph with a different plate filled in, and a rater called the two of them one icon in two states. The copy overlaps the original rather than sitting clear below it: clear of it, the pair was the merge-down glyph, which is also one plate over one solid slab. Overlapping it outright, the two ran together into a single swoosh a rater called an automotive marque, so the copy sits just clear and is a plate thick, not a slab. Both plates are the same size, which is the only thing that says copy: with the lower one narrower they were simply two different plates, and a rater read the pair as an italic equals sign. -->
+    <!-- lineage (PS/AI/PR): Photoshop's Duplicate Layer — the stack, with the copy landing on top of it. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L17.6,3.4L17.6,17.6L3.4,17.6Z" />
+        android:pathData="M5.8,4L17.4,4L15,9L3.4,9Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M6.4,6.4L20.6,6.4L20.6,20.6L6.4,20.6Z" />
+        android:pathData="M9.6,10.6L21.2,10.6L18.8,15.6L7.2,15.6Z" />
 </vector>

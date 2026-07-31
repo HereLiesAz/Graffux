@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- theme-toggle: One disc, half in each mode. -->
+    <!-- theme-toggle: One disc, half in each mode, and nothing else. The three rays that used to sit on the light side were legs: at 24 pixels the glyph read as a tick, or a mite — a dark round body with spikes coming off one side is an insect, and rays on one side only are never a sun. -->
     <!-- lineage (PS/AI/PR): The universal light/dark split disc. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,8 +14,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z" />
+        android:pathData="M4.4,12A7.6,7.6 0 1,0 19.6,12A7.6,7.6 0 1,0 4.4,12Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M12,12L12,20.4A8.4,8.4 0 0,1 12,3.6Z" />
+        android:pathData="M12,12L12,19.6A7.6,7.6 0 0,1 12,4.4Z" />
 </vector>

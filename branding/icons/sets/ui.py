@@ -20,7 +20,9 @@ from kit import (
     seq,
     slash,
     square,
+    taper,
     tip,
+    xf,
 )
 
 icon("menu", "ui", ["hamburger", "nav rail", "more"],
@@ -227,11 +229,14 @@ icon("subscription", "ui", ["upgrade", "pro badge"],
      note="The crown every upgrade badge uses.")
 
 icon("theme-toggle", "ui", ["dark mode", "light mode"],
-     s=[circle(12, 12, 8.4)],
-     f=[pie(12, 12, 8.4, 90, 270)],
+     s=[circle(12, 12, 7.6)],
+     f=[pie(12, 12, 7.6, 90, 270)],
      apps="PS/AI/PR",
      basis="The universal light/dark split disc.",
-     note="One disc, half in each mode.")
+     note="One disc, half in each mode, and nothing else. The three rays that used to "
+          "sit on the light side were legs: at 24 pixels the glyph read as a tick, "
+          "or a mite — a dark round body with spikes coming off one side is an "
+          "insect, and rays on one side only are never a sun.")
 
 icon("language", "ui", ["locale", "translate"],
      s=[circle(12, 12, 8.4), line(3.6, 12, 20.4, 12), ellipse(12, 12, 3.6, 8.4)],
@@ -249,10 +254,9 @@ icon("keyboard-shortcut", "ui", ["hotkeys", "key command"],
      note="A key row, standing for the whole board.")
 
 icon("brush-cursor", "ui", ["custom cursor", "tool preview"],
-     s=[circle(12, 12, 6.4),
-        seq(line(12, 2.6, 12, 5.0), line(12, 19.0, 12, 21.4),
-            line(2.6, 12, 5.0, 12), line(19.0, 12, 21.4, 12))],
-     f=[dot(12, 12, 1.2)],
+     s=[seq(arc(12, 12, 7.0, 12, 78), arc(12, 12, 7.0, 102, 168),
+            arc(12, 12, 7.0, 192, 258), arc(12, 12, 7.0, 282, 348))],
+     f=[dot(16.9, 16.9, 1.5)],
      apps="PS/PR",
      basis="The live brush-size cursor ring Photoshop and Procreate both draw.",
      note="A footprint ring with the cursor arrow still touching it.")
@@ -266,12 +270,30 @@ icon("gesture-pinch", "ui", ["two finger zoom"],
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[line(3.0, 19.4, 21.0, 19.4),
-        seq(poly([(6.2, 6.4), (8.6, 8.8), (11.0, 6.4)]), poly([(13.0, 6.4), (15.4, 8.8), (17.8, 6.4)]))],
-     f=[seq(dot(8.6, 14.4, 2.4), dot(15.4, 14.4, 2.4))],
+     s=[line(3.4, 20.2, 20.6, 20.2)],
+     f=[seq(taper(16.6, 5.0, 9.4, 19.6, 2.8, 1.7), taper(20.6, 9.0, 14.2, 19.6, 2.6, 1.6))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
-     note="Two fingers landing together on the same surface.")
+     note="Two fingers of unequal length coming down together on one surface.\n\n"
+          "Ten drawings, and this is the least bad of them rather than a good one. It is "
+          "recorded here as unresolved. A rater with no context calls it two chopsticks in a "
+          "holder, or two cigarettes, or a pair of skis — all wrong, all harmless, which is "
+          "more than any other version managed.\n\n"
+          "What the others were. Upright as two chevrons over two dots over a rule: an angry "
+          "cartoon face, two V eyebrows over two eyes over a flat mouth, because anything "
+          "symmetrical with two marks above two marks above a bar is a face. Upright as "
+          "pointed shapes standing on the rule with the contacts below: two houses on a "
+          "wheeled cart, the points reading as roofs and the contacts as wheels. Long, thin "
+          "and outlined with the ripples curling at their feet: two straight razors, then two "
+          "scalpels. Outlined and blunt with the contact solid inside the tip: the letters oo, "
+          "then two pill capsules, then two sperm cells. Outlined, blunt, standing on curved "
+          "arcs: two tombstones on rocker feet. Solid and anchored off the top-right corner so "
+          "that the hand would be implied: two shafts with rounded bulges at the base, which a "
+          "rater named as two erect penises.\n\n"
+          "The trap under all of it is that two similar elongated marks side by side are "
+          "always a pair of something, and the viewer supplies the something. Nothing about "
+          "fingers survives at this size; only the pairing does."
+)
 
 icon("undo-history-slider", "ui", ["scrub history", "time slider"],
      s=[line(3.4, 12, 20.6, 12), seq(line(3.4, 8.6, 3.4, 15.4), line(20.6, 8.6, 20.6, 15.4))],

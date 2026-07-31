@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- layer-flatten: Three rules pressed down into one solid plate. -->
+    <!-- layer-flatten: Three sheets pressed down into one solid plate, each closer to it than the last. The rules are stepped to match the stack: left flush while the plate under them leaned, the two halves disagreed and the glyph was a hamburger menu sitting on a doormat. -->
     <!-- lineage (PS/AI/PR): Photoshop's Flatten Image — everything pressed into one plate. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,36 +14,8 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,4.2L20.6,4.2" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M4.8,8.2L19.2,8.2" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M6.2,12.2L17.8,12.2" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M6.6,15.4L6.6,12.2" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M17.4,15.4L17.4,12.2" />
+        android:pathData="M4.2,5.6L20.6,3.6 M6,10L20,8.4 M7.8,14.2L19.4,13" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3.4,15.4L20.6,15.4L20.6,20.6L3.4,20.6Z" />
+        android:pathData="M5.8,15.4L20.6,15.4L18.2,20.6L3.4,20.6Z" />
 </vector>

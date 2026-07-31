@@ -1,6 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/smudge — A hand on the tool diagonal, index finger pointing exactly where the brush tip and the pencil point do. Drawn the same way the pan hand is drawn, because it is the only way a hand survives this size: the folded fingers are square columns with real gaps between them, not scallops on a blob, and the thumb is another square column rather than a spur — drawn as a spur off the wrist it is the hammer of a revolver, and the whole silhouette becomes a handgun. Every rounded version of this came back a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a finger-wide tube has no inside left. Distinct from the pan hand, which is upright with all five splayed. -->
-  <path d="M5.35,21.19L3.8,19.64L9.74,13.7L6.91,10.87L8.32,9.45L9.88,11.01L10.73,10.16L9.17,8.61L10.59,7.19L12.14,8.75L14.4,6.48L17.52,9.6L15.82,11.29L17.52,12.99L16.24,14.26L14.55,12.57L11.58,15.54L11.29,15.25Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/smudge — A fist with the index put out along the tool diagonal, pointing where the brush tip and the pencil point point. The hand stands upright; only the finger is on the diagonal. Outlined, with the pad solid where it meets the pixel.
+
+This is the weakest glyph in the set and it is the twenty-fourth drawing of it. It is the version that gets named correctly at first glance — a rater with no context called it a clenched fist — but it carries a knuckle-duster and a stubby handgun as second readings, and it has been read as a molar tooth and an old-fashioned key by other raters. Every alternative tried was worse in a way that mattered more:
+
+Face-on, pointing down, one finger extended — the obvious way to aim a finger at the bottom of the frame where the eraser's face and the pen's nib are — is a hand giving the finger, and two separate raters named the gesture before naming anything else in the drawing. Moving the extended digit from the middle of the hand to the index at the edge of the group did not fix it, and nor did holding the thumb out sideways where no finger could be. A fist with a digit out of it reads as that gesture at any angle it is drawn.
+
+Adding a cuff at the wrist does fix the key and the tooth — a band across the wrist says the mass is attached to an arm, and the manicule has carried one since the twelfth century — but a fist on a cuffed forearm is the raised-fist salute, and the same rater who named that also named an obscene reading. A political symbol is a worse failure than a knuckle-duster. Without the cuff and without the solid pad the same outline is a key with a phallic second reading; the pad is what stops that, and the pad is also what makes the knuckle-duster. There is no configuration of this glyph that is clean.
+
+Turning the whole hand is worse than turning nothing. The pan hand's own outline, folded and rotated 225 degrees so the index lay on the diagonal, came back as a kite: at 45 degrees the finger gaps line up with the diagonal and the wrist becomes a tail. A face-on hand is only read as a hand on a vertical axis. Rebuilt as a manicule in profile — hand, cuff, curled fingers, thumb on top, laid along the diagonal — it was a torch at three different sets of proportions.
+
+Before those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read as two different objects on two viewings of the same path. Interior creases did not settle it, because a crease is a line on a mass and a gap is two objects. Drawing the folded fingers as separate rolls made the hand a key head.
+
+Distinct from the pan hand, which is a hand face-on, upright, open, with all five splayed, and which has never once been misread by anyone. -->
+  <path d="M2.2,17.9L9,13L10.4,8.8L12.4,6.4L14.4,8.6L16.6,6.4L18.8,8.6L20,10.6L20,15.2L18.2,17.8L14.4,18.6L11.6,17.6L11.1,16L4.3,20.9Z"/>
+  <path d="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" fill="currentColor" stroke="none"/>
 </svg>

@@ -4,5 +4,5 @@
   <!-- graffux/layer-isolate — One plate held solid between two that have gone to rules. -->
   <path d="M3,8.4L8,8.4L8,13.4L3,13.4Z"/>
   <path d="M16,8.4L21,8.4L21,13.4L16,13.4Z"/>
-  <path d="M3.4,9.8L20.6,9.8L20.6,14.2L3.4,14.2Z" fill="currentColor" stroke="none"/>
+  <path d="M7.1,8.8L20.08,8.8L17.68,14.4L4.7,14.4Z" fill="currentColor" stroke="none"/>
 </svg>
