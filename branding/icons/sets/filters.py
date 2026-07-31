@@ -206,9 +206,9 @@ icon("filter-vanishing-point", "filters", ["perspective clone", "3d plane"],
      note="A plane tipped back to a vanishing edge.")
 
 icon("filter-lens-flare", "filters", ["light leak", "sun flare"],
-     s=[circle(12, 12, 8.6), line(4.6, 7.8, 19.4, 16.2),
-        seq(circle(9.0, 10.2, 1.6), circle(14.4, 13.4, 2.4))],
-     f=[],
+     s=[rays(7.4, 16.6, 3.2, 5.0, 8),
+        seq(circle(11.8, 12.2, 1.7), circle(15.2, 8.8, 2.5), circle(18.6, 5.4, 1.2))],
+     f=[dot(6.6, 17.4, 2.2)],
      apps="PS",
      basis="Photoshop's Lens Flare.",
      note="A chain of ghosts running toward one bright source.")

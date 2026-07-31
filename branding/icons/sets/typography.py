@@ -106,11 +106,14 @@ icon("font-size", "type", ["point size", "text scale"],
      note="The same letter at two sizes, side by side.")
 
 icon("font-weight", "type", ["bold", "font weight axis"],
-     s=[glyph_a(6.6, 6.4, 12.0, 7.6)],
-     f=[glyph_a_solid(16.8, 4.4, 15.0, 8.8)],
+     s=[],
+     f=[seq(glyph_a_solid(8.2, 5.0, 14.4, 9.6, 2.8),
+            rect(15.8, 6.6, 5.2, 1.1), rect(15.8, 10.4, 5.2, 2.2), rect(15.8, 15.4, 5.2, 3.6))],
      apps="PS/AI",
-     basis="A light A beside a bold one.",
-     note="The same letter, thin then heavy.")
+     basis="One letter at full weight beside the axis that sets it.",
+     note="A heavy letter and the weight ramp that produced it. Drawn as a light A beside a "
+          "bold one it was a second AA, which is already type-allcaps, and which a stranger "
+          "reads as the Alcoholics Anonymous mark before anything else.")
 
 icon("type-bold", "type", ["strong", "b"],
      s=[],

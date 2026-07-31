@@ -66,7 +66,7 @@ icon("pencil", "tools", ["draw", "sketch", "graphite", "edit"],
      note="Shaft, collar, sharpened cone with a solid graphite point.")
 
 icon("airbrush", "tools", ["spray", "atomiser", "soft", "mist"],
-     s=[poly([(9.0, 3.4), (15.0, 3.4), (13.6, 8.0), (10.4, 8.0)], close=True)],
+     s=[rect(9.4, 3.0, 5.2, 3.6), rect(10.8, 6.6, 2.4, 2.4)],
      f=[seq(dot(12, 11.0, 1.25), dot(8.6, 14.2, 1.0), dot(15.4, 14.6, 0.9),
             dot(10.8, 18.4, 0.8), dot(17.2, 18.8, 0.65))],
      apps="PS/PR",
@@ -165,17 +165,18 @@ icon("oil-brush", "tools", ["flat brush", "bristle", "impasto"],
           "from every other slanted stick.")
 
 icon("blob-brush", "tools", ["merge shapes", "vector paint", "blob"],
-     s=[line(20.6, 8.4, 15.8, 8.4), nib(15.8, 8.4, 3.2, 1.5, 180)],
-     f=[smooth([(3.6, 14.2), (6.8, 10.6), (11.6, 11.4), (15.0, 9.6), (18.4, 12.8), (16.8, 16.4),
-                (11.0, 19.4), (5.0, 17.6)], close=True)],
+     s=[],
+     f=[poly([(3.4, 19.4), (5.0, 12.4), (9.6, 8.0), (15.4, 6.8), (19.6, 9.4), (20.6, 13.8),
+              (16.4, 17.4), (10.4, 18.2), (6.6, 21.0)], close=True)],
      apps="AI",
      basis="Illustrator's Blob Brush — a brush whose strokes fuse into one filled shape.",
      note="A large lobed filled form with a small brush just touching its edge. The output is a "
           "closed shape rather than a line, so the shape has to dominate — but it has to be "
-          "lumpy while it does it. Everything about the brush's placement is forced: on a stalk "
-          "above a round blob it is a bomb with a lit fuse, cropped to a stub against a pointed "
-          "blob it is a beak and the blob is a bird. Laid flat across the top, pointing into the "
-          "shape, it is a brush.")
+          "lumpy while it does it. There is no brush in the glyph at all any more, because "
+          "every position tried for one turned the pair into an animal or an object: on a stalk "
+          "above the blob it was a bomb with a lit fuse, cropped short against it a beak, laid "
+          "flat across the top a frying pan. The mark carries the idea on its own — a stroke "
+          "that came out as a closed lumpy form instead of a line is the whole tool.")
 
 icon("spray-can", "tools", ["aerosol", "graffiti", "rattle can"],
      s=[poly([(7.0, 20.6), (7.0, 9.6), (8.8, 7.6), (12.6, 7.6), (14.4, 9.6), (14.4, 20.6)],
@@ -475,9 +476,8 @@ icon("brush-wet", "tools", ["wet mix", "dilute", "bleed"],
           "inside it, the drop is a pointed hood with an eye slit cut in it.")
 
 icon("brush-buildup", "tools", ["accumulate", "density", "layering"],
-     s=[arc(7.0, 15.0, 5.0, 180, 360), arc(12.0, 15.0, 5.0, 180, 360),
-        arc(17.0, 15.0, 5.0, 180, 360), line(2.0, 15.0, 22.0, 15.0)],
-     f=[],
+     s=[seq(rect(3.0, 8.0, 5.6, 8.0), rect(9.2, 8.0, 5.6, 8.0), rect(15.4, 8.0, 5.6, 8.0))],
+     f=[seq(rect(9.2, 12.6, 5.6, 3.4), rect(15.4, 8.0, 5.6, 8.0))],
      apps="PS/PR",
      basis="Photoshop's Build-up airbrush behaviour — passes stacking over one another.",
      note="Three passes over the same ground.")
@@ -521,8 +521,8 @@ icon("stylus", "tools", ["pen hardware", "pencil", "digitiser"],
           "rather than another stick of colour.")
 
 icon("pressure", "tools", ["force", "hard press", "weight"],
-     s=[quad((3.4, 16.6), (12, 21.6), (20.6, 16.6))],
-     f=[poly([(9.8, 3.6), (14.2, 3.6), (12, 19.8)], close=True)],
+     s=[quad((3.4, 15.8), (12, 21.4), (20.6, 15.8))],
+     f=[poly([(9.4, 3.6), (14.6, 3.6), (12, 20.4)], close=True)],
      apps="PR",
      basis="Procreate's Pressure curve — force registered at the point of contact.",
      note="A point bearing down hard enough to bow the surface under it, and nothing else. A "

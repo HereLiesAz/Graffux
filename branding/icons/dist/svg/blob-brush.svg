@@ -1,8 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/blob-brush — A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. Everything about the brush's placement is forced: on a stalk above a round blob it is a bomb with a lit fuse, cropped to a stub against a pointed blob it is a beak and the blob is a bird. Laid flat across the top, pointing into the shape, it is a brush. -->
-  <path d="M20.6,8.4L15.8,8.4"/>
-  <path d="M15.8,9.9L13.82,9.48L12.6,8.4L13.82,7.32L15.8,6.9Z"/>
-  <path d="M3.6,14.2C3.9,13.03 5.47,11.07 6.8,10.6C8.13,10.13 10.23,11.57 11.6,11.4C12.97,11.23 13.87,9.37 15,9.6C16.13,9.83 18.1,11.67 18.4,12.8C18.7,13.93 18.03,15.3 16.8,16.4C15.57,17.5 12.97,19.2 11,19.4C9.03,19.6 6.23,18.47 5,17.6C3.77,16.73 3.3,15.37 3.6,14.2Z" fill="currentColor" stroke="none"/>
+  <!-- graffux/blob-brush — A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. There is no brush in the glyph at all any more, because every position tried for one turned the pair into an animal or an object: on a stalk above the blob it was a bomb with a lit fuse, cropped short against it a beak, laid flat across the top a frying pan. The mark carries the idea on its own — a stroke that came out as a closed lumpy form instead of a line is the whole tool. -->
+  <path d="M3.4,19.4L5,12.4L9.6,8L15.4,6.8L19.6,9.4L20.6,13.8L16.4,17.4L10.4,18.2L6.6,21Z" fill="currentColor" stroke="none"/>
 </svg>

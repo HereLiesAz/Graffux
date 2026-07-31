@@ -47,7 +47,7 @@ object GraffuxIcons {
     val Watercolor: Int get() = R.drawable.ic_gx_watercolor
     /** Seen face-on rather than in profile: thin handle, crimped ferrule, and bristles that splay wider than the ferrule and end ragged. In profile this was indistinguishable from every other slanted stick. */
     val OilBrush: Int get() = R.drawable.ic_gx_oil_brush
-    /** A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. Everything about the brush's placement is forced: on a stalk above a round blob it is a bomb with a lit fuse, cropped to a stub against a pointed blob it is a beak and the blob is a bird. Laid flat across the top, pointing into the shape, it is a brush. */
+    /** A large lobed filled form with a small brush just touching its edge. The output is a closed shape rather than a line, so the shape has to dominate — but it has to be lumpy while it does it. There is no brush in the glyph at all any more, because every position tried for one turned the pair into an animal or an object: on a stalk above the blob it was a bomb with a lit fuse, cropped short against it a beak, laid flat across the top a frying pan. The mark carries the idea on its own — a stroke that came out as a closed lumpy form instead of a line is the whole tool. */
     val BlobBrush: Int get() = R.drawable.ic_gx_blob_brush
     /** Rattle can, nozzle out the side, one landed burst. */
     val SprayCan: Int get() = R.drawable.ic_gx_spray_can
@@ -529,7 +529,7 @@ object GraffuxIcons {
     val FontFamily: Int get() = R.drawable.ic_gx_font_family
     /** The same letter at two sizes, side by side. */
     val FontSize: Int get() = R.drawable.ic_gx_font_size
-    /** The same letter, thin then heavy. */
+    /** A heavy letter and the weight ramp that produced it. Drawn as a light A beside a bold one it was a second AA, which is already type-allcaps, and which a stranger reads as the Alcoholics Anonymous mark before anything else. */
     val FontWeight: Int get() = R.drawable.ic_gx_font_weight
     /** A single heavy capital. */
     val TypeBold: Int get() = R.drawable.ic_gx_type_bold

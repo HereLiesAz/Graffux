@@ -174,7 +174,7 @@ icon("link-external", "ui", ["open in browser", "outbound"],
      note="A frame with an arrow already clear of its corner.")
 
 icon("copy-link", "ui", ["copy url", "share link"],
-     s=[arc(9.0, 15.0, 4.2, -45, 225), arc(15.0, 9.0, 4.2, 135, 405)],
+     s=[rect(3.4, 8.6, 9.6, 6.8, 3.4), rect(11.0, 8.6, 9.6, 6.8, 3.4)],
      f=[],
      apps="PS/AI",
      basis="The link-chain glyph, used here for a copyable URL.",
@@ -266,9 +266,9 @@ icon("gesture-pinch", "ui", ["two finger zoom"],
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[line(3.0, 17.4, 21.0, 17.4),
-        seq(arc(8.6, 13.4, 4.2, 200, 340), arc(15.4, 13.4, 4.2, 200, 340))],
-     f=[seq(ellipse(8.6, 14.6, 2.4, 1.7), ellipse(15.4, 14.6, 2.4, 1.7))],
+     s=[line(3.0, 19.6, 21.0, 19.6),
+        seq(rect(6.8, 5.0, 3.8, 12.0, 1.9), rect(13.4, 5.0, 3.8, 12.0, 1.9))],
+     f=[seq(dot(8.7, 18.2, 1.2), dot(15.3, 18.2, 1.2))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
      note="Two fingers landing together on the same surface.")

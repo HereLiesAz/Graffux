@@ -295,10 +295,11 @@ icon("gradient-mesh", "color", ["mesh", "surface", "multi point"],
      note="A surface with colour held at its intersections.")
 
 icon("temperature", "color", ["warm cool", "kelvin", "white balance"],
-     s=[seq(line(5.0, 15.4, 5.0, 6.0), arc(6.8, 6.0, 1.8, 180, 360), line(8.6, 6.0, 8.6, 15.4)),
-        circle(6.8, 17.4, 3.4),
-        seq(line(14.0, 8.0, 20.6, 8.0), line(14.0, 12.4, 20.6, 12.4), line(14.0, 16.8, 20.6, 16.8))],
-     f=[dot(6.8, 17.4, 1.6)],
+     s=[seq(line(8.0, 14.6, 8.0, 5.4), arc(10.4, 5.4, 2.4, 180, 360), line(12.8, 5.4, 12.8, 14.6)),
+        circle(10.4, 17.0, 4.2),
+        seq(line(12.8, 7.6, 16.6, 7.6), line(12.8, 10.2, 15.4, 10.2),
+            line(12.8, 12.8, 16.6, 12.8))],
+     f=[dot(10.4, 17.0, 2.2)],
      apps="PS",
      basis="Camera Raw's Temperature slider — a thermometer against a scale.",
      note="A bulb and the graduations it is read against.")
