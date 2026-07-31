@@ -227,8 +227,10 @@ icon("subscription", "ui", ["upgrade", "pro badge"],
      note="The crown every upgrade badge uses.")
 
 icon("theme-toggle", "ui", ["dark mode", "light mode"],
-     s=[circle(12, 12, 8.4)],
-     f=[pie(12, 12, 8.4, 90, 270)],
+     s=[circle(12, 12, 7.0),
+        seq(line(5.4, 5.4, 6.7, 6.7), line(18.6, 5.4, 17.3, 6.7),
+            line(18.6, 18.6, 17.3, 17.3), line(5.4, 18.6, 6.7, 17.3))],
+     f=[pie(12, 12, 7.0, 90, 270)],
      apps="PS/AI/PR",
      basis="The universal light/dark split disc.",
      note="One disc, half in each mode.")

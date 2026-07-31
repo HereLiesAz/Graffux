@@ -225,7 +225,7 @@ icon("filter-render-clouds", "filters", ["procedural sky", "fractal"],
      note="A procedural horizon with nothing behind it yet.")
 
 icon("filter-vignette-post", "filters", ["darken corners", "frame edge"],
-     s=[circle(12, 12, 6.4)],
+     s=[rect(2.6, 2.6, 18.8, 18.8)],
      f=[seq(pie(5.4, 5.4, 4.0, 90, 180), pie(18.6, 5.4, 4.0, 0, 90),
             pie(18.6, 18.6, 4.0, 270, 360), pie(5.4, 18.6, 4.0, 180, 270))],
      apps="PS",

@@ -351,8 +351,9 @@ icon("mask-luminance", "selection", ["luminosity mask", "by tone", "highlights"]
      note="A mask taken from the histogram rather than drawn.")
 
 icon("mask-channel", "selection", ["save selection", "alpha channel", "store"],
-     s=[rect(3.0, 3.4, 18.0, 5.2), rect(3.0, 9.4, 18.0, 5.2), rect(3.0, 15.4, 18.0, 5.2)],
-     f=[rect(3.0, 15.4, 9.0, 5.2)],
+     s=[rect(3.0, 5.4, 8.4, 13.2),
+        seq(rect(12.8, 5.4, 2.4, 13.2), rect(19.2, 5.4, 2.4, 13.2))],
+     f=[rect(16.0, 5.4, 2.4, 13.2)],
      apps="PS",
      basis="Photoshop's Channels panel — a selection stored as an alpha channel.",
      note="Three channels, the last carrying a stored selection.")

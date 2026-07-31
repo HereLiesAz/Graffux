@@ -2,7 +2,6 @@
      width="24" height="24" fill="none" stroke="currentColor"
      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/brush-opacity — Half committed, half withheld. -->
-  <path d="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z"/>
-  <path d="M12,3.6L12,20.4"/>
+  <path d="M13.46,3.73A8.4,8.4 0 0,1 19.89,9.13 M19.89,14.87A8.4,8.4 0 0,1 13.46,20.27"/>
   <path d="M12,12L12,20.4A8.4,8.4 0 0,1 12,3.6Z" fill="currentColor" stroke="none"/>
 </svg>

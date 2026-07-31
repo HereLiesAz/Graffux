@@ -8,6 +8,7 @@ follow Photoshop's Timeline panel: a filmstrip, a diamond for a keyframe, onion-
 from kit import (
     arc,
     circle,
+    dashed_rect,
     dot,
     icon,
     line,
@@ -47,7 +48,7 @@ icon("keyframe-add", "animation", ["set key", "record state"],
      note="A diamond marked but not yet solid.")
 
 icon("onion-skin", "animation", ["ghost frames", "previous next frame"],
-     s=[rect(3.0, 7.0, 8.0, 10.0), rect(6.4, 7.0, 8.0, 10.0)],
+     s=[dashed_rect(3.0, 7.0, 8.0, 10.0, 2), dashed_rect(6.4, 7.0, 8.0, 10.0, 2)],
      f=[rect(9.8, 7.0, 8.0, 10.0)],
      apps="PS/PR",
      basis="Procreate's Onion Skin and Photoshop's Ghost frames.",

@@ -194,8 +194,8 @@ icon("grid-overlay", "document", ["pixel grid", "show grid"],
      note="A frame divided into an even field.")
 
 icon("view-actual-colors", "document", ["proof colours", "soft proof"],
-     s=[circle(9.0, 9.4, 5.4), circle(15.0, 9.4, 5.4), circle(12.0, 15.0, 5.4)],
-     f=[],
+     s=[rect(3.4, 5.0, 17.2, 14.0), line(9.0, 5.0, 15.0, 19.0)],
+     f=[poly([(15.0, 19.0), (9.0, 5.0), (20.6, 5.0), (20.6, 19.0)], close=True)],
      apps="PS",
      basis="Photoshop's Proof Colors — the working view against the output simulation.",
      note="Two fields held side by side, neither one favoured.")
@@ -217,8 +217,8 @@ icon("full-screen", "document", ["immersive mode", "hide panels"],
      note="Four corner marks with nothing held between them.")
 
 icon("split-view", "document", ["compare", "before after"],
-     s=[rect(3.4, 3.4, 17.2, 17.2), line(12, 3.4, 12, 20.6)],
-     f=[rect(12, 3.4, 8.6, 17.2)],
+     s=[rect(3.4, 3.4, 17.2, 17.2), line(3.4, 12, 20.6, 12)],
+     f=[rect(3.4, 12, 17.2, 8.6)],
      apps="PS/PR",
      basis="Procreate's before/after slider and Photoshop's split preview.",
      note="One frame, half of it showing the result.")
