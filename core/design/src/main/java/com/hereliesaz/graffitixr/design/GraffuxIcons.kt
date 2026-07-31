@@ -111,7 +111,7 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushLibrary: Int get() = R.drawable.ic_gx_brush_library
     /** Three rails; the middle one is the one being moved. */
     val BrushSettings: Int get() = R.drawable.ic_gx_brush_settings
-    /** Two diameters measured out from a single origin. */
+    /** One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. */
     val BrushSize: Int get() = R.drawable.ic_gx_brush_size
     /** Half committed, half withheld. */
     val BrushOpacity: Int get() = R.drawable.ic_gx_brush_opacity
@@ -119,9 +119,9 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushFlow: Int get() = R.drawable.ic_gx_brush_flow
     /** A solid core, a broken halo, an outer edge. */
     val BrushHardness: Int get() = R.drawable.ic_gx_brush_hardness
-    /** Three stamps on a measured run; the middle one just landed. */
+    /** Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn. */
     val BrushSpacing: Int get() = R.drawable.ic_gx_brush_spacing
-    /** A stroke path with its stamps scattered around it. */
+    /** Stamps thrown clear of the path they were meant to follow, the path itself broken because nothing was laid down on it. Drawn as a solid diagonal rule with two marks above it and two below, it was a percent sign at every size — a slash between two round things is that character and nothing else. Five marks, uneven, and a dashed path. */
     val BrushScatter: Int get() = R.drawable.ic_gx_brush_scatter
     /** An angle read off the baseline, solid where it points. */
     val BrushAngle: Int get() = R.drawable.ic_gx_brush_angle
@@ -219,13 +219,13 @@ What the strokes were: spilled rice, and the fourth icon in the set drawn as a f
     val SelectRefine: Int get() = R.drawable.ic_gx_select_refine
     /** A selection edge under its own handles. */
     val SelectTransform: Int get() = R.drawable.ic_gx_select_transform
-    /** Both regions held. The pair is a square and a circle, not two squares, and the circle sits deep enough in the corner that what protrudes is a bulge and not a head. */
+    /** Both regions held. */
     val SelectAdd: Int get() = R.drawable.ic_gx_select_add
     /** What is left of the first once the second is taken out. */
     val SelectSubtract: Int get() = R.drawable.ic_gx_select_subtract
     /** Only the ground both regions hold. */
     val SelectIntersect: Int get() = R.drawable.ic_gx_select_intersect
-    /** Everything except the ground they share. The circle protrudes far enough that the crescent outside the square is worth seeing: set deeper, the only visible difference from Minus Front was a sliver, and a rater called both of them a bitten cookie. */
+    /** Everything except the ground they share. */
     val SelectExclude: Int get() = R.drawable.ic_gx_select_exclude
     /** One plate, half of it withheld. */
     val Mask: Int get() = R.drawable.ic_gx_mask

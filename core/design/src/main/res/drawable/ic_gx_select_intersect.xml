@@ -14,15 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.4,3.4L16,3.4L16,16L3.4,16Z" />
+        android:pathData="M3.4,3.4L15.8,3.4L15.8,15.8L3.4,15.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.2,13.4A6.2,6.2 0 1,0 19.6,13.4A6.2,6.2 0 1,0 7.2,13.4Z" />
+        android:pathData="M8.2,8.2L20.6,8.2L20.6,20.6L8.2,20.6Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M16,7.77A6.2,6.2 0 0 0 7.77,16L16,16Z" />
+        android:pathData="M8.2,8.2L15.8,8.2L15.8,15.8L8.2,15.8Z" />
 </vector>

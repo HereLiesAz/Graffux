@@ -6,30 +6,23 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-size: Two diameters measured out from a single origin. -->
-    <!-- lineage (PS/AI/PR): Photoshop's brush-size preview — nested footprints on one centre. -->
+    <!-- brush-size: One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them — the literal picture of a diameter — it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark. -->
+    <!-- lineage (PS/AI/PR): Photoshop's brush-size preview, measured the way any width is measured. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.6,12A8.4,8.4 0 1,0 20.4,12A8.4,8.4 0 1,0 3.6,12Z" />
+        android:pathData="M3.4,12A6,6 0 1,0 15.4,12A6,6 0 1,0 3.4,12Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.8,12A4.2,4.2 0 1,0 16.2,12A4.2,4.2 0 1,0 7.8,12Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,12L17.9,6.1" />
+        android:pathData="M18.6,7L18.6,17" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M10.65,12A1.35,1.35 0 1,0 13.35,12A1.35,1.35 0 1,0 10.65,12Z" />
+        android:pathData="M18.6,5.4L20.04,3.4L17.16,3.4Z M18.6,18.6L17.16,20.6L20.04,20.6Z" />
 </vector>

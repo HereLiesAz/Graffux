@@ -547,8 +547,8 @@
         "scale brush"
       ],
       "apps": "PS/AI/PR",
-      "basis": "Photoshop's brush-size preview \u2014 nested footprints on one centre.",
-      "note": "Two diameters measured out from a single origin."
+      "basis": "Photoshop's brush-size preview, measured the way any width is measured.",
+      "note": "One footprint with its size taken off beside it. Drawn as two rings on one centre with a radius struck through them \u2014 the literal picture of a diameter \u2014 it was a dartboard with a dart in it, and at small size the rings merged and the radius became the bar of a no-entry sign. Concentric rings around a centre are a target whatever is meant by them, which is the same finding that took the ring off the brush cursor and the register mark."
     },
     {
       "key": "brush-opacity",
@@ -600,7 +600,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Spacing setting \u2014 a brush is a run of stamps, not a line.",
-      "note": "Three stamps on a measured run; the middle one just landed."
+      "note": "Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn."
     },
     {
       "key": "brush-scatter",
@@ -613,7 +613,7 @@
       ],
       "apps": "PS/PR",
       "basis": "Photoshop's Scattering \u2014 marks thrown off the path they were meant to follow.",
-      "note": "A stroke path with its stamps scattered around it."
+      "note": "Stamps thrown clear of the path they were meant to follow, the path itself broken because nothing was laid down on it. Drawn as a solid diagonal rule with two marks above it and two below, it was a percent sign at every size \u2014 a slash between two round things is that character and nothing else. Five marks, uneven, and a dashed path."
     },
     {
       "key": "brush-angle",
@@ -1219,7 +1219,7 @@
       ],
       "apps": "PS/AI/PR",
       "basis": "Illustrator's Pathfinder Unite and Photoshop's Add to Selection.",
-      "note": "Both regions held. The pair is a square and a circle, not two squares, and the circle sits deep enough in the corner that what protrudes is a bulge and not a head."
+      "note": "Both regions held."
     },
     {
       "key": "select-subtract",
@@ -1258,7 +1258,7 @@
       ],
       "apps": "AI",
       "basis": "Illustrator's Pathfinder Exclude.",
-      "note": "Everything except the ground they share. The circle protrudes far enough that the crescent outside the square is worth seeing: set deeper, the only visible difference from Minus Front was a sliver, and a rater called both of them a bitten cookie."
+      "note": "Everything except the ground they share."
     },
     {
       "key": "mask",

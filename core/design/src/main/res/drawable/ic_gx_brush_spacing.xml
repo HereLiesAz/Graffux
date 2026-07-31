@@ -6,7 +6,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- brush-spacing: Three stamps on a measured run; the middle one just landed. -->
+    <!-- brush-spacing: Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn. -->
     <!-- lineage (PS/PR): Photoshop's Spacing setting — a brush is a run of stamps, not a line. -->
     <path
         android:fillColor="@android:color/transparent"
@@ -14,22 +14,15 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M3.3,11.4A2.7,2.7 0 1,0 8.7,11.4A2.7,2.7 0 1,0 3.3,11.4Z" />
+        android:pathData="M3,15.8A2.6,2.6 0 1,0 8.2,15.8A2.6,2.6 0 1,0 3,15.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M15.3,11.4A2.7,2.7 0 1,0 20.7,11.4A2.7,2.7 0 1,0 15.3,11.4Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M3.3,18.6L20.7,18.6" />
+        android:pathData="M15.8,8.2A2.6,2.6 0 1,0 21,8.2A2.6,2.6 0 1,0 15.8,8.2Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M9.3,11.4A2.7,2.7 0 1,0 14.7,11.4A2.7,2.7 0 1,0 9.3,11.4Z" />
+        android:pathData="M9.4,12A2.6,2.6 0 1,0 14.6,12A2.6,2.6 0 1,0 9.4,12Z" />
 </vector>

@@ -459,11 +459,16 @@ icon("brush-settings", "tools", ["brush studio", "parameters", "engine"],
      note="Three rails; the middle one is the one being moved.")
 
 icon("brush-size", "tools", ["diameter", "radius", "scale brush"],
-     s=[circle(12, 12, 8.4), circle(12, 12, 4.2), line(12, 12, 17.9, 6.1)],
-     f=[dot(12, 12, 1.35)],
+     s=[circle(9.4, 12, 6.0), line(18.6, 7.0, 18.6, 17.0)],
+     f=[seq(tip(18.6, 5.4, 2.0, 90), tip(18.6, 18.6, 2.0, 270))],
      apps="PS/AI/PR",
-     basis="Photoshop's brush-size preview — nested footprints on one centre.",
-     note="Two diameters measured out from a single origin.")
+     basis="Photoshop's brush-size preview, measured the way any width is measured.",
+     note="One footprint with its size taken off beside it. Drawn as two rings on one centre "
+          "with a radius struck through them — the literal picture of a diameter — it was a "
+          "dartboard with a dart in it, and at small size the rings merged and the radius "
+          "became the bar of a no-entry sign. Concentric rings around a centre are a target "
+          "whatever is meant by them, which is the same finding that took the ring off the "
+          "brush cursor and the register mark.")
 
 icon("brush-opacity", "tools", ["alpha", "coverage", "translucent"],
      s=[seq(arc(12, 12, 8.4, -80, -20), arc(12, 12, 8.4, 20, 80))],
@@ -487,19 +492,29 @@ icon("brush-hardness", "tools", ["edge", "falloff", "core"],
      note="A solid core, a broken halo, an outer edge.")
 
 icon("brush-spacing", "tools", ["stamps", "interval", "gap"],
-     s=[circle(6.0, 11.4, 2.7), circle(18.0, 11.4, 2.7), line(3.3, 18.6, 20.7, 18.6)],
-     f=[dot(12.0, 11.4, 2.7)],
+     s=[circle(5.6, 15.8, 2.6), circle(18.4, 8.2, 2.6)],
+     f=[dot(12.0, 12.0, 2.6)],
      apps="PS/PR",
      basis="Photoshop's Spacing setting — a brush is a run of stamps, not a line.",
-     note="Three stamps on a measured run; the middle one just landed.")
+     note="Three stamps stepping evenly up a run, the middle one just landed. No line "
+          "through them and no line under them. Set in a row above a separate rule they were "
+          "a traffic light on its side, or the letters OOO underlined; with the rule passed "
+          "through their centres instead, the two hollow ones became barred circles and the "
+          "pair of them a set of spectacles, with the solid one as a nose. The even step is "
+          "what carries the spacing. Distinct from scatter, whose stamps are thrown off a "
+          "line that is actually drawn.")
 
 icon("brush-scatter", "tools", ["jitter", "spread", "random"],
-     s=[line(2.8, 17.2, 21.2, 6.8), circle(7.6, 10.2, 1.7), circle(16.8, 15.4, 1.7),
-        circle(13.4, 7.6, 1.4)],
-     f=[dot(10.0, 17.6, 1.35)],
+     s=[dashed(2.8, 17.2, 21.2, 6.8, 5, 0.55), circle(7.0, 10.4, 1.6), circle(17.4, 15.2, 1.5),
+        circle(13.0, 7.2, 1.3), circle(19.4, 9.0, 1.15)],
+     f=[dot(9.6, 17.8, 1.35)],
      apps="PS/PR",
      basis="Photoshop's Scattering — marks thrown off the path they were meant to follow.",
-     note="A stroke path with its stamps scattered around it.")
+     note="Stamps thrown clear of the path they were meant to follow, the path itself broken "
+          "because nothing was laid down on it. Drawn as a solid diagonal rule with two marks "
+          "above it and two below, it was a percent sign at every size — a slash between two "
+          "round things is that character and nothing else. Five marks, uneven, and a dashed "
+          "path.")
 
 icon("brush-angle", "tools", ["rotation", "nib angle", "protractor"],
      s=[line(3.4, 19.4, 20.6, 19.4), line(4.6, 19.4, 16.6, 7.4), arc(4.6, 19.4, 7.6, 315, 360)],
