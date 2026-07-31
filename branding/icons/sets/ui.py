@@ -20,6 +20,7 @@ from kit import (
     seq,
     slash,
     square,
+    taper,
     tip,
 )
 
@@ -267,12 +268,19 @@ icon("gesture-pinch", "ui", ["two finger zoom"],
      note="Two touch points being drawn together.")
 
 icon("gesture-two-finger-tap", "ui", ["undo gesture", "quick undo"],
-     s=[line(3.0, 19.4, 21.0, 19.4),
-        seq(poly([(6.2, 6.4), (8.6, 8.8), (11.0, 6.4)]), poly([(13.0, 6.4), (15.4, 8.8), (17.8, 6.4)]))],
-     f=[seq(dot(8.6, 14.4, 2.4), dot(15.4, 14.4, 2.4))],
+     s=[line(3.4, 20.2, 20.6, 20.2)],
+     f=[seq(taper(16.6, 5.0, 9.4, 19.6, 2.8, 1.7), taper(20.6, 9.0, 14.2, 19.6, 2.6, 1.6))],
      apps="PR",
      basis="Procreate's two-finger-tap undo gesture.",
-     note="Two fingers landing together on the same surface.")
+     note="Two fingers reaching in from the upper right, of unequal length, coming down "
+          "together on one surface. Drawn upright as two chevrons over two dots over a rule — "
+          "the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, "
+          "two eyes and a flat mouth. Anything symmetrical with two marks above two marks "
+          "above a bar is a face and a face is all anyone sees. Redrawn upright as two "
+          "pointed shapes standing on the rule with the contacts below it, it was two houses "
+          "on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled, "
+          "unequal and touching the surface directly, there is no symmetry left to fall into."
+)
 
 icon("undo-history-slider", "ui", ["scrub history", "time slider"],
      s=[line(3.4, 12, 20.6, 12), seq(line(3.4, 8.6, 3.4, 15.4), line(20.6, 8.6, 20.6, 15.4))],

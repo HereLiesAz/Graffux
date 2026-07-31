@@ -221,12 +221,20 @@ icon("stamp-pattern", "tools", ["pattern stamp", "tile", "repeat"],
 # ---------------------------------------------------------------------------------------
 
 icon("eraser", "tools", ["rub out", "delete", "undo mark"],
-     s=[poly([(5.4, 7.4), (15.4, 7.4), (18.6, 10.6), (18.6, 16.6), (5.4, 16.6)], close=True),
-        line(5.4, 11.6, 18.6, 11.6)],
-     f=[poly([(5.4, 11.6), (18.6, 11.6), (18.6, 16.6), (5.4, 16.6)], close=True)],
+     s=[poly([(5.4, 6.6), (15.4, 6.6), (18.6, 9.8), (18.6, 15.8), (5.4, 15.8)], close=True),
+        line(5.4, 10.8, 18.6, 10.8),
+        seq(circle(4.4, 19.0, 0.6), circle(8.2, 20.4, 0.6), circle(12.0, 18.8, 0.6))],
+     f=[poly([(5.4, 10.8), (18.6, 10.8), (18.6, 15.8), (5.4, 15.8)], close=True)],
      apps="PS/AI/PR",
-     basis="The Photoshop and Procreate block eraser — held flat, not angled like a brush.",
-     note="A rubber block, banded, solid at the face doing the wiping.")
+     basis="The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest.",
+     note="A rubber block, banded, solid at the face doing the wiping, with the rubbings it "
+           "has shed lying under it. The crumbs are the whole difference. Without them the "
+           "block was a file folder with a dog-eared corner, a wallet, and a battery at sixty "
+           "per cent — a rectangle part-filled along one edge is a fill gauge before it is an "
+           "object. Redrawn as a block seen at an angle with the line it was clearing running "
+           "out from under it, it was an open cardboard box with a stray bar floating "
+           "underneath. Nothing sheds crumbs but an eraser."
+)
 
 icon("eraser-hard", "tools", ["hard edge", "crisp", "block"],
      s=[poly([(5.4, 7.4), (15.4, 7.4), (18.6, 10.6), (18.6, 16.6), (5.4, 16.6)], close=True),
@@ -333,13 +341,16 @@ icon("burn", "tools", ["darken", "shade", "cupped hand", "aperture"],
 )
 
 icon("sponge", "tools", ["saturation", "soak", "porous"],
-     s=[poly([(3.6, 8.6), (7.0, 6.0), (12.0, 7.2), (16.6, 5.6), (20.4, 8.8), (19.2, 14.2),
-              (20.0, 17.6), (15.0, 18.8), (10.0, 17.8), (4.6, 18.4), (4.0, 13.4)], close=True),
-        seq(circle(8.4, 11.4, 1.5), circle(15.2, 13.6, 1.7), circle(11.8, 15.6, 1.2))],
-     f=[],
+     s=[poly([(4.6, 5.4), (19.4, 5.4), (19.4, 9.6), (16.6, 11.8), (19.4, 14.0), (19.4, 17.4),
+              (4.6, 17.4), (4.6, 14.0), (7.4, 11.8), (4.6, 9.6)], close=True)],
+     f=[seq(dot(9.4, 20.2, 1.1), dot(14.6, 19.4, 0.85))],
      apps="PS",
-     basis="Photoshop's Sponge tool — a porous block that pulls colour out or drives it in.",
-     note="Pores, one of them filled where the colour is being taken.")
+     basis="Photoshop's Sponge tool — a block being squeezed until the colour comes out of it.",
+     note="A block with a wrung, dripping underside and the drops falling from it. Drawn as a "
+          "torn blob with three round pores in it, which is what a sponge actually looks like, "
+          "it was a slice of Swiss cheese to every rater who saw it, and a skull at small size "
+          "once two of the pores overlapped into a pair of eye sockets. Holes in a blob are "
+          "cheese. What is unique to a sponge is not its holes but that it gives up liquid, so this is the block pinched at the waist with what it gave up falling below it. Drawn with the underside wrung into points, the points were fangs and the drops were drool: a row of points along a solid edge is a jaw, every time, which is the same thing that went wrong with the brush texture.")
 
 icon("heal", "tools", ["healing brush", "plaster", "repair"],
      s=[rect(-8.4, -3.4, 16.8, 6.8, 3.4, t=T),
@@ -527,21 +538,24 @@ icon("brush-dual", "tools", ["dual brush", "second tip", "combine"],
      note="A smaller footprint carried by a larger one.")
 
 icon("brush-texture", "tools", ["grain", "tooth", "paper"],
-     s=[],
-     f=[seq(poly([(3.4, 8.4), (9.8, 7.6), (10.0, 13.0), (3.6, 13.8)], close=True),
-            poly([(11.2, 7.8), (13.2, 7.6), (13.4, 12.6), (11.4, 12.8)], close=True),
-            poly([(14.6, 9.6), (15.8, 9.4), (16.0, 11.6), (14.8, 11.8)], close=True),
-            poly([(17.2, 8.2), (18.2, 8.1), (18.4, 12.4), (17.4, 12.5)], close=True),
-            poly([(19.6, 10.0), (20.4, 9.9), (20.5, 11.4), (19.7, 11.5)], close=True))],
-     apps="PS/PR",
+     s=[smooth([(3.4, 15.4), (7.6, 11.0), (13.0, 14.4), (20.6, 7.6)])],
+     f=[seq(poly([(4.0, 17.0), (7.2, 13.2), (8.4, 14.2), (5.2, 18.0)], close=True),
+            poly([(9.0, 14.0), (10.6, 13.4), (11.0, 14.8), (9.4, 15.4)], close=True),
+            poly([(12.4, 15.6), (15.6, 12.6), (16.6, 13.6), (13.4, 16.6)], close=True),
+            poly([(17.4, 12.0), (18.4, 11.2), (19.0, 12.2), (18.0, 13.0)], close=True))],
+          apps="PS/PR",
      basis="Photoshop's Texture setting and Procreate's grain source — a stroke running dry "
            "over the tooth of the paper.",
-     note="A stroke that is solid where it started and broken into slivers where the tooth has "
-          "taken it. Drawn as a bare field of scattered dashes it was spilled rice, and it was "
-          "the fourth icon in the set to be a field of scattered dashes — the same picture as "
-          "Add Noise, Reduce Noise and Grain. Redrawn as a black band with a sawtooth underside "
-          "it was a mouth full of bared teeth, with the marks below it as the lower row: a "
-          "regular row of points along a solid edge is a jaw, and nothing else gets a look in. Broken into four slivers of even width it was a barcode; the remnants have to be uneven in both width and height or they are bars, not grain."
+     note="A stroke, and the broken shadow it lays down where the tooth of the paper caught "
+          "it. The grain is in the shadow's gaps, not in the stroke.\n\n"
+          "Four drawings before this one. As a bare field of scattered dashes it was spilled "
+          "rice, and it was the fourth icon in the set drawn as a field of scattered dashes — "
+          "the same picture as Add Noise, Reduce Noise and Grain. As a black band with a "
+          "sawtooth underside it was a mouth full of bared teeth. Broken into slivers of even "
+          "width it was a barcode; made uneven in width and height it was still a barcode, then "
+          "road dashes in perspective. A row of separated blocks along a horizontal is a bar "
+          "chart or a barcode no matter how irregular the blocks are — the marks have to sit "
+          "on something that is visibly a stroke."
 )
 
 icon("brush-import", "tools", ["load brush", "install", "abr"],

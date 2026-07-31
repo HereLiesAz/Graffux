@@ -6,23 +6,30 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-    <!-- eraser: A rubber block, banded, solid at the face doing the wiping. -->
-    <!-- lineage (PS/AI/PR): The Photoshop and Procreate block eraser — held flat, not angled like a brush. -->
+    <!-- eraser: A rubber block, banded, solid at the face doing the wiping, with the rubbings it has shed lying under it. The crumbs are the whole difference. Without them the block was a file folder with a dog-eared corner, a wallet, and a battery at sixty per cent — a rectangle part-filled along one edge is a fill gauge before it is an object. Redrawn as a block seen at an angle with the line it was clearing running out from under it, it was an open cardboard box with a stray bar floating underneath. Nothing sheds crumbs but an eraser. -->
+    <!-- lineage (PS/AI/PR): The Photoshop and Procreate block eraser, drawn mid-wipe rather than at rest. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.4,7.4L15.4,7.4L18.6,10.6L18.6,16.6L5.4,16.6Z" />
+        android:pathData="M5.4,6.6L15.4,6.6L18.6,9.8L18.6,15.8L5.4,15.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5.4,11.6L18.6,11.6" />
+        android:pathData="M5.4,10.8L18.6,10.8" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3.8,19A0.6,0.6 0 1,0 5,19A0.6,0.6 0 1,0 3.8,19Z M7.6,20.4A0.6,0.6 0 1,0 8.8,20.4A0.6,0.6 0 1,0 7.6,20.4Z M11.4,18.8A0.6,0.6 0 1,0 12.6,18.8A0.6,0.6 0 1,0 11.4,18.8Z" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M5.4,11.6L18.6,11.6L18.6,16.6L5.4,16.6Z" />
+        android:pathData="M5.4,10.8L18.6,10.8L18.6,15.8L5.4,15.8Z" />
 </vector>

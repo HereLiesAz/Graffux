@@ -48,9 +48,10 @@ def handle(cx, cy):
 # Illustrator's Pathfinder pair: two offset squares, A up-left and B down-right, overlapping
 # in a 4-unit core. Every boolean result is a plain polygon off this one pair — cheaper than
 # circle lunes, unambiguous at 16px, and (unlike two filled discs) it reads as geometry.
-_SQ_A = (4.0, 4.0, 10.0, 10.0)
-_SQ_B = (10.0, 10.0, 10.0, 10.0)
-_UNION = poly([(4, 4), (14, 4), (14, 10), (20, 10), (20, 20), (10, 20), (10, 14), (4, 14)],
+_SQ_A = (3.4, 3.4, 11.4, 11.4)
+_SQ_B = (9.2, 9.2, 11.4, 11.4)
+_UNION = poly([(3.4, 3.4), (14.8, 3.4), (14.8, 9.2), (20.6, 9.2), (20.6, 20.6), (9.2, 20.6),
+               (9.2, 14.8), (3.4, 14.8)],
               close=True)
 _ONLY_A = poly([(4, 4), (14, 4), (14, 10), (10, 10), (10, 14), (4, 14)], close=True)
 _ONLY_B = poly([(20, 20), (10, 20), (10, 14), (14, 14), (14, 10), (20, 10)], close=True)

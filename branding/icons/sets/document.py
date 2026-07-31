@@ -232,12 +232,16 @@ icon("multi-window", "document", ["new window", "second view"],
      note="A second frame opened onto the same page.")
 
 icon("thumbnails", "document", ["gallery", "grid view"],
-     s=[seq(rect(3.4, 5.6, 5.2, 5.2), rect(9.4, 5.6, 5.2, 5.2), rect(15.4, 5.6, 5.2, 5.2),
-            rect(3.4, 13.2, 5.2, 5.2), rect(9.4, 13.2, 5.2, 5.2), rect(15.4, 13.2, 5.2, 5.2))],
+     s=[rect(3.4, 4.6, 10.8, 10.8),
+        seq(rect(16.0, 4.6, 4.6, 4.6), rect(16.0, 10.8, 4.6, 4.6), rect(3.4, 16.8, 4.6, 2.6),
+            rect(9.6, 16.8, 4.6, 2.6))],
      f=[],
      apps="PS/PR",
-     basis="Procreate's Gallery grid.",
-     note="Four pages laid out as a set to choose from.")
+     basis="Procreate's Gallery — one page open at size with the rest of the set beside it.",
+     note="One large panel with smaller ones ranged around it. An even grid of identical cells "
+          "is a waffle, or a chocolate bar, or a brick wall — three raters, three foods and a "
+          "wall — and at small size it fills in to a solid dark rectangle with no grid visible "
+          "at all. Panels of different sizes cannot do either.")
 
 icon("bleed-marks", "document", ["print bleed", "trim marks"],
      s=[rect(6.6, 6.6, 10.8, 10.8),

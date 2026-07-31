@@ -150,12 +150,17 @@ icon("filter-emboss", "filters", ["relief", "3d edge"],
      note="A flat plate with one raised bevel.")
 
 icon("filter-mosaic", "filters", ["pixelate", "blocks"],
-     s=[seq(line(9.13, 3.4, 9.13, 20.6), line(14.87, 3.4, 14.87, 20.6),
-            line(3.4, 9.13, 20.6, 9.13), line(3.4, 14.87, 20.6, 14.87))],
-     f=[seq(rect(9.13, 3.4, 5.74, 5.73), rect(14.87, 14.87, 5.73, 5.73))],
+     s=[rect(3.4, 3.4, 17.2, 17.2),
+        poly([(3.4, 17.6), (7.7, 17.6), (7.7, 13.3), (12.0, 13.3), (12.0, 9.0), (16.3, 9.0),
+              (16.3, 4.7), (20.6, 4.7)])],
+     f=[rect(7.7, 13.3, 4.3, 4.3)],
      apps="PS",
-     basis="Photoshop's Mosaic / Pixelate — detail coarsened into a fixed grid.",
-     note="A field reduced to a grid of flat tiles.")
+     basis="Photoshop's Mosaic / Pixelate — a smooth edge coarsened onto a fixed grid.",
+     note="A frame with one diagonal edge in it, climbing in square steps instead of running "
+          "straight. Drawn as a ruled grid with two of its cells filled — the literal picture "
+          "of a mosaic — it was a hashtag with two squares stuffed into it, or a tic-tac-toe "
+          "board mid-game. A grid on its own is not pixelation; a staircase where a diagonal "
+          "should be is the only thing that is. Cut as a white staircase out of a solid black square, which is the strongest way to draw it, it is the Flipboard mark.")
 
 icon("filter-crystallize", "filters", ["facets", "voronoi"],
      s=[seq(poly([(3.4, 9.2), (9.6, 3.4), (15.2, 6.8), (12.4, 12.6), (5.0, 13.4)], close=True),

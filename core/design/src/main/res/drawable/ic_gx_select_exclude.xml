@@ -14,14 +14,14 @@
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4,4L14,4L14,14L4,14Z" />
+        android:pathData="M3.4,3.4L14.8,3.4L14.8,14.8L3.4,14.8Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
         android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M10,10L20,10L20,20L10,20Z" />
+        android:pathData="M9.2,9.2L20.6,9.2L20.6,20.6L9.2,20.6Z" />
     <path
         android:fillColor="@android:color/white"
         android:pathData="M4,4L14,4L14,10L10,10L10,14L4,14Z M20,20L10,20L10,14L14,14L14,10L20,10Z" />

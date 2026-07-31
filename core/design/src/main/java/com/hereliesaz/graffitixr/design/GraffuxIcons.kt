@@ -57,7 +57,7 @@ object GraffuxIcons {
     val Stamp: Int get() = R.drawable.ic_gx_stamp
     /** Stamp over a chequer. */
     val StampPattern: Int get() = R.drawable.ic_gx_stamp_pattern
-    /** A rubber block, banded, solid at the face doing the wiping. */
+    /** A rubber block, banded, solid at the face doing the wiping, with the rubbings it has shed lying under it. The crumbs are the whole difference. Without them the block was a file folder with a dog-eared corner, a wallet, and a battery at sixty per cent — a rectangle part-filled along one edge is a fill gauge before it is an object. Redrawn as a block seen at an angle with the line it was clearing running out from under it, it was an open cardboard box with a stray bar floating underneath. Nothing sheds crumbs but an eraser. */
     val Eraser: Int get() = R.drawable.ic_gx_eraser
     /** The block against an unbroken rule — the edge stays where it is put. */
     val EraserHard: Int get() = R.drawable.ic_gx_eraser_hard
@@ -85,7 +85,7 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val Dodge: Int get() = R.drawable.ic_gx_dodge
     /** A hand cupped into a C, seen edge-on, over the band of paper it is darkening. Drawn as a true C-ring with the solid mark at its exact centre, which is the obvious way to draw an aperture, it was a nipple and areola — a ring with a filled circle concentric inside it is that and very little else, whatever the ring is meant to be. Drawn instead with the solid as a wedge of light narrowing into the cup, it was the rewind button, and a vulva on the third guess. The solid is the result, not the light: a band of paper gone dark under the hand that shaded it. */
     val Burn: Int get() = R.drawable.ic_gx_burn
-    /** Pores, one of them filled where the colour is being taken. */
+    /** A block with a wrung, dripping underside and the drops falling from it. Drawn as a torn blob with three round pores in it, which is what a sponge actually looks like, it was a slice of Swiss cheese to every rater who saw it, and a skull at small size once two of the pores overlapped into a pair of eye sockets. Holes in a blob are cheese. What is unique to a sponge is not its holes but that it gives up liquid, so this is the block pinched at the waist with what it gave up falling below it. Drawn with the underside wrung into points, the points were fangs and the drops were drool: a row of points along a solid edge is a jaw, every time, which is the same thing that went wrong with the brush texture. */
     val Sponge: Int get() = R.drawable.ic_gx_sponge
     /** A plaster with the sampled centre solid. */
     val Heal: Int get() = R.drawable.ic_gx_heal
@@ -133,7 +133,9 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     val BrushBuildup: Int get() = R.drawable.ic_gx_brush_buildup
     /** A smaller footprint carried by a larger one. */
     val BrushDual: Int get() = R.drawable.ic_gx_brush_dual
-    /** A stroke that is solid where it started and broken into slivers where the tooth has taken it. Drawn as a bare field of scattered dashes it was spilled rice, and it was the fourth icon in the set to be a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. Redrawn as a black band with a sawtooth underside it was a mouth full of bared teeth, with the marks below it as the lower row: a regular row of points along a solid edge is a jaw, and nothing else gets a look in. Broken into four slivers of even width it was a barcode; the remnants have to be uneven in both width and height or they are bars, not grain. */
+    /** A stroke, and the broken shadow it lays down where the tooth of the paper caught it. The grain is in the shadow's gaps, not in the stroke.
+
+Four drawings before this one. As a bare field of scattered dashes it was spilled rice, and it was the fourth icon in the set drawn as a field of scattered dashes — the same picture as Add Noise, Reduce Noise and Grain. As a black band with a sawtooth underside it was a mouth full of bared teeth. Broken into slivers of even width it was a barcode; made uneven in width and height it was still a barcode, then road dashes in perspective. A row of separated blocks along a horizontal is a bar chart or a barcode no matter how irregular the blocks are — the marks have to sit on something that is visibly a stroke. */
     val BrushTexture: Int get() = R.drawable.ic_gx_brush_texture
     /** A brush dropped into the shelf that holds them. */
     val BrushImport: Int get() = R.drawable.ic_gx_brush_import
@@ -429,7 +431,7 @@ The density is the other half. Six marks evenly spread is a dice face; noise is 
     val FilterLiquify: Int get() = R.drawable.ic_gx_filter_liquify
     /** A flat plate with one raised bevel. */
     val FilterEmboss: Int get() = R.drawable.ic_gx_filter_emboss
-    /** A field reduced to a grid of flat tiles. */
+    /** A frame with one diagonal edge in it, climbing in square steps instead of running straight. Drawn as a ruled grid with two of its cells filled — the literal picture of a mosaic — it was a hashtag with two squares stuffed into it, or a tic-tac-toe board mid-game. A grid on its own is not pixelation; a staircase where a diagonal should be is the only thing that is. Cut as a white staircase out of a solid black square, which is the strongest way to draw it, it is the Flipboard mark. */
     val FilterMosaic: Int get() = R.drawable.ic_gx_filter_mosaic
     /** A field split into cells around scattered centres. */
     val FilterCrystallize: Int get() = R.drawable.ic_gx_filter_crystallize
@@ -467,7 +469,7 @@ The density is the other half. Six marks evenly spread is a dice face; noise is 
     val FilterGenerativeFill: Int get() = R.drawable.ic_gx_filter_generative_fill
     /** A nib at the end of the line it just placed. */
     val Pen: Int get() = R.drawable.ic_gx_pen
-    /** A curve with a new node placed on it. */
+    /** A curve with a new anchor dropped onto it, the plus straddling the anchor itself. Floating clear of the curve, the plus was a Red Cross — a bold equal-armed cross alone in white space is that, and the curve under it made the whole glyph a medical heartbeat readout. Anchors are squares, as they are in every vector tool, and not the round beads that made this a sperm cell. */
     val PenAdd: Int get() = R.drawable.ic_gx_pen_add
     /** A curve with one node taken away, unfilled. */
     val PenRemove: Int get() = R.drawable.ic_gx_pen_remove
@@ -481,7 +483,7 @@ The density is the other half. Six marks evenly spread is a dice face; noise is 
     val PathClose: Int get() = R.drawable.ic_gx_path_close
     /** A closed loop with one gap opened in its edge. */
     val PathOpen: Int get() = R.drawable.ic_gx_path_open
-    /** A zigzag with most of its corners already gone. */
+    /** One curve with its anchors drawn as the squares every vector tool draws them as, hollow where they are about to go and solid where they are kept. Drawn as a jagged run with beads on its peaks above a smooth curve below, it was a crown over a bow, and a face — points along the top with a curve under them is a mouth with teeth, or eyebrows over a grin, before it is anything to do with a path. */
     val PathSimplify: Int get() = R.drawable.ic_gx_path_simplify
     /** A stroke on one side of the frame, a filled ribbon on the other. */
     val PathOutlineStroke: Int get() = R.drawable.ic_gx_path_outline_stroke
@@ -693,7 +695,7 @@ The density is the other half. Six marks evenly spread is a dice face; noise is 
     val SplitView: Int get() = R.drawable.ic_gx_split_view
     /** A second frame opened onto the same page. */
     val MultiWindow: Int get() = R.drawable.ic_gx_multi_window
-    /** Four pages laid out as a set to choose from. */
+    /** One large panel with smaller ones ranged around it. An even grid of identical cells is a waffle, or a chocolate bar, or a brick wall — three raters, three foods and a wall — and at small size it fills in to a solid dark rectangle with no grid visible at all. Panels of different sizes cannot do either. */
     val Thumbnails: Int get() = R.drawable.ic_gx_thumbnails
     /** A trim line with the register marks a printer cuts to. */
     val BleedMarks: Int get() = R.drawable.ic_gx_bleed_marks
@@ -855,7 +857,7 @@ The density is the other half. Six marks evenly spread is a dice face; noise is 
     val BrushCursor: Int get() = R.drawable.ic_gx_brush_cursor
     /** Two touch points being drawn together. */
     val GesturePinch: Int get() = R.drawable.ic_gx_gesture_pinch
-    /** Two fingers landing together on the same surface. */
+    /** Two fingers reaching in from the upper right, of unequal length, coming down together on one surface. Drawn upright as two chevrons over two dots over a rule — the obvious shorthand for pressing — it was an angry cartoon face: two V eyebrows, two eyes and a flat mouth. Anything symmetrical with two marks above two marks above a bar is a face and a face is all anyone sees. Redrawn upright as two pointed shapes standing on the rule with the contacts below it, it was two houses on a wheeled cart, the points reading as roofs and the contacts as wheels. Angled, unequal and touching the surface directly, there is no symmetry left to fall into. */
     val GestureTwoFingerTap: Int get() = R.drawable.ic_gx_gesture_two_finger_tap
     /** A single control riding along its own track. */
     val UndoHistorySlider: Int get() = R.drawable.ic_gx_undo_history_slider

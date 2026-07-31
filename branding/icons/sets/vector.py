@@ -54,12 +54,17 @@ icon("pen", "vector", ["bezier", "path tool", "draw vector"],
      note="A nib at the end of the line it just placed.")
 
 icon("pen-add", "vector", ["add anchor", "insert point"],
-     s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]), circle(9.0, 8.0, 1.4),
-        line(17.6, 2.0, 17.6, 6.0), line(15.6, 4.0, 19.6, 4.0)],
-     f=[],
+     s=[smooth([(3.4, 16.8), (9.0, 9.2), (14.6, 13.2), (20.6, 7.6)]),
+        seq(square(3.4, 16.8, 1.9), square(20.6, 7.6, 1.9)),
+        seq(line(12.2, 11.4, 12.2, 15.0), line(10.4, 13.2, 14.0, 13.2))],
+     f=[square(12.2, 13.2, 1.9)],
      apps="AI",
      basis="Illustrator's Add Anchor Point tool.",
-     note="A curve with a new node placed on it.")
+     note="A curve with a new anchor dropped onto it, the plus straddling the anchor itself. "
+          "Floating clear of the curve, the plus was a Red Cross — a bold equal-armed cross "
+          "alone in white space is that, and the curve under it made the whole glyph a "
+          "medical heartbeat readout. Anchors are squares, as they are in every vector tool, "
+          "and not the round beads that made this a sperm cell.")
 
 icon("pen-remove", "vector", ["delete anchor", "remove point"],
      s=[smooth([(3.4, 16.0), (9.0, 8.0), (14.6, 12.0), (20.6, 6.0)]), circle(9.0, 8.0, 1.4),
@@ -114,13 +119,17 @@ icon("path-open", "vector", ["cut path", "scissors"],
      note="A closed loop with one gap opened in its edge.")
 
 icon("path-simplify", "vector", ["reduce points", "clean path"],
-     s=[poly([(3.4, 9.4), (6.6, 6.2), (9.0, 9.8), (11.6, 6.6), (14.0, 9.2), (16.8, 6.0), (20.6, 9.0)]),
-        seq(circle(6.6, 6.2, 0.85), circle(11.6, 6.6, 0.85), circle(16.8, 6.0, 0.85)),
-        smooth([(3.4, 18.0), (12.0, 15.0), (20.6, 18.0)])],
-     f=[dot(12.0, 15.0, 1.3)],
+     s=[smooth([(3.4, 16.4), (6.4, 8.6), (10.4, 14.2), (14.4, 7.4), (17.4, 13.0), (20.6, 8.0)]),
+        seq(square(3.4, 16.4, 1.9), square(6.4, 8.6, 1.9), square(10.4, 14.2, 1.9),
+            square(14.4, 7.4, 1.9))],
+     f=[seq(square(17.4, 13.0, 1.9), square(20.6, 8.0, 1.9))],
      apps="AI/PS",
-     basis="Illustrator's Simplify — a jagged run reduced to fewer, truer segments.",
-     note="A zigzag with most of its corners already gone.")
+     basis="Illustrator's Simplify — the same path carrying fewer anchors.",
+     note="One curve with its anchors drawn as the squares every vector tool draws them as, "
+          "hollow where they are about to go and solid where they are kept. Drawn as a jagged "
+          "run with beads on its peaks above a smooth curve below, it was a crown over a bow, "
+          "and a face — points along the top with a curve under them is a mouth with teeth, or "
+          "eyebrows over a grin, before it is anything to do with a path.")
 
 icon("path-outline-stroke", "vector", ["stroke to fill", "expand stroke"],
      s=[line(3.4, 12, 10.0, 12),
