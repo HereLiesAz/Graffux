@@ -247,21 +247,20 @@ icon("eraser-soft", "tools", ["feather", "soft edge", "fade"],
 
 icon("smudge", "tools", ["finger", "drag", "blend"],
      s=[],
-     f=[poly([(11.2, -1.8), (11.2, 0.4), (2.8, 0.4), (2.8, 4.4), (0.8, 4.4), (0.8, 2.2),
-              (-0.4, 2.2), (-0.4, 4.4), (-2.4, 4.4), (-2.4, 2.2), (-5.6, 2.2), (-5.6, -2.2),
-              (-3.2, -2.2), (-3.2, -4.6), (-1.4, -4.6), (-1.4, -2.2), (2.8, -2.2),
-              (2.8, -1.8)], close=True, t=T)],
+     f=[poly([(2.2, 17.9), (9.0, 13.0), (10.4, 8.4), (12.6, 7.0), (14.6, 7.8), (16.6, 6.8),
+              (18.6, 7.8), (20.0, 10.0), (20.0, 15.2), (18.2, 17.8), (14.4, 18.6), (11.6, 17.6),
+              (11.1, 16.0), (4.3, 20.9)], close=True)],
      apps="PS/PR",
      basis="Photoshop's Smudge tool — a closed hand with the index finger put out.",
-     note="A hand on the tool diagonal, index finger pointing exactly where the brush tip and "
-          "the pencil point do. Drawn the same way the pan hand is drawn, because it is the "
-          "only way a hand survives this size: the folded fingers are square columns with real "
-          "gaps between them and the thumb is another square column.\n\nThis one is not solved. Nine drawings in, a blind viewer still calls it a sledgehammer, because a long thin finger off a compact block of palm is a sledgehammer. Everything tried: a bare capsule finger is a rocket; with a knuckle crease, a boot; short and fat over a wedge, a shoe on a ramp; slimmed and stood up, a remote control; the hand smoothed through a spline, a lightbulb; the hand as a plain mass with one shaft, a key; the thumb as a spur off the wrist, a revolver; a cuff at the wrist, a syringe; and the smear it drags has nowhere to go, because the fingertip is already in the corner of the frame. What is here is the best of the nine and it is still wrong. The next thing to try is the pan hand upright with three fingers folded, which gives up the shared tool direction. The thumb drawn as a spur off the wrist instead of a column "
-          "rather than a spur — drawn as a spur off the wrist it is the hammer of a revolver, "
-          "and the whole silhouette becomes a handgun. Every rounded version of this came back "
-          "a key, a lightbulb or a mallet. Solid rather than outlined, because at 1.4 stroke a "
-          "finger-wide tube has no inside left. Distinct from the pan hand, which is upright "
-          "with all five splayed.")
+     note="A fist with the index put out, pointing exactly where the brush tip and the pencil "
+          "point do. The hand itself is upright; only the finger is on the tool diagonal, and "
+          "that is the whole fix. Eleven earlier drawings put the hand on the diagonal too, and "
+          "every one of them came out as a long thing with a lump on the end: a rocket, a boot, "
+          "a shoe on a ramp, a remote control, a lightbulb, a key, a revolver, a sledgehammer, "
+          "a syringe. The constraint was the diagonal, not the drawing. Solid rather than "
+          "outlined, because at 1.4 stroke a finger-wide tube has no inside left, and the "
+          "curled knuckles are bumps along the back of the fist rather than separate columns. "
+          "Distinct from the pan hand, which is an open palm with all five splayed.")
 
 icon("blur", "tools", ["soften", "out of focus", "droplet"],
      s=[seq(line(12, 3.2, 16.99, 9.58), arc(12, 13.6, 6.4, 321.2, 578.8), line(7.01, 9.58, 12, 3.2)),

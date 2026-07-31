@@ -128,8 +128,9 @@ icon("subject-isolate", "generative", ["ml cutout", "background removal"],
      note="A picture with its subject already lifted from behind it.")
 
 icon("registration-mark", "generative", ["alignment target", "print register"],
-     s=[circle(12, 12, 6.4), line(12, 3.4, 12, 20.6), line(3.4, 12, 20.6, 12)],
-     f=[],
+     s=[circle(17.4, 17.4, 3.2),
+        seq(line(17.4, 12.8, 17.4, 22.0), line(12.8, 17.4, 22.0, 17.4))],
+     f=[rect(2.4, 2.4, 11.2, 11.2)],
      apps="new",
      note="The printer's own register mark, used here to align a stencil pass.")
 
