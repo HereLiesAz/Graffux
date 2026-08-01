@@ -29,6 +29,21 @@
         <intent>
             <action android:name="store.azphalt.action.BROWSE" />
         </intent>
+        <!-- The store chooser's Android option offers to *install* a store app when none is present,
+             which means resolving a `market:` intent. Package visibility filters that the same way it
+             filters the browse action above: without this the intent can fail to resolve on Android
+             11+ even with Play installed, and the user would be silently pushed to the web route
+             they did not choose. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
+        </intent>
+        <!-- And the web option, for the same reason. `https` is one of the schemes with an automatic
+             browser exemption, but declaring it costs nothing and makes the query explicit. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application
