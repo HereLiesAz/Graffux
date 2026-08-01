@@ -1,10 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/stamp — A wide grip, a short neck, the plate, and the solid face that transfers the sample, resting on the surface it prints onto. A small knob on a long narrow stem above a flared base is a butt plug, and the proportions are the whole of the difference. -->
+  <defs>
+    <pattern id="gfxHatch-stamp" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M8.4,3.4L15.6,3.4A1.4,1.4 0 0,1 17,4.8L17,6.2A1.4,1.4 0 0,1 15.6,7.6L8.4,7.6A1.4,1.4 0 0,1 7,6.2L7,4.8A1.4,1.4 0 0,1 8.4,3.4Z"/>
   <path d="M10.4,7.6L13.6,7.6L13.6,10.4L10.4,10.4Z"/>
   <path d="M5,10.4L19,10.4L19,13.8L5,13.8Z"/>
   <path d="M3.4,20.6L20.6,20.6"/>
-  <path d="M3.4,13.8L20.6,13.8L20.6,17.4L3.4,17.4Z" fill="currentColor" stroke="none"/>
+  <path d="M3.4,13.8L20.6,13.8L20.6,17.4L3.4,17.4Z" fill="url(#gfxHatch-stamp)" stroke="none"/>
 </svg>

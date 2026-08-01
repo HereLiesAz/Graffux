@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/brush-cursor — A footprint ring with the cursor arrow still touching it. -->
+  <defs>
+    <pattern id="gfxHatch-brush-cursor" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M18.85,13.46A7,7 0 0,1 13.46,18.85 M10.54,18.85A7,7 0 0,1 5.15,13.46 M5.15,10.54A7,7 0 0,1 10.54,5.15 M13.46,5.15A7,7 0 0,1 18.85,10.54"/>
-  <path d="M15.4,16.9A1.5,1.5 0 1,0 18.4,16.9A1.5,1.5 0 1,0 15.4,16.9Z" fill="currentColor" stroke="none"/>
+  <path d="M15.4,16.9A1.5,1.5 0 1,0 18.4,16.9A1.5,1.5 0 1,0 15.4,16.9Z" fill="url(#gfxHatch-brush-cursor)" stroke="none"/>
 </svg>

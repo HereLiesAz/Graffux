@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/smudge — A fist with the index put out along the tool diagonal, pointing where the brush tip and the pencil point point. The hand stands upright; only the finger is on the diagonal. Outlined, with the pad solid where it meets the pixel.
 
 This is the weakest glyph in the set and it is the twenty-fourth drawing of it. It is the version that gets named correctly at first glance — a rater with no context called it a clenched fist — but it carries a knuckle-duster and a stubby handgun as second readings, and it has been read as a molar tooth and an old-fashioned key by other raters. Every alternative tried was worse in a way that mattered more:
@@ -14,6 +14,13 @@ Turning the whole hand is worse than turning nothing. The pan hand's own outline
 Before those: a rocket, a boot, a shoe on a ramp, a remote control, a lightbulb, a revolver, a sledgehammer, a syringe, a lollipop, a mushroom cloud, a paper bird, a hexagonal key head with a hamburger menu in it. Drawn solid it was bistable and read as two different objects on two viewings of the same path. Interior creases did not settle it, because a crease is a line on a mass and a gap is two objects. Drawing the folded fingers as separate rolls made the hand a key head.
 
 Distinct from the pan hand, which is a hand face-on, upright, open, with all five splayed, and which has never once been misread by anyone. -->
+  <defs>
+    <pattern id="gfxHatch-smudge" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M2.2,17.9L9,13L10.4,8.8L12.4,6.4L14.4,8.6L16.6,6.4L18.8,8.6L20,10.6L20,15.2L18.2,17.8L14.4,18.6L11.6,17.6L11.1,16L4.3,20.9Z"/>
-  <path d="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" fill="currentColor" stroke="none"/>
+  <path d="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" fill="url(#gfxHatch-smudge)" stroke="none"/>
 </svg>

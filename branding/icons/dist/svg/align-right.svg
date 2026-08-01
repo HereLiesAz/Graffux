@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/align-right — Two frames flush to a single edge, the other side. -->
   <path d="M20,3.4L20,20.6"/>
   <path d="M12,6.4L20,6.4L20,10.4L12,10.4Z"/>

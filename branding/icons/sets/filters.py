@@ -245,9 +245,13 @@ icon("filter-render-clouds", "filters", ["procedural sky", "fractal"],
      note="A procedural horizon with nothing behind it yet.")
 
 icon("filter-vignette-post", "filters", ["darken corners", "frame edge"],
+     # Each wedge is centred on a frame corner and sweeps the quadrant pointing inward, so
+     # the darkening lies inside the frame. Centred a radius in from the corners instead,
+     # each wedge faced outward and spilled past the frame on both sides — invisible while
+     # the corners were solid mass, plainly wrong once they carry rule.
      s=[rect(2.6, 2.6, 18.8, 18.8)],
-     f=[seq(pie(5.4, 5.4, 4.0, 90, 180), pie(18.6, 5.4, 4.0, 0, 90),
-            pie(18.6, 18.6, 4.0, 270, 360), pie(5.4, 18.6, 4.0, 180, 270))],
+     f=[seq(pie(2.6, 2.6, 5.6, 0, 90), pie(21.4, 2.6, 5.6, 90, 180),
+            pie(21.4, 21.4, 5.6, 180, 270), pie(2.6, 21.4, 5.6, 270, 360))],
      apps="PS",
      basis="Camera Raw's Post-Crop Vignetting, drawn as darkened corners rather than a ring.",
      note="Four corners closing in on an untouched centre.")

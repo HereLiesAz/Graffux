@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/watercolor — Round brush above the water it has already put down. -->
   <path d="M18.36,5.64L14.12,9.88"/>
   <path d="M15.54,11.29L11.93,14.19L8.89,15.11L9.81,12.07L12.71,8.46Z"/>

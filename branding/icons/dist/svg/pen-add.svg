@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/pen-add — A curve with a new anchor dropped onto it, the plus straddling the anchor itself. Floating clear of the curve, the plus was a Red Cross — a bold equal-armed cross alone in white space is that, and the curve under it made the whole glyph a medical heartbeat readout. Anchors are squares, as they are in every vector tool, and not the round beads that made this a sperm cell. -->
   <path d="M3.4,16.8C4.33,15.53 7.13,9.8 9,9.2C10.87,8.6 12.67,13.47 14.6,13.2C16.53,12.93 19.6,8.53 20.6,7.6"/>
   <path d="M2.45,15.85L4.35,15.85L4.35,17.75L2.45,17.75Z M19.65,6.65L21.55,6.65L21.55,8.55L19.65,8.55Z"/>

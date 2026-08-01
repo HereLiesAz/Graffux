@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/zoom-fit — A frame held exactly inside the four corners of its window. -->
+  <defs>
+    <pattern id="gfxHatch-zoom-fit" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3,3L21,3L21,21L3,21Z"/>
   <path d="M4.6,4.6L8.6,8.6 M19.4,4.6L15.4,8.6 M19.4,19.4L15.4,15.4 M4.6,19.4L8.6,15.4"/>
-  <path d="M9.6,9.6L9.16,6.92L6.92,9.16Z M14.4,9.6L17.08,9.16L14.84,6.92Z M14.4,14.4L14.84,17.08L17.08,14.84Z M9.6,14.4L6.92,14.84L9.16,17.08Z" fill="currentColor" stroke="none"/>
+  <path d="M9.6,9.6L9.16,6.92L6.92,9.16Z M14.4,9.6L17.08,9.16L14.84,6.92Z M14.4,14.4L14.84,17.08L17.08,14.84Z M9.6,14.4L6.92,14.84L9.16,17.08Z" fill="url(#gfxHatch-zoom-fit)" stroke="none"/>
 </svg>

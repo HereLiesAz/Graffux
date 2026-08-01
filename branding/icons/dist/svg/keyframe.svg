@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/keyframe — A single diamond standing on the track. Run the track through the diamond's waist instead and the pair of them are a vulva. -->
+  <defs>
+    <pattern id="gfxHatch-keyframe" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3.4,19.6L20.6,19.6"/>
-  <path d="M12,8.8L17.4,14.2L12,19.6L6.6,14.2Z" fill="currentColor" stroke="none"/>
+  <path d="M12,8.8L17.4,14.2L12,19.6L6.6,14.2Z" fill="url(#gfxHatch-keyframe)" stroke="none"/>
 </svg>

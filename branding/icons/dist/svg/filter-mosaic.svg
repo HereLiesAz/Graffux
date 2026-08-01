@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/filter-mosaic — A frame with one diagonal edge in it, climbing in square steps instead of running straight. Drawn as a ruled grid with two of its cells filled — the literal picture of a mosaic — it was a hashtag with two squares stuffed into it, or a tic-tac-toe board mid-game. A grid on its own is not pixelation; a staircase where a diagonal should be is the only thing that is. Cut as a white staircase out of a solid black square, which is the strongest way to draw it, it is the Flipboard mark. -->
+  <defs>
+    <pattern id="gfxHatch-filter-mosaic" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3.4,3.4L20.6,3.4L20.6,20.6L3.4,20.6Z"/>
   <path d="M3.4,17.6L7.7,17.6L7.7,13.3L12,13.3L12,9L16.3,9L16.3,4.7L20.6,4.7"/>
-  <path d="M7.7,13.3L12,13.3L12,17.6L7.7,17.6Z M12,9L16.3,9L16.3,13.3L12,13.3Z M3.4,17.6L7.7,17.6L7.7,20.6L3.4,20.6Z M16.3,4.7L20.6,4.7L20.6,9L16.3,9Z" fill="currentColor" stroke="none"/>
+  <path d="M7.7,13.3L12,13.3L12,17.6L7.7,17.6Z M12,9L16.3,9L16.3,13.3L12,13.3Z M3.4,17.6L7.7,17.6L7.7,20.6L3.4,20.6Z M16.3,4.7L20.6,4.7L20.6,9L16.3,9Z" fill="url(#gfxHatch-filter-mosaic)" stroke="none"/>
 </svg>

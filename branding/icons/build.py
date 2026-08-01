@@ -23,7 +23,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
-from kit import BLEED, BUDGET, CAP, ICONS, JOIN, LIVE, STROKE, VIEW, CATEGORIES  # noqa: E402
+from kit import (  # noqa: E402
+    BLEED, BUDGET, CAP, CATEGORIES, HATCH_PHASE, HATCH_PITCH, HATCH_WEIGHT, ICONS, JOIN,
+    HATCH_MIN, LIVE, STROKE, VIEW, hatch_lines, hatched,
+)
 
 import sets  # noqa: E402,F401  (importing the package registers every icon)
 
@@ -106,13 +109,48 @@ def validate(icons):
 # ---------------------------------------------------------------------------------------
 
 
+def hatch_id(key):
+    """Pattern id, unique per icon.
+
+    Several of these SVGs get inlined into one document — the contact sheet does it 404
+    times — and a shared id would have every glyph after the first pulling the first one's
+    pattern. Naming the pattern after the icon makes inlining safe by construction.
+    """
+    return "gfxHatch-" + key
+
+
+def svg_defs(ic, indent="  "):
+    """The hatch pattern, emitted only for icons that actually rule something."""
+    if not any(hatched(p) for p in ic["fills"]):
+        return ""
+    y = HATCH_PHASE * HATCH_PITCH
+    return (
+        f"{indent}<defs>\n"
+        f'{indent}  <pattern id="{hatch_id(ic["key"])}" patternUnits="userSpaceOnUse"\n'
+        f'{indent}           width="{_num(HATCH_PITCH * 4)}" height="{_num(HATCH_PITCH)}">\n'
+        f'{indent}    <line x1="0" y1="{_num(y)}" x2="{_num(HATCH_PITCH * 4)}" y2="{_num(y)}"\n'
+        f'{indent}          stroke="currentColor" stroke-width="{HATCH_WEIGHT}"/>\n'
+        f"{indent}  </pattern>\n"
+        f"{indent}</defs>\n"
+    )
+
+
+def _num(v):
+    s = f"{round(float(v), 3):.3f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
 def svg_body(ic, indent="  "):
     out = []
     for p in ic["strokes"]:
         out.append(f'{indent}<path d="{p.d}"/>')
     for p in ic["fills"]:
         rule = ' fill-rule="evenodd"' if p.evenodd else ""
-        out.append(f'{indent}<path d="{p.d}" fill="currentColor" stroke="none"{rule}/>')
+        if hatched(p):
+            fill = f'url(#{hatch_id(ic["key"])})'
+        else:
+            fill = "currentColor"
+        out.append(f'{indent}<path d="{p.d}" fill="{fill}" stroke="none"{rule}/>')
     return "\n".join(out)
 
 
@@ -122,6 +160,7 @@ def svg_document(ic):
         f'     width="{int(VIEW)}" height="{int(VIEW)}" fill="none" stroke="currentColor"\n'
         f'     stroke-width="{STROKE}" stroke-linecap="{CAP}" stroke-linejoin="{JOIN}">\n'
         f"  <!-- graffux/{ic['key']} — {ic['note']} -->\n"
+        f"{svg_defs(ic)}"
         f"{svg_body(ic)}\n"
         f"</svg>\n"
     )
@@ -152,6 +191,9 @@ def vector_drawable(ic):
             f'        android:pathData="{p.d}" />',
         ]
     for p in ic["fills"]:
+        if hatched(p):
+            lines += vector_hatch(p)
+            continue
         lines += [
             "    <path",
             '        android:fillColor="@android:color/white"',
@@ -161,6 +203,33 @@ def vector_drawable(ic):
         lines.append(f'        android:pathData="{p.d}" />')
     lines.append("</vector>")
     return "\n".join(lines) + "\n"
+
+
+def vector_hatch(p):
+    """A ruled region, as a clipped group of real lines.
+
+    VectorDrawable has no pattern fill, so the rules have to be geometry. They are clipped
+    to the region rather than trimmed to it, which keeps the line coordinates on the shared
+    viewport grid — the same rules the SVG pattern lays down, at the same y values.
+
+    Two consequences worth knowing before shipping a change here: the drawables get longer
+    (a full-height region is twenty-odd extra paths), and VectorDrawable clip paths are not
+    antialiased on every Android version, so a ruled edge can look harder than its SVG.
+    """
+    x0, y0, x1, y1 = p.bbox()
+    out = [
+        "    <group>",
+        f'        <clip-path android:pathData="{p.d}" />',
+    ]
+    for y in hatch_lines(y0, y1):
+        out += [
+            "        <path",
+            '            android:strokeColor="@android:color/white"',
+            f'            android:strokeWidth="{HATCH_WEIGHT}"',
+            f'            android:pathData="M{_num(x0)},{_num(y)}L{_num(x1)},{_num(y)}" />',
+        ]
+    out.append("    </group>")
+    return out
 
 
 def kotlin_registry(icons):
@@ -198,8 +267,10 @@ def kotlin_registry(icons):
             "/**",
             " * The Graffux icon set.",
             " *",
-            f" * {len(icons)} glyphs on a 24-unit grid, one {STROKE}-unit stroke weight, at most one solid",
-            " * mark each — the keystone, which always sits where the operation acts.",
+            f" * {len(icons)} glyphs on a 24-unit grid, one {STROKE}-unit stroke weight, outline only.",
+            " * At most one mark per glyph carries mass — the keystone, which always sits where the",
+            f" * operation acts. Anything large enough to hold {int(HATCH_MIN)} rules carries hatching instead of",
+            " * ink: rows of parallel lines on a viewport-anchored grid, shared across every icon.",
             " *",
             " * Reference them directly (`GraffuxIcons.Brush`) or look them up by key for a picker.",
             " */",
@@ -322,7 +393,8 @@ def contact_sheet(icons):
         '<div class="wrap">',
         "<header>",
         "<h1>Graffux icon set</h1>",
-        '<p class="sub">One stroke weight, one grid, one solid mark per glyph. '
+        '<p class="sub">One stroke weight, one grid, one mark per glyph that carries mass — '
+        "ruled rather than filled wherever there is room for rule. "
         "Built for a phone screen at arm's length.</p>",
         '<div class="meta">'
         f"<span><b>{len(icons)}</b> icons</span>"
@@ -330,6 +402,7 @@ def contact_sheet(icons):
         f"<span>grid <b>{int(VIEW)}×{int(VIEW)}</b></span>"
         f"<span>live area <b>{int(LIVE[0])}–{int(LIVE[1])}</b></span>"
         f"<span>stroke <b>{STROKE}</b></span>"
+        f"<span>hatch <b>{HATCH_PITCH} / {HATCH_WEIGHT}</b></span>"
         f"<span>cap/join <b>{CAP}</b></span>"
         "</div>",
         "</header>",
@@ -350,7 +423,11 @@ def contact_sheet(icons):
         for ic in group:
             search = " ".join([ic["key"], key, title, ic["apps"], ic["basis"], *ic["kw"]]).lower()
             tip_text = ic["note"] + (f"\nLineage ({ic['apps']}): {ic['basis']}" if ic["basis"] else "")
-            body24 = svg_body(ic, indent="")
+            # The pattern id is per-icon, so 404 of these coexist in one document. It is
+            # declared once, in the 24px copy; both sizes reference it, and both share the
+            # same viewBox, so the rules land on the same grid in each.
+            body = svg_body(ic, indent="")
+            defs = svg_defs(ic, indent="")
             svg_attrs = (
                 f'viewBox="0 0 {int(VIEW)} {int(VIEW)}" fill="none" stroke="currentColor" '
                 f'stroke-width="{STROKE}" stroke-linecap="{CAP}" stroke-linejoin="{JOIN}"'
@@ -359,8 +436,8 @@ def contact_sheet(icons):
                 f'<div class="cell" data-s="{html.escape(search, quote=True)}" '
                 f'title="{html.escape(tip_text, quote=True)}">'
                 f'<div class="art">'
-                f'<svg width="24" height="24" {svg_attrs}>{body24}</svg>'
-                f'<svg width="16" height="16" {svg_attrs}>{body24}</svg>'
+                f'<svg width="24" height="24" {svg_attrs}>{defs}{body}</svg>'
+                f'<svg width="16" height="16" {svg_attrs}>{body}</svg>'
                 f"</div>"
                 f'<div class="k">{html.escape(ic["key"])}</div>'
                 f'<div class="apps">{html.escape(ic["apps"])}</div>'
@@ -419,7 +496,19 @@ def main():
             fh.write(vector_drawable(ic))
 
     manifest = {
-        "grid": {"view": VIEW, "live": list(LIVE), "stroke": STROKE, "cap": CAP, "join": JOIN},
+        "grid": {
+            "view": VIEW,
+            "live": list(LIVE),
+            "stroke": STROKE,
+            "cap": CAP,
+            "join": JOIN,
+            "hatch": {
+                "pitch": HATCH_PITCH,
+                "weight": HATCH_WEIGHT,
+                "phase": HATCH_PHASE,
+                "minRules": HATCH_MIN,
+            },
+        },
         "categories": [{"key": k, "title": t, "blurb": b} for k, t, b in CATEGORIES],
         "icons": [
             {
@@ -427,6 +516,7 @@ def main():
                 "category": ic["cat"],
                 "drawable": res_name(ic["key"]),
                 "keywords": ic["kw"],
+                "hatched": any(hatched(p) for p in ic["fills"]),
                 "apps": ic["apps"],
                 "basis": ic["basis"],
                 "note": ic["note"],

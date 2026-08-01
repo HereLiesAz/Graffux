@@ -1,10 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/brush-library — A pot of brushes, each with paint on it. -->
+  <defs>
+    <pattern id="gfxHatch-brush-library" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M5,10.6L19,10.6L17.6,21L6.4,21Z"/>
   <path d="M8.4,10.6L7,3.4"/>
   <path d="M12,10.6L12,2.6"/>
   <path d="M15.6,10.6L17,3.4"/>
-  <path d="M6.2,3.4L7.8,3.4L8.6,7.4L7,7.4Z M10.8,2.6L13.2,2.6L13.2,6.6L10.8,6.6Z M16.2,3.4L17.8,3.4L17,7.4L15.4,7.4Z" fill="currentColor" stroke="none"/>
+  <path d="M6.2,3.4L7.8,3.4L8.6,7.4L7,7.4Z M10.8,2.6L13.2,2.6L13.2,6.6L10.8,6.6Z M16.2,3.4L17.8,3.4L17,7.4L15.4,7.4Z" fill="url(#gfxHatch-brush-library)" stroke="none"/>
 </svg>

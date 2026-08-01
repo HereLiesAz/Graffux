@@ -11,7 +11,7 @@
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M3.4,15C4.17,14.73 6.57,14.9 8,13.4C9.43,11.9 10.67,6.47 12,6C13.33,5.53 14.57,10.1 16,10.6C17.43,11.1 19.83,9.27 20.6,9" />

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/distribute-horizontal — Three frames spaced by one equal gap. -->
   <path d="M3.4,8L7.4,8L7.4,16L3.4,16Z M10,8L14,8L14,16L10,16Z M16.6,8L20.6,8L20.6,16L16.6,16Z"/>
 </svg>

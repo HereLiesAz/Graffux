@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/registration-mark — The printer's own register mark, used here to align a stencil pass. -->
+  <defs>
+    <pattern id="gfxHatch-registration-mark" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M17.4,12.6L17.4,15.9 M17.4,18.9L17.4,22.2 M12.6,17.4L15.9,17.4 M18.9,17.4L22.2,17.4"/>
-  <path d="M2.4,2.4L13.6,2.4L13.6,13.6L2.4,13.6Z" fill="currentColor" stroke="none"/>
+  <path d="M2.4,2.4L13.6,2.4L13.6,13.6L2.4,13.6Z" fill="url(#gfxHatch-registration-mark)" stroke="none"/>
 </svg>

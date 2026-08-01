@@ -18,7 +18,63 @@ Recorded as unresolved. It reads as a descending staircase, which is wrong and h
 
 The trap under all of it is that the brush-parameter family has no vocabulary but filled dots and outlined rings, and every escape from a circle lands on a shape some other icon already owns. -->
     <!-- lineage (PS/AI/PR): Photoshop's hardness preview — a solid core with its edge stepping away from it. -->
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M4.6,5.4L11.4,5.4L11.4,7.8L13.2,7.8L13.2,10.2L15,10.2L15,12.6L16.8,12.6L16.8,15L18.6,15L18.6,20.2L4.6,20.2Z" />
+    <group>
+        <clip-path android:pathData="M4.6,5.4L11.4,5.4L11.4,7.8L13.2,7.8L13.2,10.2L15,10.2L15,12.6L16.8,12.6L16.8,15L18.6,15L18.6,20.2L4.6,20.2Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,5.544L18.6,5.544" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,6.594L18.6,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,7.644L18.6,7.644" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,8.694L18.6,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,9.744L18.6,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,10.794L18.6,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,11.844L18.6,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,12.894L18.6,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,13.944L18.6,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,14.994L18.6,14.994" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,16.044L18.6,16.044" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,17.094L18.6,17.094" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,18.144L18.6,18.144" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M4.6,19.194L18.6,19.194" />
+    </group>
 </vector>

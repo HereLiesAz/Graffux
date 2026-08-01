@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/filter-blur-radial — A subject with the streaks flying off its four corners. Drawn the obvious way — a solid centre inside a full ring of evenly spaced spokes — it is an arsehole, and no amount of intent survives that. Four streaks, and only from the corners. -->
+  <defs>
+    <pattern id="gfxHatch-filter-blur-radial" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M16.4,7.6L20.6,3.4 M7.6,7.6L3.4,3.4 M16.4,16.4L20.6,20.6 M7.6,16.4L3.4,20.6"/>
-  <path d="M7.5,7.5L16.5,7.5L16.5,16.5L7.5,16.5Z" fill="currentColor" stroke="none"/>
+  <path d="M7.5,7.5L16.5,7.5L16.5,16.5L7.5,16.5Z" fill="url(#gfxHatch-filter-blur-radial)" stroke="none"/>
 </svg>

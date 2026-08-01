@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/layer-lower — A plate moved one place down the stack. -->
+  <defs>
+    <pattern id="gfxHatch-layer-lower" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M5.8,3.4L20.6,3.4L18.2,9L3.4,9Z M7.1,8.8L20.08,8.8L17.68,14.4L4.7,14.4Z"/>
   <path d="M12,16.4L12,20.6"/>
-  <path d="M12,22L14.16,19L9.84,19Z" fill="currentColor" stroke="none"/>
+  <path d="M12,22L14.16,19L9.84,19Z" fill="url(#gfxHatch-layer-lower)" stroke="none"/>
 </svg>

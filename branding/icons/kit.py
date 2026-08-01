@@ -4,8 +4,8 @@ Icons are authored as exact geometry, never as hand-typed path strings. The help
 emit absolute SVG path data and remember the points they were built from, so `build.py` can
 check every glyph against the live area without re-parsing anything.
 
-The design system itself (grid, stroke, the keystone rule, naming) lives in README.md.
-The numbers it depends on are the constants at the top of this file.
+The design system itself (grid, stroke, hatching, the keystone rule, naming) lives in
+README.md. The numbers it depends on are the constants at the top of this file.
 """
 
 from __future__ import annotations
@@ -19,13 +19,59 @@ import math
 VIEW = 24.0          # viewport, square
 LIVE = (2.0, 22.0)   # live area — nothing of consequence outside it
 BLEED = (1.0, 23.0)  # absolute limit; a stroke centre may reach here, nothing may exceed it
-STROKE = 1.4         # the single stroke weight, in viewport units
+STROKE = 0.5         # the single stroke weight, in viewport units
 CAP = "round"
 JOIN = "round"
 KEYSTONE_R = 1.15    # radius of the standard solid mark
 BUDGET = 260         # path-data characters per glyph. Over this, the drawing is saying too much.
 
+# ---------------------------------------------------------------------------------------
+# Hatching — the flat system's answer to mass
+# ---------------------------------------------------------------------------------------
+#
+# The set carries no large solid areas. Where a glyph would have been solid, it is ruled
+# instead: rows of parallel lines at a fixed pitch, in the same ink as the stroke. Density
+# does the work weight used to do, and it does it without putting a heavy blob next to a
+# 0.5-unit hairline.
+#
+# The rules are anchored to the *viewport*, not to the region being filled, so every hatched
+# area in every icon sits on one shared set of horizontals. Two icons side by side in a rail
+# read as ruled from the same plate.
+
+HATCH_PITCH = 1.05   # distance between rules, viewport units
+HATCH_WEIGHT = 0.3   # weight of one rule
+HATCH_PHASE = 0.28   # first rule sits this fraction of a pitch below y=0
+HATCH_MIN = 3.0      # a region carrying fewer than this many rules stays solid: two lines in
+                     # a small mark is a smudge, not a texture. The keystone dot is the
+                     # common case — it is small, it stays solid, and it stays the one
+                     # deliberate piece of mass in the glyph.
+
 _PREC = 2
+
+
+def hatch_lines(y0: float, y1: float, limit: float = VIEW):
+    """The y-coordinates of the shared hatch rules falling inside [y0, y1]."""
+    out = []
+    n = 0
+    while True:
+        y = (HATCH_PHASE + n) * HATCH_PITCH
+        if y > min(y1, limit):
+            return out
+        if y >= y0:
+            out.append(y)
+        n += 1
+
+
+def hatched(path: "Path") -> bool:
+    """Whether a filled region is large enough to be ruled rather than left solid."""
+    if path.evenodd:
+        # A VectorDrawable `<clip-path>` takes no fill-type attribute, so an even-odd hole
+        # fills in the moment the region is ruled. Nothing in the set is built this way any
+        # more — `cut()` counter-winds instead — but a hand-built even-odd path keeps its
+        # mass rather than quietly losing its hole on Android.
+        return False
+    _, y0, _, y1 = path.bbox()
+    return len(hatch_lines(y0, y1)) >= HATCH_MIN
 
 
 def _n(v: float) -> str:
@@ -304,21 +350,97 @@ def rays(cx, cy, r0, r1, n=8, start=0.0) -> Path:
     return seq(*out)
 
 
+def _contour(p: Path):
+    """Read one contour's vertices and arc parameters back out of its path data.
+
+    Only handles the polygonal-and-arc vocabulary the primitives above emit (M, L, A, Z).
+    Anything with a Bézier in it raises rather than being read wrongly and silently.
+    """
+    d = p.d.replace(",", " ").replace("Z", " Z ").replace("z", " Z ")
+    for letter in "MLA":
+        d = d.replace(letter, f" {letter} ")
+    tokens = d.split()
+
+    verts, arcs, i = [], {}, 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("M", "L"):
+            verts.append((float(tokens[i + 1]), float(tokens[i + 2])))
+            i += 3
+        elif tok == "A":
+            # rx ry rot large sweep x y — the arc's shape is remembered against its *end*
+            # point, which becomes a start point once the contour runs backwards.
+            arcs[len(verts)] = tokens[i + 1:i + 6]
+            verts.append((float(tokens[i + 6]), float(tokens[i + 7])))
+            i += 8
+        elif tok == "Z":
+            i += 1
+        else:
+            raise ValueError(f"{tok!r} is not one of M/L/A/Z — {p.d}")
+
+    # Note that a trailing vertex equal to the first is NOT dropped. On a circle or a
+    # rounded rect that vertex is the far end of a real closing arc, and discarding it
+    # loses the arc: a circle reversed that way comes back a half-disc.
+    return verts, arcs
+
+
+def winding(p: Path) -> int:
+    """+1 if the contour runs clockwise on screen, -1 if it runs anticlockwise.
+
+    Shoelace over the vertices, which settles every polygon. A circle or an ellipse is two
+    half-arcs between two collinear points and so encloses no signed area at all by that
+    measure — for those the arcs' own sweep flag is the answer, and it is exact.
+    """
+    verts, arcs = _contour(p)
+    area = 0.0
+    for i in range(len(verts)):
+        x0, y0 = verts[i]
+        x1, y1 = verts[(i + 1) % len(verts)]
+        area += x0 * y1 - x1 * y0
+    if abs(area) > 1e-9:
+        # y is down, so a positive shoelace is clockwise as drawn rather than anticlockwise.
+        return 1 if area > 0 else -1
+    if arcs:
+        return 1 if int(next(iter(arcs.values()))[4]) else -1
+    raise ValueError(f"cannot tell which way this contour runs: {p.d}")
+
+
+def reverse(p: Path) -> Path:
+    """The same single contour, drawn the other way round."""
+    verts, arcs = _contour(p)
+    out = "M" + _c(*verts[-1])
+    for j in range(len(verts) - 1, 0, -1):
+        rx, ry, rot, large, sweep = arcs.get(j, (None,) * 5)
+        if rx is None:
+            out += "L" + _c(*verts[j - 1])
+        else:
+            # Same arc, opposite direction: the sweep flips, the size of the sweep does not.
+            out += f"A{rx},{ry} {rot} {large},{1 - int(sweep)} {_c(*verts[j - 1])}"
+    return Path(out + "Z", list(p.pts))
+
+
 def ring(cx, cy, r_outer, r_inner) -> Path:
-    """A true hole: a solid disc with an inner disc cut out, via even-odd fill."""
-    outer = circle(cx, cy, r_outer)
-    inner = circle(cx, cy, r_inner)
-    return Path(f"{outer.d} {inner.d}", outer.pts + inner.pts, evenodd=True)
+    """A true hole: a solid disc with a counter-wound inner disc cut out of it."""
+    return cut(circle(cx, cy, r_outer), circle(cx, cy, r_inner))
 
 
 def cut(outer: Path, inner: Path) -> Path:
-    """A solid shape with `inner` genuinely punched through it, via even-odd fill.
+    """A solid shape with `inner` genuinely punched through it.
 
-    Use this rather than relying on opposite winding: winding is easy to get wrong by
-    hand (and silently renders as a solid blob when you do), whereas even-odd holes
-    regardless of the direction either contour happens to be drawn in.
+    The hole is made by *winding*, not by an even-odd fill rule: the two contours are made
+    to run opposite ways, and non-zero fill then drops the overlap. Winding is easy to get
+    wrong when a contour is typed by hand, which is what even-odd used to protect against —
+    but the direction is measured here rather than assumed, so an author still never has to
+    think about it. Note that `inner` is reversed only when it *agrees* with `outer`:
+    reversing unconditionally closes the hole on any inner contour that already ran the
+    other way, which is how a diamond punched out of a square ends up a solid square.
+
+    Non-zero is the only rule that survives the trip to Android. A VectorDrawable
+    `<clip-path>` takes no fill-type attribute, so an even-odd hole comes back solid the
+    moment the region is hatched. This way the hole is a hole in every target.
     """
-    return Path(f"{outer.d} {inner.d}", outer.pts + inner.pts, evenodd=True)
+    hole = reverse(inner) if winding(inner) == winding(outer) else inner
+    return Path(f"{outer.d} {hole.d}", outer.pts + inner.pts)
 
 
 def ring_rect(x, y, w, h, thick) -> Path:

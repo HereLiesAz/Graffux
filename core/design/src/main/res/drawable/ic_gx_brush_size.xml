@@ -15,18 +15,30 @@ Drawn as two rings on one centre with a radius struck through them — the liter
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M5.6,12A6.4,6.4 0 1,0 18.4,12A6.4,6.4 0 1,0 5.6,12Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M7.8,12L16.2,12" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M5.4,12L7.8,13.73L7.8,10.27Z M18.6,12L16.2,10.27L16.2,13.73Z" />
+    <group>
+        <clip-path android:pathData="M5.4,12L7.8,13.73L7.8,10.27Z M18.6,12L16.2,10.27L16.2,13.73Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M5.4,10.794L18.6,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M5.4,11.844L18.6,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M5.4,12.894L18.6,12.894" />
+    </group>
 </vector>

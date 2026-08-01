@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/layer-add — A plate added above the stack, the plus set off to one side. Centred over the stack it was a cross standing on stacked stone — a grave marker to one rater, a Red Cross to the same one, and both readings got stronger as the glyph got smaller. An equal-armed cross squarely on top of a plinth is a monument, whatever the plinth is made of. -->
   <path d="M7.1,8.8L20.08,8.8L17.68,14.4L4.7,14.4Z M8.4,14.2L19.56,14.2L17.16,19.8L6,19.8Z"/>
   <path d="M17.6,2.4L17.6,7 M15.3,4.7L19.9,4.7"/>

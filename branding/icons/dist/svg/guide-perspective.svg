@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/guide-perspective — Lines converging on a single solid vanishing point. -->
+  <defs>
+    <pattern id="gfxHatch-guide-perspective" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M2.6,20.6L21.4,20.6 M2.6,10.6L21.4,10.6"/>
   <path d="M3.4,20.6L19,10.6 M9.4,20.6L19,10.6 M15,20.6L19,10.6"/>
-  <path d="M17.5,11A1.5,1.5 0 1,0 20.5,11A1.5,1.5 0 1,0 17.5,11Z" fill="currentColor" stroke="none"/>
+  <path d="M17.5,11A1.5,1.5 0 1,0 20.5,11A1.5,1.5 0 1,0 17.5,11Z" fill="url(#gfxHatch-guide-perspective)" stroke="none"/>
 </svg>
