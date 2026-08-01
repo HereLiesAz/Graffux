@@ -92,6 +92,7 @@ import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
+import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
@@ -177,6 +178,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
+    var showStoreChooser by remember { mutableStateOf(false) }
     var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
@@ -192,7 +194,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
-    val activeRailColor = MaterialTheme.colorScheme.onSurface
+    // The rail's active/selected colour, and it has to differ from the colour items already are.
+    // It was `onSurface` — white under this theme — while every rail item's base colour is
+    // `navItemColor`, which is also white on any dark canvas. Selecting an item therefore repainted
+    // it the shade it already was, which is why nothing in the rail ever appeared to respond. The
+    // brand accent reads against both of navItemColor's two values (white on a dark canvas, black on
+    // a light one), so the highlight survives whatever the artwork is.
+    val activeRailColor = MaterialTheme.colorScheme.primary
     // The file-operations dropdown sets this on every row rather than leaving it unspecified.
     //
     // Under 11.7 it had to: an unspecified row colour resolved through AzNavRail's own rail palette,
@@ -293,7 +301,16 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Resolves and launches the azphalt store's browse intent (spec/store-app.md § Discovery), or
     // says plainly that none is installed — the spec requires degrading gracefully here, not silently
     // doing nothing or crashing on ActivityNotFoundException.
-    val openAzphaltStore = {
+    // Acquisition is delegated (spec/store-app.md), and there are two ways to reach a store: the
+    // Android store app, which hands verified bytes straight back through an Intent, and the web
+    // storefront, which is a browser. Only the second is guaranteed to exist, so the user is asked
+    // rather than silently given whichever happens to be present — which previously meant a toast
+    // saying "no store app is installed" and no way forward at all.
+    val openAzphaltStore: () -> Unit = { showStoreChooser = true }
+
+    /** Android: browse in the installed store app, or go get one when there isn't one. */
+    val browseAzphaltAndroid: () -> Unit = {
+        showStoreChooser = false
         if (AzphaltStoreHandoff.isStoreAvailable(context.packageManager, context.packageName)) {
             // Carry what this host has already done with its extensions (spec/state-reporting.md
             // § 3.1), so the store's cards can read Open rather than Get on things the user has.
@@ -301,10 +318,31 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory())
             )
         } else {
-            android.widget.Toast.makeText(
-                context, "No Azphalt Store app is installed", android.widget.Toast.LENGTH_LONG,
-            ).show()
+            // Play first; a device without Play falls through to the web storefront, which is where
+            // the app is distributed anyway. Either beats a dead button.
+            runCatching { context.startActivity(AzphaltStoreHandoff.installStoreAppIntent()) }
+                .onFailure {
+                    runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
+                        .onFailure {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Nothing on this device can open the store",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                }
         }
+    }
+
+    /** Web: the storefront in a browser, the affordance every device already has. */
+    val browseAzphaltWeb: () -> Unit = {
+        showStoreChooser = false
+        runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
+            .onFailure {
+                android.widget.Toast.makeText(
+                    context, "No browser to open azphalt.store", android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
     }
 
     val navItemColor = remember(uiState.canvasBackground) {
@@ -426,7 +464,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    azItem(color = menuItemColor, text = "Store", onClick = { showStoreDialog = true })
+                    // Two entries, because they are two jobs. Store is where you *get* something and
+                    // opens the chooser; Extensions is what you already have, and is where the
+                    // installed list and its uninstall buttons live. Folding them together is what
+                    // previously made "Store" open a management window with a browse button buried
+                    // inside it.
+                    azItem(color = menuItemColor, text = "Store", onClick = { showStoreChooser = true })
+                    azItem(color = menuItemColor, text = "Extensions", onClick = { showStoreDialog = true })
                     azItem(color = menuItemColor, text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     azItem(color = menuItemColor, text = "Export for Figma", onClick = { vm.exportForFigma() })
                     azItem(color = menuItemColor, text = "3D Model…", onClick = { showModelDialog = true })
@@ -676,6 +720,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onNew = { vm.createNewProject() },
                         onDelete = { vm.deleteProjectById(it) },
                         onDismiss = { showGalleryDialog = false },
+                    )
+                }
+
+                if (showStoreChooser) {
+                    StoreChooserDialog(
+                        storeAppInstalled = AzphaltStoreHandoff.isStoreAvailable(
+                            context.packageManager, context.packageName,
+                        ),
+                        onWeb = browseAzphaltWeb,
+                        onAndroid = browseAzphaltAndroid,
+                        onCancel = { showStoreChooser = false },
                     )
                 }
 
