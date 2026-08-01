@@ -46,6 +46,10 @@ fun DrawingCanvas(
     onStrokeEnd: () -> Unit,
     onStrokeCancel: () -> Unit,
     onFillTap: (Offset, IntSize) -> Unit,
+    // True while Tool.CLONE is armed but unaimed. The tool then behaves like FILL — a tap, not a
+    // drag — because a clone stroke with no source has nothing to copy.
+    pickingCloneSource: Boolean = false,
+    onPickCloneSource: (Offset) -> Unit = {},
     onEyedropStart: (IntSize) -> Unit,
     onEyedropSample: (Offset) -> Unit,
     onEyedropEnd: (commit: Boolean) -> Unit,
@@ -136,6 +140,7 @@ fun DrawingCanvas(
                         if (!change.pressed) {
                             // Lift.
                             when {
+                                pickingCloneSource -> onPickCloneSource(down.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
                                 began -> {
                                     if (activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty()) {
@@ -157,7 +162,7 @@ fun DrawingCanvas(
                         }
 
                         val moved = (change.position - down.position).getDistance() > slop
-                        if (!began && moved && activeTool != Tool.FILL) {
+                        if (!began && moved && activeTool != Tool.FILL && !pickingCloneSource) {
                             began = true
                             gate.strokeActive = true
                             if (activeTool == Tool.LIQUIFY) {

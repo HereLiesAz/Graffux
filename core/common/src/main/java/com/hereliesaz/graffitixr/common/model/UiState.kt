@@ -14,7 +14,15 @@ enum class Tool {
      * Freehand selection (Procreate's lasso). A drag traces a region; every raster tool is then
      * confined to it until it is cleared. Dragging inside an existing selection moves its pixels.
      */
-    SELECT
+    SELECT,
+
+    /**
+     * Procreate's Clone: paints with pixels copied from somewhere else on the same layer. A source
+     * point is picked first (a tap, while none is set); each stroke then samples the layer at a
+     * fixed offset from where that stroke began, so the source travels with the brush and a whole
+     * region can be duplicated by painting over it.
+     */
+    CLONE
 }
 
 enum class ArScanMode {

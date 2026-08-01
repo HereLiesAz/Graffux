@@ -100,6 +100,11 @@ data class StrokeCommand(
     // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
     // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
     val moveDelta: Offset? = null,
+    // Set only on a [Tool.CLONE] command: the screen-space vector from this stroke to the pixels it
+    // copies, fixed when the stroke began. Recorded rather than read from live state at replay time
+    // for the same reason `selection` is — the source can be moved or cleared afterwards, and an
+    // undo/redo has to re-composite the pixels that were actually painted.
+    val cloneOffset: Offset? = null,
     // Wipes the layer to transparency instead of painting a path — Procreate's clear-layer. Recorded
     // as a command so it undoes by replay like everything else; honours [selection], so clearing
     // with a lasso active wipes only inside it.
@@ -2958,6 +2963,7 @@ class EditorViewModel @Inject constructor(
                 symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
+                cloneOffset = cloneOffsetFor(state, points),
             )
 
             // Add stroke to history
@@ -2991,6 +2997,7 @@ class EditorViewModel @Inject constructor(
                 symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
+                cloneOffset = cloneOffsetFor(state, points),
             )
 
             // Add stroke to history for undo/redo replay.
@@ -3515,6 +3522,30 @@ class EditorViewModel @Inject constructor(
     fun onSetSelectionFeather(featherPx: Float) =
         dispatch(EditorIntent.SetSelectionFeather(featherPx))
 
+    // ── Clone ────────────────────────────────────────────────────────────────────────────────
+
+    /** Aims the clone brush. A tap does this while the tool is armed but unaimed. */
+    fun onSetCloneSource(at: Offset) = dispatch(EditorIntent.SetCloneSource(at))
+
+    /** Forgets the source, so the next tap picks a new one. */
+    fun onResetCloneSource() = dispatch(EditorIntent.SetCloneSource(null))
+
+    /**
+     * The screen-space vector from a clone stroke to the pixels it copies, or null for any other
+     * tool.
+     *
+     * Measured from the point the stroke *starts*, not from the canvas origin, which is what makes
+     * the source track the brush: begin a second stroke somewhere else and it samples from the same
+     * relative place, so painting back and forth duplicates a whole region rather than smearing one
+     * fixed patch over everything.
+     */
+    private fun cloneOffsetFor(state: EditorUiState, points: List<Offset>): Offset? {
+        if (state.activeTool != Tool.CLONE) return null
+        val source = state.cloneSource ?: return null
+        val start = points.firstOrNull() ?: return null
+        return source - start
+    }
+
     fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
         dispatch(EditorIntent.SetSelectionShape(shape))
 
@@ -3925,6 +3956,14 @@ class EditorViewModel @Inject constructor(
                 Tool.HEAL -> {
                     color = argbColor
                     alpha = 128
+                }
+                Tool.CLONE -> {
+                    // No live paint, for the same reason as BLUR: a plain Paint has no way to sample
+                    // pixels from elsewhere on the layer, and the default colour would lay down a
+                    // black stroke that then snapped to the cloned pixels on finger-up. The copy is
+                    // composited in applyToolToBitmap when the stroke commits.
+                    color = android.graphics.Color.TRANSPARENT
+                    alpha = 0
                 }
                 else -> {}
             }

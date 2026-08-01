@@ -134,6 +134,17 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                 replaceExisting && featherRadius <= 0f, stroke.feathering,
                 alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
                 clipPath = paintClip,
+                // Screen-space offset carried through the same affine the coordinates take, as a
+                // difference of two mapped points — that applies the scale and the layer rotation
+                // while cancelling the translation, which a scalar multiply would get wrong on a
+                // rotated layer.
+                cloneOffset = stroke.cloneOffset?.let { off ->
+                    SelectionMask.mapDelta(
+                        off, stroke.canvasSize.width, stroke.canvasSize.height,
+                        bitmap.width, bitmap.height,
+                        stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                    )
+                },
             ),
             clipPath, featherRadius,
         )

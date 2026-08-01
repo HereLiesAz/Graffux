@@ -898,6 +898,7 @@ private val TOOL_IDS: Map<Tool, String> = mapOf(
     Tool.COLOR to "tool.colorize",
     Tool.FILL to "tool.fill",
     Tool.SELECT to "tool.select",
+    Tool.CLONE to "tool.clone",
 )
 
 /**
@@ -1176,6 +1177,16 @@ private fun AzNavHostScope.ConfigureRailItems(
     toolItem(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     toolItem(Tool.FILL, "Fill", GraffuxIcons.Colordrop)
+    // Clone. Aimed by tapping the canvas once, which is why it is a tool with a second step rather
+    // than a tool you just start painting with.
+    toolItem(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
+    if (uiState.activeTool == Tool.CLONE) {
+        stateItem(
+            id = "tool.cloneSource",
+            text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
+            content = GraffuxIcons.FilterCloneSource,
+        ) { vm.onResetCloneSource() }
+    }
 
     // Symmetry guide: strokes mirror across one or more axes while it's on. This is the quick
     // on/off; the picker below reaches every mode, including turning it off from there too.

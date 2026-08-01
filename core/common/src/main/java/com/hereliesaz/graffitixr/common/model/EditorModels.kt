@@ -241,6 +241,10 @@ data class EditorUiState(
     // Shared with nothing: the paint bucket keeps its own default, because reaching for the wand
     // and reaching for the bucket are different intents even where the spread is identical.
     val magicWandTolerance: Int = 32,
+    // Where Tool.CLONE samples from, in screen space. Null means the tool is armed but unaimed — a
+    // tap sets it, and until then a drag would have nothing to copy. Survives strokes, so a source
+    // picked once serves every stroke after it until it is reset.
+    val cloneSource: Offset? = null,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

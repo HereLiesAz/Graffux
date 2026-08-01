@@ -13,6 +13,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 
 /**
  * Kotlin UI layer implementation of image manipulation tools.
@@ -194,7 +195,12 @@ object ImageProcessor {
                         // Bitmap-space lasso selection, if one is active: every tool below is
                         // confined to it. Built by SelectionMask so the live paint, the commit and
                         // the history replay all clip to the identical boundary.
-                        clipPath: android.graphics.Path? = null
+                        clipPath: android.graphics.Path? = null,
+                        // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it
+                        // copies. Passed in rather than derived here because it is fixed at the
+                        // moment the stroke starts and recorded onto the command, which is what
+                        // makes a clone stroke replay identically on undo/redo.
+                        cloneOffset: Offset? = null,
                     ): Bitmap = withContext(Dispatchers.Default) {
                         if (stroke.isEmpty()) return@withContext originalBitmap
 
@@ -266,6 +272,45 @@ object ImageProcessor {
                                     maskBmp.recycle()
                                     blurred.recycle()
                                 }
+
+                                        Tool.CLONE -> {
+                                            // Copies pixels from elsewhere on the same layer.
+                                            //
+                                            // Same shape as the BLUR branch above: the stroke is
+                                            // drawn into a scratch bitmap as a mask, then the thing
+                                            // being composited is kept only where the stroke drew
+                                            // (SRC_IN) before going down on the layer. That is what
+                                            // gives a soft, brush-shaped edge — clipping to a
+                                            // stroked path instead would give a hard one.
+                                            val d = cloneOffset
+                                            if (d != null) {
+                                                val maskBmp = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
+                                                if (maskBmp != null) {
+                                                    val maskCanvas = Canvas(maskBmp)
+                                                    val maskPaint = Paint().apply {
+                                                        strokeWidth = brushSize
+                                                        style = Paint.Style.STROKE
+                                                        strokeCap = Paint.Cap.ROUND
+                                                        strokeJoin = Paint.Join.ROUND
+                                                        isAntiAlias = true
+                                                        if (feathering > 0f) {
+                                                            maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                                                        }
+                                                    }
+                                                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetryMode)
+                                                    // The source, shifted so the sampled pixels land
+                                                    // under the brush. Read from originalBitmap, so
+                                                    // an in-place stroke samples the layer as it now
+                                                    // stands — which is what a clone brush does.
+                                                    maskCanvas.drawBitmap(
+                                                        originalBitmap, d.x, d.y,
+                                                        Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) },
+                                                    )
+                                                    canvas.drawBitmap(maskBmp, 0f, 0f, null)
+                                                    maskBmp.recycle()
+                                                }
+                                            }
+                                        }
 
                                                                                                         Tool.HEAL -> {
                                                                                                                             val paint = Paint().apply {
