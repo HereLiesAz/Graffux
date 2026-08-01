@@ -72,8 +72,39 @@ class ContourTraceTest {
         val subtractive = rings.filter { !it.additive }
         assertEquals(2, additive.size)
         assertEquals(1, subtractive.size)
-        // Outers are emitted first, so a hole never cuts out of a region that hasn't been added yet.
-        assertTrue(rings.indexOfFirst { !it.additive } > rings.indexOfLast { it.additive })
+
+        // The counts alone prove nothing — they held while the emission order was wrong and the
+        // island was being erased by the lake around it. What matters is that composing the rings
+        // in the order given reproduces the mask, so assert that directly.
+        val sel = com.hereliesaz.graffitixr.common.model.Selection(
+            rings = rings,
+            canvasSize = androidx.compose.ui.unit.IntSize(5, 5),
+        )
+        assertTrue(SelectionGeometry.contains(sel, Offset(0.5f, 0.5f)))   // the frame
+        assertFalse(SelectionGeometry.contains(sel, Offset(1.5f, 1.5f)))  // the moat
+        assertTrue(SelectionGeometry.contains(sel, Offset(2.5f, 2.5f)))   // the island inside it
+    }
+
+    @Test
+    fun `every ring order reproduces its mask at nesting depth two`() {
+        // Guards the ordering rule itself. "Outers first, then holes" is correct only one level
+        // deep; at depth two it cuts the lake after the island has been added and erases it.
+        val rings = contoursOf(
+            "#######",
+            "#######",
+            "##...##",
+            "##.#.##",
+            "##...##",
+            "#######",
+            "#######",
+        )
+        val sel = com.hereliesaz.graffitixr.common.model.Selection(
+            rings = rings,
+            canvasSize = androidx.compose.ui.unit.IntSize(7, 7),
+        )
+        assertTrue(SelectionGeometry.contains(sel, Offset(0.5f, 0.5f)))   // outer body
+        assertFalse(SelectionGeometry.contains(sel, Offset(2.5f, 2.5f)))  // the moat
+        assertTrue(SelectionGeometry.contains(sel, Offset(3.5f, 3.5f)))   // the island in the moat
     }
 
     @Test

@@ -86,9 +86,15 @@ object ContourTrace {
                 }
             }
         }
-        // Outers first: a hole cut before the region that contains it has been added would cut out
-        // of nothing, and then be filled back in by that region.
-        return outer + holes
+        // Interleaved by containment depth, NOT all outers then all holes.
+        //
+        // "Outers first" is right only one level deep. An island inside a lake inside an island
+        // emits two outer rings and one hole; ordered [big, island, lake] the lake is cut last and
+        // erases the island sitting inside it. Sorting by descending area puts every ring after the
+        // one that encloses it — a container is strictly larger than what it contains — so each cut
+        // lands on the region it belongs to and each island is re-added after the lake that
+        // surrounds it.
+        return (outer + holes).sortedByDescending { abs(signedArea(it.path)) }
     }
 
     /**

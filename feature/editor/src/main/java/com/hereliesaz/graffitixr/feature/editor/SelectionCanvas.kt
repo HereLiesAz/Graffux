@@ -16,6 +16,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -246,6 +247,10 @@ private fun selectionOutline(selection: Selection): Path? {
     for (ring in selection.rings) {
         if (!ring.isUsable) continue
         val ringPath = Path().apply {
+            // Even-odd, matching SelectionMask.bitmapPath and SelectionGeometry — so the ants
+            // outline exactly the region the paint is confined to, including where a lasso
+            // crossed itself.
+            fillType = PathFillType.EvenOdd
             moveTo(ring.path[0].x, ring.path[0].y)
             for (i in 1 until ring.path.size) lineTo(ring.path[i].x, ring.path[i].y)
             close()

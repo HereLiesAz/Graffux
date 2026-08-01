@@ -116,9 +116,14 @@ data class SavedSelection(
  * Vertices used to approximate an [SelectionShape.ELLIPSE].
  *
  * The polygon is the selection — containment, clipping and the marching ants all read it directly —
- * so this is the resolution of the curve, not a preview detail. 64 puts the worst-case chord error
- * under a quarter-pixel on a 2000px-wide ellipse, which is below what any of those three can show,
- * while staying far cheaper to re-map than the thousands of points a traced lasso carries.
+ * so this is the resolution of the curve, not a preview detail.
+ *
+ * The error is the sagitta, `R(1 − cos(π/n))`: at n = 64 that is **1.2 px** on a 2000px-wide ellipse,
+ * flattening each 5.6° arc by rather more than a pixel at its midpoint. A previous version of this
+ * comment claimed a quarter-pixel, which would need n = 141 — the figure was asserted, not computed.
+ * 64 is kept because the true constraint is the re-map cost: every vertex is transformed on every
+ * paint operation the selection clips, and a selection is usually far smaller than the whole canvas,
+ * where the error scales down with R.
  */
 const val ELLIPSE_VERTICES: Int = 64
 

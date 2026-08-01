@@ -234,6 +234,7 @@ internal object EditorReducer {
         // Changing mode drops the handles: they are a grid of a particular size laid over a
         // particular layer, so carrying a distort's four corners into warp's sixteen would be
         // meaningless. The pixels already baked are kept — only the live grid resets.
+        is EditorIntent.SetCanvasSize -> state.copy(canvasSize = intent.size)
         is EditorIntent.SetTransformMode -> state.copy(transformMode = intent.mode, warpHandles = emptyList())
         is EditorIntent.SetWarpHandles -> state.copy(warpHandles = intent.handles)
         is EditorIntent.SetHasClipboard -> state.copy(hasClipboard = intent.has)

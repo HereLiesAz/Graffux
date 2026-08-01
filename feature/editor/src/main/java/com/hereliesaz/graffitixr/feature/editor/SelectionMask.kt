@@ -51,6 +51,13 @@ internal object SelectionMask {
             )
             if (mapped.size < 3) continue
             val ringPath = Path()
+            // Even-odd, to match SelectionGeometry.insidePolygon. Path defaults to non-zero
+            // winding, and the two disagree on a ring that crosses itself — a lasso whose tail
+            // loops back over its own path encloses a doubly-wound patch, which winding fills and
+            // even-odd does not. That is the one case where the paint and the hit-test could give
+            // different answers about the same pixel: tapping the patch would start a new lasso
+            // instead of moving the region it is visibly part of.
+            ringPath.fillType = Path.FillType.EVEN_ODD
             ringPath.moveTo(mapped[0].x, mapped[0].y)
             for (i in 1 until mapped.size) ringPath.lineTo(mapped[i].x, mapped[i].y)
             ringPath.close()

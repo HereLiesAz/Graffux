@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Color
 import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
@@ -182,6 +183,8 @@ internal sealed interface EditorIntent {
     data class SetSelectionFeather(val featherPx: Float) : EditorIntent
     /** Aims the Clone tool at a screen point, or unaims it with null. */
     data class SetCloneSource(val at: Offset?) : EditorIntent
+    /** The editor canvas's measured size. */
+    data class SetCanvasSize(val size: IntSize) : EditorIntent
     /** Picks the Transform panel's mode: freeform, distort or warp. */
     data class SetTransformMode(
         val mode: com.hereliesaz.graffitixr.common.model.TransformMode,

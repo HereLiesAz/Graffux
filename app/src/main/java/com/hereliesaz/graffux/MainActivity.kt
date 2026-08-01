@@ -430,8 +430,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                     azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
                     // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
-                    // to say so once — so it was said twenty times over. An entry added without it
-                    // falls back to Color.Unspecified rather than to the other nineteen, which is a
+                    // to say so once — so it was said twenty-one times over. An entry added without
+                    // it falls back to Color.Unspecified rather than to the other twenty, which is a
                     // silent way to end up with one unreadable line. Said once here instead.
                     fun menuItem(text: String, onClick: () -> Unit) =
                         azItem(color = menuItemColor, text = text, onClick = onClick)
