@@ -64,6 +64,7 @@ import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
+import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.theme.AppStrings
@@ -961,6 +962,7 @@ private fun activeRailClassifiers(
     add("symmetryMode.${uiState.symmetryMode.name}")
     add("selectShape.${uiState.selectionShape.name}")
     add("selectOp.${uiState.selectionOp.name}")
+    add("transform.${uiState.transformMode.name}")
 }
 
 private fun AzNavHostScope.ConfigureRailItems(
@@ -1129,6 +1131,42 @@ private fun AzNavHostScope.ConfigureRailItems(
         vm.onInvertSelection()
     }
     subItem("tool.deselect", "grp.select", "Deselect", GraffuxIcons.SelectNone) { vm.onClearSelection() }
+    // Actions on the region that exists. Hidden without one — Colour Fill would silently mean
+    // "flood the whole layer", which is a much larger thing than the button appears to offer.
+    if (uiState.selection != null) {
+        subItem("sel.fill", "grp.select", "Colour Fill", GraffuxIcons.LayerFill) { vm.onColorFillSelection() }
+        subItem("sel.copy", "grp.select", "Copy", GraffuxIcons.LayerDuplicate) { vm.onCopySelection() }
+        subItem("sel.cut", "grp.select", "Cut", GraffuxIcons.PathKnife) { vm.onCutSelection() }
+        subItem("sel.save", "grp.select", "Save Selection", GraffuxIcons.DocumentSave) {
+            vm.onSaveSelection("Selection ${uiState.savedSelections.size + 1}")
+        }
+    }
+    // Paste needs a clipboard, not a selection — it makes a new layer, so it is useful precisely
+    // when nothing is selected any more.
+    if (uiState.hasClipboard) {
+        subItem("sel.paste", "grp.select", "Paste", GraffuxIcons.LayerAdd) { vm.onPasteSelection() }
+    }
+    // Recalling a saved region. Each is its own entry rather than a picker, because the list is
+    // short by nature and one tap beats two.
+    uiState.savedSelections.forEach { saved ->
+        subItem("sel.load.${saved.name}", "grp.select", saved.name, GraffuxIcons.SelectReselect) {
+            vm.onLoadSelection(saved.name)
+        }
+    }
+    // Deleting one lives a level down rather than beside its Load entry: recalling is the common
+    // act and stays one tap, while forgetting is rare and destructive and can afford to be two.
+    // Without it, Save is a one-way door — the list only ever grows, and the rail with it.
+    if (uiState.savedSelections.isNotEmpty()) {
+        azRailSubHostItem(
+            id = "sel.manage", hostId = "grp.select", text = "Forget a Selection",
+            content = GraffuxIcons.LayerDelete, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        )
+        uiState.savedSelections.forEach { saved ->
+            subItem("sel.forget.${saved.name}", "sel.manage", saved.name, GraffuxIcons.SelectNone) {
+                vm.onDeleteSavedSelection(saved.name)
+            }
+        }
+    }
     // Feather softens the boundary of the selection that exists, so it only appears once one does —
     // there is nothing for it to act on otherwise, and it is stored on the selection rather than
     // beside it, so it travels when the region moves.
@@ -1142,6 +1180,31 @@ private fun AzNavHostScope.ConfigureRailItems(
     // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the
     // classifier set and the panel it opens are unchanged.
     stateItem("adj.transform", "Transform", GraffuxIcons.SelectTransform) { vm.onTransformClicked() }
+    // Procreate's three transform modes. Freeform moves the layer; Distort and Warp bend it, and
+    // are the same grid at two resolutions — four corners for a perspective, sixteen for a mesh.
+    TransformMode.entries.forEach { mode ->
+        stateItem(
+            id = "transform.${mode.name}", text = mode.label,
+            content = when (mode) {
+                TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
+                TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
+                TransformMode.WARP -> GraffuxIcons.PuppetWarp
+            },
+        ) { vm.onSetTransformMode(mode) }
+    }
+    // Only while a bend is in progress: they are the two ways out of it, and mean nothing otherwise.
+    if (uiState.transformMode != TransformMode.FREEFORM) {
+        azRailItem(
+            id = "transform.apply", text = "Apply",
+            content = GraffuxIcons.Success, color = activeColor,
+            onClick = { vm.onApplyWarp() },
+        )
+        azRailItem(
+            id = "transform.cancel", text = "Cancel",
+            content = GraffuxIcons.Close, color = navItemColor,
+            onClick = { vm.onCancelWarp() },
+        )
+    }
 
     // Procreate's tool strip: a flat row of the tools you paint with, not an accordion you have to
     // open first, drawn from the Graffux set (`GraffuxIcons`, generated by branding/icons/build.py)

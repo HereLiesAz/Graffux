@@ -156,6 +156,34 @@ internal object SelectionMask {
     }
 
     /**
+     * The selected pixels of [source] on their own, transparent everywhere else — what Copy takes.
+     *
+     * Full-canvas sized rather than cropped to the selection's bounds. That costs a full bitmap, but
+     * it makes paste-in-place free: the result drops onto a new layer at the origin and lands in
+     * exact register with where it was cut from, with no offset to carry, re-apply, or get wrong
+     * when the layer it came from is a different size to the one it lands on.
+     *
+     * Honours the feather, so copying a soft-edged selection takes soft-edged pixels.
+     */
+    fun lift(source: android.graphics.Bitmap, clipPath: Path?, featherRadius: Float): android.graphics.Bitmap? {
+        if (clipPath == null) return SafeBitmap.copy(source)
+        val mask = featherMask(clipPath, source.width, source.height, featherRadius)
+        if (mask != null) {
+            val out = SafeBitmap.copy(source) ?: run { mask.recycle(); return null }
+            Canvas(out).drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            })
+            mask.recycle()
+            return out
+        }
+        val out = SafeBitmap.create(source.width, source.height) ?: return null
+        val canvas = Canvas(out)
+        canvas.clipPath(clipPath)
+        canvas.drawBitmap(source, 0f, 0f, null)
+        return out
+    }
+
+    /**
      * Confines everything subsequently drawn on [canvas] to [clipPath]. A no-op for a null path,
      * so callers can apply it unconditionally.
      *

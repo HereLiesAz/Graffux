@@ -109,6 +109,14 @@ data class StrokeCommand(
     // as a command so it undoes by replay like everything else; honours [selection], so clearing
     // with a lasso active wipes only inside it.
     val clearAll: Boolean = false,
+    // Procreate's Colour Fill: floods the selection (or the whole layer) with [brushColor] rather
+    // than painting a path. Recorded as a command for the same reason [clearAll] is — it undoes by
+    // replay like everything else, and honours the selection including its feather.
+    val fillSelection: Boolean = false,
+    // Procreate's Distort/Warp: the screen-space handle grid the layer's pixels were pushed onto.
+    // Recorded rather than baked into the base so the deformation undoes by replay like everything
+    // else — and so it replays *after* the strokes beneath it, which is the order it was applied in.
+    val warpHandles: List<Offset>? = null,
 )
 
 /**
@@ -373,6 +381,7 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
+                        dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
                         restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -1592,6 +1601,7 @@ class EditorViewModel @Inject constructor(
                 cloudPointsPath = cloudPointsPath,
                 documentWidth = _uiState.value.documentWidth,
                 documentHeight = _uiState.value.documentHeight,
+                savedSelections = _uiState.value.savedSelections,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -1609,6 +1619,7 @@ class EditorViewModel @Inject constructor(
                     cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
                     documentHeight = _uiState.value.documentHeight,
+                    savedSelections = _uiState.value.savedSelections,
                 )
             }
             // The merged result the repository just persisted (includes any AR wall map).
@@ -3302,6 +3313,59 @@ class EditorViewModel @Inject constructor(
      * restores pixels by replaying commands onto a base, so a bitmap edit is only undoable if it is
      * replayable.
      */
+    /**
+     * Procreate's Colour Fill: floods the selection with the active colour.
+     *
+     * Deliberately not the paint bucket. [Tool.FILL] spreads from a tapped pixel and stops where the
+     * colour changes; this fills the *region*, edge to edge, whatever is under it — which is the only
+     * one of the two that can fill a selection you drew over textured artwork.
+     *
+     * With no selection it fills the layer, since "the selection" is then the whole of it — the same
+     * reading [onClearLayer] already takes.
+     */
+    fun onColorFillSelection() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val argb = state.activeColor.toArgb()
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = state.selection?.canvasSize ?: IntSize(base.width, base.height),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = argb,
+            intensity = 1f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = state.selection,
+            fillSelection = true,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        showHud(if (state.selection != null) "Filled selection" else "Filled layer")
+
+        viewModelScope.launch(dispatchers.default) {
+            // Straight through the replay path rather than a second implementation of the same
+            // composite — the one thing the feather work proved is worth insisting on, since a
+            // commit that differs from its replay changes the layer on the first undo.
+            val target = drawingEngine.applySingleStroke(base, command)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
     fun onClearLayer() {
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
@@ -3553,6 +3617,260 @@ class EditorViewModel @Inject constructor(
 
     fun onSetSelectionFeather(featherPx: Float) =
         dispatch(EditorIntent.SetSelectionFeather(featherPx))
+
+    // ── Distort / Warp ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * The layer's pixels as they were before the current warp session started.
+     *
+     * Every re-bake goes from this, never from the last result. Warping a warp resamples pixels that
+     * have already been resampled, so dragging a handle back and forth would soften the artwork a
+     * little each time and never recover it — the layer would visibly rot under an indecisive user.
+     */
+    private var warpOriginalBitmap: Bitmap? = null
+
+    /** Picks Freeform / Distort / Warp, laying a fresh handle grid over the layer for the last two. */
+    fun onSetTransformMode(mode: TransformMode) {
+        val state = _uiState.value
+        dispatch(EditorIntent.SetTransformMode(mode))
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        if (mode == TransformMode.FREEFORM) return
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val bitmap = layer.bitmap ?: run {
+            Toast.makeText(context, "${mode.label} needs a paint layer", Toast.LENGTH_SHORT).show()
+            dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+            return
+        }
+        warpOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: bitmap.width
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: bitmap.height
+        // The grid starts on the layer's own corners, mapped out to screen — so the handles sit
+        // exactly on the artwork's edges rather than on the viewport's, whatever the layer's
+        // scale, offset and rotation happen to be.
+        val corners = ImageWarp.identityGrid(
+            mode.gridSize, bitmap.width.toFloat(), bitmap.height.toFloat(),
+        )
+        dispatch(EditorIntent.SetWarpHandles(
+            ImageProcessor.mapBitmapToScreen(
+                corners, canvasW, canvasH, bitmap.width, bitmap.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+        ))
+    }
+
+    /** Moves one handle. Cheap and synchronous — the re-bake waits for the finger to lift. */
+    fun onWarpHandleMoved(index: Int, to: Offset) {
+        val handles = _uiState.value.warpHandles
+        if (index !in handles.indices) return
+        dispatch(EditorIntent.SetWarpHandles(handles.toMutableList().also { it[index] = to }))
+    }
+
+    /**
+     * Re-renders the layer from the pre-warp original through the current handles.
+     *
+     * Called when a handle is *released*, not while it moves: a full-resolution resample per drag
+     * frame would stutter, and one on release is fast enough to read as immediate.
+     */
+    fun onWarpHandleReleased() {
+        val state = _uiState.value
+        val original = warpOriginalBitmap ?: return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val handles = state.warpHandles
+        if (handles.isEmpty()) return
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: original.width
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: original.height
+        viewModelScope.launch(dispatchers.default) {
+            val inBitmap = ImageProcessor.mapScreenToBitmap(
+                handles, canvasW, canvasH, original.width, original.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+            val warped = ImageWarp.warp(original, inBitmap) ?: return@launch
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it })
+                }
+            }
+        }
+    }
+
+    /**
+     * Keeps the warp: the deformed pixels become the layer, undoably, and the grid resets.
+     *
+     * The history entry was pushed when the session started, so an undo restores the pre-warp
+     * pixels in one step rather than unwinding each handle drag — which is what someone who has
+     * spent a minute nudging sixteen handles and changed their mind actually wants.
+     */
+    fun onApplyWarp() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val bitmap = layer.bitmap
+        val handles = state.warpHandles
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: (bitmap?.width ?: 0)
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: (bitmap?.height ?: 0)
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+        if (bitmap == null || handles.isEmpty()) return
+        // Recorded as a command rather than rebased into the layer, so it undoes by replay like a
+        // stroke does. It lands *after* the strokes already on this layer, which is the order it was
+        // applied in: the pixels it deformed were those strokes' output.
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = IntSize(canvasW, canvasH),
+            tool = Tool.NONE,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            warpHandles = handles,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        scheduleDiskSave(layerId, bitmap, layer.uri)
+        viewModelScope.launch(dispatchers.default) {
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+        }
+        showHud("Applied")
+    }
+
+    /** Throws the warp away and puts the original pixels back. */
+    fun onCancelWarp() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId
+        val original = warpOriginalBitmap
+        if (layerId != null && original != null) {
+            val restored = original.copy(Bitmap.Config.ARGB_8888, true)
+            if (restored != null) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = restored) else it })
+                }
+            }
+        }
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+    }
+
+    // ── Copy / Cut / Paste ───────────────────────────────────────────────────────────────────
+
+    /**
+     * The selected pixels, waiting to be pasted.
+     *
+     * A field rather than UiState: it is a full-canvas bitmap, and state is compared on every
+     * recomposition. The UI only ever needs to know whether there *is* one, which travels as
+     * [EditorUiState.hasClipboard].
+     */
+    private var selectionClipboard: Bitmap? = null
+
+    /** Takes the selected pixels of the active layer, honouring the feather. */
+    fun onCopySelection(showToast: Boolean = true) {
+        val state = _uiState.value
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Copy needs a paint layer", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clip = SelectionMask.bitmapPath(
+            state.selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+        )
+        val radius = SelectionMask.featherRadius(state.selection, base.width, base.height, layer.scale)
+        val lifted = SelectionMask.lift(base, clip, radius) ?: return
+        selectionClipboard?.recycle()
+        selectionClipboard = lifted
+        dispatch(EditorIntent.SetHasClipboard(true))
+        if (showToast) showHud(if (state.selection != null) "Copied selection" else "Copied layer")
+    }
+
+    /** Copy, then clear what was copied. Two existing operations rather than a third code path. */
+    fun onCutSelection() {
+        onCopySelection(showToast = false)
+        onClearLayer()
+        showHud(if (_uiState.value.selection != null) "Cut selection" else "Cut layer")
+    }
+
+    /**
+     * Drops the clipboard onto a **new layer**, which is what Procreate does and the only choice
+     * that is reversible without history: pasting into the current layer would destroy whatever it
+     * landed on, and the user has not asked for that by pressing Paste.
+     *
+     * Lands in register with where it was cut from, because [SelectionMask.lift] keeps the pixels at
+     * full canvas size rather than cropping them to the selection's bounds.
+     */
+    fun onPasteSelection() {
+        val source = selectionClipboard ?: return
+        val projectId = _uiState.value.projectId ?: return
+        pushHistory()
+        viewModelScope.launch(dispatchers.io) {
+            val bmp = source.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val filename = "layer_paste_${UUID.randomUUID()}.png"
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bmp))
+            val pasted = Layer(
+                id = UUID.randomUUID().toString(),
+                name = "Pasted",
+                bitmap = bmp,
+                uri = "file://$path".toUri(),
+            )
+            layerStore.putBase(pasted.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            layerStore.initStrokes(pasted.id)
+            withContext(dispatchers.main) {
+                dispatch(EditorIntent.AddLayer(pasted, resetActivePanel = false))
+                opEmitter.emit(Op.LayerAdd(pasted))
+                showHud("Pasted as a new layer")
+                saveProject()
+            }
+        }
+    }
+
+    // ── Save / Load selections ───────────────────────────────────────────────────────────────
+
+    /** Puts the current selection aside under a name, replacing any saved under the same one. */
+    fun onSaveSelection(name: String) {
+        val state = _uiState.value
+        val selection = state.selection ?: return
+        val trimmed = name.trim().ifBlank { "Selection ${state.savedSelections.size + 1}" }
+        val next = state.savedSelections.filterNot { it.name == trimmed } +
+            SavedSelection(trimmed, selection)
+        dispatch(EditorIntent.SetSavedSelections(next))
+        showHud("Saved “$trimmed”")
+        saveProject()
+    }
+
+    /**
+     * Recalls a saved selection.
+     *
+     * Composed through the same path a drawn region takes, so Add and Remove apply to a loaded
+     * selection too — loading one into an existing region unions or cuts it, which is what makes
+     * saved selections building blocks rather than only bookmarks.
+     */
+    fun onLoadSelection(name: String) {
+        val state = _uiState.value
+        val saved = state.savedSelections.find { it.name == name } ?: return
+        if (state.selectionOp == SelectionOp.NEW) {
+            dispatch(EditorIntent.SetSelection(saved.selection))
+        } else {
+            val composed = saved.selection.rings.fold(state.selection) { acc, ring ->
+                SelectionGeometry.compose(
+                    acc, ring.path, saved.selection.canvasSize,
+                    if (ring.additive) state.selectionOp else SelectionOp.REMOVE,
+                )
+            }
+            dispatch(EditorIntent.SetSelection(composed ?: saved.selection))
+        }
+    }
+
+    fun onDeleteSavedSelection(name: String) {
+        dispatch(EditorIntent.SetSavedSelections(
+            _uiState.value.savedSelections.filterNot { it.name == name }
+        ))
+        saveProject()
+    }
 
     // ── Clone ────────────────────────────────────────────────────────────────────────────────
 
