@@ -3006,15 +3006,47 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            // Commit: working bitmap becomes the displayed layer bitmap.
-            _uiState.update { s ->
-                s.copy(
-                    layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
-                    liveStrokeLayerId = null,
-                    liveStrokeBitmap = null
-                )
+            // The working bitmap was hard-clipped to the selection when its canvas was made, since a
+            // live preview cannot be painted unclipped without spraying paint across the artwork for
+            // the length of the drag. That makes it the wrong pixels to commit when the selection is
+            // feathered: history replays this stroke through DrawingEngine, which paints unclipped
+            // and masks afterwards, so committing the hard-edged preview would leave the layer
+            // changing appearance the first time it was undone.
+            //
+            // So when — and only when — feathering, the stroke is re-rendered through the very path
+            // that will replay it. The preview stays on screen until that lands, so there is no
+            // flash between the two edges.
+            val base = layer.bitmap
+            val featherRadius = if (base == null) 0f else SelectionMask.featherRadius(
+                strokeSelection, base.width, base.height, capturedScale,
+            )
+            if (featherRadius > 0f && base != null) {
+                val preview = workBitmap
+                viewModelScope.launch(dispatchers.default) {
+                    val committed = drawingEngine.applySingleStroke(base, command)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s ->
+                            val ours = s.liveStrokeBitmap === preview
+                            s.copy(
+                                layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
+                                liveStrokeLayerId = if (ours) null else s.liveStrokeLayerId,
+                                liveStrokeBitmap = if (ours) null else s.liveStrokeBitmap,
+                            )
+                        }
+                        scheduleDiskSave(layerId, committed, layer.uri)
+                    }
+                }
+            } else {
+                // Commit: working bitmap becomes the displayed layer bitmap.
+                _uiState.update { s ->
+                    s.copy(
+                        layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
+                        liveStrokeLayerId = null,
+                        liveStrokeBitmap = null
+                    )
+                }
+                scheduleDiskSave(layerId, workBitmap, layer.uri)
             }
-            scheduleDiskSave(layerId, workBitmap, layer.uri)
         }
 
         // Co-op sync: replayable brush strokes go as StrokeComplete; Liquify bakes into the
