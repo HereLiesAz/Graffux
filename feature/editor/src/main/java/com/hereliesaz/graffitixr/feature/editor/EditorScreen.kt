@@ -371,6 +371,7 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
                 onSelectionMove = { delta -> vm.onSelectionMove(delta) },
+                onAutoSelect = { at, size -> vm.onAutoSelect(at, size) },
                 onClearSelection = { vm.onClearSelection() },
             )
         }

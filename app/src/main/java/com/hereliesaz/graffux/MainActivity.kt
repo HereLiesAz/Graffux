@@ -1093,8 +1093,17 @@ private fun AzNavHostScope.ConfigureRailItems(
                 SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
                 SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
                 SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
+                SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
             },
         ) { vm.onSetSelectionShape(mode) }
+    }
+    // How far from the tapped colour Automatic still counts as the same colour. Only while that
+    // mode is the one selected — on any other mode it is a control that does nothing.
+    if (uiState.selectionShape == SelectionShape.AUTOMATIC) {
+        railSlider(
+            "select.tolerance", "Threshold", uiState.magicWandTolerance.toFloat(), 0f..255f,
+            { "${(it / 255f * 100).roundToInt()}%" },
+        ) { vm.onSetMagicWandTolerance(it.roundToInt()) }
     }
     // What the next drag *does*, which is a separate question from what shape it draws — two
     // pickers of three rather than one picker of nine. Subtracting a lasso from a rectangle is a

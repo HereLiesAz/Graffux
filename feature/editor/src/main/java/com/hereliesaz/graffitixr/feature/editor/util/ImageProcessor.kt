@@ -52,6 +52,70 @@ object ImageProcessor {
              * Maps screen-space touch coordinates to pixel-space bitmap coordinates,
                   * accounting for Compose's ContentScale.Fit logic used in the UI.
                        */
+        /**
+         * The exact inverse of [mapScreenToBitmap] — bitmap pixels back out to screen points.
+         *
+         * Needed by the magic wand, which is the one selection mode that works out its region in a
+         * layer's pixels rather than under the finger: the flood fill and the contour trace happen
+         * in bitmap space, and a [com.hereliesaz.graffitixr.common.model.Selection] is screen-space.
+         * Written as the four steps of [mapScreenToBitmap] run backwards rather than as a separate
+         * derivation, so the two cannot drift apart — a wand selection that landed even slightly
+         * off would clip the paint somewhere other than where the ants were drawn.
+         */
+        fun mapBitmapToScreen(
+            points: List<Offset>,
+            screenWidth: Int,
+            screenHeight: Int,
+            bitmapWidth: Int,
+            bitmapHeight: Int,
+            layerScale: Float = 1f,
+            layerOffset: Offset = Offset.Zero,
+            layerRotationZ: Float = 0f,
+        ): List<Offset> {
+            val screenCx = screenWidth / 2f
+            val screenCy = screenHeight / 2f
+
+            val angleRad = Math.toRadians(-layerRotationZ.toDouble())
+            val cosA = Math.cos(angleRad).toFloat()
+            val sinA = Math.sin(angleRad).toFloat()
+
+            val imageAspect = bitmapWidth.toFloat() / bitmapHeight.toFloat()
+            val screenAspect = screenWidth.toFloat() / screenHeight.toFloat()
+            val renderWidth: Float
+            val renderHeight: Float
+            if (imageAspect > screenAspect) {
+                renderWidth = screenWidth.toFloat()
+                renderHeight = screenWidth / imageAspect
+            } else {
+                renderHeight = screenHeight.toFloat()
+                renderWidth = screenHeight * imageAspect
+            }
+            val fitOffX = (screenWidth - renderWidth) / 2f
+            val fitOffY = (screenHeight - renderHeight) / 2f
+            val fitScaleX = bitmapWidth / renderWidth
+            val fitScaleY = bitmapHeight / renderHeight
+            val safeScale = if (kotlin.math.abs(layerScale) > 1e-4f) layerScale else 1f
+
+            return points.map { pt ->
+                // Step 4 undone: redo the ContentScale.Fit letterboxing.
+                val lx = (if (fitScaleX != 0f) pt.x / fitScaleX else 0f) + fitOffX
+                val ly = (if (fitScaleY != 0f) pt.y / fitScaleY else 0f) + fitOffY
+
+                // Step 3 undone: redo the layer scale, about the screen centre.
+                val rx = (lx - screenCx) * safeScale
+                val ry = (ly - screenCy) * safeScale
+
+                // Step 2 undone: rotate back the other way. The forward pass multiplies by
+                // [cosA, -sinA; sinA, cosA], whose inverse — it is a rotation, so its transpose —
+                // is [cosA, sinA; -sinA, cosA].
+                val dx = rx * cosA + ry * sinA
+                val dy = -rx * sinA + ry * cosA
+
+                // Step 1 undone: back out of pivot-relative coords and reapply the translation.
+                Offset(dx + screenCx + layerOffset.x, dy + screenCy + layerOffset.y)
+            }
+        }
+
         fun mapScreenToBitmap(
                     stroke: List<Offset>,
                     screenWidth: Int,

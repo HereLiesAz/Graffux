@@ -4,15 +4,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 
 /**
- * How a drag on the selection canvas becomes a region — Procreate's selection *modes*.
+ * How a gesture on the selection canvas becomes a region — Procreate's selection *modes*.
  *
- * Every mode produces the same thing, a [Selection] polygon, which is why they can share one tool
- * rather than being three: the difference is entirely in how the drag is read. [FREEHAND] traces
- * the finger; the other two read the drag as the two opposite corners of a bounding box and fit a
- * shape inside it.
- *
- * Procreate's fourth mode, Automatic, is absent — it selects by colour contiguity, which needs a
- * flood fill traced back out to a contour rather than a different reading of the same drag.
+ * Every mode produces the same thing, a [Selection] ring stack, which is why they can share one tool
+ * rather than being four. Three of them differ only in how a drag is read: [FREEHAND] traces the
+ * finger, while [RECTANGLE] and [ELLIPSE] take the drag as two opposite corners of a box and fit a
+ * figure inside it. [AUTOMATIC] is the odd one — a tap, and the only mode that reads the artwork
+ * rather than the gesture.
  */
 enum class SelectionShape {
     /** The traced path itself. */
@@ -22,13 +20,24 @@ enum class SelectionShape {
     RECTANGLE,
 
     /** The ellipse inscribed in the drag's bounding box, sampled into a polygon. */
-    ELLIPSE;
+    ELLIPSE,
+
+    /**
+     * Procreate's Automatic: a **tap**, not a drag. Selects the contiguous run of similar colour
+     * under the finger, which is why it is the one mode that reads the artwork instead of the
+     * gesture — and the one that produces holes.
+     */
+    AUTOMATIC;
+
+    /** True when the mode is driven by a tap rather than by dragging out a figure. */
+    val isTap: Boolean get() = this == AUTOMATIC
 
     val label: String
         get() = when (this) {
             FREEHAND -> "Freehand"
             RECTANGLE -> "Rectangle"
             ELLIPSE -> "Ellipse"
+            AUTOMATIC -> "Automatic"
         }
 }
 

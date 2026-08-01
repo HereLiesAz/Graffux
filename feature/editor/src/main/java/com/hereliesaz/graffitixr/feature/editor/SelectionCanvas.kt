@@ -39,16 +39,21 @@ private const val ANT_STEPS = 8
 private const val ANT_STEP_MS = 80L
 
 /**
- * The touch surface for the selection tool. Two gestures, chosen by where the finger lands:
+ * The touch surface for the selection tool. What a gesture means is decided by [shape], by [op], and
+ * by where the finger lands:
  *
- *  - **Outside** the current selection (or with none) → the drag **makes a new selection**, adopted
- *    on lift. What it makes depends on [shape]: [SelectionShape.FREEHAND] traces the finger, while
- *    [SelectionShape.RECTANGLE] and [SelectionShape.ELLIPSE] read the drag as two opposite corners
- *    of a box and fit their figure inside it. A tap that never moves **deselects**, which is how
- *    you get back to painting everywhere.
- *  - **Inside** the current selection → the drag **moves the selected pixels**. A dashed ghost of
- *    the marquee follows the finger; the pixels themselves are lifted on release, because a move is
- *    a full-bitmap lift-clear-stamp and doing that per drag frame would stutter on a large canvas.
+ *  - **[SelectionShape.AUTOMATIC]** → every gesture is a **tap**, handed to the magic wand. There is
+ *    no drag and no move in this mode, so a wobbly tap still selects.
+ *  - **Outside** the current selection (or with none) → the drag **makes a new region**, adopted on
+ *    lift. [SelectionShape.FREEHAND] traces the finger; [SelectionShape.RECTANGLE] and
+ *    [SelectionShape.ELLIPSE] read the drag as two opposite corners of a box and fit their figure
+ *    inside it. A tap that never moves **deselects** — but only under [SelectionOp.NEW], since
+ *    part-way through building a region a stray tap must not throw it away.
+ *  - **Inside** the current selection, under [SelectionOp.NEW] → the drag **moves the selected
+ *    pixels**. A dashed ghost of the marquee follows the finger; the pixels themselves are lifted on
+ *    release, because a move is a full-bitmap lift-clear-stamp and doing that per drag frame would
+ *    stutter on a large canvas. Add and Remove take the drag instead, so the interior of a selection
+ *    stays somewhere you can cut a hole.
  *
  * A second finger cancels either gesture, matching [DrawingCanvas] — two fingers mean navigate or
  * undo, and [gate] keeps that cancelling tap from also firing the undo.
@@ -62,6 +67,7 @@ fun SelectionCanvas(
     modifier: Modifier = Modifier,
     onSelectionEnd: (List<Offset>, IntSize) -> Unit,
     onSelectionMove: (Offset) -> Unit,
+    onAutoSelect: (Offset, IntSize) -> Unit,
     onClearSelection: () -> Unit,
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -96,7 +102,10 @@ fun SelectionCanvas(
                     // starts inside the selection, exactly where the move gesture lives. Keeping
                     // move on those modes would make the interior of a selection the one place you
                     // could not edit it.
-                    val moving = op == SelectionOp.NEW &&
+                    // Automatic works off a tap, so nothing about it is a drag — including the
+                    // move gesture, which would otherwise swallow every tap landing on the region
+                    // the user is trying to extend.
+                    val moving = op == SelectionOp.NEW && !shape.isTap &&
                         selection != null && SelectionGeometry.contains(selection, down.position)
                     var began = false
                     lasso = if (moving) emptyList() else listOf(down.position)
@@ -120,6 +129,9 @@ fun SelectionCanvas(
                             gate.strokeActive = false
                             when {
                                 moving -> moveDelta?.let { if (began) onSelectionMove(it) }
+                                // A drag means nothing in a tap mode; the wand reads the point the
+                                // finger went down on, so a wobbly tap still selects.
+                                shape.isTap -> onAutoSelect(down.position, canvasSize)
                                 began -> onSelectionEnd(lasso, canvasSize)
                                 // A tap that never became a drag clears the selection — but only
                                 // under NEW. Mid-way through building a region out of several
@@ -141,7 +153,7 @@ fun SelectionCanvas(
                         if (began) {
                             if (moving) {
                                 moveDelta = change.position - down.position
-                            } else {
+                            } else if (!shape.isTap) {
                                 // Freehand accumulates; the box shapes are rebuilt from the two
                                 // corners each frame, so dragging back across the start point
                                 // shrinks the figure instead of leaving a trail behind it.

@@ -237,6 +237,10 @@ data class EditorUiState(
     // — any shape can be added or removed, which is how a lasso subtracted from a rectangle gets a
     // region neither could draw on its own.
     val selectionOp: SelectionOp = SelectionOp.NEW,
+    // Per-channel colour distance the Automatic selection treats as "the same colour", 0..255.
+    // Shared with nothing: the paint bucket keeps its own default, because reaching for the wand
+    // and reaching for the bucket are different intents even where the spread is identical.
+    val magicWandTolerance: Int = 32,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

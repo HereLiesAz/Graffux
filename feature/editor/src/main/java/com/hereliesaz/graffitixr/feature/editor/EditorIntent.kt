@@ -176,6 +176,8 @@ internal sealed interface EditorIntent {
     data class SetSelectionShape(val shape: com.hereliesaz.graffitixr.common.model.SelectionShape) : EditorIntent
     /** Picks what the next selection drag does to the current selection: replace, add or remove. */
     data class SetSelectionOp(val op: com.hereliesaz.graffitixr.common.model.SelectionOp) : EditorIntent
+    /** Per-channel colour distance the Automatic selection treats as the same colour, 0..255. */
+    data class SetMagicWandTolerance(val tolerance: Int) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */
     data object InvertSelection : EditorIntent
     /** Live eyedropper state: sampling in progress, current colour + loupe position. */

@@ -168,10 +168,16 @@ object SelectionGeometry {
         }
     }
 
-    /** Builds the polygon a completed drag from [start] to [end] means, under [shape]. */
+    /**
+     * Builds the polygon a completed drag from [start] to [end] means, under [shape].
+     *
+     * [SelectionShape.AUTOMATIC] has no answer here and returns the traced points untouched: it is a
+     * tap mode whose region comes from the artwork, so it never reaches this at all — the canvas
+     * routes it to the wand instead of building a polygon from the gesture.
+     */
     fun polygonFor(shape: SelectionShape, start: Offset, end: Offset, traced: List<Offset>): List<Offset> =
         when (shape) {
-            SelectionShape.FREEHAND -> traced
+            SelectionShape.FREEHAND, SelectionShape.AUTOMATIC -> traced
             SelectionShape.RECTANGLE -> rectangle(start, end)
             SelectionShape.ELLIPSE -> ellipse(start, end)
         }

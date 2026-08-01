@@ -27,6 +27,10 @@ import com.hereliesaz.graffitixr.common.importer.DocumentImporter
 import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.feature.editor.threed.PaintableTexture
+import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
+import com.hereliesaz.graffitixr.common.util.ContourTrace
+import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
@@ -3427,21 +3431,86 @@ class EditorViewModel @Inject constructor(
      * must not throw away the region being built up.
      */
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
-        val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        val simplified = SelectionGeometry.simplify(points)
         val state = _uiState.value
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.util.SelectionGeometry.compose(
-                state.selection, simplified, canvasSize, state.selectionOp,
-            )
+            SelectionGeometry.compose(state.selection, simplified, canvasSize, state.selectionOp)
         ))
+    }
+
+    /**
+     * Procreate's Automatic selection: selects the contiguous run of similar colour under [at].
+     *
+     * The one mode that reads the artwork rather than the gesture, so it is the one that has to
+     * leave screen space and come back. The wand floods the active layer's pixels, the flood is
+     * traced back out to polygons, and those are mapped to screen space through the exact inverse of
+     * the transform the paint uses — after which it is an ordinary ring stack that composes with
+     * Add/Remove, moves, inverts and feathers like anything drawn by hand.
+     *
+     * Off the main thread: a flood fill plus a contour trace over a full-resolution layer is far too
+     * much to do between two frames.
+     */
+    fun onAutoSelect(at: Offset, canvasSize: IntSize) {
+        val state = _uiState.value
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val bitmap = layer.bitmap ?: run {
+            Toast.makeText(context, "Automatic needs a paint layer", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tolerance = state.magicWandTolerance
+        val op = state.selectionOp
+        val current = state.selection
+        viewModelScope.launch(dispatchers.default) {
+            val seed = ImageProcessor.mapScreenToBitmap(
+                listOf(at), canvasSize.width, canvasSize.height, bitmap.width, bitmap.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            ).firstOrNull() ?: return@launch
+            val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
+                ?: return@launch
+            val traced = ContourTrace.contours(mask, bitmap.width, bitmap.height)
+            if (traced.isEmpty()) return@launch
+            val rings = traced.map { ring ->
+                ring.copy(
+                    path = SelectionGeometry.simplify(
+                        ImageProcessor.mapBitmapToScreen(
+                            ring.path, canvasSize.width, canvasSize.height,
+                            bitmap.width, bitmap.height, layer.scale, layer.offset, layer.rotationZ,
+                        ),
+                        // Gentler than a traced lasso's thinning. The wand's vertices are already
+                        // only the turns, so anything aggressive here rounds off the corners that
+                        // are the whole reason the region was traced rather than boxed.
+                        minSpacing = 1.5f,
+                    ),
+                )
+            }.filter { it.isUsable }
+            val wand = Selection(rings, canvasSize).takeIf { it.isUsable } ?: return@launch
+            withContext(dispatchers.main) {
+                // Composed through the same path a drawn region takes, so Add and Remove work on a
+                // wand selection exactly as they do on a lasso — including wand-then-lasso mixes.
+                dispatch(EditorIntent.SetSelection(
+                    if (op == SelectionOp.NEW) wand
+                    else wand.rings.fold(current) { acc, ring ->
+                        SelectionGeometry.compose(
+                            acc, ring.path, canvasSize,
+                            // A traced hole stays a hole whatever the user picked: Add means "add
+                            // this region", and the region includes its holes.
+                            if (ring.additive) op else SelectionOp.REMOVE,
+                        )
+                    } ?: wand
+                ))
+            }
+        }
     }
 
     fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
 
+    fun onSetMagicWandTolerance(tolerance: Int) =
+        dispatch(EditorIntent.SetMagicWandTolerance(tolerance.coerceIn(0, 255)))
+
     fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
         dispatch(EditorIntent.SetSelectionShape(shape))
 
-    fun onSetSelectionOp(op: com.hereliesaz.graffitixr.common.model.SelectionOp) =
+    fun onSetSelectionOp(op: SelectionOp) =
         dispatch(EditorIntent.SetSelectionOp(op))
 
     fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
