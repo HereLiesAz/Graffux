@@ -13,24 +13,37 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// The canvas is the subject, so the chrome around it is black. But `surfaceVariant` and
+// `onSurfaceVariant` are not decoration — they are the *second* tone in each pair, and a set of
+// components relies on the difference: a floating window's title bar against its body, a project
+// card against the page behind it, a FAB against the canvas, secondary text against primary.
+// Collapsing all four onto Black/White (as this scheme originally did) removes every one of those
+// distinctions at once, which does not read as a dark theme so much as a missing one. The variants
+// are therefore near-black and near-white rather than identical to their partners.
 private val DarkColorScheme = darkColorScheme(
     primary = HotPink,
     secondary = Cyan,
     tertiary = NeonGreen,
     background = Black,
     surface = Black,
-    surfaceVariant = Black,
+    // Several call sites draw this at 40% over black, so it has to be light enough to survive that
+    // and still stay clearly behind the content it sits under.
+    surfaceVariant = Color(0xFF2A2A30),
     onPrimary = White,
     onSecondary = White,
     onTertiary = White,
     onBackground = White,
     onSurface = White,
-    onSurfaceVariant = White
+    // Dimmed, not white: this is what makes a subtitle read as subordinate to its title.
+    onSurfaceVariant = Color(0xFFC6C6CE),
+    outline = Color(0xFF4A4A54),
+    outlineVariant = Color(0xFF3A3A42),
 )
 
 private val LightColorScheme = lightColorScheme(

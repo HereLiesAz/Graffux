@@ -9,6 +9,15 @@ plugins {
 android {
     namespace = "com.hereliesaz.graffitixr.data"
     compileSdk = 37
+
+    testOptions {
+        unitTests {
+            // ExtensionStateStore logs when a state write cannot land — the alternative being the
+            // silent failure it used to have. `android.util.Log` is an unimplemented stub in a JVM
+            // unit test and throws, which would make the failure path the one path untestable.
+            isReturnDefaultValues = true
+        }
+    }
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

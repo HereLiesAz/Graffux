@@ -2,7 +2,9 @@ package com.hereliesaz.graffitixr.data.azphalt
 
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -86,6 +88,44 @@ class ExtensionStateStoreTest {
         // …and recording over it recovers, rather than staying broken for the life of the install.
         store().record("com.example.a", "1", ExtensionState.ACTIVE, atMs = 1L)
         assertEquals(1, store().all().size)
+    }
+
+    /**
+     * A write that cannot land must say so. It used to be wrapped in a bare `runCatching {}` with no
+     * failure branch, so an install reported success while nothing was persisted and the store went
+     * on showing *Get* with nothing anywhere to explain why.
+     */
+    @Test
+    fun `a write that cannot land reports failure instead of pretending`() {
+        // A path whose parent is a *file*, so no directory can be created under it.
+        val blocker = File(tmp.root, "blocked").apply { writeText("not a directory") }
+        val store = ExtensionStateStore(File(blocker, ExtensionStateStore.FILE_NAME))
+
+        assertFalse(
+            "record() must report that the write did not land",
+            store.record("com.example.a", "1", ExtensionState.ACTIVE, atMs = 1L),
+        )
+        assertTrue(store.all().isEmpty())
+    }
+
+    @Test
+    fun `a successful write reports success`() {
+        assertTrue(store().record("com.example.a", "1", ExtensionState.ACTIVE, atMs = 1L))
+    }
+
+    /**
+     * Two instances over one file are the real deployment — the repository builds one and the
+     * ContentProvider another — so they must not each hold their own lock.
+     */
+    @Test
+    fun `two instances over one file share a lock`() {
+        val path = File(tmp.root, ExtensionStateStore.FILE_NAME)
+        val a = ExtensionStateStore(path)
+        val b = ExtensionStateStore(path)
+        // Same monitor, reached reflectively: the property is structural, not observable by racing.
+        val lockOf = ExtensionStateStore::class.java.getDeclaredField("lock")
+            .apply { isAccessible = true }
+        assertSame("both instances must serialise on the same monitor", lockOf.get(a), lockOf.get(b))
     }
 
     @Test

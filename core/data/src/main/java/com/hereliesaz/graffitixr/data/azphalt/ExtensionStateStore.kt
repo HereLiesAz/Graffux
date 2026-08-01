@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.data.azphalt
 
+import android.util.Log
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionState
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionStateDocument
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry
@@ -30,7 +31,17 @@ import java.util.TimeZone
 class ExtensionStateStore(private val file: File) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
-    private val lock = Any()
+
+    /**
+     * The lock is per *file*, not per instance.
+     *
+     * Two instances exist over the same path in one process: the repository builds one, and
+     * [ExtensionStateProvider] — which Android may construct before the application object, so it
+     * cannot share the repository's — builds another. A per-instance lock leaves them uncoordinated,
+     * so a store app querying the provider on a Binder thread can read the file midway through an
+     * install's write.
+     */
+    private val lock: Any = lockFor(file)
 
     /** ISO-8601 in UTC, matching the wire format exactly (spec § 1 "Entry shape"). */
     private fun stamp(atMs: Long): String =
@@ -55,8 +66,8 @@ class ExtensionStateStore(private val file: File) {
         state: ExtensionState,
         atMs: Long,
         reason: String? = null,
-    ) {
-        synchronized(lock) {
+    ): Boolean {
+        return synchronized(lock) {
             val entry = ExtensionStateEntry(
                 id = id,
                 version = version,
@@ -69,9 +80,8 @@ class ExtensionStateStore(private val file: File) {
     }
 
     /** Forget a package entirely — for a state that should read as "never had it", not "removed". */
-    fun forget(id: String) {
+    fun forget(id: String): Boolean =
         synchronized(lock) { write(read().filterNot { it.id == id }) }
-    }
 
     private fun read(): List<ExtensionStateEntry> {
         if (!file.isFile) return emptyList()
@@ -80,22 +90,45 @@ class ExtensionStateStore(private val file: File) {
         }.getOrDefault(emptyList())
     }
 
-    private fun write(entries: List<ExtensionStateEntry>) {
-        runCatching {
+    /**
+     * Returns whether the write landed.
+     *
+     * A failure is reported rather than swallowed. It is deliberately **not** thrown: the caller's
+     * install genuinely happened, and failing it because a bookkeeping file could not be written
+     * would turn a cosmetic problem into a functional one. But a silent failure means the store
+     * shows *Get* on everything with nothing anywhere to say why, so it is logged and returned.
+     */
+    private fun write(entries: List<ExtensionStateEntry>): Boolean {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        return try {
             file.parentFile?.mkdirs()
-            // Write-then-rename: a half-written state file would otherwise parse as empty on next
-            // launch and silently reset every package to "never had it".
-            val tmp = File(file.parentFile, file.name + ".tmp")
+            // Write-then-rename, so a process death mid-write leaves the previous file intact. There
+            // is no in-place fallback: this used to fall back to a truncating `writeText`, which is
+            // exactly the half-written file the rename exists to prevent.
             tmp.writeText(json.encodeToString(ExtensionStateDocument.serializer(), ExtensionStateDocument(entries)))
             if (!tmp.renameTo(file)) {
-                file.writeText(tmp.readText())
                 tmp.delete()
+                Log.w(TAG, "Could not replace ${file.name}: rename failed; extension state is stale")
+                return false
             }
+            true
+        } catch (t: Throwable) {
+            tmp.delete()
+            Log.w(TAG, "Could not write ${file.name}; extension state is stale", t)
+            false
         }
     }
 
     companion object {
         /** Name of the state file inside the app's files dir. */
         const val FILE_NAME: String = "azphalt-state.json"
+
+        private const val TAG = "AzphaltState"
+
+        private val locks = HashMap<String, Any>()
+
+        private fun lockFor(file: File): Any = synchronized(locks) {
+            locks.getOrPut(runCatching { file.canonicalPath }.getOrDefault(file.path)) { Any() }
+        }
     }
 }

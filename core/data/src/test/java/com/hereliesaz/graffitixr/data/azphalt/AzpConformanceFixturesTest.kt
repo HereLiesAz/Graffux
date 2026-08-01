@@ -158,14 +158,76 @@ class AzpConformanceFixturesTest {
      * entries under one name with different content — a ZIP-confusion vector. Keeping the **first**
      * copy and accepting the package is named as non-conforming, because the digest then attests to
      * bytes the host did not keep.
+     *
+     * Asserting on the *reason* matters here, and is the whole point of this test. The fixture packs
+     * its good copy first and its bad copy second, so a host that merely keeps the last entry rejects
+     * it on a digest mismatch and looks conforming while having no duplicate handling at all — swap
+     * the two copies and the same archive installs. Rejecting on the duplicate *name* is what makes
+     * the refusal independent of which copy came first; rejecting on a digest is not.
      */
     @Test
-    fun `a duplicate zip entry is refused`() {
-        val root = temp.newFolder("dup")
+    fun `a duplicate zip entry is refused as a duplicate, not as a digest mismatch`() {
+        val store = conformanceTrustStore()
+        val thrown = runCatching {
+            AzpInstaller(temp.newFolder("dup"), store)
+                .install(resource("duplicate-entry.azp").inputStream(), nowMs = 1L)
+        }.exceptionOrNull()
         assertTrue(
-            "a package with two entries of the same name must be refused",
-            !hostAccepts(resource("duplicate-entry.azp"), root, conformanceTrustStore()),
+            "expected a duplicate-entry refusal, got: ${thrown?.message}",
+            thrown?.message?.contains("Duplicate entry") == true,
         )
+
+    }
+
+    /**
+     * The digest form is exact (package-format.md § Signing): `sha256-` then lowercase hex. The
+     * reference compares the strings, so a host that normalises a missing prefix or ignores case
+     * accepts manifests the reference rejects — a divergence no fixture covers, which is precisely
+     * why it survived a green conformance run.
+     */
+    @Test
+    fun `a digest that is not the exact sha256-lowercase-hex form is refused`() {
+        val payload = mapOf("LICENSE" to "MIT".toByteArray())
+        val real = sha256Hex(payload.getValue("LICENSE"))
+
+        for ((label, digest) in listOf(
+            "uppercase hex" to "sha256-" + real.uppercase(),
+            "no sha256- prefix" to real,
+        )) {
+            val bytes = zipOf(payload + mapOf("manifest.json" to manifestJson(digest).toByteArray()))
+            assertTrue(
+                "a $label digest must be refused",
+                !hostAccepts(bytes, temp.newFolder("digest-" + label.replace(' ', '-')), TrustStore.EMPTY),
+            )
+        }
+
+        // …and the exact form still installs, so the rule is strict rather than simply broken.
+        val ok = zipOf(payload + mapOf("manifest.json" to manifestJson("sha256-$real").toByteArray()))
+        assertTrue(
+            "the exact sha256-lowercase-hex form must still install",
+            hostAccepts(ok, temp.newFolder("digest-exact"), TrustStore.EMPTY),
+        )
+    }
+
+    private fun manifestJson(licenseDigest: String): String = """
+        {"azphalt":"0.1","id":"com.test.digest","name":"Digest","version":"1.0.0","kind":"asset",
+         "license":"MIT","compat":">=0.1","files":{"LICENSE":"$licenseDigest"}}
+    """.trimIndent()
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+
+    private fun zipOf(files: Map<String, ByteArray>): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { zos ->
+            for ((name, bytes) in files) {
+                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                zos.write(bytes)
+                zos.closeEntry()
+            }
+        }
+        return out.toByteArray()
     }
 
     /**

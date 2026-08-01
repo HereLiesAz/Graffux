@@ -102,6 +102,35 @@ class ExtensionStateTest {
         assertTrue("trimming must keep what fits", ExtensionInventory.parse(doc).isNotEmpty())
     }
 
+    /**
+     * The failure this guards against is worse than sending too much: the trim used to drop from the
+     * end unconditionally, so one entry too big to fit ate every good entry before finally being
+     * dropped itself, leaving `{"entries":[]}`. A store reads that as "this host has nothing" — a
+     * confident wrong answer where sending nothing would merely have been no answer.
+     */
+    @Test
+    fun `one oversized entry does not empty the whole inventory`() {
+        val huge = ExtensionStateEntry(
+            id = "com.example.exploded",
+            version = "1.0.0",
+            state = ExtensionState.FAILED.wire,
+            at = "2026-07-30T02:14:00Z",
+            reason = "x".repeat(300_000),
+        )
+        val good = (1..5).map { entry("com.example.fine$it") }
+
+        val parsed = ExtensionInventory.parse(ExtensionInventory.document(listOf(huge) + good))
+        assertTrue("the good entries must survive an oversized neighbour", parsed.size >= good.size)
+        assertTrue(
+            "the oversized entry is bounded, not dropped",
+            parsed.any { it.id == "com.example.exploded" },
+        )
+        assertTrue(
+            "its reason must be clipped",
+            (parsed.first { it.id == "com.example.exploded" }.reason?.length ?: 0) < 1_000,
+        )
+    }
+
     @Test
     fun `a multi-byte id is measured in bytes, not characters`() {
         // Each id is 400 chars but 1200 bytes in UTF-8; counting characters would pass the cap while

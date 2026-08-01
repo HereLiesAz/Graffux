@@ -185,13 +185,7 @@ class EditorViewModel @Inject constructor(
      */
     val installedExtensions: StateFlow<List<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension>> =
         extensionRepository.installed
-            .map { list ->
-                list.filter {
-                    it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE ||
-                        it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED ||
-                        extensionRepository.hasUsableLut(it)
-                }
-            }
+            .map { list -> list.filter(::surfacesInExtensionsPanel) }
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
@@ -3915,6 +3909,21 @@ class EditorViewModel @Inject constructor(
     fun extensionStateInventory(): List<com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry> =
         extensionRepository.stateInventory()
 
+    /**
+     * Does the Extensions panel list this extension?
+     *
+     * One definition, used both to build the panel and to tell the user where their install went, so
+     * the two cannot disagree about it. Code and mixed packages are run by [onExtensionSelected];
+     * asset packages carrying a usable LUT are applied as a colour grade by the same function.
+     * Brushes are excluded on purpose — they have their own picker under the Brushes rail group.
+     */
+    private fun surfacesInExtensionsPanel(
+        ext: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension,
+    ): Boolean =
+        ext.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE ||
+            ext.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED ||
+            extensionRepository.hasUsableLut(ext)
+
     /** Uninstall a previously-installed extension by [id]. */
     fun uninstallExtension(id: String) {
         viewModelScope.launch(dispatchers.io) {
@@ -3940,17 +3949,24 @@ class EditorViewModel @Inject constructor(
     ) {
         viewModelScope.launch(dispatchers.io) {
             val now = System.currentTimeMillis()
+            val storeId = fromStore?.id
             try {
-                // Bytes in hand, not yet installed — a real state, and the one a store most wants
-                // back, since it is a user who acquired something and does not yet have it.
-                val storeId = fromStore?.id
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: error("Couldn't open that file")
+                // Only now are bytes actually in hand, which is what `downloaded` asserts — "the host
+                // holds verified bytes". Recording it before opening the stream claimed a state that
+                // could be false: a lapsed URI grant threw here, and the store was left showing
+                // "downloaded, install pending" for a package this host never read.
                 if (storeId != null) {
                     extensionRepository.recordDownloaded(storeId, fromStore.version.orEmpty(), now)
                 }
-                val input = context.contentResolver.openInputStream(uri)
-                    ?: error("Couldn't open that file")
                 val installed = input.use {
-                    extensionRepository.installFromStream(it, now, knownId = fromStore?.id)
+                    extensionRepository.installFromStream(
+                        it,
+                        now,
+                        knownId = storeId,
+                        knownVersion = fromStore?.version,
+                    )
                 }
                 withContext(dispatchers.main) {
                     Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
@@ -3958,6 +3974,13 @@ class EditorViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e   // never swallow cancellation — let the coroutine unwind cooperatively
             } catch (e: Exception) {
+                // Failures that never reach the installer land here — an unopenable URI, a revoked
+                // read grant — and the installer's own `failed` record cannot see them. Without this
+                // the state would stay at whatever it was, which for a store hand-off means claiming
+                // bytes are held that never were.
+                if (storeId != null) {
+                    extensionRepository.recordFailed(storeId, fromStore?.version, now, e.message)
+                }
                 withContext(dispatchers.main) {
                     Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -3978,11 +4001,11 @@ class EditorViewModel @Inject constructor(
         val name = installed.manifest.name
         val where = buildList {
             if (extensionRepository.hasUsableBrush(installed)) add("Brushes")
-            if (extensionRepository.hasUsableLut(installed)) add("Extensions")
-            val contributes = installed.manifest.contributes
-            if (contributes?.filters?.isNotEmpty() == true || contributes?.tools?.isNotEmpty() == true) {
-                add("Extensions")
-            }
+            // Exactly the predicate the Extensions panel filters on, deliberately shared rather than
+            // restated. Restating it drifted: this used to look at `contributes.filters`/`tools`
+            // while the panel listed every code and mixed package, so a code package contributing
+            // only commands was announced as "nothing applies" and then appeared in the panel.
+            if (surfacesInExtensionsPanel(installed)) add("Extensions")
         }.distinct()
 
         return when {

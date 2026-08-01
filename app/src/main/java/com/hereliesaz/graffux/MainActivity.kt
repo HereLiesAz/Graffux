@@ -113,11 +113,11 @@ class MainActivity : ComponentActivity() {
         val sharedImage = incomingImageUri(intent)
         setContent {
             // The app's own theme, not a bare `MaterialTheme`. Graffux is a dark app, but a bare
-            // MaterialTheme() takes Material 3's default **light** scheme, whose `onSurface` is
-            // #1C1B1F — so every piece of chrome that took its colour from the theme rather than
-            // setting one explicitly drew near-black on near-black. The file-operations dropdown was
+            // MaterialTheme() takes Material 3's default **light** scheme, whose `onSurface` is a
+            // near-black neutral — so every piece of chrome that took its colour from the theme
+            // rather than setting one explicitly drew dark on dark. The file-operations dropdown was
             // the worst of it: unreadable. GraffitiXRTheme supplies the dark scheme this UI was drawn
-            // against (surface Black, onSurface White) plus the brand palette.
+            // against plus the brand palette.
             GraffitiXRTheme {
                 GraffuxApp(sharedImageUri = sharedImage)
             }
@@ -193,9 +193,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
-    // The file-operations dropdown sets this on every row rather than inheriting it. The library
-    // only ever reads `colorScheme.surface` itself, so a row's text otherwise falls through to
-    // LocalContentColor — which is whatever the enclosing Surface decided, and was unreadable.
+    // The file-operations dropdown sets this on every row rather than leaving it unspecified. Left
+    // unspecified, AzNavRail resolves a row's text through its own rail palette — which this app
+    // seeds from `azTheme(activeColor = …)` further down — rather than through any Material colour,
+    // so the row inherited an accent chosen for the rail and was unreadable on the menu's dark
+    // panel. Naming the colour here takes the row out of that path entirely.
     val menuItemColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
