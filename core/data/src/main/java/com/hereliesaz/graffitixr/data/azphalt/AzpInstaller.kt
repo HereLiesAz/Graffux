@@ -58,6 +58,17 @@ class AzpInstaller(
                 if (!e.isDirectory) {
                     val name = e.name
                     if (isUnsafePath(name)) throw InstallException("Unsafe path in package: $name")
+                    // ZIP confusion: an archive may carry two entries under one name with different
+                    // content, and which one a reader keeps is a matter of implementation. Two
+                    // readers then disagree about what the package *is* — a scanner verifies the
+                    // first copy while an installer writes the second — and the manifest digest
+                    // attests to whichever one happened to win. This used to be caught only by
+                    // accident: the map below keeps the last copy, so the conformance fixture
+                    // tripped the digest check purely because its bad copy was packed second.
+                    // Reverse the two and the same archive installed cleanly.
+                    if (entries.containsKey(name)) {
+                        throw InstallException("Duplicate entry in package: $name")
+                    }
                     val out = ByteArrayOutputStream()
                     while (true) {
                         val n = zip.read(chunk)
@@ -107,8 +118,13 @@ class AzpInstaller(
         // Integrity: every file the manifest lists must be present and match its digest.
         for ((path, digest) in manifest.files) {
             val bytes = entries[path] ?: throw InstallException("Missing payload file: $path")
-            val actual = "sha256-" + sha256Hex(bytes)
-            if (!actual.equals(normalizeDigest(digest), ignoreCase = true)) {
+            // Exact string compare against the one form the spec defines: the literal prefix
+            // `sha256-` followed by lowercase hex (package-format.md § Signing). The reference does
+            // the same compare, so accepting more than it does is a silent divergence rather than
+            // leniency — this host used to supply a missing prefix and compare case-insensitively,
+            // and therefore installed two manifests the reference rejects. Nothing in the fixture
+            // suite covers it, so the suite stayed green while the two disagreed.
+            if ("sha256-" + sha256Hex(bytes) != digest) {
                 throw InstallException("Digest mismatch for $path")
             }
         }
@@ -232,8 +248,6 @@ class AzpInstaller(
 
     // Reverse-DNS ids are filesystem-safe, but defend anyway: keep only [A-Za-z0-9._-].
     private fun safeId(id: String): String = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
-
-    private fun normalizeDigest(d: String): String = if (d.startsWith("sha256-")) d else "sha256-$d"
 
     private fun sha256Hex(bytes: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-256")

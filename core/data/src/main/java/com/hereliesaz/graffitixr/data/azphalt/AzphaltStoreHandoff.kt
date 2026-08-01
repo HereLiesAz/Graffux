@@ -94,9 +94,16 @@ object AzphaltStoreHandoff {
         putExtra(EXTRA_KINDS, kinds)
         putExtra(EXTRA_COMPAT, AZPHALT_SPEC_VERSION)
         if (inventory.isNotEmpty()) {
-            putExtra(EXTRA_INVENTORY, ExtensionInventory.document(inventory))
-            // Only offered alongside an inventory: the provider is the same data by another route,
-            // and a host that reports no state has nothing for the store to come back and read.
+            // Gate on what the document actually carries, not on what went in. Trimming can empty a
+            // non-empty inventory, and an empty document is not the same claim as no document: the
+            // first asserts "this host has nothing", which is a lie the store will act on.
+            val document = ExtensionInventory.document(inventory)
+            if (ExtensionInventory.parse(document).isNotEmpty()) {
+                putExtra(EXTRA_INVENTORY, document)
+            }
+            // The authority goes out regardless, because it is the answer to the case the inventory
+            // extra cannot cover: the provider has no size limit, so a host whose inventory did not
+            // fit is exactly the host a store most needs to come back and read.
             putExtra(EXTRA_STATE_AUTHORITY, ExtensionStateProvider.authority(appId))
         }
     }

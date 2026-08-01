@@ -84,15 +84,25 @@ object ExtensionInventory {
 
     private val json = Json { encodeDefaults = false }
 
+    /** Longest `reason` worth sending. Free text, and the only unbounded field in an entry. */
+    private const val MAX_REASON = 512
+
     /**
      * Serialize [entries] into the inventory document, trimmed to fit.
      *
      * Trimming drops from the end rather than refusing to send: a partial inventory makes some of the
      * store's buttons correct, where an omitted one makes all of them wrong. A host with more than
      * fits is expected to expose the remainder through the state provider, which has no size limit.
+     *
+     * Dropping from the end is only safe once no *single* entry can blow the budget on its own. It
+     * could: `reason` is free text taken from an exception message, and one long enough sent the trim
+     * loop through every good entry before finally discarding the offender — leaving an empty
+     * document, which a store reads as "this host has nothing" and is a worse answer than sending
+     * nothing at all. So each entry is bounded first, and the loop only has to solve for count.
      */
     fun document(entries: List<ExtensionStateEntry>): String {
-        var kept = if (entries.size > MAX_ENTRIES) entries.take(MAX_ENTRIES) else entries
+        var kept = entries.map { it.bounded() }
+        if (kept.size > MAX_ENTRIES) kept = kept.take(MAX_ENTRIES)
         var text = json.encodeToString(ExtensionStateDocument.serializer(), ExtensionStateDocument(kept))
         // Byte length, not character count — an id or reason outside ASCII costs more than one byte.
         while (kept.isNotEmpty() && text.toByteArray(Charsets.UTF_8).size > MAX_BYTES) {
@@ -101,6 +111,11 @@ object ExtensionInventory {
         }
         return text
     }
+
+    /** Clip the one free-text field so a single entry cannot dominate the budget. */
+    private fun ExtensionStateEntry.bounded(): ExtensionStateEntry =
+        if ((reason?.length ?: 0) <= MAX_REASON) this
+        else copy(reason = reason!!.take(MAX_REASON))
 
     /** Parse an inventory document, tolerating unknown fields and states. Empty on anything malformed. */
     fun parse(document: String?): List<ExtensionStateEntry> {

@@ -54,8 +54,38 @@ class ExtensionRepository @Inject constructor(
      */
     private val stateStore = ExtensionStateStore(File(context.filesDir, ExtensionStateStore.FILE_NAME))
 
-    /** The inventory to send with a browse request, so a store's cards say *Open* rather than *Get*. */
-    fun stateInventory(): List<com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry> = stateStore.all()
+    /**
+     * The inventory to send with a browse request, so a store's cards say *Open* rather than *Get*.
+     *
+     * The recorded states are the authority, but they only start accumulating from the first install
+     * *after* this feature existed. Anything already unpacked under `extensions/` predates the record
+     * and would otherwise be invisible — which would have made this whole channel a no-op for exactly
+     * the users it is for: someone upgrading with three extensions installed would open a store and
+     * be offered all three as new. So the installed set is folded in, and the recorded state wins
+     * wherever both know a package.
+     *
+     * Folding in rather than back-filling the file on launch is deliberate: an install this host can
+     * see on disk right now is a fact it can state without writing anything, and a migration that
+     * writes on first launch has a failure mode (a bad write leaves a permanently wrong record) that
+     * deriving does not.
+     */
+    fun stateInventory(): List<com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry> {
+        val recorded = stateStore.all()
+        val known = recorded.map { it.id }.toHashSet()
+        val derived = _installed.value
+            .filterNot { it.id in known }
+            .map {
+                com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry(
+                    id = it.id,
+                    version = it.manifest.version,
+                    // Present and usable, which is what `active` means here — this host has no
+                    // enable/disable toggle, so an installed extension is an available one.
+                    state = ExtensionState.ACTIVE.wire,
+                    at = null, // unknown: it was installed before anything was recording
+                )
+            }
+        return recorded + derived
+    }
 
     // The keys this host trusts. Empty for now — signed packages install as SIGNED_UNTRUSTED (valid
     // signature, no established identity) until a trust store is seeded (e.g. a registry's key from
@@ -87,7 +117,12 @@ class ExtensionRepository @Inject constructor(
      * serializes the unpack + rescan. Throws on any integrity/safety failure. Runs blocking IO — call
      * from a background dispatcher.
      */
-    fun installFromStream(input: InputStream, nowMs: Long, knownId: String? = null): InstalledExtension {
+    fun installFromStream(
+        input: InputStream,
+        nowMs: Long,
+        knownId: String? = null,
+        knownVersion: String? = null,
+    ): InstalledExtension {
         val tempFile = File.createTempFile("azp_", ".azp", context.cacheDir)
         try {
             tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
@@ -107,7 +142,14 @@ class ExtensionRepository @Inject constructor(
             if (knownId != null && t !is kotlinx.coroutines.CancellationException) {
                 stateStore.record(
                     id = knownId,
-                    version = "",
+                    // The version the store said it delivered. `version` is required on an entry and
+                    // a store derives *Update* by comparing it to its catalogue, so an empty string
+                    // — which this used to write, discarding a value it had been handed — compares
+                    // to nothing. Falling back to whatever was last recorded for this id keeps the
+                    // entry meaningful when the store told us nothing either.
+                    version = knownVersion
+                        ?: stateStore.stateOf(knownId)?.version
+                        ?: "",
                     state = ExtensionState.FAILED,
                     atMs = nowMs,
                     reason = t.message,
@@ -126,6 +168,21 @@ class ExtensionRepository @Inject constructor(
      */
     fun recordDownloaded(id: String, version: String, nowMs: Long) {
         stateStore.record(id, version, ExtensionState.DOWNLOADED, nowMs)
+    }
+
+    /**
+     * Record that acquiring or installing [id] did not complete. For failures that never reach
+     * [installFromStream] — an unopenable URI, a revoked read grant — which its own failure branch
+     * cannot see.
+     */
+    fun recordFailed(id: String, version: String?, nowMs: Long, reason: String?) {
+        stateStore.record(
+            id = id,
+            version = version ?: stateStore.stateOf(id)?.version ?: "",
+            state = ExtensionState.FAILED,
+            atMs = nowMs,
+            reason = reason,
+        )
     }
 
     /** Copy [input] to [out], aborting if it exceeds [maxBytes] (a compressed-download zip-bomb guard). */
