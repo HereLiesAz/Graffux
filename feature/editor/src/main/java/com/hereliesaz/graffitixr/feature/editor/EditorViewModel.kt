@@ -109,6 +109,10 @@ data class StrokeCommand(
     // as a command so it undoes by replay like everything else; honours [selection], so clearing
     // with a lasso active wipes only inside it.
     val clearAll: Boolean = false,
+    // Procreate's Colour Fill: floods the selection (or the whole layer) with [brushColor] rather
+    // than painting a path. Recorded as a command for the same reason [clearAll] is — it undoes by
+    // replay like everything else, and honours the selection including its feather.
+    val fillSelection: Boolean = false,
 )
 
 /**
@@ -373,6 +377,7 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
+                        dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
                         restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -1592,6 +1597,7 @@ class EditorViewModel @Inject constructor(
                 cloudPointsPath = cloudPointsPath,
                 documentWidth = _uiState.value.documentWidth,
                 documentHeight = _uiState.value.documentHeight,
+                savedSelections = _uiState.value.savedSelections,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -1609,6 +1615,7 @@ class EditorViewModel @Inject constructor(
                     cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
                     documentHeight = _uiState.value.documentHeight,
+                    savedSelections = _uiState.value.savedSelections,
                 )
             }
             // The merged result the repository just persisted (includes any AR wall map).
@@ -3302,6 +3309,59 @@ class EditorViewModel @Inject constructor(
      * restores pixels by replaying commands onto a base, so a bitmap edit is only undoable if it is
      * replayable.
      */
+    /**
+     * Procreate's Colour Fill: floods the selection with the active colour.
+     *
+     * Deliberately not the paint bucket. [Tool.FILL] spreads from a tapped pixel and stops where the
+     * colour changes; this fills the *region*, edge to edge, whatever is under it — which is the only
+     * one of the two that can fill a selection you drew over textured artwork.
+     *
+     * With no selection it fills the layer, since "the selection" is then the whole of it — the same
+     * reading [onClearLayer] already takes.
+     */
+    fun onColorFillSelection() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val argb = state.activeColor.toArgb()
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = state.selection?.canvasSize ?: IntSize(base.width, base.height),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = argb,
+            intensity = 1f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            selection = state.selection,
+            fillSelection = true,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        showHud(if (state.selection != null) "Filled selection" else "Filled layer")
+
+        viewModelScope.launch(dispatchers.default) {
+            // Straight through the replay path rather than a second implementation of the same
+            // composite — the one thing the feather work proved is worth insisting on, since a
+            // commit that differs from its replay changes the layer on the first undo.
+            val target = drawingEngine.applySingleStroke(base, command)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+            }
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+        }
+    }
+
     fun onClearLayer() {
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
@@ -3553,6 +3613,120 @@ class EditorViewModel @Inject constructor(
 
     fun onSetSelectionFeather(featherPx: Float) =
         dispatch(EditorIntent.SetSelectionFeather(featherPx))
+
+    // ── Copy / Cut / Paste ───────────────────────────────────────────────────────────────────
+
+    /**
+     * The selected pixels, waiting to be pasted.
+     *
+     * A field rather than UiState: it is a full-canvas bitmap, and state is compared on every
+     * recomposition. The UI only ever needs to know whether there *is* one, which travels as
+     * [EditorUiState.hasClipboard].
+     */
+    private var selectionClipboard: Bitmap? = null
+
+    /** Takes the selected pixels of the active layer, honouring the feather. */
+    fun onCopySelection(showToast: Boolean = true) {
+        val state = _uiState.value
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val base = layer.bitmap ?: run {
+            Toast.makeText(context, "Copy needs a paint layer", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clip = SelectionMask.bitmapPath(
+            state.selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+        )
+        val radius = SelectionMask.featherRadius(state.selection, base.width, base.height, layer.scale)
+        val lifted = SelectionMask.lift(base, clip, radius) ?: return
+        selectionClipboard?.recycle()
+        selectionClipboard = lifted
+        dispatch(EditorIntent.SetHasClipboard(true))
+        if (showToast) showHud(if (state.selection != null) "Copied selection" else "Copied layer")
+    }
+
+    /** Copy, then clear what was copied. Two existing operations rather than a third code path. */
+    fun onCutSelection() {
+        onCopySelection(showToast = false)
+        onClearLayer()
+        showHud(if (_uiState.value.selection != null) "Cut selection" else "Cut layer")
+    }
+
+    /**
+     * Drops the clipboard onto a **new layer**, which is what Procreate does and the only choice
+     * that is reversible without history: pasting into the current layer would destroy whatever it
+     * landed on, and the user has not asked for that by pressing Paste.
+     *
+     * Lands in register with where it was cut from, because [SelectionMask.lift] keeps the pixels at
+     * full canvas size rather than cropping them to the selection's bounds.
+     */
+    fun onPasteSelection() {
+        val source = selectionClipboard ?: return
+        val projectId = _uiState.value.projectId ?: return
+        pushHistory()
+        viewModelScope.launch(dispatchers.io) {
+            val bmp = source.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val filename = "layer_paste_${UUID.randomUUID()}.png"
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bmp))
+            val pasted = Layer(
+                id = UUID.randomUUID().toString(),
+                name = "Pasted",
+                bitmap = bmp,
+                uri = "file://$path".toUri(),
+            )
+            layerStore.putBase(pasted.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            layerStore.initStrokes(pasted.id)
+            withContext(dispatchers.main) {
+                dispatch(EditorIntent.AddLayer(pasted, resetActivePanel = false))
+                opEmitter.emit(Op.LayerAdd(pasted))
+                showHud("Pasted as a new layer")
+                saveProject()
+            }
+        }
+    }
+
+    // ── Save / Load selections ───────────────────────────────────────────────────────────────
+
+    /** Puts the current selection aside under a name, replacing any saved under the same one. */
+    fun onSaveSelection(name: String) {
+        val state = _uiState.value
+        val selection = state.selection ?: return
+        val trimmed = name.trim().ifBlank { "Selection ${state.savedSelections.size + 1}" }
+        val next = state.savedSelections.filterNot { it.name == trimmed } +
+            SavedSelection(trimmed, selection)
+        dispatch(EditorIntent.SetSavedSelections(next))
+        showHud("Saved “$trimmed”")
+        saveProject()
+    }
+
+    /**
+     * Recalls a saved selection.
+     *
+     * Composed through the same path a drawn region takes, so Add and Remove apply to a loaded
+     * selection too — loading one into an existing region unions or cuts it, which is what makes
+     * saved selections building blocks rather than only bookmarks.
+     */
+    fun onLoadSelection(name: String) {
+        val state = _uiState.value
+        val saved = state.savedSelections.find { it.name == name } ?: return
+        if (state.selectionOp == SelectionOp.NEW) {
+            dispatch(EditorIntent.SetSelection(saved.selection))
+        } else {
+            val composed = saved.selection.rings.fold(state.selection) { acc, ring ->
+                SelectionGeometry.compose(
+                    acc, ring.path, saved.selection.canvasSize,
+                    if (ring.additive) state.selectionOp else SelectionOp.REMOVE,
+                )
+            }
+            dispatch(EditorIntent.SetSelection(composed ?: saved.selection))
+        }
+    }
+
+    fun onDeleteSavedSelection(name: String) {
+        dispatch(EditorIntent.SetSavedSelections(
+            _uiState.value.savedSelections.filterNot { it.name == name }
+        ))
+        saveProject()
+    }
 
     // ── Clone ────────────────────────────────────────────────────────────────────────────────
 

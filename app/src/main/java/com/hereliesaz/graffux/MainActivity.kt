@@ -1129,6 +1129,28 @@ private fun AzNavHostScope.ConfigureRailItems(
         vm.onInvertSelection()
     }
     subItem("tool.deselect", "grp.select", "Deselect", GraffuxIcons.SelectNone) { vm.onClearSelection() }
+    // Actions on the region that exists. Hidden without one — Colour Fill would silently mean
+    // "flood the whole layer", which is a much larger thing than the button appears to offer.
+    if (uiState.selection != null) {
+        subItem("sel.fill", "grp.select", "Colour Fill", GraffuxIcons.LayerFill) { vm.onColorFillSelection() }
+        subItem("sel.copy", "grp.select", "Copy", GraffuxIcons.LayerDuplicate) { vm.onCopySelection() }
+        subItem("sel.cut", "grp.select", "Cut", GraffuxIcons.PathKnife) { vm.onCutSelection() }
+        subItem("sel.save", "grp.select", "Save Selection", GraffuxIcons.DocumentSave) {
+            vm.onSaveSelection("Selection ${uiState.savedSelections.size + 1}")
+        }
+    }
+    // Paste needs a clipboard, not a selection — it makes a new layer, so it is useful precisely
+    // when nothing is selected any more.
+    if (uiState.hasClipboard) {
+        subItem("sel.paste", "grp.select", "Paste", GraffuxIcons.LayerAdd) { vm.onPasteSelection() }
+    }
+    // Recalling a saved region. Each is its own entry rather than a picker, because the list is
+    // short by nature and one tap beats two.
+    uiState.savedSelections.forEach { saved ->
+        subItem("sel.load.${saved.name}", "grp.select", saved.name, GraffuxIcons.SelectReselect) {
+            vm.onLoadSelection(saved.name)
+        }
+    }
     // Feather softens the boundary of the selection that exists, so it only appears once one does —
     // there is nothing for it to act on otherwise, and it is stored on the selection rather than
     // beside it, so it travels when the region moves.

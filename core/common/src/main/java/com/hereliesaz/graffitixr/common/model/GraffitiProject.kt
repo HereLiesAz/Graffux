@@ -106,6 +106,11 @@ data class GraffitiProject(
 
     val drawingPaths: List<List<Pair<Float, Float>>> = emptyList(),
 
+    // Named selections put aside in the editor (Procreate's Save & Load). Part of the project
+    // rather than of the session: a region refined with a dozen Add/Remove strokes is real work,
+    // and it would be strange for it to survive switching tools but not closing the app.
+    val savedSelections: List<SavedSelection> = emptyList(),
+
     val progressPercentage: Float = 0f,
     val evolutionImageUris: List<@Serializable(with = UriSerializer::class) Uri> = emptyList(),
 

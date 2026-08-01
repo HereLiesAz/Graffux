@@ -231,6 +231,8 @@ internal object EditorReducer {
         // Feather lives on the selection itself, not beside it: it is part of what the region means,
         // so it travels with a moved selection and is recorded into the strokes it clips.
         is EditorIntent.SetCloneSource -> state.copy(cloneSource = intent.at)
+        is EditorIntent.SetHasClipboard -> state.copy(hasClipboard = intent.has)
+        is EditorIntent.SetSavedSelections -> state.copy(savedSelections = intent.selections)
         is EditorIntent.SetSelectionFeather -> state.copy(
             selection = state.selection?.copy(featherPx = intent.featherPx.coerceAtLeast(0f))
         )

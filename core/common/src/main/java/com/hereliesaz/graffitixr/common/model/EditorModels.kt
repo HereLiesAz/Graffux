@@ -245,6 +245,13 @@ data class EditorUiState(
     // tap sets it, and until then a drag would have nothing to copy. Survives strokes, so a source
     // picked once serves every stroke after it until it is reset.
     val cloneSource: Offset? = null,
+    // Whether Paste has anything to paste. The pixels themselves live in the ViewModel, not here —
+    // a full-canvas bitmap in UiState would be compared on every recomposition for no gain, and
+    // the UI only ever needs the yes/no.
+    val hasClipboard: Boolean = false,
+    // Named selections the user has put aside (Procreate's Save & Load). Stored as part of the
+    // project, so a region worked out once survives closing the app.
+    val savedSelections: List<SavedSelection> = emptyList(),
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

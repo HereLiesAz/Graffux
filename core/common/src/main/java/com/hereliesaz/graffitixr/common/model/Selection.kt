@@ -2,6 +2,9 @@ package com.hereliesaz.graffitixr.common.model
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.serialization.IntSizeSerializer
+import com.hereliesaz.graffitixr.common.serialization.OffsetSerializer
+import kotlinx.serialization.Serializable
 
 /**
  * How a gesture on the selection canvas becomes a region — Procreate's selection *modes*.
@@ -68,6 +71,19 @@ enum class SelectionOp {
 }
 
 /**
+ * A selection the user has put aside under a name — Procreate's Save & Load.
+ *
+ * Worth having because a selection can be expensive to make: a magic-wand region refined with half a
+ * dozen Add and Remove strokes represents real work, and until now the only way to keep it was not
+ * to select anything else. Saved with the project, so it survives closing the app.
+ */
+@Serializable
+data class SavedSelection(
+    val name: String,
+    val selection: Selection,
+)
+
+/**
  * Vertices used to approximate an [SelectionShape.ELLIPSE].
  *
  * The polygon is the selection — containment, clipping and the marching ants all read it directly —
@@ -89,8 +105,9 @@ const val ELLIPSE_VERTICES: Int = 64
  * The polygon is implicitly closed (last point joins the first) and is never stored closed, so a
  * re-map can't accumulate duplicate vertices.
  */
+@Serializable
 data class SelectionRing(
-    val path: List<Offset>,
+    val path: List<@Serializable(with = OffsetSerializer::class) Offset>,
     val additive: Boolean = true,
 ) {
     /** A ring needs at least a triangle to enclose any area. */
@@ -117,8 +134,10 @@ data class SelectionRing(
  * and takes a genuinely different, much cheaper path through the rasteriser, so feathering costs
  * nothing until it is asked for.
  */
+@Serializable
 data class Selection(
     val rings: List<SelectionRing>,
+    @Serializable(with = IntSizeSerializer::class)
     val canvasSize: IntSize,
     val inverted: Boolean = false,
     val featherPx: Float = 0f,

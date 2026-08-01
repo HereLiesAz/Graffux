@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.unit.IntSize
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -44,6 +45,33 @@ object OffsetSerializer : KSerializer<Offset> {
             }
         } else {
             Offset.Zero
+        }
+    }
+}
+
+/**
+ * [IntSize] as "w,h".
+ *
+ * A saved selection carries the canvas it was drawn against — its polygons are screen-space and mean
+ * nothing without it — so persisting one means persisting this.
+ */
+object IntSizeSerializer : KSerializer<IntSize> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("IntSize", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: IntSize) {
+        encoder.encodeString("${value.width},${value.height}")
+    }
+
+    override fun deserialize(decoder: Decoder): IntSize {
+        val parts = decoder.decodeString().split(",")
+        return if (parts.size == 2) {
+            try {
+                IntSize(parts[0].toInt(), parts[1].toInt())
+            } catch (e: NumberFormatException) {
+                IntSize.Zero
+            }
+        } else {
+            IntSize.Zero
         }
     }
 }
