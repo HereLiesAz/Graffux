@@ -50,10 +50,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    // ReferenceWindow draws its empty-state glyph from TablerIcons. :app and :core:design already
-    // declare this; without it here the module compiles only when something else happens to leak
-    // the dependency onto the classpath — release builds don't, so bundleRelease failed on it.
-    implementation(libs.compose.icons.tabler)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.opencv)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)

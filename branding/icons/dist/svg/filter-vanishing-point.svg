@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/filter-vanishing-point — A plane tipped back to a vanishing edge. -->
+  <defs>
+    <pattern id="gfxHatch-filter-vanishing-point" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M2.6,20.6L21.4,20.6"/>
   <path d="M2.6,20.6L17,5 M9.4,20.6L17,5 M16,20.6L17,5"/>
-  <path d="M16.1,4.2A1.5,1.5 0 1,0 19.1,4.2A1.5,1.5 0 1,0 16.1,4.2Z" fill="currentColor" stroke="none"/>
+  <path d="M16.1,4.2A1.5,1.5 0 1,0 19.1,4.2A1.5,1.5 0 1,0 16.1,4.2Z" fill="url(#gfxHatch-filter-vanishing-point)" stroke="none"/>
 </svg>

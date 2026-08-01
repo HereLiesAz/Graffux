@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/undo-history-slider — A single control riding along its own track. -->
+  <defs>
+    <pattern id="gfxHatch-undo-history-slider" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3.4,12L20.6,12"/>
   <path d="M3.4,8.6L3.4,15.4 M20.6,8.6L20.6,15.4"/>
-  <path d="M3.4,10.6L9,10.6L9,13.4L3.4,13.4Z" fill="currentColor" stroke="none"/>
+  <path d="M3.4,10.6L9,10.6L9,13.4L3.4,13.4Z" fill="url(#gfxHatch-undo-history-slider)" stroke="none"/>
 </svg>

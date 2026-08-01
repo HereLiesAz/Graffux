@@ -8,7 +8,51 @@
     android:tint="?attr/colorControlNormal">
     <!-- step-forward: A triangle stopped by a bar at the frame's own edge. -->
     <!-- lineage (PS/AI/PR): The universal next-frame control. -->
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M6.4,6.4L14,12L6.4,17.6Z M15.6,6.4L17.8,6.4L17.8,17.6L15.6,17.6Z" />
+    <group>
+        <clip-path android:pathData="M6.4,6.4L14,12L6.4,17.6Z M15.6,6.4L17.8,6.4L17.8,17.6L15.6,17.6Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,6.594L17.8,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,7.644L17.8,7.644" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,8.694L17.8,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,9.744L17.8,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,10.794L17.8,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,11.844L17.8,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,12.894L17.8,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,13.944L17.8,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,14.994L17.8,14.994" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,16.044L17.8,16.044" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.4,17.094L17.8,17.094" />
+    </group>
 </vector>

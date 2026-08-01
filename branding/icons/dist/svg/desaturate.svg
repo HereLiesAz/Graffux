@@ -1,9 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/desaturate — A divided wheel: sectors on one side, nothing on the other. -->
+  <defs>
+    <pattern id="gfxHatch-desaturate" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3,8L21,8L21,16L3,16Z"/>
   <path d="M12,8L12,16"/>
   <path d="M5,12A2.4,2.4 0 1,0 9.8,12A2.4,2.4 0 1,0 5,12Z M14.2,12A2.4,2.4 0 1,0 19,12A2.4,2.4 0 1,0 14.2,12Z"/>
-  <path d="M7.4,12L7.4,14.4A2.4,2.4 0 0,1 7.4,9.6Z" fill="currentColor" stroke="none"/>
+  <path d="M7.4,12L7.4,14.4A2.4,2.4 0 0,1 7.4,9.6Z" fill="url(#gfxHatch-desaturate)" stroke="none"/>
 </svg>

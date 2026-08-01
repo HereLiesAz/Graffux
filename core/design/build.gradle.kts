@@ -36,7 +36,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.compose.icons.tabler)
     implementation(libs.az.nav.rail)
 
     // MISSING DEPENDENCY RESTORED:

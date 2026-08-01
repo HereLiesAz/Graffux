@@ -17,11 +17,71 @@ The trap under all of it is that two similar elongated marks side by side are al
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M3.4,20.2L20.6,20.2" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M15.34,4.38L8.64,19.22L10.16,19.98L17.86,5.62Z M19.49,8.33L13.52,19.19L14.88,20.01L21.71,9.67Z" />
+    <group>
+        <clip-path android:pathData="M15.34,4.38L8.64,19.22L10.16,19.98L17.86,5.62Z M19.49,8.33L13.52,19.19L14.88,20.01L21.71,9.67Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,4.494L21.713,4.494" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,5.544L21.713,5.544" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,6.594L21.713,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,7.644L21.713,7.644" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,8.694L21.713,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,9.744L21.713,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,10.794L21.713,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,11.844L21.713,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,12.894L21.713,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,13.944L21.713,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,14.994L21.713,14.994" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,16.044L21.713,16.044" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,17.094L21.713,17.094" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,18.144L21.713,18.144" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M8.638,19.194L21.713,19.194" />
+    </group>
 </vector>

@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import compose.icons.TablerIcons
-import compose.icons.tablericons.X
-import compose.icons.tablericons.ChevronDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -35,12 +32,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
@@ -77,7 +76,7 @@ fun SettingsScreen(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text("Settings", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 IconButton(onClick = onClose) {
-                    Icon(TablerIcons.X, contentDescription = "Close settings")
+                    Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close settings")
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -247,7 +246,7 @@ private fun LanguageRow(current: AppLanguage, onSelect: (AppLanguage) -> Unit) {
         Box {
             OutlinedButton(onClick = { expanded = true }) {
                 Text(current.displayName)
-                Icon(TablerIcons.ChevronDown, contentDescription = null)
+                Icon(painterResource(GraffuxIcons.ChevronDown), contentDescription = null)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 AppLanguage.entries.forEach { lang ->

@@ -8,7 +8,63 @@
     android:tint="?attr/colorControlNormal">
     <!-- font-weight: A heavy letter and the weight ramp that produced it. Drawn as a light A beside a bold one it was a second AA, which is already type-allcaps, and which a stranger reads as the Alcoholics Anonymous mark before anything else. -->
     <!-- lineage (PS/AI): One letter at full weight beside the axis that sets it. -->
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M7.8,4.87L2.07,18.96L4.73,19.84L8.6,5.13Z M7.8,5.13L11.67,19.84L14.33,18.96L8.6,4.87Z M5.32,13.24L11.08,13.24L11.08,15.2L5.32,15.2Z M15.8,6.6L21,6.6L21,7.7L15.8,7.7Z M15.8,10.4L21,10.4L21,12.6L15.8,12.6Z M15.8,15.4L21,15.4L21,19L15.8,19Z" />
+    <group>
+        <clip-path android:pathData="M7.8,4.87L2.07,18.96L4.73,19.84L8.6,5.13Z M7.8,5.13L11.67,19.84L14.33,18.96L8.6,4.87Z M5.32,13.24L11.08,13.24L11.08,15.2L5.32,15.2Z M15.8,6.6L21,6.6L21,7.7L15.8,7.7Z M15.8,10.4L21,10.4L21,12.6L15.8,12.6Z M15.8,15.4L21,15.4L21,19L15.8,19Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,5.544L21,5.544" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,6.594L21,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,7.644L21,7.644" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,8.694L21,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,9.744L21,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,10.794L21,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,11.844L21,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,12.894L21,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,13.944L21,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,14.994L21,14.994" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,16.044L21,16.044" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,17.094L21,17.094" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,18.144L21,18.144" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.072,19.194L21,19.194" />
+    </group>
 </vector>

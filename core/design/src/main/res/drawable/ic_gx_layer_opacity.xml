@@ -13,11 +13,39 @@ It was three free-standing blocks shrinking to the right, which is a barcode, an
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M5.8,8.4L20.6,8.4L18.2,15.6L3.4,15.6Z" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M5.8,8.4L13.2,8.4L10.8,15.6L3.4,15.6Z" />
+    <group>
+        <clip-path android:pathData="M5.8,8.4L13.2,8.4L10.8,15.6L3.4,15.6Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,8.694L13.2,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,9.744L13.2,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,10.794L13.2,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,11.844L13.2,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,12.894L13.2,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,13.944L13.2,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M3.4,14.994L13.2,14.994" />
+    </group>
 </vector>

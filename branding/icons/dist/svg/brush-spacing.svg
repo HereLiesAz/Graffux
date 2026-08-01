@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/brush-spacing — Three stamps stepping evenly up a run, the middle one just landed. No line through them and no line under them. Set in a row above a separate rule they were a traffic light on its side, or the letters OOO underlined; with the rule passed through their centres instead, the two hollow ones became barred circles and the pair of them a set of spectacles, with the solid one as a nose. The even step is what carries the spacing. Distinct from scatter, whose stamps are thrown off a line that is actually drawn. -->
+  <defs>
+    <pattern id="gfxHatch-brush-spacing" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3,15.8A2.6,2.6 0 1,0 8.2,15.8A2.6,2.6 0 1,0 3,15.8Z"/>
   <path d="M15.8,8.2A2.6,2.6 0 1,0 21,8.2A2.6,2.6 0 1,0 15.8,8.2Z"/>
-  <path d="M9.4,12A2.6,2.6 0 1,0 14.6,12A2.6,2.6 0 1,0 9.4,12Z" fill="currentColor" stroke="none"/>
+  <path d="M9.4,12A2.6,2.6 0 1,0 14.6,12A2.6,2.6 0 1,0 9.4,12Z" fill="url(#gfxHatch-brush-spacing)" stroke="none"/>
 </svg>

@@ -11,25 +11,37 @@
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M16.95,11.29L11.29,16.95A3,3 0 0,1 7.05,16.95L7.05,16.95A3,3 0 0,1 7.05,12.71L12.71,7.05A3,3 0 0,1 16.95,7.05L16.95,7.05A3,3 0 0,1 16.95,11.29Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M15.68,12.57L11.43,8.32" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M12.57,15.68L8.32,11.43" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M15.8,6.6A1.6,1.6 0 1,0 19,6.6A1.6,1.6 0 1,0 15.8,6.6Z" />
+    <group>
+        <clip-path android:pathData="M15.8,6.6A1.6,1.6 0 1,0 19,6.6A1.6,1.6 0 1,0 15.8,6.6Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M15.8,5.544L19,5.544" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M15.8,6.594L19,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M15.8,7.644L19,7.644" />
+    </group>
 </vector>

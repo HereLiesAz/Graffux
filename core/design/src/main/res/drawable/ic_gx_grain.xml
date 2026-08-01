@@ -13,28 +13,28 @@ The speckle is five equal dashes and no round mark. With three dashes and a dot 
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M2.6,3.4L21.4,3.4L21.4,20.6L2.6,20.6Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M7,3.4L7,20.6 M17,3.4L17,20.6" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M3.5,6.3L6.1,6.3L6.1,8.9L3.5,8.9Z M3.5,15.1L6.1,15.1L6.1,17.7L3.5,17.7Z M17.9,6.3L20.5,6.3L20.5,8.9L17.9,8.9Z M17.9,15.1L20.5,15.1L20.5,17.7L17.9,17.7Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M9.2,6.8L10.2,6.4 M13.2,9L14.2,8.6 M9.6,11.4L10.6,11 M12.8,14.2L13.8,13.8 M9.4,17L10.4,16.6" />

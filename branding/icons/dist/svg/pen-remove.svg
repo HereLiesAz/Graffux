@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/pen-remove — A curve with one node taken away, unfilled. -->
   <path d="M3.4,16C4.33,14.67 7.13,8.67 9,8C10.87,7.33 12.67,12.33 14.6,12C16.53,11.67 19.6,7 20.6,6"/>
   <path d="M7.6,8A1.4,1.4 0 1,0 10.4,8A1.4,1.4 0 1,0 7.6,8Z"/>

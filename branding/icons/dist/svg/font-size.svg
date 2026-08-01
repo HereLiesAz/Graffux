@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/font-size — The same letter at two sizes, side by side. -->
   <path d="M5.8,13L3,20.6 M5.8,13L8.6,20.6 M4.46,17.71L7.14,17.71"/>
   <path d="M15.4,3.6L10.2,20.6 M15.4,3.6L20.6,20.6 M12.9,14.14L17.9,14.14"/>

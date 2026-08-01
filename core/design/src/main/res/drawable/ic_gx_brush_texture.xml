@@ -15,11 +15,39 @@ What the strokes were: spilled rice, and the fourth icon in the set drawn as a f
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M3,3L21,3L21,21L3,21Z" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M16.1,12.8L15.3,14.2L14.1,15.1L12.8,16L11.3,15.7L9.7,15.5L9,14L8.1,12.8L7.8,11.2L8.8,9.9L9.7,8.6L11.3,8.4L12.8,7.9L14.2,8.7L15,10L16,11.2Z" />
+    <group>
+        <clip-path android:pathData="M16.1,12.8L15.3,14.2L14.1,15.1L12.8,16L11.3,15.7L9.7,15.5L9,14L8.1,12.8L7.8,11.2L8.8,9.9L9.7,8.6L11.3,8.4L12.8,7.9L14.2,8.7L15,10L16,11.2Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,8.694L16.1,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,9.744L16.1,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,10.794L16.1,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,11.844L16.1,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,12.894L16.1,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,13.944L16.1,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M7.8,14.994L16.1,14.994" />
+    </group>
 </vector>

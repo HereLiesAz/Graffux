@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/step-forward — A triangle stopped by a bar at the frame's own edge. -->
-  <path d="M6.4,6.4L14,12L6.4,17.6Z M15.6,6.4L17.8,6.4L17.8,17.6L15.6,17.6Z" fill="currentColor" stroke="none"/>
+  <defs>
+    <pattern id="gfxHatch-step-forward" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M6.4,6.4L14,12L6.4,17.6Z M15.6,6.4L17.8,6.4L17.8,17.6L15.6,17.6Z" fill="url(#gfxHatch-step-forward)" stroke="none"/>
 </svg>

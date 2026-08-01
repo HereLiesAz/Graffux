@@ -23,11 +23,27 @@ Distinct from the pan hand, which is a hand face-on, upright, open, with all fiv
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.4"
+        android:strokeWidth="0.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M2.2,17.9L9,13L10.4,8.8L12.4,6.4L14.4,8.6L16.6,6.4L18.8,8.6L20,10.6L20,15.2L18.2,17.8L14.4,18.6L11.6,17.6L11.1,16L4.3,20.9Z" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" />
+    <group>
+        <clip-path android:pathData="M2.2,17.9L4.3,20.9L6.9,19.7L4.8,16.7Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.2,17.094L6.9,17.094" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.2,18.144L6.9,18.144" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.2,19.194L6.9,19.194" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M2.2,20.244L6.9,20.244" />
+    </group>
 </vector>

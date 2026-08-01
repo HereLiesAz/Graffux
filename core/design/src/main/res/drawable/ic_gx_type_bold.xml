@@ -8,7 +8,71 @@
     android:tint="?attr/colorControlNormal">
     <!-- type-bold: A single heavy capital. -->
     <!-- lineage (PS/AI/PR): The solid B every bold toggle in every text editor uses. -->
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M6.6,3.6L14,3.6L16.8,6.4L16.8,9.6L14,11.4L17.4,13.2L17.4,17.2L14.2,20.4L6.6,20.4Z M10,6.6L10,10L13.2,10L13.2,6.6Z M10,14L10,17.4L13.6,17.4L13.6,14Z" />
+    <group>
+        <clip-path android:pathData="M6.6,3.6L14,3.6L16.8,6.4L16.8,9.6L14,11.4L17.4,13.2L17.4,17.2L14.2,20.4L6.6,20.4Z M10,6.6L10,10L13.2,10L13.2,6.6Z M10,14L10,17.4L13.6,17.4L13.6,14Z" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,4.494L17.4,4.494" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,5.544L17.4,5.544" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,6.594L17.4,6.594" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,7.644L17.4,7.644" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,8.694L17.4,8.694" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,9.744L17.4,9.744" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,10.794L17.4,10.794" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,11.844L17.4,11.844" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,12.894L17.4,12.894" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,13.944L17.4,13.944" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,14.994L17.4,14.994" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,16.044L17.4,16.044" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,17.094L17.4,17.094" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,18.144L17.4,18.144" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,19.194L17.4,19.194" />
+        <path
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="0.3"
+            android:pathData="M6.6,20.244L17.4,20.244" />
+    </group>
 </vector>

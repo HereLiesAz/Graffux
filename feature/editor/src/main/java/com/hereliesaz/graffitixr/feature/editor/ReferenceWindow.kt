@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import compose.icons.TablerIcons
-import compose.icons.tablericons.Photo
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,10 +15,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
@@ -49,7 +49,7 @@ fun ReferenceWindow(
                 modifier = Modifier.fillMaxWidth().height(160.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(TablerIcons.Photo, contentDescription = null, tint = Color.Gray)
+                Icon(painterResource(GraffuxIcons.GalleryImport), contentDescription = null, tint = Color.Gray)
             }
             Text(
                 "No reference image",

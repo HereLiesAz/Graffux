@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/paragraph-align-right — Rules flush on the right, ragged on the left. -->
   <path d="M3.4,6L20.6,6 M9,11L20.6,11 M6,16L20.6,16 M12,21L20.6,21"/>
 </svg>

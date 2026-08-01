@@ -1,9 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/mask-apply — The mask made permanent. -->
+  <defs>
+    <pattern id="gfxHatch-mask-apply" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M3,3.6L16.6,3.6L16.6,17.2L3,17.2Z"/>
   <path d="M9.8,3.6L9.8,17.2"/>
   <path d="M15.4,19L17.6,21.2L21.2,15.8"/>
-  <path d="M9.8,3.6L16.6,3.6L16.6,17.2L9.8,17.2Z" fill="currentColor" stroke="none"/>
+  <path d="M9.8,3.6L16.6,3.6L16.6,17.2L9.8,17.2Z" fill="url(#gfxHatch-mask-apply)" stroke="none"/>
 </svg>

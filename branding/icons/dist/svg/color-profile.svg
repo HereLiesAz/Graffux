@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/color-profile — What a device can reach, inside what the eye can. -->
+  <defs>
+    <pattern id="gfxHatch-color-profile" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
   <path d="M4,21L4,3L14.6,3L20,8.4L20,21Z"/>
   <path d="M8.2,14.6A3.8,3.8 0 1,0 15.8,14.6A3.8,3.8 0 1,0 8.2,14.6Z"/>
-  <path d="M12,14.6L12,18.4A3.8,3.8 0 0,1 12,10.8Z" fill="currentColor" stroke="none"/>
+  <path d="M12,14.6L12,18.4A3.8,3.8 0 0,1 12,10.8Z" fill="url(#gfxHatch-color-profile)" stroke="none"/>
 </svg>

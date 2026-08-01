@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/share — A tray with its contents rising clear of it. -->
   <path d="M12,3.4L12,14.6 M8.4,7L12,3.4L15.6,7"/>
   <path d="M5.4,12L5.4,20.6L18.6,20.6L18.6,12"/>

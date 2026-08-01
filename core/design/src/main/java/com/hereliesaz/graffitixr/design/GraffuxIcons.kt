@@ -18,8 +18,10 @@ data class GxIcon(
 /**
  * The Graffux icon set.
  *
- * 404 glyphs on a 24-unit grid, one 1.4-unit stroke weight, at most one solid
- * mark each — the keystone, which always sits where the operation acts.
+ * 404 glyphs on a 24-unit grid, one 0.5-unit stroke weight, outline only.
+ * At most one mark per glyph carries mass — the keystone, which always sits where the
+ * operation acts. Anything large enough to hold 3 rules carries hatching instead of
+ * ink: rows of parallel lines on a viewport-anchored grid, shared across every icon.
  *
  * Reference them directly (`GraffuxIcons.Brush`) or look them up by key for a picker.
  */

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
      width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
   <!-- graffux/mask-quick — A temporary overlay, hatched so it is never mistaken for art. -->
   <path d="M3,4.6L21,4.6L21,19.4L3,19.4Z"/>
   <path d="M16.6,12A4.6,4.6 0 0,1 15.66,14.78 M14.3,15.98A4.6,4.6 0 0,1 11.42,16.56 M9.7,15.98A4.6,4.6 0 0,1 7.76,13.78 M7.4,12A4.6,4.6 0 0,1 8.34,9.22 M9.7,8.02A4.6,4.6 0 0,1 12.58,7.44 M14.3,8.02A4.6,4.6 0 0,1 16.24,10.22"/>
