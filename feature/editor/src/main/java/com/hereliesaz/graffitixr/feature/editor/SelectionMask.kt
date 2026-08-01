@@ -77,6 +77,85 @@ internal object SelectionMask {
     }
 
     /**
+     * [Selection.featherPx] converted into this bitmap's pixels, or 0 when the edge is hard.
+     *
+     * The feather is authored in screen px — it is a property of the selection the user drew, not of
+     * whichever layer it lands on — so it scales with the same factor the brush size does. Without
+     * that, the same selection would feather visibly harder on a high-resolution layer than on a
+     * low-resolution one sitting right beside it.
+     */
+    fun featherRadius(
+        selection: Selection?,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+        layerScale: Float = 1f,
+    ): Float {
+        val px = selection?.featherPx ?: 0f
+        if (px <= 0f || !(selection?.isUsable ?: false)) return 0f
+        val scale = ImageProcessor.screenToBitmapScale(
+            selection.canvasSize.width, selection.canvasSize.height, bitmapWidth, bitmapHeight, layerScale,
+        )
+        return (px * scale).coerceAtLeast(0f)
+    }
+
+    /**
+     * The clip to hand the paint, given the hard boundary and a feather radius.
+     *
+     * Null when feathering — and that is the whole trick. A canvas clip is binary, so a feathered
+     * edge cannot be expressed as one at all; instead the paint goes down *unclipped* and [feather]
+     * masks it afterwards. Clipping first would confine the paint to the hard boundary, leaving the
+     * soft ramp with nothing to reveal on the outer side and turning a symmetric feather into one
+     * that only ever fades inwards.
+     */
+    fun paintClip(clipPath: Path?, featherRadius: Float): Path? =
+        if (featherRadius > 0f) null else clipPath
+
+    /**
+     * Builds the soft-edged alpha mask for [clipPath] — opaque well inside the region, transparent
+     * well outside, ramped across [radiusPx]. Null when there is nothing to feather.
+     */
+    fun featherMask(clipPath: Path?, bitmapWidth: Int, bitmapHeight: Int, radiusPx: Float): android.graphics.Bitmap? {
+        if (clipPath == null || radiusPx <= 0f) return null
+        if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
+        val mask = SafeBitmap.create(bitmapWidth, bitmapHeight) ?: return null
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.FILL
+            maskFilter = android.graphics.BlurMaskFilter(radiusPx, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        }
+        Canvas(mask).drawPath(clipPath, paint)
+        return mask
+    }
+
+    /**
+     * Composites an unclipped [painted] back over [base] through a feathered mask of [clipPath],
+     * which is what actually confines the paint when the selection has a soft edge.
+     *
+     * Returns [painted] untouched when there is no feathering, so every caller can route through
+     * this unconditionally and the hard-edged path stays exactly as cheap as it was.
+     */
+    fun feather(
+        base: android.graphics.Bitmap,
+        painted: android.graphics.Bitmap,
+        clipPath: Path?,
+        radiusPx: Float,
+    ): android.graphics.Bitmap {
+        val mask = featherMask(clipPath, painted.width, painted.height, radiusPx) ?: return painted
+        val soft = SafeBitmap.copy(painted) ?: run { mask.recycle(); return painted }
+        // Keep the paint only where the mask says, at the mask's own alpha — this is where the ramp
+        // becomes a partial stroke rather than a present-or-absent one.
+        Canvas(soft).drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+        })
+        val out = SafeBitmap.copy(base) ?: run { mask.recycle(); soft.recycle(); return painted }
+        Canvas(out).drawBitmap(soft, 0f, 0f, null)
+        mask.recycle()
+        soft.recycle()
+        return out
+    }
+
+    /**
      * Confines everything subsequently drawn on [canvas] to [clipPath]. A no-op for a null path,
      * so callers can apply it unconditionally.
      *
@@ -104,7 +183,18 @@ internal object SelectionMask {
      * Deterministic from its inputs, which is what lets a move be recorded as an ordinary
      * [StrokeCommand] and replayed by [DrawingEngine] on undo/redo like any stroke.
      */
-    fun moveRegion(source: android.graphics.Bitmap, clipPath: Path, dx: Float, dy: Float): android.graphics.Bitmap {
+    fun moveRegion(
+        source: android.graphics.Bitmap,
+        clipPath: Path,
+        dx: Float,
+        dy: Float,
+        /** Feather radius in bitmap px; 0 for the hard-edged move. */
+        featherRadius: Float = 0f,
+    ): android.graphics.Bitmap {
+        if (featherRadius > 0f) {
+            val mask = featherMask(clipPath, source.width, source.height, featherRadius)
+            if (mask != null) return moveRegionSoft(source, mask, dx, dy)
+        }
         // Only the selection's bounds are lifted, not a second full-canvas buffer. A full-size lift
         // cost another width*height*4 bytes on top of the output copy, which on a phone-resolution
         // layer is tens of megabytes for what is usually a small region — enough, stacked on the
@@ -138,6 +228,36 @@ internal object SelectionMask {
         outCanvas.restore()
         outCanvas.drawBitmap(lifted, left + dx, top + dy, null)
         lifted.recycle()
+        return out
+    }
+
+    /**
+     * [moveRegion] for a feathered selection: same lift-clear-stamp, but every step attenuated by
+     * the mask's alpha instead of switched by a clip.
+     *
+     * The lift takes the mask's alpha (DST_IN) rather than a hard clip, and the hole is cleared *in
+     * proportion* to it (DST_OUT) rather than wiped. That pairing is what makes the edge conserve
+     * ink: a pixel the mask says is half in leaves half behind and carries half away, so a feathered
+     * move doesn't leave a bright rim where the clear undershot the lift.
+     */
+    private fun moveRegionSoft(
+        source: android.graphics.Bitmap,
+        mask: android.graphics.Bitmap,
+        dx: Float,
+        dy: Float,
+    ): android.graphics.Bitmap {
+        val out = SafeBitmap.copy(source) ?: run { mask.recycle(); return source }
+        val lifted = SafeBitmap.copy(source) ?: run { mask.recycle(); return out }
+        Canvas(lifted).drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+        })
+        val outCanvas = Canvas(out)
+        outCanvas.drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+        })
+        outCanvas.drawBitmap(lifted, dx, dy, null)
+        lifted.recycle()
+        mask.recycle()
         return out
     }
 

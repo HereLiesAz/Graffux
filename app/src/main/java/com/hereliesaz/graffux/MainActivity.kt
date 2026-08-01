@@ -1128,6 +1128,14 @@ private fun AzNavHostScope.ConfigureRailItems(
         vm.onInvertSelection()
     }
     subItem("tool.deselect", "grp.select", "Deselect", GraffuxIcons.SelectNone) { vm.onClearSelection() }
+    // Feather softens the boundary of the selection that exists, so it only appears once one does —
+    // there is nothing for it to act on otherwise, and it is stored on the selection rather than
+    // beside it, so it travels when the region moves.
+    uiState.selection?.let { sel ->
+        railSlider("select.feather", "Feather", sel.featherPx, 0f..64f, { "${it.roundToInt()} px" }) {
+            vm.onSetSelectionFeather(it)
+        }
+    }
 
     // Transform is its own control in Procreate's top bar, beside Adjustments and Selection — not an
     // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the

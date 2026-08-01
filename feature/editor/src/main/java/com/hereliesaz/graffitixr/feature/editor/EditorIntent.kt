@@ -178,6 +178,8 @@ internal sealed interface EditorIntent {
     data class SetSelectionOp(val op: com.hereliesaz.graffitixr.common.model.SelectionOp) : EditorIntent
     /** Per-channel colour distance the Automatic selection treats as the same colour, 0..255. */
     data class SetMagicWandTolerance(val tolerance: Int) : EditorIntent
+    /** Softens the current selection's edge by a radius in screen px; 0 is a hard edge. */
+    data class SetSelectionFeather(val featherPx: Float) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */
     data object InvertSelection : EditorIntent
     /** Live eyedropper state: sampling in progress, current colour + loupe position. */

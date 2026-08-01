@@ -2870,15 +2870,16 @@ class EditorViewModel @Inject constructor(
                 // Bitmap.copy can return null under memory pressure — never construct a Canvas from it
                 // unchecked (NPE on the main thread). Fall back to the unmodified bitmap if the copy fails.
                 val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val fastHard = SelectionMask.bitmapPath(
+                    strokeSelection, bitmap.width, bitmap.height,
+                    capturedScale, capturedOffset, capturedRotationZ,
+                )
+                val fastRadius = SelectionMask.featherRadius(
+                    strokeSelection, bitmap.width, bitmap.height, capturedScale,
+                )
                 if (target != null && points.isNotEmpty()) {
                     val canvas = android.graphics.Canvas(target)
-                    SelectionMask.clip(
-                        canvas,
-                        SelectionMask.bitmapPath(
-                            strokeSelection, target.width, target.height,
-                            capturedScale, capturedOffset, capturedRotationZ,
-                        ),
-                    )
+                    SelectionMask.clip(canvas, SelectionMask.paintClip(fastHard, fastRadius))
                     val brushScale = ImageProcessor.screenToBitmapScale(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
@@ -2938,7 +2939,9 @@ class EditorViewModel @Inject constructor(
                         drawPathAll(seg)
                     }
                 }
-                target ?: bitmap
+                // Feathered against the pre-stroke bitmap, matching DrawingEngine — this is the
+                // immediate result of a stroke whose recorded command replays through there.
+                if (target != null) SelectionMask.feather(bitmap, target, fastHard, fastRadius) else bitmap
             }
 
             val command = StrokeCommand(
@@ -3093,21 +3096,21 @@ class EditorViewModel @Inject constructor(
         // otherwise a stroke that started before this commit finished would have its preview wiped.
         val previewBitmap = stampLiveBitmap
         viewModelScope.launch(dispatchers.default) {
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
             val mapped = ImageProcessor.mapScreenToBitmap(
-                points, canvasW, canvasH, target.width, target.height, scale, offset, rotationZ
+                points, canvasW, canvasH, work.width, work.height, scale, offset, rotationZ
             )
-            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
+            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, work.width, work.height, scale)
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
-            val commitCanvas = Canvas(target)
-            SelectionMask.clip(
-                commitCanvas,
-                SelectionMask.bitmapPath(selection, target.width, target.height, scale, offset, rotationZ),
-            )
+            val hard = SelectionMask.bitmapPath(selection, work.width, work.height, scale, offset, rotationZ)
+            val radius = SelectionMask.featherRadius(selection, work.width, work.height, scale)
+            val commitCanvas = Canvas(work)
+            SelectionMask.clip(commitCanvas, SelectionMask.paintClip(hard, radius))
             StampBrushRenderer.paintStroke(
                 commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
+            val target = SelectionMask.feather(base, work, hard, radius)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     val clearPreview = s.liveStrokeBitmap === previewBitmap
@@ -3285,16 +3288,18 @@ class EditorViewModel @Inject constructor(
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
         viewModelScope.launch(dispatchers.default) {
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            val canvas = Canvas(target)
-            SelectionMask.clip(
-                canvas,
-                SelectionMask.bitmapPath(
-                    command.selection, target.width, target.height,
-                    layer.scale, layer.offset, layer.rotationZ,
-                ),
+            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val hard = SelectionMask.bitmapPath(
+                command.selection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
             )
+            // Same feather contract as DrawingEngine, and it has to be: this is the immediate
+            // result, and the recorded command replays through there on undo/redo. If only one of
+            // the two feathered, the layer would change appearance the first time you undid.
+            val radius = SelectionMask.featherRadius(command.selection, work.width, work.height, layer.scale)
+            val canvas = Canvas(work)
+            SelectionMask.clip(canvas, SelectionMask.paintClip(hard, radius))
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            val target = SelectionMask.feather(base, work, hard, radius)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -3507,6 +3512,9 @@ class EditorViewModel @Inject constructor(
     fun onSetMagicWandTolerance(tolerance: Int) =
         dispatch(EditorIntent.SetMagicWandTolerance(tolerance.coerceIn(0, 255)))
 
+    fun onSetSelectionFeather(featherPx: Float) =
+        dispatch(EditorIntent.SetSelectionFeather(featherPx))
+
     fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
         dispatch(EditorIntent.SetSelectionShape(shape))
 
@@ -3566,7 +3574,10 @@ class EditorViewModel @Inject constructor(
                 delta, selection.canvasSize.width, selection.canvasSize.height,
                 base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
             )
-            val moved = SelectionMask.moveRegion(base, clipPath, d.x, d.y)
+            val moved = SelectionMask.moveRegion(
+                base, clipPath, d.x, d.y,
+                SelectionMask.featherRadius(selection, base.width, base.height, layer.scale),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
