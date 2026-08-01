@@ -193,11 +193,16 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
-    // The file-operations dropdown sets this on every row rather than leaving it unspecified. Left
-    // unspecified, AzNavRail resolves a row's text through its own rail palette — which this app
-    // seeds from `azTheme(activeColor = …)` further down — rather than through any Material colour,
-    // so the row inherited an accent chosen for the rail and was unreadable on the menu's dark
-    // panel. Naming the colour here takes the row out of that path entirely.
+    // The file-operations dropdown sets this on every row rather than leaving it unspecified.
+    //
+    // Under 11.7 it had to: an unspecified row colour resolved through AzNavRail's own rail palette,
+    // seeded here from `azTheme(activeColor = …)`, so a menu row inherited an accent chosen for the
+    // rail and came out unreadable on the menu's dark panel. 11.8 fixes that end — it picks ink by
+    // the panel's luminance (`azInkOn` / `azReadableOn`) and no longer consults the rail accent.
+    //
+    // Still set, now for a different reason: it makes the menu take its ink from *this app's* theme
+    // rather than from the library's built-in near-white, so the menu matches the rest of the chrome
+    // instead of merely being legible against it. The two currently agree, which is the point.
     val menuItemColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
@@ -326,7 +331,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             azTheme(
                 activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
                 // The border is what distinguishes "this opens something" from "this does something".
-                // The rail's default is therefore borderless (AzNavRail 11.7's NONE_CIRCLE keeps the
+                // The rail's default is therefore borderless (AzNavRail's NONE_CIRCLE keeps the
                 // CIRCLE footprint, so a borderless item still lines up with a bordered one) and the
                 // only items that opt back into CIRCLE are hosts and the items that open a tool
                 // window. Every leaf tool, toggle and picker inherits this.
