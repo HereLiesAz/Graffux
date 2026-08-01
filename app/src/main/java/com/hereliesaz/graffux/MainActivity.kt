@@ -986,6 +986,22 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = railColor("tool.eraser"),
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
     )
+
+        // Procreate's constant tools run Brush, Smudge, Erase, Layers, Colour. The colour well
+        // is one of those five, not something to hunt for below a dozen extras, which is where
+        // it sat. Layers has left this strip entirely — it is an unattached floating host, the
+        // rail's nearest equivalent to Procreate's Layers panel — so Colour follows Erase
+        // directly. Everything below these is a tool Procreate does not put at top level.
+    // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
+    // palette glyph that says nothing about what you're about to paint with.
+    azRailItem(
+        id = "tool.color", classifiers = setOf("tool.color"), text = navStrings.color,
+        content = uiState.activeColor,
+        color = railColor("tool.color"),
+        // Bordered: it opens the colour picker rather than selecting a tool.
+        shape = AzButtonShape.CIRCLE,
+        onClick = { vm.onColorClicked() },
+    )
     azRailItem(
         id = "tool.pen", classifiers = setOf("tool.pen"), text = "Pen",
         content = GraffuxIcons.PenInk,
@@ -1486,16 +1502,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         valueFormatter = { "${(it * 100).roundToInt()}%" },
         onValueChange = { vm.setActiveColor(uiState.activeColor.copy(alpha = it)) },
     )
-    // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
-    // palette glyph that says nothing about what you're about to paint with.
-    azRailItem(
-        id = "tool.color", classifiers = setOf("tool.color"), text = navStrings.color,
-        content = uiState.activeColor,
-        color = railColor("tool.color"),
-        // Bordered: it opens the colour picker rather than selecting a tool.
-        shape = AzButtonShape.CIRCLE,
-        onClick = { vm.onColorClicked() },
-    )
+
     // The brush group is now unconditional: Brush Studio means there's always something to do here
     // (make one), where previously the whole group vanished unless a brush extension was installed.
     azRailHostItem(id = "grp.brushes", classifiers = setOf("grp.brushes"), text = "Brushes", content = GraffuxIcons.BrushLibrary, color = navItemColor, shape = AzButtonShape.CIRCLE)
@@ -1542,7 +1549,20 @@ private fun AzNavHostScope.ConfigureRailItems(
     // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
     // indented stand-in — so reordering stays scoped to siblings at each level.
     if (uiState.layers.isNotEmpty()) {
-        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = GraffuxIcons.Layers, color = navItemColor, shape = AzButtonShape.CIRCLE)
+        // Unattached and floating, not a group in the rail strip. Layers is the one host you keep
+        // reaching for *while* painting — Procreate gives it a panel of its own for that reason — and
+        // as a rail group it sat behind the same expand-collapse as every tool, so getting to a layer
+        // meant opening the rail and pushing everything else aside. FLOATING parks it wherever the
+        // user drags it and remembers that across launches, which is the nearest thing the rail has
+        // to a panel. The host and its whole subtree leave the rail strip and the drawer menu.
+        azUnattachedHostItem(
+            id = "grp.layers",
+            text = strings.editor.layers,
+            anchor = AzUnattachedAnchor.FLOATING,
+            content = GraffuxIcons.Layers,
+            color = navItemColor,
+            shape = AzButtonShape.CIRCLE,
+        )
         uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
             renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings)
         }
