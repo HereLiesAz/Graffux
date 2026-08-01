@@ -1153,6 +1153,20 @@ private fun AzNavHostScope.ConfigureRailItems(
             vm.onLoadSelection(saved.name)
         }
     }
+    // Deleting one lives a level down rather than beside its Load entry: recalling is the common
+    // act and stays one tap, while forgetting is rare and destructive and can afford to be two.
+    // Without it, Save is a one-way door — the list only ever grows, and the rail with it.
+    if (uiState.savedSelections.isNotEmpty()) {
+        azRailSubHostItem(
+            id = "sel.manage", hostId = "grp.select", text = "Forget a Selection",
+            content = GraffuxIcons.LayerDelete, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        )
+        uiState.savedSelections.forEach { saved ->
+            subItem("sel.forget.${saved.name}", "sel.manage", saved.name, GraffuxIcons.SelectNone) {
+                vm.onDeleteSavedSelection(saved.name)
+            }
+        }
+    }
     // Feather softens the boundary of the selection that exists, so it only appears once one does —
     // there is nothing for it to act on otherwise, and it is stored on the selection rather than
     // beside it, so it travels when the region moves.
