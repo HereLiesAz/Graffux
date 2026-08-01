@@ -366,6 +366,7 @@ fun EditorScreen(
             SelectionCanvas(
                 selection = uiState.selection,
                 shape = uiState.selectionShape,
+                op = uiState.selectionOp,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },

@@ -1,8 +1,11 @@
 package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
+import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import kotlin.math.PI
 import kotlin.math.abs
@@ -122,6 +125,46 @@ object SelectionGeometry {
         return List(vertices) { i ->
             val t = (2.0 * PI * i) / vertices
             Offset(cx + rx * cos(t).toFloat(), cy + ry * sin(t).toFloat())
+        }
+    }
+
+    /**
+     * Folds a freshly drawn [polygon] into the selection already on the canvas under [op].
+     *
+     * Three things this handles that a naive append would not:
+     *
+     *  - **Removing from nothing** leaves nothing. There is no implicit "everything is selected"
+     *    state to cut out of — with no selection every tool already paints everywhere — so a Remove
+     *    with nothing selected is a no-op rather than an inversion.
+     *  - **Adding to nothing** is just a new selection, so Add works as the first stroke of a
+     *    multi-part selection without the user having to start in New and switch.
+     *  - **Composing onto an inverted selection flips the ring's sense.** [Selection.inverted]
+     *    applies to the whole stack, so an additive ring under it would *shrink* what the user can
+     *    see. The flag is flipped so Add always adds to the visible region, which is the only
+     *    reading of the button that isn't a lie.
+     *
+     * A [canvasSize] that differs from the current selection's forces a replace: the rings are
+     * screen-space and a different canvas is a different space, so folding into it would put the
+     * old region somewhere it was never drawn.
+     */
+    fun compose(
+        current: Selection?,
+        polygon: List<Offset>,
+        canvasSize: IntSize,
+        op: SelectionOp,
+    ): Selection? {
+        val ring = SelectionRing(polygon, additive = true)
+        if (!ring.isUsable) return current
+        val fresh = Selection(listOf(ring), canvasSize)
+        val base = current?.takeIf { it.isUsable && it.canvasSize == canvasSize }
+        return when (op) {
+            SelectionOp.NEW -> fresh
+            SelectionOp.ADD -> base?.let {
+                it.copy(rings = it.rings + ring.copy(additive = !it.inverted))
+            } ?: fresh
+            SelectionOp.REMOVE -> base?.let {
+                it.copy(rings = it.rings + ring.copy(additive = it.inverted))
+            }
         }
     }
 

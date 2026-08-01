@@ -4,10 +4,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -260,6 +262,81 @@ class SelectionGeometryTest {
             canvasSize = canvas,
         )
         assertEquals(SelectionGeometry.rectangle(Offset(0f, 0f), Offset(60f, 60f)), stack.outline)
+    }
+
+
+    // ── compose(): what a completed drag does to what is already there ───────────────────────────
+
+    private val poly = SelectionGeometry.rectangle(Offset(0f, 0f), Offset(40f, 40f))
+    private val other = SelectionGeometry.rectangle(Offset(60f, 0f), Offset(90f, 40f))
+
+    @Test
+    fun `NEW replaces whatever was selected`() {
+        val first = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val second = SelectionGeometry.compose(first, other, canvas, SelectionOp.NEW)!!
+        assertEquals(1, second.rings.size)
+        assertFalse(SelectionGeometry.contains(second, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(second, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `ADD with nothing selected is just a new selection`() {
+        // So Add works as the first stroke of a multi-part selection without having to start in
+        // New and switch modes part-way.
+        val made = SelectionGeometry.compose(null, poly, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(made, Offset(20f, 20f)))
+    }
+
+    @Test
+    fun `REMOVE with nothing selected does nothing`() {
+        // There is no implicit "everything is selected" to cut out of — with no selection every
+        // tool already paints everywhere — so this must not become an inversion.
+        assertNull(SelectionGeometry.compose(null, poly, canvas, SelectionOp.REMOVE))
+    }
+
+    @Test
+    fun `ADD unions and REMOVE cuts`() {
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val both = SelectionGeometry.compose(one, other, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(both, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(both, Offset(70f, 20f)))
+
+        val cut = SelectionGeometry.compose(both, poly, canvas, SelectionOp.REMOVE)!!
+        assertFalse(SelectionGeometry.contains(cut, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(cut, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `composing onto an inverted selection adds to what is visible`() {
+        // `inverted` applies to the whole stack, so an additive ring under it would SHRINK the
+        // visible region. Add must add to what the user can see or the button is a lie.
+        val invertedHole = Selection(listOf(SelectionRing(poly)), canvas, inverted = true)
+        assertFalse(SelectionGeometry.contains(invertedHole, Offset(20f, 20f)))
+
+        val added = SelectionGeometry.compose(invertedHole, other, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(added, Offset(70f, 20f)))
+
+        val removed = SelectionGeometry.compose(invertedHole, other, canvas, SelectionOp.REMOVE)!!
+        assertFalse(SelectionGeometry.contains(removed, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `a canvas size change forces a replace`() {
+        // The rings are screen-space; folding into a different canvas would put the old region
+        // somewhere it was never drawn.
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val rotated = SelectionGeometry.compose(one, other, IntSize(200, 50), SelectionOp.ADD)!!
+        assertEquals(1, rotated.rings.size)
+        assertEquals(IntSize(200, 50), rotated.canvasSize)
+    }
+
+    @Test
+    fun `a degenerate drag leaves the selection alone`() {
+        // Under Add or Remove a stray tap must not throw away the region being built up.
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val sliver = listOf(Offset(5f, 5f), Offset(6f, 6f))
+        assertEquals(one, SelectionGeometry.compose(one, sliver, canvas, SelectionOp.ADD))
+        assertEquals(one, SelectionGeometry.compose(one, sliver, canvas, SelectionOp.NEW))
     }
 
 }

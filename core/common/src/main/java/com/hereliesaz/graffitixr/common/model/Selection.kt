@@ -33,6 +33,32 @@ enum class SelectionShape {
 }
 
 /**
+ * What a completed selection drag does to the selection already on the canvas — Procreate's Add and
+ * Remove, plus the default of simply replacing.
+ *
+ * Orthogonal to [SelectionShape], and deliberately so: any shape can be added or removed, which is
+ * how a lasso subtracted from a rectangle gets you a shape neither mode could draw. Two pickers of
+ * three, not one picker of nine.
+ */
+enum class SelectionOp {
+    /** Replaces whatever was selected. */
+    NEW,
+
+    /** Unions onto the current selection. */
+    ADD,
+
+    /** Cuts out of the current selection. */
+    REMOVE;
+
+    val label: String
+        get() = when (this) {
+            NEW -> "New"
+            ADD -> "Add"
+            REMOVE -> "Remove"
+        }
+}
+
+/**
  * Vertices used to approximate an [SelectionShape.ELLIPSE].
  *
  * The polygon is the selection — containment, clipping and the marching ants all read it directly —

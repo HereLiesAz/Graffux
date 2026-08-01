@@ -226,6 +226,7 @@ internal object EditorReducer {
         // drag means, and dropping the region under the user's hands would make the mode picker
         // destructive for anyone who tapped it to check which mode they were in.
         is EditorIntent.SetSelectionShape -> state.copy(selectionShape = intent.shape)
+        is EditorIntent.SetSelectionOp -> state.copy(selectionOp = intent.op)
         is EditorIntent.SetEyedrop -> state.copy(
             isEyedropping = intent.active,
             eyedropColor = if (intent.active) intent.color else null,

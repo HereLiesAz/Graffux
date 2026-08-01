@@ -60,6 +60,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
@@ -958,6 +959,7 @@ private fun activeRailClassifiers(
     uiState.activeLayerId?.let { add("layer.$it") }
     add("symmetryMode.${uiState.symmetryMode.name}")
     add("selectShape.${uiState.selectionShape.name}")
+    add("selectOp.${uiState.selectionOp.name}")
 }
 
 private fun AzNavHostScope.ConfigureRailItems(
@@ -1093,6 +1095,19 @@ private fun AzNavHostScope.ConfigureRailItems(
                 SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
             },
         ) { vm.onSetSelectionShape(mode) }
+    }
+    // What the next drag *does*, which is a separate question from what shape it draws — two
+    // pickers of three rather than one picker of nine. Subtracting a lasso from a rectangle is a
+    // region neither shape could draw on its own, and that only exists because they compose.
+    SelectionOp.entries.forEach { mode ->
+        stateSubItem(
+            id = "selectOp.${mode.name}", hostId = "grp.select", text = mode.label,
+            content = when (mode) {
+                SelectionOp.NEW -> GraffuxIcons.SelectAll
+                SelectionOp.ADD -> GraffuxIcons.SelectAdd
+                SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
+            },
+        ) { vm.onSetSelectionOp(mode) }
     }
     // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
     // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the

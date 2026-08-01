@@ -3415,17 +3415,24 @@ class EditorViewModel @Inject constructor(
 
     fun onDismissQuickMenu() = dispatch(EditorIntent.SetQuickMenu(null))
 
-    // ── Freehand selection (Procreate's lasso) ───────────────────────────────────────────────
+    // ── Selection (Procreate's lasso and its modes) ───────────────────────────────────────────
 
     /**
-     * Adopts the lasso the finger just traced. The polygon is thinned first — a traced loop arrives
-     * at touch-event rate, and every retained vertex is re-mapped on every paint op the selection
-     * clips. A loop too small to enclose anything is treated as a deselect by the reducer.
+     * Folds the region the finger just drew into the selection, under the current
+     * [EditorUiState.selectionOp].
+     *
+     * The polygon is thinned first — a traced loop arrives at touch-event rate, and every retained
+     * vertex is re-mapped on every paint op the selection clips. A loop too small to enclose
+     * anything leaves the selection alone rather than clearing it: under Add or Remove a stray tap
+     * must not throw away the region being built up.
      */
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
         val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        val state = _uiState.value
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.model.Selection.ofPolygon(simplified, canvasSize)
+            com.hereliesaz.graffitixr.common.util.SelectionGeometry.compose(
+                state.selection, simplified, canvasSize, state.selectionOp,
+            )
         ))
     }
 
@@ -3433,6 +3440,9 @@ class EditorViewModel @Inject constructor(
 
     fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
         dispatch(EditorIntent.SetSelectionShape(shape))
+
+    fun onSetSelectionOp(op: com.hereliesaz.graffitixr.common.model.SelectionOp) =
+        dispatch(EditorIntent.SetSelectionOp(op))
 
     fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
 

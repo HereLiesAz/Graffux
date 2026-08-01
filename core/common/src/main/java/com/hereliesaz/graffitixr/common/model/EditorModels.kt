@@ -233,6 +233,10 @@ data class EditorUiState(
     // the selection it makes, so picking Ellipse once keeps drawing ellipses until it's changed —
     // the mode is a setting on the tool, not a property of the region it produced.
     val selectionShape: SelectionShape = SelectionShape.FREEHAND,
+    // What a completed selection drag does to the selection already there. Orthogonal to the shape
+    // — any shape can be added or removed, which is how a lasso subtracted from a rectangle gets a
+    // region neither could draw on its own.
+    val selectionOp: SelectionOp = SelectionOp.NEW,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

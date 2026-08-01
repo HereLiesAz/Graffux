@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import kotlinx.coroutines.delay
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
@@ -56,6 +57,7 @@ private const val ANT_STEP_MS = 80L
 fun SelectionCanvas(
     selection: Selection?,
     shape: SelectionShape,
+    op: SelectionOp,
     gate: StrokeGate,
     modifier: Modifier = Modifier,
     onSelectionEnd: (List<Offset>, IntSize) -> Unit,
@@ -79,7 +81,7 @@ fun SelectionCanvas(
             // Keyed on `shape` as well as `selection`: the loop below reads `shape` from this
             // lambda's capture, so without it a mode picked mid-session would be invisible here
             // until something else happened to relaunch the block.
-            .pointerInput(selection, shape) {
+            .pointerInput(selection, shape, op) {
                 // Committing or moving a selection relaunches this block and kills the in-flight
                 // drag's loop; nothing is in progress the instant it starts, so start clean.
                 gate.strokeActive = false
@@ -88,7 +90,14 @@ fun SelectionCanvas(
                     val down = awaitFirstDown()
                     // The live selection is captured by the pointerInput key, so this decision is
                     // made against the selection actually on screen.
-                    val moving = selection != null && SelectionGeometry.contains(selection, down.position)
+                    //
+                    // Only under NEW. Add and Remove are about changing the region's shape, and the
+                    // most obvious thing to do with Remove is cut a hole out of the middle — which
+                    // starts inside the selection, exactly where the move gesture lives. Keeping
+                    // move on those modes would make the interior of a selection the one place you
+                    // could not edit it.
+                    val moving = op == SelectionOp.NEW &&
+                        selection != null && SelectionGeometry.contains(selection, down.position)
                     var began = false
                     lasso = if (moving) emptyList() else listOf(down.position)
                     moveDelta = if (moving) Offset.Zero else null
@@ -112,8 +121,12 @@ fun SelectionCanvas(
                             when {
                                 moving -> moveDelta?.let { if (began) onSelectionMove(it) }
                                 began -> onSelectionEnd(lasso, canvasSize)
-                                // A tap that never became a drag clears the selection.
-                                else -> onClearSelection()
+                                // A tap that never became a drag clears the selection — but only
+                                // under NEW. Mid-way through building a region out of several
+                                // pieces, a stray tap throwing the whole thing away is a much worse
+                                // outcome than a tap that does nothing.
+                                op == SelectionOp.NEW -> onClearSelection()
+                                else -> Unit
                             }
                             lasso = emptyList()
                             moveDelta = null
