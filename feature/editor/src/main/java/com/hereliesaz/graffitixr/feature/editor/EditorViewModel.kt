@@ -173,11 +173,25 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Active, loaded code extensions (filters and tools) exposed to the UI panels.
+     * The extensions the Extensions panel offers — everything installed that this host can actually
+     * *do* something with when tapped.
+     *
+     * That is code and mixed packages, which [onExtensionSelected] runs in the sandbox, **and**
+     * asset packages carrying a usable LUT, which it applies as a colour grade. The LUT branch has
+     * always been there; the filter here had not, so a `kind: "asset"` grade installed successfully,
+     * reported itself installed, and then appeared in no panel at all — reachable only by uninstalling
+     * it from the store window. Brushes are excluded on purpose: they have their own picker under the
+     * Brushes rail group, and listing them twice would imply two different things to do with one.
      */
     val installedExtensions: StateFlow<List<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension>> =
         extensionRepository.installed
-            .map { list -> list.filter { it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE || it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED } }
+            .map { list ->
+                list.filter {
+                    it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE ||
+                        it.manifest.kind == com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED ||
+                        extensionRepository.hasUsableLut(it)
+                }
+            }
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
@@ -3892,6 +3906,15 @@ class EditorViewModel @Inject constructor(
     val allInstalledExtensions: StateFlow<List<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension>> =
         extensionRepository.installed
 
+    /**
+     * What this host has done with each extension it acquired, for the browse request's inventory
+     * extra (spec/state-reporting.md § 3.1). Read straight off the state file: it is a handful of
+     * entries and the alternative — caching it — risks handing a store a stale answer, which is the
+     * one failure this whole channel exists to prevent.
+     */
+    fun extensionStateInventory(): List<com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry> =
+        extensionRepository.stateInventory()
+
     /** Uninstall a previously-installed extension by [id]. */
     fun uninstallExtension(id: String) {
         viewModelScope.launch(dispatchers.io) {
@@ -3902,17 +3925,35 @@ class EditorViewModel @Inject constructor(
     /**
      * Install an azphalt `.azp` package from a [uri] — a `content://` from the file picker, or one
      * handed off by a store app (spec/store-app.md; see MainActivity's browse-for-result launcher).
-     * Opens the stream, verifies + unpacks off the main thread, and toasts the outcome; the installed
-     * flow ([installedBrushes]) updates itself so a new brush appears in the picker.
+     * Opens the stream, verifies + unpacks off the main thread, and reports the outcome; the installed
+     * flows ([installedBrushes], [installedExtensions]) update themselves so a new contribution
+     * appears where it belongs without a manual refresh.
+     *
+     * [fromStore] carries what a store app said about the bytes, when they came from one. Its only
+     * load-bearing field here is the id: it names the package in a `failed` state report, which
+     * matters precisely in the case where the manifest never parsed and the bytes cannot name
+     * themselves.
      */
-    fun installExtensionFromUri(uri: Uri) {
+    fun installExtensionFromUri(
+        uri: Uri,
+        fromStore: com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult? = null,
+    ) {
         viewModelScope.launch(dispatchers.io) {
+            val now = System.currentTimeMillis()
             try {
+                // Bytes in hand, not yet installed — a real state, and the one a store most wants
+                // back, since it is a user who acquired something and does not yet have it.
+                val storeId = fromStore?.id
+                if (storeId != null) {
+                    extensionRepository.recordDownloaded(storeId, fromStore.version.orEmpty(), now)
+                }
                 val input = context.contentResolver.openInputStream(uri)
                     ?: error("Couldn't open that file")
-                val installed = input.use { extensionRepository.installFromStream(it, System.currentTimeMillis()) }
+                val installed = input.use {
+                    extensionRepository.installFromStream(it, now, knownId = fromStore?.id)
+                }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Installed ${installed.manifest.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e   // never swallow cancellation — let the coroutine unwind cooperatively
@@ -3921,6 +3962,36 @@ class EditorViewModel @Inject constructor(
                     Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
+        }
+    }
+
+    /**
+     * What landed, and where the user will find it.
+     *
+     * "Installed X" alone is only half an answer: a package can contribute a brush, a colour grade, a
+     * filter or several at once, and each surfaces somewhere different. Naming the destination is the
+     * difference between a confirmation and an instruction.
+     */
+    private fun installedMessage(
+        installed: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension,
+    ): String {
+        val name = installed.manifest.name
+        val where = buildList {
+            if (extensionRepository.hasUsableBrush(installed)) add("Brushes")
+            if (extensionRepository.hasUsableLut(installed)) add("Extensions")
+            val contributes = installed.manifest.contributes
+            if (contributes?.filters?.isNotEmpty() == true || contributes?.tools?.isNotEmpty() == true) {
+                add("Extensions")
+            }
+        }.distinct()
+
+        return when {
+            where.isEmpty() ->
+                // Installed and verified, but nothing in it is something this host can apply — an
+                // asset type it doesn't support, or a code-only contribution it doesn't run. Saying
+                // so is better than a confirmation the user cannot act on.
+                "Installed $name — nothing in it applies to this app yet"
+            else -> "Installed $name — find it under ${where.joinToString(" and ")}"
         }
     }
 

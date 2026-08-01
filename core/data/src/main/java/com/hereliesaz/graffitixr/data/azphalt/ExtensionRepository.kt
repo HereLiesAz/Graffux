@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.AzpSignatures
 import com.hereliesaz.graffitixr.common.azphalt.CubeLut
+import com.hereliesaz.graffitixr.common.azphalt.ExtensionState
 import com.hereliesaz.graffitixr.common.azphalt.LutInputTransfer
 import com.hereliesaz.graffitixr.common.azphalt.TrustStore
 import com.hereliesaz.graffitixr.common.azphalt.parseCubeLut
@@ -34,7 +35,10 @@ import javax.inject.Singleton
  * this class's job starts once bytes exist, regardless of where they came from.
  *
  * The filesystem under `filesDir/extensions/<id>/` IS the installed-state — [installed] is rebuilt by
- * scanning it, so an install/uninstall survives process death with no separate index.
+ * scanning it, so an install/uninstall survives process death with no separate index to fall out of
+ * step with it. [ExtensionStateStore] sits beside that rather than duplicating it: it records what
+ * this host *did* (spec/state-reporting.md), including the outcomes — removed, failed, downloaded —
+ * that by definition have no directory left to scan.
  */
 @Singleton
 class ExtensionRepository @Inject constructor(
@@ -42,6 +46,16 @@ class ExtensionRepository @Inject constructor(
     dispatcherProvider: DispatcherProvider,
 ) {
     private val extensionsRoot = File(context.filesDir, "extensions")
+
+    /**
+     * What this host has done with each package it acquired (spec/state-reporting.md). Kept apart
+     * from the unpacked tree because three of the five reportable states — `removed`, `failed`,
+     * `downloaded` — describe packages with no directory to scan.
+     */
+    private val stateStore = ExtensionStateStore(File(context.filesDir, ExtensionStateStore.FILE_NAME))
+
+    /** The inventory to send with a browse request, so a store's cards say *Open* rather than *Get*. */
+    fun stateInventory(): List<com.hereliesaz.graffitixr.common.azphalt.ExtensionStateEntry> = stateStore.all()
 
     // The keys this host trusts. Empty for now — signed packages install as SIGNED_UNTRUSTED (valid
     // signature, no established identity) until a trust store is seeded (e.g. a registry's key from
@@ -73,18 +87,45 @@ class ExtensionRepository @Inject constructor(
      * serializes the unpack + rescan. Throws on any integrity/safety failure. Runs blocking IO — call
      * from a background dispatcher.
      */
-    fun installFromStream(input: InputStream, nowMs: Long): InstalledExtension {
+    fun installFromStream(input: InputStream, nowMs: Long, knownId: String? = null): InstalledExtension {
         val tempFile = File.createTempFile("azp_", ".azp", context.cacheDir)
         try {
             tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
-            return synchronized(lock) {
-                val installed = tempFile.inputStream().use { installer.install(it, nowMs) }
+            val installed = synchronized(lock) {
+                val result = tempFile.inputStream().use { installer.install(it, nowMs) }
                 _installed.value = scanInstalled()
-                installed
+                result
             }
+            // Graffux has no enable/disable toggle — an installed extension's LUTs and brushes are
+            // available the moment it lands — so the honest state is `active`, not `installed`.
+            stateStore.record(installed.id, installed.manifest.version, ExtensionState.ACTIVE, nowMs)
+            return installed
+        } catch (t: Throwable) {
+            // A failure is worth reporting precisely because it is a user who wanted something and
+            // did not get it. Only recordable when the id is known ahead of the manifest parse —
+            // which, under delegated acquisition, the store told us (`azphalt.extra.ID`).
+            if (knownId != null && t !is kotlinx.coroutines.CancellationException) {
+                stateStore.record(
+                    id = knownId,
+                    version = "",
+                    state = ExtensionState.FAILED,
+                    atMs = nowMs,
+                    reason = t.message,
+                )
+            }
+            throw t
         } finally {
             tempFile.delete()
         }
+    }
+
+    /**
+     * Record that verified bytes are held but not yet installed (spec/state-reporting.md § 1). This
+     * state exists only because delegated acquisition splits acquiring from installing: a host that
+     * downloads for itself never sees bytes it hasn't committed to.
+     */
+    fun recordDownloaded(id: String, version: String, nowMs: Long) {
+        stateStore.record(id, version, ExtensionState.DOWNLOADED, nowMs)
     }
 
     /** Copy [input] to [out], aborting if it exceeds [maxBytes] (a compressed-download zip-bomb guard). */
@@ -102,11 +143,17 @@ class ExtensionRepository @Inject constructor(
         }
     }
 
-    fun uninstall(id: String) {
-        synchronized(lock) {
-            val ext = _installed.value.find { it.id == id } ?: return@synchronized
+    fun uninstall(id: String, nowMs: Long = System.currentTimeMillis()) {
+        val removed = synchronized(lock) {
+            val ext = _installed.value.find { it.id == id } ?: return@synchronized null
             File(ext.dir).deleteRecursively()
             _installed.value = scanInstalled()
+            ext
+        }
+        // `removed` rather than forgetting it: a store can then offer a reinstall instead of a first
+        // purchase, which is the whole reason the state is distinct from never having had it.
+        if (removed != null) {
+            stateStore.record(id, removed.manifest.version, ExtensionState.REMOVED, nowMs)
         }
     }
 
@@ -137,6 +184,18 @@ class ExtensionRepository @Inject constructor(
     /** A LUT asset this host can actually apply: standalone (not code-dependent) and bundled (has a path). */
     private fun isUsableLut(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
         asset.type == AssetType.LUT && asset.standalone && asset.path.isNotBlank()
+
+    /**
+     * Does this specific extension carry a LUT this host can apply?
+     *
+     * Same question as [installedLuts], asked of one record the caller already holds rather than of
+     * the current install list. That distinction matters to anything mapping over a snapshot: reading
+     * the live list mid-map answers about a *different* moment than the one being mapped.
+     */
+    fun hasUsableLut(ext: InstalledExtension): Boolean = ext.manifest.assets.any(::isUsableLut)
+
+    /** Does this extension carry a brush this host can paint with? */
+    fun hasUsableBrush(ext: InstalledExtension): Boolean = ext.manifest.assets.any(::isUsableBrush)
 
     /**
      * Installed brush asset extensions the editor can paint with. As with [installedLuts], only assets

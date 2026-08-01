@@ -113,6 +113,23 @@ class AzpInstaller(
             }
         }
 
+        // …and the converse: every payload the archive carries must be one the manifest listed. The
+        // digest loop above only proves the *listed* files are the bytes they claim to be; on its own
+        // it says nothing about an entry nobody declared. Skipping such an entry at unpack — which is
+        // what this did — is not equivalent to refusing the package: the signature covers the manifest
+        // and therefore only the files the manifest names, so an unlisted entry rides inside a
+        // correctly-signed archive with nothing attesting to it. The conformance suite calls this out
+        // (`unlisted-payload.azp` must fail `verify.ok`), and this host accepted it until the vendored
+        // fixtures were run against it.
+        //
+        // manifest.json is the map itself and signature.json signs it, so neither can appear in it.
+        for (path in entries.keys) {
+            if (path == "manifest.json" || path == "signature.json") continue
+            if (!manifest.files.containsKey(path)) {
+                throw InstallException("Unlisted payload (no digest in manifest.files): $path")
+            }
+        }
+
         // Provenance: verify the detached Ed25519 signature (if any) over the *verbatim* manifest.json
         // bytes. A present-but-invalid signature is tamper-evidence — refuse it. An unsigned or
         // signed-but-untrusted package installs, with its status recorded for the UI to warn on.
