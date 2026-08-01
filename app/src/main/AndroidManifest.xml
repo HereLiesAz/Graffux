@@ -14,6 +14,13 @@
          instead of opting into that declaration. -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
+    <!-- Held by a conforming azphalt store app to read this host's extension states
+         (spec/state-reporting.md § 3.2). Protection level `normal`: the rows carry no identifiers and
+         no user content, only which extensions this app has and what it did with them. -->
+    <permission
+        android:name="azphalt.permission.READ_EXTENSION_STATE"
+        android:protectionLevel="normal" />
+
     <!-- Package visibility (Android 11+): without this, PackageManager#resolveActivity and
          startActivity for the azphalt store's custom action (spec/store-app.md) silently fail to see
          a store app even when one is installed — a custom action isn't covered by the automatic
@@ -34,6 +41,22 @@
         android:theme="@style/Theme.Graffux"
         android:hardwareAccelerated="true"
         android:largeHeap="true">
+
+        <!-- azphalt state reporting (spec/state-reporting.md § 3.2). When the user opens a store app
+             directly rather than through Graffux there is no browse request, so no inventory extra
+             travels with it and every card would read "Get" — including for extensions already
+             installed here. This lets a store re-read the same states out of band.
+
+             Read-only and permission-gated: a store app has no business writing a host's state, and
+             the authority is only ever handed out on a browse request (azphalt.extra.STATE_AUTHORITY),
+             which the spec requires a store not to query without. Nothing in a row identifies a
+             device, a user or an install. -->
+        <provider
+            android:name="com.hereliesaz.graffitixr.data.azphalt.ExtensionStateProvider"
+            android:authorities="${applicationId}.azphalt.state"
+            android:exported="true"
+            android:readPermission="azphalt.permission.READ_EXTENSION_STATE"
+            android:grantUriPermissions="false" />
 
         <activity
             android:name=".MainActivity"

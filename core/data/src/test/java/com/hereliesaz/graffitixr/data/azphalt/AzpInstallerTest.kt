@@ -139,21 +139,32 @@ class AzpInstallerTest {
     }
 
     @Test
-    fun `unlisted file is not unpacked`() {
+    fun `package carrying an unlisted file is rejected`() {
         val lut = "grade".toByteArray()
         val payload = mapOf("assets/grade.cube" to lut, "LICENSE" to license)
-        // A stowaway file the manifest does not declare — it passed no digest check, so it must
-        // never land on disk.
+        // A stowaway the manifest does not declare. Nothing attests to it: the signature covers the
+        // manifest, and the manifest only names the files in its `files` map, so an undeclared entry
+        // rides inside an otherwise correctly-signed archive unverified.
+        //
+        // This used to assert the weaker property — that the stowaway was skipped at unpack while the
+        // package still installed. The azphalt conformance suite requires the package itself to be
+        // refused (`unlisted-payload.azp` must fail `verify.ok`), which is what the vendored fixtures
+        // caught; see AzpConformanceFixturesTest.
         val bytes = zip(payload + mapOf(
             "manifest.json" to manifest("com.test.grade", payload),
             "assets/stowaway.js" to "alert(1)".toByteArray(),
         ))
 
-        val installer = AzpInstaller(tmp.newFolder("extensions"))
-        val installed = installer.install(ByteArrayInputStream(bytes), nowMs = 0L)
-
-        assertTrue(java.io.File(installed.filePath("assets/grade.cube")).exists())
-        assertFalse(java.io.File(installed.filePath("assets/stowaway.js")).exists())
+        val root = tmp.newFolder("extensions")
+        val installer = AzpInstaller(root)
+        try {
+            installer.install(ByteArrayInputStream(bytes), nowMs = 0L)
+            fail("Expected InstallException for an unlisted payload")
+        } catch (e: AzpInstaller.InstallException) {
+            assertTrue(e.message!!.contains("Unlisted payload"))
+        }
+        // And the refusal leaves nothing behind — not even the files that did verify.
+        assertFalse(java.io.File(root, "com.test.grade").exists())
     }
 
     @Test

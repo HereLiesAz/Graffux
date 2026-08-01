@@ -66,6 +66,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
+import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignDialog
@@ -111,7 +112,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val sharedImage = incomingImageUri(intent)
         setContent {
-            MaterialTheme {
+            // The app's own theme, not a bare `MaterialTheme`. Graffux is a dark app, but a bare
+            // MaterialTheme() takes Material 3's default **light** scheme, whose `onSurface` is
+            // #1C1B1F — so every piece of chrome that took its colour from the theme rather than
+            // setting one explicitly drew near-black on near-black. The file-operations dropdown was
+            // the worst of it: unreadable. GraffitiXRTheme supplies the dark scheme this UI was drawn
+            // against (surface Black, onSurface White) plus the brand palette.
+            GraffitiXRTheme {
                 GraffuxApp(sharedImageUri = sharedImage)
             }
         }
@@ -186,6 +193,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     val activeRailColor = MaterialTheme.colorScheme.onSurface
+    // The file-operations dropdown sets this on every row rather than inheriting it. The library
+    // only ever reads `colorScheme.surface` itself, so a row's text otherwise falls through to
+    // LocalContentColor — which is whatever the enclosing Surface decided, and was unreadable.
+    val menuItemColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
     // at the middle of the screen — the canvas is full-bleed, so that is the middle of the artwork.
@@ -234,7 +245,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            result.data?.data?.let { vm.installExtensionFromUri(it) }
+            // A browse request may ask for several packages, and the spec answers with one ClipData
+            // item each (spec § The result). Reading only `data` installed the first and dropped the
+            // rest without a word.
+            val handoff = AzphaltStoreHandoff.resultOf(result.data)
+            val packages = AzphaltStoreHandoff.packageUris(result.data)
+            // The id/version extras describe a single delivered package, so they are only attached
+            // when one came back; for a multi-selection they would mislabel every item but one.
+            val metadata = handoff.takeIf { packages.size == 1 }
+            packages.forEach { vm.installExtensionFromUri(it, metadata) }
         }
     }
 
@@ -269,7 +288,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // doing nothing or crashing on ActivityNotFoundException.
     val openAzphaltStore = {
         if (AzphaltStoreHandoff.isStoreAvailable(context.packageManager, context.packageName)) {
-            storeBrowser.launch(AzphaltStoreHandoff.browseIntent(context.packageName))
+            // Carry what this host has already done with its extensions (spec/state-reporting.md
+            // § 3.1), so the store's cards can read Open rather than Get on things the user has.
+            storeBrowser.launch(
+                AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory())
+            )
         } else {
             android.widget.Toast.makeText(
                 context, "No Azphalt Store app is installed", android.widget.Toast.LENGTH_LONG,
@@ -356,26 +379,26 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     // the device; Gallery browses the projects already in the app; Import brings an
                     // image or another design file INTO the current project, which is what the old
                     // "Open"/"Open File" pair actually did despite their names.
-                    azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
-                    azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                    azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-                    azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                    azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                    azItem(text = "Add…", onClick = { showAddDialog = true })
-                    azItem(text = "Reference", onClick = { showReferenceWindow = true })
-                    azItem(text = "Align…", onClick = { showAlignDialog = true })
-                    azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
-                    azItem(text = "Background", onClick = { showBgDialog = true })
+                    azItem(color = menuItemColor, text = strings.nav.new, onClick = { vm.createNewProject() })
+                    azItem(color = menuItemColor, text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
+                    azItem(color = menuItemColor, text = "Gallery", onClick = { showGalleryDialog = true })
+                    azItem(color = menuItemColor, text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                    azItem(color = menuItemColor, text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
+                    azItem(color = menuItemColor, text = "Add…", onClick = { showAddDialog = true })
+                    azItem(color = menuItemColor, text = "Reference", onClick = { showReferenceWindow = true })
+                    azItem(color = menuItemColor, text = "Align…", onClick = { showAlignDialog = true })
+                    azItem(color = menuItemColor, text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
+                    azItem(color = menuItemColor, text = "Background", onClick = { showBgDialog = true })
                     // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
                     // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
                     // per-layer equivalent this complements at the whole-project level.
-                    azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
+                    azItem(color = menuItemColor, text = "Flatten", onClick = { vm.onFlattenAllLayers() })
                     // Save names the project and writes a `.fux` wherever the user chooses. It isn't
                     // what keeps their work — autosave does that continuously — so it's free to be a
                     // deliberate, two-step action rather than something they must remember to press.
-                    azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
-                    azItem(text = strings.nav.export, onClick = { vm.exportImage() })
-                    azItem(text = strings.nav.share, onClick = {
+                    azItem(color = menuItemColor, text = strings.nav.save, onClick = { showSaveDialog = true })
+                    azItem(color = menuItemColor, text = strings.nav.export, onClick = { vm.exportImage() })
+                    azItem(color = menuItemColor, text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
                                 val uri = vm.exportForShare() ?: return@launch
@@ -396,12 +419,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    azItem(text = "Store", onClick = { showStoreDialog = true })
-                    azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
-                    azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
-                    azItem(text = "3D Model…", onClick = { showModelDialog = true })
-                    azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
-                    azItem(text = "Settings", onClick = { showSettings = true })
+                    azItem(color = menuItemColor, text = "Store", onClick = { showStoreDialog = true })
+                    azItem(color = menuItemColor, text = "Import from Figma…", onClick = { showFigmaDialog = true })
+                    azItem(color = menuItemColor, text = "Export for Figma", onClick = { vm.exportForFigma() })
+                    azItem(color = menuItemColor, text = "3D Model…", onClick = { showModelDialog = true })
+                    azItem(color = menuItemColor, text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
+                    azItem(color = menuItemColor, text = "Settings", onClick = { showSettings = true })
                 }
             }
 
