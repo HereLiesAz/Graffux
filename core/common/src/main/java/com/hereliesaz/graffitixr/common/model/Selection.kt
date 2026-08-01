@@ -71,6 +71,35 @@ enum class SelectionOp {
 }
 
 /**
+ * How the Transform panel deforms the active layer — Procreate's Freeform / Distort / Warp.
+ *
+ * [FREEFORM] is the transform this app already had: position, scale and rotation, which move the
+ * layer without bending it. The other two bend it, and differ only in how finely: [DISTORT] gives
+ * four corner handles, so the only deformation available is a perspective one, and [WARP] subdivides
+ * the same grid so each cell bends on its own.
+ */
+enum class TransformMode {
+    FREEFORM,
+    DISTORT,
+    WARP;
+
+    /** Handles per side. Freeform has no grid; distort is the corners; warp subdivides. */
+    val gridSize: Int
+        get() = when (this) {
+            FREEFORM -> 0
+            DISTORT -> 2
+            WARP -> 4
+        }
+
+    val label: String
+        get() = when (this) {
+            FREEFORM -> "Freeform"
+            DISTORT -> "Distort"
+            WARP -> "Warp"
+        }
+}
+
+/**
  * A selection the user has put aside under a name — Procreate's Save & Load.
  *
  * Worth having because a selection can be expensive to make: a magic-wand region refined with half a

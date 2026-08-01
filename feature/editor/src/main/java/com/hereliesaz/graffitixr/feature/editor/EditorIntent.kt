@@ -182,6 +182,12 @@ internal sealed interface EditorIntent {
     data class SetSelectionFeather(val featherPx: Float) : EditorIntent
     /** Aims the Clone tool at a screen point, or unaims it with null. */
     data class SetCloneSource(val at: Offset?) : EditorIntent
+    /** Picks the Transform panel's mode: freeform, distort or warp. */
+    data class SetTransformMode(
+        val mode: com.hereliesaz.graffitixr.common.model.TransformMode,
+    ) : EditorIntent
+    /** Replaces the live warp handle grid (screen space). */
+    data class SetWarpHandles(val handles: List<Offset>) : EditorIntent
     /** Records whether the selection clipboard holds anything. */
     data class SetHasClipboard(val has: Boolean) : EditorIntent
     /** Replaces the list of saved (named) selections. */

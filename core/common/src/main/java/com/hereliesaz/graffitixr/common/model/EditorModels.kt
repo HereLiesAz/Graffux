@@ -252,6 +252,11 @@ data class EditorUiState(
     // Named selections the user has put aside (Procreate's Save & Load). Stored as part of the
     // project, so a region worked out once survives closing the app.
     val savedSelections: List<SavedSelection> = emptyList(),
+    // Which Transform mode the panel is in, and — while it is a bending one — where the handles
+    // currently sit, in screen space like every other gesture-authored geometry here. Empty means
+    // the grid has not been laid over the layer yet.
+    val transformMode: TransformMode = TransformMode.FREEFORM,
+    val warpHandles: List<Offset> = emptyList(),
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

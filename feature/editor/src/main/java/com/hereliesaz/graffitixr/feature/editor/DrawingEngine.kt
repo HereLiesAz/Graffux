@@ -65,6 +65,17 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             stroke.selection, bitmap.width, bitmap.height, stroke.layerScale,
         )
         val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
+        // Distort/Warp: push the whole layer's pixels onto a moved handle grid. Before the tool
+        // switch and before the selection work, because it deforms the layer rather than painting
+        // into it — there is nothing here for a selection to clip.
+        stroke.warpHandles?.let { handles ->
+            val inBitmap = ImageProcessor.mapScreenToBitmap(
+                handles, stroke.canvasSize.width, stroke.canvasSize.height,
+                bitmap.width, bitmap.height,
+                stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            )
+            return ImageWarp.warp(bitmap, inBitmap) ?: bitmap
+        }
         // Colour Fill: flood the selection with a colour. Beside clearAll because they are the same
         // operation with a different source — one paints transparency, the other a colour — and both
         // are recorded onto a tool rather than being a kind of paint.

@@ -54,6 +54,7 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
+import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -402,6 +403,19 @@ fun EditorScreen(
                     }
                 }
             }
+        }
+
+        // 3a-quinquies. Distort/Warp handles. Above the artwork and above the paint surfaces, so
+        // that while a bending transform is open the grid owns the touches — dragging a handle must
+        // never also lay down a stroke.
+        if (uiState.transformMode != TransformMode.FREEFORM && uiState.warpHandles.isNotEmpty()) {
+            WarpHandles(
+                handles = uiState.warpHandles,
+                gridSize = uiState.transformMode.gridSize,
+                onHandleMoved = { i, at -> vm.onWarpHandleMoved(i, at) },
+                onRelease = { vm.onWarpHandleReleased() },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // 3b. Pen (vector) capture layer — a freeform drag traces a live poly-line that is committed

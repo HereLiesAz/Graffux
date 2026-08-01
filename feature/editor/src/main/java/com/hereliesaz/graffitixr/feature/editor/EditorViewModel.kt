@@ -113,6 +113,10 @@ data class StrokeCommand(
     // than painting a path. Recorded as a command for the same reason [clearAll] is — it undoes by
     // replay like everything else, and honours the selection including its feather.
     val fillSelection: Boolean = false,
+    // Procreate's Distort/Warp: the screen-space handle grid the layer's pixels were pushed onto.
+    // Recorded rather than baked into the base so the deformation undoes by replay like everything
+    // else — and so it replays *after* the strokes beneath it, which is the order it was applied in.
+    val warpHandles: List<Offset>? = null,
 )
 
 /**
@@ -3613,6 +3617,146 @@ class EditorViewModel @Inject constructor(
 
     fun onSetSelectionFeather(featherPx: Float) =
         dispatch(EditorIntent.SetSelectionFeather(featherPx))
+
+    // ── Distort / Warp ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * The layer's pixels as they were before the current warp session started.
+     *
+     * Every re-bake goes from this, never from the last result. Warping a warp resamples pixels that
+     * have already been resampled, so dragging a handle back and forth would soften the artwork a
+     * little each time and never recover it — the layer would visibly rot under an indecisive user.
+     */
+    private var warpOriginalBitmap: Bitmap? = null
+
+    /** Picks Freeform / Distort / Warp, laying a fresh handle grid over the layer for the last two. */
+    fun onSetTransformMode(mode: TransformMode) {
+        val state = _uiState.value
+        dispatch(EditorIntent.SetTransformMode(mode))
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        if (mode == TransformMode.FREEFORM) return
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val bitmap = layer.bitmap ?: run {
+            Toast.makeText(context, "${mode.label} needs a paint layer", Toast.LENGTH_SHORT).show()
+            dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+            return
+        }
+        warpOriginalBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: bitmap.width
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: bitmap.height
+        // The grid starts on the layer's own corners, mapped out to screen — so the handles sit
+        // exactly on the artwork's edges rather than on the viewport's, whatever the layer's
+        // scale, offset and rotation happen to be.
+        val corners = ImageWarp.identityGrid(
+            mode.gridSize, bitmap.width.toFloat(), bitmap.height.toFloat(),
+        )
+        dispatch(EditorIntent.SetWarpHandles(
+            ImageProcessor.mapBitmapToScreen(
+                corners, canvasW, canvasH, bitmap.width, bitmap.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+        ))
+    }
+
+    /** Moves one handle. Cheap and synchronous — the re-bake waits for the finger to lift. */
+    fun onWarpHandleMoved(index: Int, to: Offset) {
+        val handles = _uiState.value.warpHandles
+        if (index !in handles.indices) return
+        dispatch(EditorIntent.SetWarpHandles(handles.toMutableList().also { it[index] = to }))
+    }
+
+    /**
+     * Re-renders the layer from the pre-warp original through the current handles.
+     *
+     * Called when a handle is *released*, not while it moves: a full-resolution resample per drag
+     * frame would stutter, and one on release is fast enough to read as immediate.
+     */
+    fun onWarpHandleReleased() {
+        val state = _uiState.value
+        val original = warpOriginalBitmap ?: return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val handles = state.warpHandles
+        if (handles.isEmpty()) return
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: original.width
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: original.height
+        viewModelScope.launch(dispatchers.default) {
+            val inBitmap = ImageProcessor.mapScreenToBitmap(
+                handles, canvasW, canvasH, original.width, original.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+            val warped = ImageWarp.warp(original, inBitmap) ?: return@launch
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it })
+                }
+            }
+        }
+    }
+
+    /**
+     * Keeps the warp: the deformed pixels become the layer, undoably, and the grid resets.
+     *
+     * The history entry was pushed when the session started, so an undo restores the pre-warp
+     * pixels in one step rather than unwinding each handle drag — which is what someone who has
+     * spent a minute nudging sixteen handles and changed their mind actually wants.
+     */
+    fun onApplyWarp() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val bitmap = layer.bitmap
+        val handles = state.warpHandles
+        val canvasW = strokeCanvasW.takeIf { it > 0 } ?: (bitmap?.width ?: 0)
+        val canvasH = strokeCanvasH.takeIf { it > 0 } ?: (bitmap?.height ?: 0)
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+        if (bitmap == null || handles.isEmpty()) return
+        // Recorded as a command rather than rebased into the layer, so it undoes by replay like a
+        // stroke does. It lands *after* the strokes already on this layer, which is the order it was
+        // applied in: the pixels it deformed were those strokes' output.
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = IntSize(canvasW, canvasH),
+            tool = Tool.NONE,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            warpHandles = handles,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        scheduleDiskSave(layerId, bitmap, layer.uri)
+        viewModelScope.launch(dispatchers.default) {
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+        }
+        showHud("Applied")
+    }
+
+    /** Throws the warp away and puts the original pixels back. */
+    fun onCancelWarp() {
+        val state = _uiState.value
+        val layerId = state.activeLayerId
+        val original = warpOriginalBitmap
+        if (layerId != null && original != null) {
+            val restored = original.copy(Bitmap.Config.ARGB_8888, true)
+            if (restored != null) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = restored) else it })
+                }
+            }
+        }
+        warpOriginalBitmap?.recycle()
+        warpOriginalBitmap = null
+        dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+    }
 
     // ── Copy / Cut / Paste ───────────────────────────────────────────────────────────────────
 
