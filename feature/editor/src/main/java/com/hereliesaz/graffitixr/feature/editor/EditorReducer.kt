@@ -226,6 +226,14 @@ internal object EditorReducer {
         // drag means, and dropping the region under the user's hands would make the mode picker
         // destructive for anyone who tapped it to check which mode they were in.
         is EditorIntent.SetSelectionShape -> state.copy(selectionShape = intent.shape)
+        is EditorIntent.SetSelectionOp -> state.copy(selectionOp = intent.op)
+        is EditorIntent.SetMagicWandTolerance -> state.copy(magicWandTolerance = intent.tolerance.coerceIn(0, 255))
+        // Feather lives on the selection itself, not beside it: it is part of what the region means,
+        // so it travels with a moved selection and is recorded into the strokes it clips.
+        is EditorIntent.SetCloneSource -> state.copy(cloneSource = intent.at)
+        is EditorIntent.SetSelectionFeather -> state.copy(
+            selection = state.selection?.copy(featherPx = intent.featherPx.coerceAtLeast(0f))
+        )
         is EditorIntent.SetEyedrop -> state.copy(
             isEyedropping = intent.active,
             eyedropColor = if (intent.active) intent.color else null,

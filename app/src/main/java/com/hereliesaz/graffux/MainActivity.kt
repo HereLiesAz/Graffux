@@ -60,6 +60,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
@@ -897,6 +898,7 @@ private val TOOL_IDS: Map<Tool, String> = mapOf(
     Tool.COLOR to "tool.colorize",
     Tool.FILL to "tool.fill",
     Tool.SELECT to "tool.select",
+    Tool.CLONE to "tool.clone",
 )
 
 /**
@@ -958,6 +960,7 @@ private fun activeRailClassifiers(
     uiState.activeLayerId?.let { add("layer.$it") }
     add("symmetryMode.${uiState.symmetryMode.name}")
     add("selectShape.${uiState.selectionShape.name}")
+    add("selectOp.${uiState.selectionOp.name}")
 }
 
 private fun AzNavHostScope.ConfigureRailItems(
@@ -1091,8 +1094,30 @@ private fun AzNavHostScope.ConfigureRailItems(
                 SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
                 SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
                 SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
+                SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
             },
         ) { vm.onSetSelectionShape(mode) }
+    }
+    // How far from the tapped colour Automatic still counts as the same colour. Only while that
+    // mode is the one selected — on any other mode it is a control that does nothing.
+    if (uiState.selectionShape == SelectionShape.AUTOMATIC) {
+        railSlider(
+            "select.tolerance", "Threshold", uiState.magicWandTolerance.toFloat(), 0f..255f,
+            { "${(it / 255f * 100).roundToInt()}%" },
+        ) { vm.onSetMagicWandTolerance(it.roundToInt()) }
+    }
+    // What the next drag *does*, which is a separate question from what shape it draws — two
+    // pickers of three rather than one picker of nine. Subtracting a lasso from a rectangle is a
+    // region neither shape could draw on its own, and that only exists because they compose.
+    SelectionOp.entries.forEach { mode ->
+        stateSubItem(
+            id = "selectOp.${mode.name}", hostId = "grp.select", text = mode.label,
+            content = when (mode) {
+                SelectionOp.NEW -> GraffuxIcons.SelectAll
+                SelectionOp.ADD -> GraffuxIcons.SelectAdd
+                SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
+            },
+        ) { vm.onSetSelectionOp(mode) }
     }
     // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
     // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
@@ -1104,6 +1129,14 @@ private fun AzNavHostScope.ConfigureRailItems(
         vm.onInvertSelection()
     }
     subItem("tool.deselect", "grp.select", "Deselect", GraffuxIcons.SelectNone) { vm.onClearSelection() }
+    // Feather softens the boundary of the selection that exists, so it only appears once one does —
+    // there is nothing for it to act on otherwise, and it is stored on the selection rather than
+    // beside it, so it travels when the region moves.
+    uiState.selection?.let { sel ->
+        railSlider("select.feather", "Feather", sel.featherPx, 0f..64f, { "${it.roundToInt()} px" }) {
+            vm.onSetSelectionFeather(it)
+        }
+    }
 
     // Transform is its own control in Procreate's top bar, beside Adjustments and Selection — not an
     // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the
@@ -1144,6 +1177,16 @@ private fun AzNavHostScope.ConfigureRailItems(
     toolItem(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     toolItem(Tool.FILL, "Fill", GraffuxIcons.Colordrop)
+    // Clone. Aimed by tapping the canvas once, which is why it is a tool with a second step rather
+    // than a tool you just start painting with.
+    toolItem(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
+    if (uiState.activeTool == Tool.CLONE) {
+        stateItem(
+            id = "tool.cloneSource",
+            text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
+            content = GraffuxIcons.FilterCloneSource,
+        ) { vm.onResetCloneSource() }
+    }
 
     // Symmetry guide: strokes mirror across one or more axes while it's on. This is the quick
     // on/off; the picker below reaches every mode, including turning it off from there too.

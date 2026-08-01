@@ -16,6 +16,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import kotlinx.coroutines.delay
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
@@ -37,16 +39,21 @@ private const val ANT_STEPS = 8
 private const val ANT_STEP_MS = 80L
 
 /**
- * The touch surface for the selection tool. Two gestures, chosen by where the finger lands:
+ * The touch surface for the selection tool. What a gesture means is decided by [shape], by [op], and
+ * by where the finger lands:
  *
- *  - **Outside** the current selection (or with none) → the drag **makes a new selection**, adopted
- *    on lift. What it makes depends on [shape]: [SelectionShape.FREEHAND] traces the finger, while
- *    [SelectionShape.RECTANGLE] and [SelectionShape.ELLIPSE] read the drag as two opposite corners
- *    of a box and fit their figure inside it. A tap that never moves **deselects**, which is how
- *    you get back to painting everywhere.
- *  - **Inside** the current selection → the drag **moves the selected pixels**. A dashed ghost of
- *    the marquee follows the finger; the pixels themselves are lifted on release, because a move is
- *    a full-bitmap lift-clear-stamp and doing that per drag frame would stutter on a large canvas.
+ *  - **[SelectionShape.AUTOMATIC]** → every gesture is a **tap**, handed to the magic wand. There is
+ *    no drag and no move in this mode, so a wobbly tap still selects.
+ *  - **Outside** the current selection (or with none) → the drag **makes a new region**, adopted on
+ *    lift. [SelectionShape.FREEHAND] traces the finger; [SelectionShape.RECTANGLE] and
+ *    [SelectionShape.ELLIPSE] read the drag as two opposite corners of a box and fit their figure
+ *    inside it. A tap that never moves **deselects** — but only under [SelectionOp.NEW], since
+ *    part-way through building a region a stray tap must not throw it away.
+ *  - **Inside** the current selection, under [SelectionOp.NEW] → the drag **moves the selected
+ *    pixels**. A dashed ghost of the marquee follows the finger; the pixels themselves are lifted on
+ *    release, because a move is a full-bitmap lift-clear-stamp and doing that per drag frame would
+ *    stutter on a large canvas. Add and Remove take the drag instead, so the interior of a selection
+ *    stays somewhere you can cut a hole.
  *
  * A second finger cancels either gesture, matching [DrawingCanvas] — two fingers mean navigate or
  * undo, and [gate] keeps that cancelling tap from also firing the undo.
@@ -55,10 +62,12 @@ private const val ANT_STEP_MS = 80L
 fun SelectionCanvas(
     selection: Selection?,
     shape: SelectionShape,
+    op: SelectionOp,
     gate: StrokeGate,
     modifier: Modifier = Modifier,
     onSelectionEnd: (List<Offset>, IntSize) -> Unit,
     onSelectionMove: (Offset) -> Unit,
+    onAutoSelect: (Offset, IntSize) -> Unit,
     onClearSelection: () -> Unit,
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -78,7 +87,7 @@ fun SelectionCanvas(
             // Keyed on `shape` as well as `selection`: the loop below reads `shape` from this
             // lambda's capture, so without it a mode picked mid-session would be invisible here
             // until something else happened to relaunch the block.
-            .pointerInput(selection, shape) {
+            .pointerInput(selection, shape, op) {
                 // Committing or moving a selection relaunches this block and kills the in-flight
                 // drag's loop; nothing is in progress the instant it starts, so start clean.
                 gate.strokeActive = false
@@ -87,7 +96,17 @@ fun SelectionCanvas(
                     val down = awaitFirstDown()
                     // The live selection is captured by the pointerInput key, so this decision is
                     // made against the selection actually on screen.
-                    val moving = selection != null && SelectionGeometry.contains(selection, down.position)
+                    //
+                    // Only under NEW. Add and Remove are about changing the region's shape, and the
+                    // most obvious thing to do with Remove is cut a hole out of the middle — which
+                    // starts inside the selection, exactly where the move gesture lives. Keeping
+                    // move on those modes would make the interior of a selection the one place you
+                    // could not edit it.
+                    // Automatic works off a tap, so nothing about it is a drag — including the
+                    // move gesture, which would otherwise swallow every tap landing on the region
+                    // the user is trying to extend.
+                    val moving = op == SelectionOp.NEW && !shape.isTap &&
+                        selection != null && SelectionGeometry.contains(selection, down.position)
                     var began = false
                     lasso = if (moving) emptyList() else listOf(down.position)
                     moveDelta = if (moving) Offset.Zero else null
@@ -110,9 +129,16 @@ fun SelectionCanvas(
                             gate.strokeActive = false
                             when {
                                 moving -> moveDelta?.let { if (began) onSelectionMove(it) }
+                                // A drag means nothing in a tap mode; the wand reads the point the
+                                // finger went down on, so a wobbly tap still selects.
+                                shape.isTap -> onAutoSelect(down.position, canvasSize)
                                 began -> onSelectionEnd(lasso, canvasSize)
-                                // A tap that never became a drag clears the selection.
-                                else -> onClearSelection()
+                                // A tap that never became a drag clears the selection — but only
+                                // under NEW. Mid-way through building a region out of several
+                                // pieces, a stray tap throwing the whole thing away is a much worse
+                                // outcome than a tap that does nothing.
+                                op == SelectionOp.NEW -> onClearSelection()
+                                else -> Unit
                             }
                             lasso = emptyList()
                             moveDelta = null
@@ -127,7 +153,7 @@ fun SelectionCanvas(
                         if (began) {
                             if (moving) {
                                 moveDelta = change.position - down.position
-                            } else {
+                            } else if (!shape.isTap) {
                                 // Freehand accumulates; the box shapes are rebuilt from the two
                                 // corners each frame, so dragging back across the start point
                                 // shrinks the figure instead of leaving a trail behind it.
@@ -154,7 +180,7 @@ fun SelectionCanvas(
         val d = moveDelta
         if (d != null && selection != null && selection.isUsable && d != Offset.Zero) {
             drawPolygon(
-                selection.path.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
+                selection.outline.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
                 closed = true, dash = floatArrayOf(ANT_DASH, ANT_DASH),
             )
         }
@@ -190,9 +216,13 @@ fun SelectionMarquee(
         if (!selection.isUsable) return@Canvas
         val width = 1.5.dp.toPx()
         val dash = floatArrayOf(ANT_DASH, ANT_DASH)
+        // The merged silhouette, not one outline per ring: after an Add the user has one region and
+        // expects one boundary, and drawing each ring separately would leave the seam where two
+        // added shapes overlap showing as an interior line that clips nothing.
+        val region = selectionOutline(selection) ?: return@Canvas
         // Black underlay then white ants on top: legible over light and dark artwork alike.
-        drawPolygon(selection.path, Color.Black.copy(alpha = 0.6f), width, closed = true)
-        drawPolygon(selection.path, Color.White, width, closed = true, dash = dash, phase = phase)
+        drawAnts(region, Color.Black.copy(alpha = 0.6f), width, null, 0f)
+        drawAnts(region, Color.White, width, dash, phase)
         if (selection.inverted) {
             val border = listOf(
                 Offset(0f, 0f), Offset(size.width, 0f), Offset(size.width, size.height), Offset(0f, size.height),
@@ -201,6 +231,49 @@ fun SelectionMarquee(
             drawPolygon(border, Color.White, width, closed = true, dash = dash, phase = phase)
         }
     }
+}
+
+/**
+ * The selection's merged boundary in screen space, or null when it encloses nothing.
+ *
+ * Mirrors [SelectionMask.bitmapPath]'s combination exactly — same ring order, same union/difference
+ * — so what the ants outline is what the paint is clipped to. It has to be built separately rather
+ * than shared because that one works in a layer's bitmap space and this works on screen.
+ */
+private fun selectionOutline(selection: Selection): Path? {
+    val region = Path()
+    var any = false
+    for (ring in selection.rings) {
+        if (!ring.isUsable) continue
+        val ringPath = Path().apply {
+            moveTo(ring.path[0].x, ring.path[0].y)
+            for (i in 1 until ring.path.size) lineTo(ring.path[i].x, ring.path[i].y)
+            close()
+        }
+        if (!any) {
+            // Cutting out of an empty region leaves it empty; nothing to seed from.
+            if (!ring.additive) continue
+            region.addPath(ringPath)
+            any = true
+        } else {
+            region.op(region, ringPath, if (ring.additive) PathOperation.Union else PathOperation.Difference)
+        }
+    }
+    return if (any) region else null
+}
+
+/** Strokes [path], optionally dashed and phase-shifted. */
+private fun DrawScope.drawAnts(path: Path, color: Color, width: Float, dash: FloatArray?, phase: Float) {
+    drawPath(
+        path = path,
+        color = color,
+        style = Stroke(
+            width = width,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+            pathEffect = dash?.let { PathEffect.dashPathEffect(it, phase) },
+        ),
+    )
 }
 
 /** Strokes [points] as a polyline (or closed polygon), optionally dashed and phase-shifted. */

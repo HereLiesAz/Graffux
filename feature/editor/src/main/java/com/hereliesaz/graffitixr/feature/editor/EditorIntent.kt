@@ -174,6 +174,14 @@ internal sealed interface EditorIntent {
     data class SetSelection(val selection: com.hereliesaz.graffitixr.common.model.Selection?) : EditorIntent
     /** Picks how the next selection drag is read: freehand, rectangle or ellipse. */
     data class SetSelectionShape(val shape: com.hereliesaz.graffitixr.common.model.SelectionShape) : EditorIntent
+    /** Picks what the next selection drag does to the current selection: replace, add or remove. */
+    data class SetSelectionOp(val op: com.hereliesaz.graffitixr.common.model.SelectionOp) : EditorIntent
+    /** Per-channel colour distance the Automatic selection treats as the same colour, 0..255. */
+    data class SetMagicWandTolerance(val tolerance: Int) : EditorIntent
+    /** Softens the current selection's edge by a radius in screen px; 0 is a hard edge. */
+    data class SetSelectionFeather(val featherPx: Float) : EditorIntent
+    /** Aims the Clone tool at a screen point, or unaims it with null. */
+    data class SetCloneSource(val at: Offset?) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */
     data object InvertSelection : EditorIntent
     /** Live eyedropper state: sampling in progress, current colour + loupe position. */

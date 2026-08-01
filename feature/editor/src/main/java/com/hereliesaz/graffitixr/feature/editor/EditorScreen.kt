@@ -353,6 +353,8 @@ fun EditorScreen(
                 onStrokeEnd = { vm.onStrokeEnd() },
                 onStrokeCancel = { vm.onStrokeCancel() },
                 onFillTap = { offset, size -> vm.onFillTap(offset, size) },
+                pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
+                onPickCloneSource = { at -> vm.onSetCloneSource(at) },
                 onEyedropStart = { size -> vm.onEyedropStart(size) },
                 onEyedropSample = { offset -> vm.onEyedropSample(offset) },
                 onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
@@ -366,10 +368,12 @@ fun EditorScreen(
             SelectionCanvas(
                 selection = uiState.selection,
                 shape = uiState.selectionShape,
+                op = uiState.selectionOp,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
                 onSelectionMove = { delta -> vm.onSelectionMove(delta) },
+                onAutoSelect = { at, size -> vm.onAutoSelect(at, size) },
                 onClearSelection = { vm.onClearSelection() },
             )
         }
@@ -379,6 +383,25 @@ fun EditorScreen(
         // outline would leave strokes mysteriously stopping at an invisible edge.
         uiState.selection?.let { sel ->
             SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
+        }
+
+        // 3a-quater. Clone's source reticle. Shown only while the tool is active, because it marks
+        // where the *next* stroke will copy from — with any other tool it would be a crosshair on
+        // the artwork meaning nothing. Without it the tool is aimed at a point the user has to
+        // remember, and a clone brush sampling from somewhere invisible is indistinguishable from
+        // one that is broken.
+        if (uiState.activeTool == Tool.CLONE) {
+            uiState.cloneSource?.let { src ->
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val r = 14.dp.toPx()
+                    // Black under white, like the marching ants, so it reads on any artwork.
+                    listOf(Color.Black.copy(alpha = 0.6f) to 3f, Color.White to 1.5f).forEach { (c, w) ->
+                        drawCircle(color = c, radius = r, center = src, style = Stroke(width = w))
+                        drawLine(c, Offset(src.x - r, src.y), Offset(src.x + r, src.y), strokeWidth = w)
+                        drawLine(c, Offset(src.x, src.y - r), Offset(src.x, src.y + r), strokeWidth = w)
+                    }
+                }
+            }
         }
 
         // 3b. Pen (vector) capture layer — a freeform drag traces a live poly-line that is committed

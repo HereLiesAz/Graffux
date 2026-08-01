@@ -233,6 +233,18 @@ data class EditorUiState(
     // the selection it makes, so picking Ellipse once keeps drawing ellipses until it's changed —
     // the mode is a setting on the tool, not a property of the region it produced.
     val selectionShape: SelectionShape = SelectionShape.FREEHAND,
+    // What a completed selection drag does to the selection already there. Orthogonal to the shape
+    // — any shape can be added or removed, which is how a lasso subtracted from a rectangle gets a
+    // region neither could draw on its own.
+    val selectionOp: SelectionOp = SelectionOp.NEW,
+    // Per-channel colour distance the Automatic selection treats as "the same colour", 0..255.
+    // Shared with nothing: the paint bucket keeps its own default, because reaching for the wand
+    // and reaching for the bucket are different intents even where the spread is identical.
+    val magicWandTolerance: Int = 32,
+    // Where Tool.CLONE samples from, in screen space. Null means the tool is armed but unaimed — a
+    // tap sets it, and until then a drag would have nothing to copy. Survives strokes, so a source
+    // picked once serves every stroke after it until it is reset.
+    val cloneSource: Offset? = null,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

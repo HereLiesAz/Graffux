@@ -4,9 +4,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
+import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,7 +18,7 @@ class SelectionGeometryTest {
     private val canvas = IntSize(100, 100)
 
     /** A 40×40 square from (10,10) to (50,50). */
-    private fun square(inverted: Boolean = false) = Selection(
+    private fun square(inverted: Boolean = false) = Selection.ofPolygon(
         path = listOf(Offset(10f, 10f), Offset(50f, 10f), Offset(50f, 50f), Offset(10f, 50f)),
         canvasSize = canvas,
         inverted = inverted,
@@ -42,7 +45,7 @@ class SelectionGeometryTest {
     @Test
     fun `a concave polygon excludes its notch`() {
         // A "C": the gap between the arms is outside the shape even though it is within its bounds.
-        val c = Selection(
+        val c = Selection.ofPolygon(
             path = listOf(
                 Offset(0f, 0f), Offset(50f, 0f), Offset(50f, 10f), Offset(10f, 10f),
                 Offset(10f, 40f), Offset(50f, 40f), Offset(50f, 50f), Offset(0f, 50f),
@@ -55,7 +58,7 @@ class SelectionGeometryTest {
 
     @Test
     fun `a polygon too small to enclose area selects nothing`() {
-        val degenerate = Selection(listOf(Offset(1f, 1f), Offset(2f, 2f)), canvas)
+        val degenerate = Selection.ofPolygon(listOf(Offset(1f, 1f), Offset(2f, 2f)), canvas)
         assertFalse(degenerate.isUsable)
         assertFalse(SelectionGeometry.contains(degenerate, Offset(1f, 1f)))
     }
@@ -166,6 +169,174 @@ class SelectionGeometryTest {
         // original polygon rather than quietly discard the selection.
         val thin = SelectionGeometry.rectangle(Offset(10f, 10f), Offset(50f, 12f))
         assertEquals(4, SelectionGeometry.simplify(thin).size)
+    }
+
+
+    // ── The ring stack (Procreate's Add / Remove) ───────────────────────────────────────────────
+
+    private fun ring(a: Offset, b: Offset, additive: Boolean = true) =
+        SelectionRing(SelectionGeometry.rectangle(a, b), additive)
+
+    @Test
+    fun `an additive ring unions its region in`() {
+        val two = Selection(
+            rings = listOf(ring(Offset(0f, 0f), Offset(20f, 20f)), ring(Offset(40f, 0f), Offset(60f, 20f))),
+            canvasSize = canvas,
+        )
+        assertTrue(SelectionGeometry.contains(two, Offset(10f, 10f)))
+        assertTrue(SelectionGeometry.contains(two, Offset(50f, 10f)))
+        assertFalse(SelectionGeometry.contains(two, Offset(30f, 10f))) // the gap between them
+    }
+
+    @Test
+    fun `a subtractive ring cuts a hole`() {
+        val donut = Selection(
+            rings = listOf(
+                ring(Offset(0f, 0f), Offset(60f, 60f)),
+                ring(Offset(20f, 20f), Offset(40f, 40f), additive = false),
+            ),
+            canvasSize = canvas,
+        )
+        assertTrue(SelectionGeometry.contains(donut, Offset(10f, 10f)))  // the ring
+        assertFalse(SelectionGeometry.contains(donut, Offset(30f, 30f))) // the hole
+    }
+
+    @Test
+    fun `ring order is significant`() {
+        val box = ring(Offset(0f, 0f), Offset(40f, 40f))
+        val cut = ring(Offset(0f, 0f), Offset(40f, 40f), additive = false)
+        // Add then remove leaves nothing; remove then add leaves the box. If the stack were a set
+        // of shapes rather than an ordered recipe these two would be indistinguishable.
+        val addThenRemove = Selection(listOf(box, cut), canvas)
+        val removeThenAdd = Selection(listOf(cut, box), canvas)
+        assertFalse(SelectionGeometry.contains(addThenRemove, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(removeThenAdd, Offset(20f, 20f)))
+    }
+
+    @Test
+    fun `a stack that only subtracts selects nothing`() {
+        // Cutting out of an empty region leaves it empty, so there is nothing to clip to and
+        // isUsable must say so — otherwise every subsequent stroke clips to nothing, silently.
+        val onlyCuts = Selection(listOf(ring(Offset(0f, 0f), Offset(40f, 40f), additive = false)), canvas)
+        assertFalse(onlyCuts.isUsable)
+        assertFalse(SelectionGeometry.contains(onlyCuts, Offset(20f, 20f)))
+    }
+
+    @Test
+    fun `inverted applies to the combined region, not to each ring`() {
+        val donut = Selection(
+            rings = listOf(
+                ring(Offset(0f, 0f), Offset(60f, 60f)),
+                ring(Offset(20f, 20f), Offset(40f, 40f), additive = false),
+            ),
+            canvasSize = canvas,
+            inverted = true,
+        )
+        assertFalse(SelectionGeometry.contains(donut, Offset(10f, 10f))) // was the ring
+        assertTrue(SelectionGeometry.contains(donut, Offset(30f, 30f)))  // was the hole
+        assertTrue(SelectionGeometry.contains(donut, Offset(90f, 90f)))  // was always outside
+    }
+
+    @Test
+    fun `translated moves every ring together`() {
+        val donut = Selection(
+            rings = listOf(
+                ring(Offset(0f, 0f), Offset(60f, 60f)),
+                ring(Offset(20f, 20f), Offset(40f, 40f), additive = false),
+            ),
+            canvasSize = canvas,
+        ).translated(Offset(100f, 0f))
+        // The hole travels with the region; moving only the outer ring would fill it in.
+        assertTrue(SelectionGeometry.contains(donut, Offset(110f, 10f)))
+        assertFalse(SelectionGeometry.contains(donut, Offset(130f, 30f)))
+    }
+
+    @Test
+    fun `outline is the first additive ring`() {
+        val stack = Selection(
+            rings = listOf(
+                ring(Offset(0f, 0f), Offset(10f, 10f), additive = false),
+                ring(Offset(0f, 0f), Offset(60f, 60f)),
+                ring(Offset(20f, 20f), Offset(40f, 40f)),
+            ),
+            canvasSize = canvas,
+        )
+        assertEquals(SelectionGeometry.rectangle(Offset(0f, 0f), Offset(60f, 60f)), stack.outline)
+    }
+
+
+    // ── compose(): what a completed drag does to what is already there ───────────────────────────
+
+    private val poly = SelectionGeometry.rectangle(Offset(0f, 0f), Offset(40f, 40f))
+    private val other = SelectionGeometry.rectangle(Offset(60f, 0f), Offset(90f, 40f))
+
+    @Test
+    fun `NEW replaces whatever was selected`() {
+        val first = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val second = SelectionGeometry.compose(first, other, canvas, SelectionOp.NEW)!!
+        assertEquals(1, second.rings.size)
+        assertFalse(SelectionGeometry.contains(second, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(second, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `ADD with nothing selected is just a new selection`() {
+        // So Add works as the first stroke of a multi-part selection without having to start in
+        // New and switch modes part-way.
+        val made = SelectionGeometry.compose(null, poly, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(made, Offset(20f, 20f)))
+    }
+
+    @Test
+    fun `REMOVE with nothing selected does nothing`() {
+        // There is no implicit "everything is selected" to cut out of — with no selection every
+        // tool already paints everywhere — so this must not become an inversion.
+        assertNull(SelectionGeometry.compose(null, poly, canvas, SelectionOp.REMOVE))
+    }
+
+    @Test
+    fun `ADD unions and REMOVE cuts`() {
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val both = SelectionGeometry.compose(one, other, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(both, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(both, Offset(70f, 20f)))
+
+        val cut = SelectionGeometry.compose(both, poly, canvas, SelectionOp.REMOVE)!!
+        assertFalse(SelectionGeometry.contains(cut, Offset(20f, 20f)))
+        assertTrue(SelectionGeometry.contains(cut, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `composing onto an inverted selection adds to what is visible`() {
+        // `inverted` applies to the whole stack, so an additive ring under it would SHRINK the
+        // visible region. Add must add to what the user can see or the button is a lie.
+        val invertedHole = Selection(listOf(SelectionRing(poly)), canvas, inverted = true)
+        assertFalse(SelectionGeometry.contains(invertedHole, Offset(20f, 20f)))
+
+        val added = SelectionGeometry.compose(invertedHole, other, canvas, SelectionOp.ADD)!!
+        assertTrue(SelectionGeometry.contains(added, Offset(70f, 20f)))
+
+        val removed = SelectionGeometry.compose(invertedHole, other, canvas, SelectionOp.REMOVE)!!
+        assertFalse(SelectionGeometry.contains(removed, Offset(70f, 20f)))
+    }
+
+    @Test
+    fun `a canvas size change forces a replace`() {
+        // The rings are screen-space; folding into a different canvas would put the old region
+        // somewhere it was never drawn.
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val rotated = SelectionGeometry.compose(one, other, IntSize(200, 50), SelectionOp.ADD)!!
+        assertEquals(1, rotated.rings.size)
+        assertEquals(IntSize(200, 50), rotated.canvasSize)
+    }
+
+    @Test
+    fun `a degenerate drag leaves the selection alone`() {
+        // Under Add or Remove a stray tap must not throw away the region being built up.
+        val one = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+        val sliver = listOf(Offset(5f, 5f), Offset(6f, 6f))
+        assertEquals(one, SelectionGeometry.compose(one, sliver, canvas, SelectionOp.ADD))
+        assertEquals(one, SelectionGeometry.compose(one, sliver, canvas, SelectionOp.NEW))
     }
 
 }

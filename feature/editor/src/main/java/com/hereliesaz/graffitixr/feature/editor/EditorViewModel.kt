@@ -27,6 +27,10 @@ import com.hereliesaz.graffitixr.common.importer.DocumentImporter
 import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.feature.editor.threed.PaintableTexture
+import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
+import com.hereliesaz.graffitixr.common.util.ContourTrace
+import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
@@ -96,6 +100,11 @@ data class StrokeCommand(
     // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
     // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
     val moveDelta: Offset? = null,
+    // Set only on a [Tool.CLONE] command: the screen-space vector from this stroke to the pixels it
+    // copies, fixed when the stroke began. Recorded rather than read from live state at replay time
+    // for the same reason `selection` is — the source can be moved or cleared afterwards, and an
+    // undo/redo has to re-composite the pixels that were actually painted.
+    val cloneOffset: Offset? = null,
     // Wipes the layer to transparency instead of painting a path — Procreate's clear-layer. Recorded
     // as a command so it undoes by replay like everything else; honours [selection], so clearing
     // with a lasso active wipes only inside it.
@@ -536,7 +545,7 @@ class EditorViewModel @Inject constructor(
                 val delta = command.command.moveDelta
                 if (command.command.tool == Tool.SELECT && delta != null) {
                     dispatch(EditorIntent.SetSelection(
-                        command.command.selection?.let { sel -> sel.copy(path = sel.path.map { it + delta }) }
+                        command.command.selection?.translated(delta)
                     ))
                 }
             }
@@ -2866,15 +2875,16 @@ class EditorViewModel @Inject constructor(
                 // Bitmap.copy can return null under memory pressure — never construct a Canvas from it
                 // unchecked (NPE on the main thread). Fall back to the unmodified bitmap if the copy fails.
                 val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val fastHard = SelectionMask.bitmapPath(
+                    strokeSelection, bitmap.width, bitmap.height,
+                    capturedScale, capturedOffset, capturedRotationZ,
+                )
+                val fastRadius = SelectionMask.featherRadius(
+                    strokeSelection, bitmap.width, bitmap.height, capturedScale,
+                )
                 if (target != null && points.isNotEmpty()) {
                     val canvas = android.graphics.Canvas(target)
-                    SelectionMask.clip(
-                        canvas,
-                        SelectionMask.bitmapPath(
-                            strokeSelection, target.width, target.height,
-                            capturedScale, capturedOffset, capturedRotationZ,
-                        ),
-                    )
+                    SelectionMask.clip(canvas, SelectionMask.paintClip(fastHard, fastRadius))
                     val brushScale = ImageProcessor.screenToBitmapScale(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
@@ -2934,7 +2944,9 @@ class EditorViewModel @Inject constructor(
                         drawPathAll(seg)
                     }
                 }
-                target ?: bitmap
+                // Feathered against the pre-stroke bitmap, matching DrawingEngine — this is the
+                // immediate result of a stroke whose recorded command replays through there.
+                if (target != null) SelectionMask.feather(bitmap, target, fastHard, fastRadius) else bitmap
             }
 
             val command = StrokeCommand(
@@ -2951,6 +2963,7 @@ class EditorViewModel @Inject constructor(
                 symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
+                cloneOffset = cloneOffsetFor(state, points),
             )
 
             // Add stroke to history
@@ -2984,6 +2997,7 @@ class EditorViewModel @Inject constructor(
                 symmetryMode = strokeSymmetry,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
+                cloneOffset = cloneOffsetFor(state, points),
             )
 
             // Add stroke to history for undo/redo replay.
@@ -2992,15 +3006,47 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            // Commit: working bitmap becomes the displayed layer bitmap.
-            _uiState.update { s ->
-                s.copy(
-                    layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
-                    liveStrokeLayerId = null,
-                    liveStrokeBitmap = null
-                )
+            // The working bitmap was hard-clipped to the selection when its canvas was made, since a
+            // live preview cannot be painted unclipped without spraying paint across the artwork for
+            // the length of the drag. That makes it the wrong pixels to commit when the selection is
+            // feathered: history replays this stroke through DrawingEngine, which paints unclipped
+            // and masks afterwards, so committing the hard-edged preview would leave the layer
+            // changing appearance the first time it was undone.
+            //
+            // So when — and only when — feathering, the stroke is re-rendered through the very path
+            // that will replay it. The preview stays on screen until that lands, so there is no
+            // flash between the two edges.
+            val base = layer.bitmap
+            val featherRadius = if (base == null) 0f else SelectionMask.featherRadius(
+                strokeSelection, base.width, base.height, capturedScale,
+            )
+            if (featherRadius > 0f && base != null) {
+                val preview = workBitmap
+                viewModelScope.launch(dispatchers.default) {
+                    val committed = drawingEngine.applySingleStroke(base, command)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s ->
+                            val ours = s.liveStrokeBitmap === preview
+                            s.copy(
+                                layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
+                                liveStrokeLayerId = if (ours) null else s.liveStrokeLayerId,
+                                liveStrokeBitmap = if (ours) null else s.liveStrokeBitmap,
+                            )
+                        }
+                        scheduleDiskSave(layerId, committed, layer.uri)
+                    }
+                }
+            } else {
+                // Commit: working bitmap becomes the displayed layer bitmap.
+                _uiState.update { s ->
+                    s.copy(
+                        layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
+                        liveStrokeLayerId = null,
+                        liveStrokeBitmap = null
+                    )
+                }
+                scheduleDiskSave(layerId, workBitmap, layer.uri)
             }
-            scheduleDiskSave(layerId, workBitmap, layer.uri)
         }
 
         // Co-op sync: replayable brush strokes go as StrokeComplete; Liquify bakes into the
@@ -3089,21 +3135,21 @@ class EditorViewModel @Inject constructor(
         // otherwise a stroke that started before this commit finished would have its preview wiped.
         val previewBitmap = stampLiveBitmap
         viewModelScope.launch(dispatchers.default) {
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
             val mapped = ImageProcessor.mapScreenToBitmap(
-                points, canvasW, canvasH, target.width, target.height, scale, offset, rotationZ
+                points, canvasW, canvasH, work.width, work.height, scale, offset, rotationZ
             )
-            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
+            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, work.width, work.height, scale)
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
-            val commitCanvas = Canvas(target)
-            SelectionMask.clip(
-                commitCanvas,
-                SelectionMask.bitmapPath(selection, target.width, target.height, scale, offset, rotationZ),
-            )
+            val hard = SelectionMask.bitmapPath(selection, work.width, work.height, scale, offset, rotationZ)
+            val radius = SelectionMask.featherRadius(selection, work.width, work.height, scale)
+            val commitCanvas = Canvas(work)
+            SelectionMask.clip(commitCanvas, SelectionMask.paintClip(hard, radius))
             StampBrushRenderer.paintStroke(
                 commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
+            val target = SelectionMask.feather(base, work, hard, radius)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     val clearPreview = s.liveStrokeBitmap === previewBitmap
@@ -3281,16 +3327,18 @@ class EditorViewModel @Inject constructor(
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
         viewModelScope.launch(dispatchers.default) {
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            val canvas = Canvas(target)
-            SelectionMask.clip(
-                canvas,
-                SelectionMask.bitmapPath(
-                    command.selection, target.width, target.height,
-                    layer.scale, layer.offset, layer.rotationZ,
-                ),
+            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val hard = SelectionMask.bitmapPath(
+                command.selection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
             )
+            // Same feather contract as DrawingEngine, and it has to be: this is the immediate
+            // result, and the recorded command replays through there on undo/redo. If only one of
+            // the two feathered, the layer would change appearance the first time you undid.
+            val radius = SelectionMask.featherRadius(command.selection, work.width, work.height, layer.scale)
+            val canvas = Canvas(work)
+            SelectionMask.clip(canvas, SelectionMask.paintClip(hard, radius))
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            val target = SelectionMask.feather(base, work, hard, radius)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -3415,24 +3463,126 @@ class EditorViewModel @Inject constructor(
 
     fun onDismissQuickMenu() = dispatch(EditorIntent.SetQuickMenu(null))
 
-    // ── Freehand selection (Procreate's lasso) ───────────────────────────────────────────────
+    // ── Selection (Procreate's lasso and its modes) ───────────────────────────────────────────
 
     /**
-     * Adopts the lasso the finger just traced. The polygon is thinned first — a traced loop arrives
-     * at touch-event rate, and every retained vertex is re-mapped on every paint op the selection
-     * clips. A loop too small to enclose anything is treated as a deselect by the reducer.
+     * Folds the region the finger just drew into the selection, under the current
+     * [EditorUiState.selectionOp].
+     *
+     * The polygon is thinned first — a traced loop arrives at touch-event rate, and every retained
+     * vertex is re-mapped on every paint op the selection clips. A loop too small to enclose
+     * anything leaves the selection alone rather than clearing it: under Add or Remove a stray tap
+     * must not throw away the region being built up.
      */
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
-        val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        val simplified = SelectionGeometry.simplify(points)
+        val state = _uiState.value
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.model.Selection(simplified, canvasSize)
+            SelectionGeometry.compose(state.selection, simplified, canvasSize, state.selectionOp)
         ))
+    }
+
+    /**
+     * Procreate's Automatic selection: selects the contiguous run of similar colour under [at].
+     *
+     * The one mode that reads the artwork rather than the gesture, so it is the one that has to
+     * leave screen space and come back. The wand floods the active layer's pixels, the flood is
+     * traced back out to polygons, and those are mapped to screen space through the exact inverse of
+     * the transform the paint uses — after which it is an ordinary ring stack that composes with
+     * Add/Remove, moves, inverts and feathers like anything drawn by hand.
+     *
+     * Off the main thread: a flood fill plus a contour trace over a full-resolution layer is far too
+     * much to do between two frames.
+     */
+    fun onAutoSelect(at: Offset, canvasSize: IntSize) {
+        val state = _uiState.value
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val bitmap = layer.bitmap ?: run {
+            Toast.makeText(context, "Automatic needs a paint layer", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tolerance = state.magicWandTolerance
+        val op = state.selectionOp
+        val current = state.selection
+        viewModelScope.launch(dispatchers.default) {
+            val seed = ImageProcessor.mapScreenToBitmap(
+                listOf(at), canvasSize.width, canvasSize.height, bitmap.width, bitmap.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            ).firstOrNull() ?: return@launch
+            val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
+                ?: return@launch
+            val traced = ContourTrace.contours(mask, bitmap.width, bitmap.height)
+            if (traced.isEmpty()) return@launch
+            val rings = traced.map { ring ->
+                ring.copy(
+                    path = SelectionGeometry.simplify(
+                        ImageProcessor.mapBitmapToScreen(
+                            ring.path, canvasSize.width, canvasSize.height,
+                            bitmap.width, bitmap.height, layer.scale, layer.offset, layer.rotationZ,
+                        ),
+                        // Gentler than a traced lasso's thinning. The wand's vertices are already
+                        // only the turns, so anything aggressive here rounds off the corners that
+                        // are the whole reason the region was traced rather than boxed.
+                        minSpacing = 1.5f,
+                    ),
+                )
+            }.filter { it.isUsable }
+            val wand = Selection(rings, canvasSize).takeIf { it.isUsable } ?: return@launch
+            withContext(dispatchers.main) {
+                // Composed through the same path a drawn region takes, so Add and Remove work on a
+                // wand selection exactly as they do on a lasso — including wand-then-lasso mixes.
+                dispatch(EditorIntent.SetSelection(
+                    if (op == SelectionOp.NEW) wand
+                    else wand.rings.fold(current) { acc, ring ->
+                        SelectionGeometry.compose(
+                            acc, ring.path, canvasSize,
+                            // A traced hole stays a hole whatever the user picked: Add means "add
+                            // this region", and the region includes its holes.
+                            if (ring.additive) op else SelectionOp.REMOVE,
+                        )
+                    } ?: wand
+                ))
+            }
+        }
     }
 
     fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
 
+    fun onSetMagicWandTolerance(tolerance: Int) =
+        dispatch(EditorIntent.SetMagicWandTolerance(tolerance.coerceIn(0, 255)))
+
+    fun onSetSelectionFeather(featherPx: Float) =
+        dispatch(EditorIntent.SetSelectionFeather(featherPx))
+
+    // ── Clone ────────────────────────────────────────────────────────────────────────────────
+
+    /** Aims the clone brush. A tap does this while the tool is armed but unaimed. */
+    fun onSetCloneSource(at: Offset) = dispatch(EditorIntent.SetCloneSource(at))
+
+    /** Forgets the source, so the next tap picks a new one. */
+    fun onResetCloneSource() = dispatch(EditorIntent.SetCloneSource(null))
+
+    /**
+     * The screen-space vector from a clone stroke to the pixels it copies, or null for any other
+     * tool.
+     *
+     * Measured from the point the stroke *starts*, not from the canvas origin, which is what makes
+     * the source track the brush: begin a second stroke somewhere else and it samples from the same
+     * relative place, so painting back and forth duplicates a whole region rather than smearing one
+     * fixed patch over everything.
+     */
+    private fun cloneOffsetFor(state: EditorUiState, points: List<Offset>): Offset? {
+        if (state.activeTool != Tool.CLONE) return null
+        val source = state.cloneSource ?: return null
+        val start = points.firstOrNull() ?: return null
+        return source - start
+    }
+
     fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
         dispatch(EditorIntent.SetSelectionShape(shape))
+
+    fun onSetSelectionOp(op: SelectionOp) =
+        dispatch(EditorIntent.SetSelectionOp(op))
 
     fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
 
@@ -3459,9 +3609,10 @@ class EditorViewModel @Inject constructor(
             return
         }
         val command = StrokeCommand(
-            // `path` carries the lasso too so the command reads sensibly on its own; the clip is
-            // built from `selection`, which also records whether it was inverted.
-            path = selection.path,
+            // `path` carries a representative outline so the command reads sensibly on its own;
+            // the clip is built from `selection`, which carries the full ring recipe and whether it
+            // was inverted.
+            path = selection.outline,
             canvasSize = selection.canvasSize,
             tool = Tool.SELECT,
             brushSize = 0f,
@@ -3486,12 +3637,15 @@ class EditorViewModel @Inject constructor(
                 delta, selection.canvasSize.width, selection.canvasSize.height,
                 base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
             )
-            val moved = SelectionMask.moveRegion(base, clipPath, d.x, d.y)
+            val moved = SelectionMask.moveRegion(
+                base, clipPath, d.x, d.y,
+                SelectionMask.featherRadius(selection, base.width, base.height, layer.scale),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
                 }
-                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + delta })))
+                dispatch(EditorIntent.SetSelection(selection.translated(delta)))
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
@@ -3834,6 +3988,14 @@ class EditorViewModel @Inject constructor(
                 Tool.HEAL -> {
                     color = argbColor
                     alpha = 128
+                }
+                Tool.CLONE -> {
+                    // No live paint, for the same reason as BLUR: a plain Paint has no way to sample
+                    // pixels from elsewhere on the layer, and the default colour would lay down a
+                    // black stroke that then snapped to the cloned pixels on finger-up. The copy is
+                    // composited in applyToolToBitmap when the stroke commits.
+                    color = android.graphics.Color.TRANSPARENT
+                    alpha = 0
                 }
                 else -> {}
             }

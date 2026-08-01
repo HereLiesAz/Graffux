@@ -1,8 +1,11 @@
 package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
+import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import kotlin.math.PI
 import kotlin.math.abs
@@ -21,13 +24,28 @@ object SelectionGeometry {
 
     /**
      * True when [point] (screen space) lies in the selected region, honouring
-     * [Selection.inverted]. Even-odd ray casting: count the polygon edges a ray cast to +x
-     * crosses; odd means inside. Points exactly on an edge may land either way — a half-pixel
-     * ambiguity that no gesture can perceive.
+     * [Selection.inverted].
+     *
+     * The rings are replayed in order — an additive ring ors its interior in, a subtractive one ands
+     * it out — which is exactly what `Path.op(Union)`/`op(Difference)` does to the same rings in the
+     * rasteriser. The two must agree: this decides whether a finger landed on the selection (a move)
+     * while that decides which pixels get painted, and a disagreement is a drag that grabs a region
+     * the paint won't honour.
+     *
+     * [featherPx] is deliberately ignored. A feathered edge is a gradient, and a gesture needs a
+     * yes or a no; the hard boundary is the honest midpoint of the ramp.
      */
     fun contains(selection: Selection, point: Offset): Boolean {
         if (!selection.isUsable) return false
-        val inside = insidePolygon(selection.path, point)
+        var inside = false
+        for (ring in selection.rings) {
+            if (!ring.isUsable) continue
+            // Short-circuit: an additive ring can't change an already-inside point, and a
+            // subtractive one can't change an already-outside one. Worth having because a magic-wand
+            // contour runs to hundreds of vertices and this is called per pointer event.
+            if (ring.additive == inside) continue
+            if (insidePolygon(ring.path, point)) inside = ring.additive
+        }
         return if (selection.inverted) !inside else inside
     }
 
@@ -110,10 +128,56 @@ object SelectionGeometry {
         }
     }
 
-    /** Builds the polygon a completed drag from [start] to [end] means, under [shape]. */
+    /**
+     * Folds a freshly drawn [polygon] into the selection already on the canvas under [op].
+     *
+     * Three things this handles that a naive append would not:
+     *
+     *  - **Removing from nothing** leaves nothing. There is no implicit "everything is selected"
+     *    state to cut out of — with no selection every tool already paints everywhere — so a Remove
+     *    with nothing selected is a no-op rather than an inversion.
+     *  - **Adding to nothing** is just a new selection, so Add works as the first stroke of a
+     *    multi-part selection without the user having to start in New and switch.
+     *  - **Composing onto an inverted selection flips the ring's sense.** [Selection.inverted]
+     *    applies to the whole stack, so an additive ring under it would *shrink* what the user can
+     *    see. The flag is flipped so Add always adds to the visible region, which is the only
+     *    reading of the button that isn't a lie.
+     *
+     * A [canvasSize] that differs from the current selection's forces a replace: the rings are
+     * screen-space and a different canvas is a different space, so folding into it would put the
+     * old region somewhere it was never drawn.
+     */
+    fun compose(
+        current: Selection?,
+        polygon: List<Offset>,
+        canvasSize: IntSize,
+        op: SelectionOp,
+    ): Selection? {
+        val ring = SelectionRing(polygon, additive = true)
+        if (!ring.isUsable) return current
+        val fresh = Selection(listOf(ring), canvasSize)
+        val base = current?.takeIf { it.isUsable && it.canvasSize == canvasSize }
+        return when (op) {
+            SelectionOp.NEW -> fresh
+            SelectionOp.ADD -> base?.let {
+                it.copy(rings = it.rings + ring.copy(additive = !it.inverted))
+            } ?: fresh
+            SelectionOp.REMOVE -> base?.let {
+                it.copy(rings = it.rings + ring.copy(additive = it.inverted))
+            }
+        }
+    }
+
+    /**
+     * Builds the polygon a completed drag from [start] to [end] means, under [shape].
+     *
+     * [SelectionShape.AUTOMATIC] has no answer here and returns the traced points untouched: it is a
+     * tap mode whose region comes from the artwork, so it never reaches this at all — the canvas
+     * routes it to the wand instead of building a polygon from the gesture.
+     */
     fun polygonFor(shape: SelectionShape, start: Offset, end: Offset, traced: List<Offset>): List<Offset> =
         when (shape) {
-            SelectionShape.FREEHAND -> traced
+            SelectionShape.FREEHAND, SelectionShape.AUTOMATIC -> traced
             SelectionShape.RECTANGLE -> rectangle(start, end)
             SelectionShape.ELLIPSE -> ellipse(start, end)
         }

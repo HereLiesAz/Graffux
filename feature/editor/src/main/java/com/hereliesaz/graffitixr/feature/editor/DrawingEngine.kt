@@ -57,14 +57,22 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             stroke.selection, bitmap.width, bitmap.height,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
+        // A feathered selection cannot be a canvas clip — a clip is binary. The paint goes down
+        // unclipped and SelectionMask.feather masks it back against the base afterwards, which is
+        // what makes the ramp two-sided. Both are no-ops at radius 0, so the hard-edged path (still
+        // the overwhelmingly common one) is untouched and costs nothing.
+        val featherRadius = SelectionMask.featherRadius(
+            stroke.selection, bitmap.width, bitmap.height, stroke.layerScale,
+        )
+        val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
         // Clear: wipe to transparency, inside the selection if there is one. Checked before the
         // tool switch because it is an operation recorded onto a tool, not a kind of paint.
         if (stroke.clearAll) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val canvas = android.graphics.Canvas(target)
-            SelectionMask.clip(canvas, clipPath)
+            SelectionMask.clip(canvas, paintClip)
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            return target
+            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         // A selection move: lift the selected pixels, clear the hole, stamp them down offset. Fully
         // determined by (base, selection, delta), so it replays through history like any stroke.
@@ -75,7 +83,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                 delta, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
-            return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y)
+            return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y, featherRadius)
         }
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
@@ -86,11 +94,14 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         if (stroke.tool == Tool.FILL) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val p = mapped.firstOrNull() ?: return target
+            // The fill keeps the HARD region even when feathering: a scanline spread needs a yes
+            // or a no about each pixel, and cannot flow into a gradient. The feather then softens
+            // the result inwards from that boundary rather than across it.
             ImageProcessor.floodFill(
                 target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
                 clipRegion = SelectionMask.region(clipPath, target.width, target.height),
             )
-            return target
+            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         // brushSize is stored in screen px (what the rail size preview shows). Convert it to bitmap
         // space with the same scale the coordinates use, so the painted stroke renders at exactly the
@@ -106,18 +117,36 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
             val stampCanvas = android.graphics.Canvas(target)
-            SelectionMask.clip(stampCanvas, clipPath)
+            SelectionMask.clip(stampCanvas, paintClip)
             StampBrushRenderer.paintStroke(
                 stampCanvas, pts, brush, stroke.brushColor,
                 stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
             )
-            return target
+            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
-        return ImageProcessor.applyToolToBitmap(
-            bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
-            replaceExisting, stroke.feathering,
-            alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
-            clipPath = clipPath,
+        return SelectionMask.feather(
+            bitmap,
+            ImageProcessor.applyToolToBitmap(
+                bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
+                // Never mutate in place while feathering: the feather composites the painted result
+                // back against the untouched base, and in-place painting would have already
+                // destroyed the very pixels it needs to blend towards.
+                replaceExisting && featherRadius <= 0f, stroke.feathering,
+                alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
+                clipPath = paintClip,
+                // Screen-space offset carried through the same affine the coordinates take, as a
+                // difference of two mapped points — that applies the scale and the layer rotation
+                // while cancelling the translation, which a scalar multiply would get wrong on a
+                // rotated layer.
+                cloneOffset = stroke.cloneOffset?.let { off ->
+                    SelectionMask.mapDelta(
+                        off, stroke.canvasSize.width, stroke.canvasSize.height,
+                        bitmap.width, bitmap.height,
+                        stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                    )
+                },
+            ),
+            clipPath, featherRadius,
         )
     }
 
