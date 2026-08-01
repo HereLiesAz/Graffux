@@ -225,10 +225,14 @@ data class EditorUiState(
     // a style has no layer to live on — these ARE the definitions, and the artwork stores only ids.
     val colorStyles: List<ColorStyle> = emptyList(),
     val textStyles: List<TextStyle> = emptyList(),
-    // Procreate's freehand selection: while set, every raster tool is confined to this region and
-    // a marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
+    // Procreate's selection: while set, every raster tool is confined to this region and a
+    // marching-ants outline traces it. Transient UI state, not history — the *edits* made inside
     // a selection are undoable, the act of selecting isn't.
     val selection: Selection? = null,
+    // How the next drag on the selection canvas is read (Procreate's selection modes). It outlives
+    // the selection it makes, so picking Ellipse once keeps drawing ellipses until it's changed —
+    // the mode is a setting on the tool, not a property of the region it produced.
+    val selectionShape: SelectionShape = SelectionShape.FREEHAND,
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
     // the colour currently under the finger (committed to activeColor on lift) and
     // [eyedropPosition] the screen point for the loupe overlay.

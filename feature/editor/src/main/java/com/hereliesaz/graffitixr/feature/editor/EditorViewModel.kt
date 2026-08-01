@@ -3431,6 +3431,9 @@ class EditorViewModel @Inject constructor(
 
     fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
 
+    fun onSetSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
+        dispatch(EditorIntent.SetSelectionShape(shape))
+
     fun onInvertSelection() = dispatch(EditorIntent.InvertSelection)
 
     /**

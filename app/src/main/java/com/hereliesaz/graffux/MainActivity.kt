@@ -60,6 +60,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
+import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -952,9 +953,11 @@ private fun activeRailClassifiers(
         ?.let { add("brush.custom.${it.id}") }
     if (uiState.brushStudioDraft != null) add("brush.studio")
 
-    // The layer being edited, and the symmetry mode in its own picker.
+    // The layer being edited, and the two mode pickers — each always lights exactly one member,
+    // because each is a choice among all of its options rather than an on/off.
     uiState.activeLayerId?.let { add("layer.$it") }
     add("symmetryMode.${uiState.symmetryMode.name}")
+    add("selectShape.${uiState.selectionShape.name}")
 }
 
 private fun AzNavHostScope.ConfigureRailItems(
@@ -1076,9 +1079,21 @@ private fun AzNavHostScope.ConfigureRailItems(
     // among the paint tools, which is neither where Procreate puts them nor what they are: three of
     // the four do nothing at all until a selection exists.
     hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectLasso)
-    // Freehand selection: lasso a region and every raster tool is confined to it until it's cleared.
-    // Dragging inside the marquee moves the selected pixels.
+    // Selecting: pick up the tool, then pick how a drag is read. Procreate's modes sit inside its
+    // Selection control the same way, and for the same reason — they are not four tools, they are
+    // one tool that makes a region four ways. A region confines every raster tool until it's
+    // cleared; dragging inside the marquee moves the selected pixels.
     toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectLasso)
+    SelectionShape.entries.forEach { mode ->
+        stateSubItem(
+            id = "selectShape.${mode.name}", hostId = "grp.select", text = mode.label,
+            content = when (mode) {
+                SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
+                SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
+                SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
+            },
+        ) { vm.onSetSelectionShape(mode) }
+    }
     // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
     // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
     // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.

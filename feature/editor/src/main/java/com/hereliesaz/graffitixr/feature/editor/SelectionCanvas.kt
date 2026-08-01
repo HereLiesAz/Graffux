@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionShape
 import kotlinx.coroutines.delay
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 
@@ -36,11 +37,13 @@ private const val ANT_STEPS = 8
 private const val ANT_STEP_MS = 80L
 
 /**
- * The touch surface for the freehand selection tool. Two gestures, chosen by where the finger
- * lands:
+ * The touch surface for the selection tool. Two gestures, chosen by where the finger lands:
  *
- *  - **Outside** the current selection (or with none) → the drag **traces a new lasso**, adopted on
- *    lift. A tap that never moves **deselects**, which is how you get back to painting everywhere.
+ *  - **Outside** the current selection (or with none) → the drag **makes a new selection**, adopted
+ *    on lift. What it makes depends on [shape]: [SelectionShape.FREEHAND] traces the finger, while
+ *    [SelectionShape.RECTANGLE] and [SelectionShape.ELLIPSE] read the drag as two opposite corners
+ *    of a box and fit their figure inside it. A tap that never moves **deselects**, which is how
+ *    you get back to painting everywhere.
  *  - **Inside** the current selection → the drag **moves the selected pixels**. A dashed ghost of
  *    the marquee follows the finger; the pixels themselves are lifted on release, because a move is
  *    a full-bitmap lift-clear-stamp and doing that per drag frame would stutter on a large canvas.
@@ -51,6 +54,7 @@ private const val ANT_STEP_MS = 80L
 @Composable
 fun SelectionCanvas(
     selection: Selection?,
+    shape: SelectionShape,
     gate: StrokeGate,
     modifier: Modifier = Modifier,
     onSelectionEnd: (List<Offset>, IntSize) -> Unit,
@@ -71,7 +75,10 @@ fun SelectionCanvas(
     Canvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
-            .pointerInput(selection) {
+            // Keyed on `shape` as well as `selection`: the loop below reads `shape` from this
+            // lambda's capture, so without it a mode picked mid-session would be invisible here
+            // until something else happened to relaunch the block.
+            .pointerInput(selection, shape) {
                 // Committing or moving a selection relaunches this block and kills the in-flight
                 // drag's loop; nothing is in progress the instant it starts, so start clean.
                 gate.strokeActive = false
@@ -118,19 +125,30 @@ fun SelectionCanvas(
                             gate.strokeActive = true
                         }
                         if (began) {
-                            if (moving) moveDelta = change.position - down.position
-                            else lasso = lasso + change.position
+                            if (moving) {
+                                moveDelta = change.position - down.position
+                            } else {
+                                // Freehand accumulates; the box shapes are rebuilt from the two
+                                // corners each frame, so dragging back across the start point
+                                // shrinks the figure instead of leaving a trail behind it.
+                                lasso = SelectionGeometry.polygonFor(
+                                    shape, down.position, change.position, lasso + change.position,
+                                )
+                            }
                             change.consume()
                         }
                     }
                 }
             }
     ) {
-        // Live lasso: a solid thin line, so it reads as "being drawn" rather than as a committed
-        // marquee (which is dashed and animated).
+        // The selection being drawn: a solid thin line, so it reads as "in progress" rather than as
+        // a committed marquee (which is dashed and animated). A traced lasso is drawn open, since
+        // its ends have not met yet; a rectangle or ellipse is already a complete figure and drawn
+        // closed, because an open one would show a gap that is not going to be there.
         if (lasso.size >= 2) {
-            drawPolygon(lasso, Color.White.copy(alpha = 0.9f), 1.5.dp.toPx(), closed = false)
-            drawPolygon(lasso, Color.Black.copy(alpha = 0.5f), 1.5.dp.toPx(), closed = false, offset = Offset(1f, 1f))
+            val closed = shape != SelectionShape.FREEHAND
+            drawPolygon(lasso, Color.White.copy(alpha = 0.9f), 1.5.dp.toPx(), closed = closed)
+            drawPolygon(lasso, Color.Black.copy(alpha = 0.5f), 1.5.dp.toPx(), closed = closed, offset = Offset(1f, 1f))
         }
         // Ghost of the marquee under a move-drag, previewing where the pixels will land.
         val d = moveDelta

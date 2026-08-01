@@ -2,7 +2,9 @@ package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -98,4 +100,72 @@ class SelectionGeometryTest {
         assertEquals(4, thinned.size)
         assertEquals(Offset(0f, 20f), thinned.last())
     }
+
+    // ── Selection modes (Procreate's Rectangle / Ellipse) ────────────────────────────────────────
+
+    @Test
+    fun `a rectangle is built from either drag direction`() {
+        val downRight = SelectionGeometry.rectangle(Offset(10f, 10f), Offset(50f, 50f))
+        val upLeft = SelectionGeometry.rectangle(Offset(50f, 50f), Offset(10f, 10f))
+        // Same four corners in the same order regardless of which way the finger went — dragging
+        // up-left must not wind the polygon backwards and draw the marquee as a bow tie.
+        assertEquals(downRight, upLeft)
+        assertEquals(4, downRight.size)
+        assertEquals(Offset(10f, 10f), downRight[0])
+        assertEquals(Offset(50f, 50f), downRight[2])
+    }
+
+    @Test
+    fun `a rectangle selects inside its bounds and not outside`() {
+        val rect = SelectionGeometry.rectangle(Offset(10f, 10f), Offset(50f, 50f))
+        assertTrue(SelectionGeometry.insidePolygon(rect, Offset(30f, 30f)))
+        assertFalse(SelectionGeometry.insidePolygon(rect, Offset(60f, 30f)))
+    }
+
+    @Test
+    fun `an ellipse fills its box at the axes and misses at the corners`() {
+        val ellipse = SelectionGeometry.ellipse(Offset(0f, 0f), Offset(100f, 100f))
+        // The point of the mode: an ellipse is not its bounding box. The centre and the near-axis
+        // points are in; the box's own corners are out, which is the whole difference from RECTANGLE.
+        assertTrue(SelectionGeometry.insidePolygon(ellipse, Offset(50f, 50f)))
+        assertTrue(SelectionGeometry.insidePolygon(ellipse, Offset(50f, 5f)))
+        assertTrue(SelectionGeometry.insidePolygon(ellipse, Offset(95f, 50f)))
+        assertFalse(SelectionGeometry.insidePolygon(ellipse, Offset(5f, 5f)))
+        assertFalse(SelectionGeometry.insidePolygon(ellipse, Offset(95f, 95f)))
+    }
+
+    @Test
+    fun `an ellipse does not repeat its first vertex`() {
+        val ellipse = SelectionGeometry.ellipse(Offset(0f, 0f), Offset(100f, 50f))
+        assertEquals(ELLIPSE_VERTICES, ellipse.size)
+        // Selection's path is implicitly closed. A duplicated start point would put a zero-length
+        // edge into every consumer that walks the list.
+        assertTrue((ellipse.last() - ellipse.first()).getDistance() > 1f)
+    }
+
+    @Test
+    fun `polygonFor traces the finger for freehand and ignores it for the box shapes`() {
+        val traced = listOf(Offset(1f, 1f), Offset(2f, 9f), Offset(9f, 4f))
+        val start = Offset(0f, 0f)
+        val end = Offset(20f, 20f)
+        assertEquals(traced, SelectionGeometry.polygonFor(SelectionShape.FREEHAND, start, end, traced))
+        assertEquals(
+            SelectionGeometry.rectangle(start, end),
+            SelectionGeometry.polygonFor(SelectionShape.RECTANGLE, start, end, traced),
+        )
+        assertEquals(
+            SelectionGeometry.ellipse(start, end),
+            SelectionGeometry.polygonFor(SelectionShape.ELLIPSE, start, end, traced),
+        )
+    }
+
+    @Test
+    fun `simplify keeps a rectangle too thin to thin`() {
+        // simplify() drops points within 3px of the last kept one, which would leave a 2px-tall
+        // marquee with fewer than three vertices — i.e. nothing selected. It must fall back to the
+        // original polygon rather than quietly discard the selection.
+        val thin = SelectionGeometry.rectangle(Offset(10f, 10f), Offset(50f, 12f))
+        assertEquals(4, SelectionGeometry.simplify(thin).size)
+    }
+
 }
