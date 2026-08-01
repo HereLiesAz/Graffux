@@ -1,7 +1,13 @@
 package com.hereliesaz.graffitixr.common.util
 
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.ELLIPSE_VERTICES
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionShape
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Pure polygon maths for [Selection] — no Android graphics, so it is unit-testable directly and
@@ -63,4 +69,52 @@ object SelectionGeometry {
         }
         return if (out.size >= 3) out else path
     }
+
+    /**
+     * The rectangle spanned by two opposite corners, as a closed polygon wound consistently
+     * regardless of which way the drag went. [insidePolygon] is even-odd, so winding doesn't change
+     * containment — but the marquee is drawn edge by edge, and a rectangle whose corners arrive in
+     * the order top-left, top-right, bottom-left, bottom-right draws a bow tie.
+     */
+    fun rectangle(a: Offset, b: Offset): List<Offset> {
+        val left = minOf(a.x, b.x)
+        val right = maxOf(a.x, b.x)
+        val top = minOf(a.y, b.y)
+        val bottom = maxOf(a.y, b.y)
+        return listOf(
+            Offset(left, top),
+            Offset(right, top),
+            Offset(right, bottom),
+            Offset(left, bottom),
+        )
+    }
+
+    /**
+     * The ellipse inscribed in the box spanned by two opposite corners, sampled into
+     * [ELLIPSE_VERTICES] points.
+     *
+     * A polygon rather than a curve because that is what a [Selection] is: containment, clipping and
+     * the marching ants all walk the vertex list, so an ellipse that stayed parametric would need
+     * every one of them taught a second representation.
+     */
+    fun ellipse(a: Offset, b: Offset, vertices: Int = ELLIPSE_VERTICES): List<Offset> {
+        val cx = (a.x + b.x) / 2f
+        val cy = (a.y + b.y) / 2f
+        val rx = abs(a.x - b.x) / 2f
+        val ry = abs(a.y - b.y) / 2f
+        // The last vertex is not the first: Selection's path is implicitly closed, and repeating the
+        // start point would put a zero-length edge in every consumer that walks the list.
+        return List(vertices) { i ->
+            val t = (2.0 * PI * i) / vertices
+            Offset(cx + rx * cos(t).toFloat(), cy + ry * sin(t).toFloat())
+        }
+    }
+
+    /** Builds the polygon a completed drag from [start] to [end] means, under [shape]. */
+    fun polygonFor(shape: SelectionShape, start: Offset, end: Offset, traced: List<Offset>): List<Offset> =
+        when (shape) {
+            SelectionShape.FREEHAND -> traced
+            SelectionShape.RECTANGLE -> rectangle(start, end)
+            SelectionShape.ELLIPSE -> ellipse(start, end)
+        }
 }

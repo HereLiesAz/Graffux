@@ -170,8 +170,10 @@ internal sealed interface EditorIntent {
     data class SetPathShape(val layerId: String, val shape: com.hereliesaz.graffitixr.common.model.VectorShape) : EditorIntent
     /** Opens the radial QuickMenu at a screen point, or closes it with null. */
     data class SetQuickMenu(val at: Offset?) : EditorIntent
-    /** Replaces the freehand selection, or clears it with null (deselect). */
+    /** Replaces the selection, or clears it with null (deselect). */
     data class SetSelection(val selection: com.hereliesaz.graffitixr.common.model.Selection?) : EditorIntent
+    /** Picks how the next selection drag is read: freehand, rectangle or ellipse. */
+    data class SetSelectionShape(val shape: com.hereliesaz.graffitixr.common.model.SelectionShape) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */
     data object InvertSelection : EditorIntent
     /** Live eyedropper state: sampling in progress, current colour + loupe position. */

@@ -222,6 +222,10 @@ internal object EditorReducer {
         EditorIntent.InvertSelection -> state.copy(
             selection = state.selection?.let { it.copy(inverted = !it.inverted) }
         )
+        // Deliberately does not clear the current selection: switching modes says what the *next*
+        // drag means, and dropping the region under the user's hands would make the mode picker
+        // destructive for anyone who tapped it to check which mode they were in.
+        is EditorIntent.SetSelectionShape -> state.copy(selectionShape = intent.shape)
         is EditorIntent.SetEyedrop -> state.copy(
             isEyedropping = intent.active,
             eyedropColor = if (intent.active) intent.color else null,
