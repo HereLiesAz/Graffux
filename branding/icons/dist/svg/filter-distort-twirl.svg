@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/filter-distort-twirl — A frame's contents wound into a spiral. -->
-  <path d="M2.6,2.6L21.4,2.6L21.4,21.4L2.6,21.4Z"/>
-  <path d="M17.4,12C17.23,11.4 17.2,9.33 16.4,8.4C15.6,7.47 13.93,6.5 12.6,6.4C11.27,6.3 9.3,6.83 8.4,7.8C7.5,8.77 6.97,10.93 7.2,12.2C7.43,13.47 8.73,15 9.8,15.4C10.87,15.8 12.83,15.27 13.6,14.6C14.37,13.93 14.63,12.2 14.4,11.4C14.17,10.6 12.57,10.07 12.2,9.8"/>
-  <path d="M11.1,9.8A1.1,1.1 0 1,0 13.3,9.8A1.1,1.1 0 1,0 11.1,9.8Z" fill="currentColor" stroke="none"/>
-</svg>

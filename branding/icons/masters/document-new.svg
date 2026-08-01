@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/document-new — phosphor/file-plus -->
+  <path d="M17.591 9.109l-3.78-3.78A0.27 0.27 0 0 0 13.62 5.25H7.14A0.81 0.81 0 0 0 6.33 6.06V17.94a0.81 0.81 0 0 0 0.81 0.81H16.86a0.81 0.81 0 0 0 0.81-0.81V9.3A0.27 0.27 0 0 0 17.591 9.109ZM13.89 6.171L16.748 9.03H13.89ZM16.86 18.21H7.14a0.27 0.27 0 0 1-0.27-0.27V6.06a0.27 0.27 0 0 1 0.27-0.27h6.21V9.3a0.27 0.27 0 0 0 0.27 0.27h3.51V17.94A0.27 0.27 0 0 1 16.86 18.21Zm-2.97-4.59a0.27 0.27 0 0 1-0.27 0.27H12.27v1.35a0.27 0.27 0 0 1-0.54 0V13.89H10.38a0.27 0.27 0 0 1 0-0.54h1.35V12a0.27 0.27 0 0 1 0.54 0v1.35h1.35A0.27 0.27 0 0 1 13.89 13.62Z" fill="currentColor" stroke="none"/>
+</svg>

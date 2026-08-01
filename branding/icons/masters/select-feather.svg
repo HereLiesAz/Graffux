@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-feather — graffux -->
+  <path d="M4.4 4.4H8.4"/>
+  <path d="M10.4 4.4H13.6"/>
+  <path d="M15.6 4.4H19.6"/>
+  <path d="M19.6 4.4V8.4"/>
+  <path d="M19.6 10.4V13.6"/>
+  <path d="M19.6 15.6V19.6"/>
+  <path d="M19.6 19.6H15.6"/>
+  <path d="M13.6 19.6H10.4"/>
+  <path d="M8.4 19.6H4.4"/>
+  <path d="M4.4 19.6V15.6"/>
+  <path d="M4.4 13.6V10.4"/>
+  <path d="M4.4 8.4V4.4"/>
+  <path d="M7.2 7.2H16.8V16.8H7.2Z"/>
+</svg>

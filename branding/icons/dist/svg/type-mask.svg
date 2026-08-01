@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/type-mask — A letter drawn as marching ants, since it is a selection, not ink. -->
-  <path d="M11,3.4L10.12,5.46 M9.4,7.15L8.52,9.21 M7.8,10.9L6.92,12.96 M6.2,14.65L5.32,16.71"/>
-  <path d="M11,3.4L11.88,5.46 M12.6,7.15L13.48,9.21 M14.2,10.9L15.08,12.96 M15.8,14.65L16.68,16.71"/>
-  <path d="M6.9,12.2L8.4,12.2 M9.63,12.2L11.14,12.2 M12.37,12.2L13.87,12.2"/>
-</svg>

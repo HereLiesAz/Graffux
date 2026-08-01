@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/camera-capture — phosphor/camera -->
+  <path d="M17.4 7.41H15.384L14.384 5.91A0.27 0.27 0 0 0 14.16 5.79H9.84a0.27 0.27 0 0 0-0.224 0.12L8.615 7.41H6.6A1.35 1.35 0 0 0 5.25 8.76V16.32a1.35 1.35 0 0 0 1.35 1.35H17.4a1.35 1.35 0 0 0 1.35-1.35V8.76A1.35 1.35 0 0 0 17.4 7.41Zm0.81 8.91a0.81 0.81 0 0 1-0.81 0.81H6.6a0.81 0.81 0 0 1-0.81-0.81V8.76A0.81 0.81 0 0 1 6.6 7.95H8.76a0.27 0.27 0 0 0 0.225-0.12L9.984 6.33h4.031l1 1.5A0.27 0.27 0 0 0 15.24 7.95h2.16a0.81 0.81 0 0 1 0.81 0.81ZM12 9.57a2.7 2.7 0 1 0 2.7 2.7A2.7 2.7 0 0 0 12 9.57Zm0 4.86a2.16 2.16 0 1 1 2.16-2.16A2.16 2.16 0 0 1 12 14.43Z" fill="currentColor" stroke="none"/>
+</svg>

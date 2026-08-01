@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/invert — graffux -->
+  <defs>
+    <pattern id="gfxHatch-invert" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M12 4A8 8 0 0 0 12 20Z" fill="url(#gfxHatch-invert)"/>
+  <path d="M12 4.55A7.45 7.45 0 0 1 12 19.45"/>
+</svg>

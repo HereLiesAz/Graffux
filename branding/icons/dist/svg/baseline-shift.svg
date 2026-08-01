@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/baseline-shift — A letter lifted clear of the line it would otherwise sit on. -->
-  <path d="M4,12L20,12"/>
-  <path d="M12,4.4L8.5,14.4 M12,4.4L15.5,14.4 M10.32,10.6L13.68,10.6"/>
-  <path d="M20,9L21.15,7.4L18.85,7.4Z" fill="currentColor" stroke="none"/>
-</svg>

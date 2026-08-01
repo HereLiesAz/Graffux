@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/error — phosphor/x-circle -->
+  <path d="M14.351 10.031L12.382 12l1.969 1.969a0.27 0.27 0 0 1-0.382 0.382L12 12.382L10.031 14.351a0.27 0.27 0 0 1-0.382-0.382L11.618 12L9.649 10.031a0.27 0.27 0 0 1 0.382-0.382L12 11.618l1.969-1.969a0.27 0.27 0 1 1 0.382 0.382ZM18.75 12A6.75 6.75 0 1 1 12 5.25A6.757 6.757 0 0 1 18.75 12Zm-0.54 0a6.21 6.21 0 1 0-6.21 6.21A6.217 6.217 0 0 0 18.21 12Z" fill="currentColor" stroke="none"/>
+</svg>
