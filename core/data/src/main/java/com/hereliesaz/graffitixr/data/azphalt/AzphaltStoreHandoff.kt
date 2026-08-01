@@ -65,6 +65,32 @@ object AzphaltStoreHandoff {
     /** MIME hint on the returned content URI (spec § MIME type) — advisory only, not for validation. */
     const val MIME: String = "application/vnd.azphalt.package"
 
+    /**
+     * The neutral marketplace on the web. One repository, not the only one — the Repository API is
+     * self-hostable — but it is the one this host offers by name.
+     *
+     * The web route matters because the Android one can be absent: a host with no store app installed
+     * is "a host with no *browse* affordance, not a broken one" (spec § Discovery), and a browser is
+     * the affordance every device already has.
+     */
+    const val WEB_STORE_URL: String = "https://azphalt.store"
+
+    /** Application id of the reference Android storefront, for offering to install it when absent. */
+    const val STORE_APP_ID: String = "store.azphalt.storefront"
+
+    /** The web storefront, as an intent for a browser. */
+    fun webStoreIntent(): Intent = Intent(Intent.ACTION_VIEW, Uri.parse(WEB_STORE_URL))
+
+    /**
+     * Where to send someone who chose the Android store and does not have it.
+     *
+     * Play first, by its `market:` scheme, which opens the Play app directly when it is present; the
+     * caller falls back to [webStoreIntent] when nothing resolves this, since a device without Play
+     * is exactly the device where a dead button would be most annoying.
+     */
+    fun installStoreAppIntent(): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$STORE_APP_ID"))
+
     /** The media domains this host can actually use (spec/repository-api.md § Media domains), so the
      *  store never offers what Graffux structurally can't run — a pure audio or font pack doesn't
      *  match. Mirrors the filter [ExtensionRepository] used to pass its own catalog search. */
