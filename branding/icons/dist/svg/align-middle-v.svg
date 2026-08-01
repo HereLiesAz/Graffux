@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/align-middle-v — Two frames centred on a single horizontal axis — the exact transpose of align-centre-horizontal. Narrower frames left the axis sticking out far enough either side that the whole thing was a plus sign. -->
-  <path d="M3,12L21,12"/>
-  <path d="M5,7L11.4,7L11.4,17L5,17Z"/>
-  <path d="M13,4.4L19.4,4.4L19.4,19.6L13,19.6Z"/>
-</svg>

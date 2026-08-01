@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-filter — graffux -->
+  <path d="M12 3.8L17.6 6.6L12 9.4L6.4 6.6Z"/>
+  <path d="M6.4 11.4H17.6L13.6 15.8V19.6L10.4 18.2V15.8Z"/>
+</svg>

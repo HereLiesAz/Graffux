@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/keyframe-add — graffux -->
+  <path d="M10 5.4L15 10.4L10 15.4L5 10.4Z" fill="currentColor"/>
+  <path d="M18 13.6V20"/>
+  <path d="M14.8 16.8H21.2"/>
+</svg>

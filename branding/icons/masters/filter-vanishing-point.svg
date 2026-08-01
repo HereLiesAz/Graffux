@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/filter-vanishing-point — graffux -->
+  <path d="M12 6.4A1.4 1.4 0 1 0 12 9.2A1.4 1.4 0 1 0 12 6.4Z" fill="currentColor"/>
+  <path d="M3.4 20.4L12 8"/>
+  <path d="M20.6 20.4L12 8"/>
+  <path d="M6.4 20.4H17.6"/>
+  <path d="M8.6 16.4H15.4"/>
+  <path d="M10.2 12.6H13.8"/>
+</svg>

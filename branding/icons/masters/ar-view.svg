@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/ar-view — phosphor/cube -->
+  <path d="M18.329 8.062l-5.94-3.252a0.81 0.81 0 0 0-0.778 0l-5.94 3.252A0.81 0.81 0 0 0 5.25 8.772v6.456a0.81 0.81 0 0 0 0.421 0.71l5.94 3.252a0.807 0.807 0 0 0 0.778 0l5.94-3.252A0.81 0.81 0 0 0 18.75 15.228V8.772A0.81 0.81 0 0 0 18.329 8.062ZM11.87 5.284a0.266 0.266 0 0 1 0.259 0L17.985 8.49L12 11.765L6.015 8.49Zm-5.94 10.181A0.27 0.27 0 0 1 5.79 15.228V8.982l5.94 3.251v6.406Zm12.139 0l-5.8 3.173V12.233l5.94-3.251v6.246A0.27 0.27 0 0 1 18.07 15.464Z" fill="currentColor" stroke="none"/>
+</svg>

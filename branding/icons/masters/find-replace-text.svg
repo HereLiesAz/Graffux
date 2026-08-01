@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/find-replace-text — graffux -->
+  <path d="M8.85 5.82L9.8 5.21V6.57H10.89V7.18H9.8V9.46C9.8 9.9 10.01 10.14 10.38 10.14C10.69 10.14 10.93 9.97 11.1 9.66L11.57 10C11.27 10.68 10.76 10.99 10.11 10.99C9.19 10.99 8.85 10.48 8.85 9.6V7.18H7.63V6.57H8.85Z"/>
+  <path d="M9.6 4.6A5.6 5.6 0 1 0 9.6 15.8A5.6 5.6 0 1 0 9.6 4.6Z"/>
+  <path d="M13.8 14.4L19.8 20.4"/>
+</svg>

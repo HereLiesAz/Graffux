@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/motion-tween — Two held states with the computed step between them. -->
-  <path d="M3,8.4L7.4,8.4L7.4,15.6L3,15.6Z M16.6,8.4L21,8.4L21,15.6L16.6,15.6Z"/>
-  <path d="M9.6,10L9.6,14 M12,10L12,14 M14.4,10L14.4,14"/>
-</svg>

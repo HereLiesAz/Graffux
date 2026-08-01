@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/symmetry — The same form on both sides of a guide. -->
-  <path d="M12,2.4L12,5.2 M12,7.4L12,10.2 M12,13.8L12,16.6 M12,18.8L12,21.6"/>
-  <path d="M9.2,5.6L4,12L9.2,18.4Z"/>
-  <path d="M14.8,5.6L20,12L14.8,18.4Z"/>
-</svg>

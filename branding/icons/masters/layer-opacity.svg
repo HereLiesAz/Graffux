@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-opacity — graffux -->
+  <defs>
+    <pattern id="gfxHatch-layer-opacity" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M12 13.6L17.6 16.4L12 19.2L6.4 16.4Z" fill="url(#gfxHatch-layer-opacity)"/>
+  <path d="M12 5.2L17.6 8L12 10.8L6.4 8Z"/>
+</svg>

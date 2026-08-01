@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/color-alpha — graffux -->
+  <defs>
+    <pattern id="gfxHatch-color-alpha" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M4.4 4.4H9.5V9.5H4.4Z" fill="url(#gfxHatch-color-alpha)"/>
+  <path d="M9.5 9.5H14.6V14.6H9.5Z" fill="url(#gfxHatch-color-alpha)"/>
+  <path d="M14.6 14.6H19.6V19.6H14.6Z" fill="url(#gfxHatch-color-alpha)"/>
+  <path d="M14.6 4.4H19.6V9.5H14.6Z" fill="url(#gfxHatch-color-alpha)"/>
+  <path d="M4.4 14.6H9.5V19.6H4.4Z" fill="url(#gfxHatch-color-alpha)"/>
+  <path d="M4.4 4.4H19.6V19.6H4.4Z"/>
+</svg>

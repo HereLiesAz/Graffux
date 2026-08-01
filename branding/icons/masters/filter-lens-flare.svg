@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/filter-lens-flare — graffux -->
+  <path d="M12 8.6A3.4 3.4 0 1 0 12 15.4A3.4 3.4 0 1 0 12 8.6Z"/>
+  <path d="M3.6 20.4L20.4 3.6"/>
+  <path d="M5.3 17.4A1.3 1.3 0 1 0 7.9 17.4A1.3 1.3 0 1 0 5.3 17.4Z" fill="currentColor" stroke="none"/>
+  <path d="M15.5 7.6A0.9 0.9 0 1 0 17.3 7.6A0.9 0.9 0 1 0 15.5 7.6Z" fill="currentColor" stroke="none"/>
+  <path d="M18 5.4A0.6 0.6 0 1 0 19.2 5.4A0.6 0.6 0 1 0 18 5.4Z" fill="currentColor" stroke="none"/>
+</svg>

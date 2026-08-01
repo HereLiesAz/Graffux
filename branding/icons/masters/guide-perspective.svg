@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/guide-perspective — graffux -->
+  <path d="M12 12L2.4 20.6"/>
+  <path d="M12 12L21.6 20.6"/>
+  <path d="M12 12L2.4 3.4"/>
+  <path d="M12 12L21.6 3.4"/>
+  <path d="M2 12H22"/>
+  <path d="M4.6 7.2H19.4"/>
+  <path d="M4.6 16.8H19.4"/>
+  <path d="M10.85 12A1.15 1.15 0 1 0 13.15 12A1.15 1.15 0 1 0 10.85 12Z" fill="currentColor" stroke="none"/>
+</svg>
