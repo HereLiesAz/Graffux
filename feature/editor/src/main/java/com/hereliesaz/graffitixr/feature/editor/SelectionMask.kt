@@ -20,11 +20,15 @@ internal object SelectionMask {
     /**
      * The selected region as a bitmap-space [Path], or null when there is nothing to clip to.
      *
-     * The polygon is mapped through the same [ImageProcessor.mapScreenToBitmap] the stroke points
-     * use, so it lands where the paint lands regardless of the layer's scale/offset/rotation.
-     * An inverted selection is expressed as the full-bitmap rect combined with the lasso under
-     * [Path.FillType.EVEN_ODD] — the rect minus the lasso — rather than a deprecated
-     * `Region.Op.DIFFERENCE` clip.
+     * Each ring is mapped through the same [ImageProcessor.mapScreenToBitmap] the stroke points use,
+     * so it lands where the paint lands regardless of the layer's scale/offset/rotation, and the
+     * rings are then combined in order with [Path.op] — union for an additive ring, difference for a
+     * subtractive one. That is the whole implementation of Add and Remove: `Path.op` is a real
+     * boolean operation on the outlines, so overlapping added regions merge into one silhouette
+     * rather than leaving their shared edges behind.
+     *
+     * An inverted selection is the full-bitmap rect minus that region, expressed as one more
+     * difference rather than a deprecated `Region.Op.DIFFERENCE` clip.
      */
     fun bitmapPath(
         selection: Selection?,
@@ -36,20 +40,40 @@ internal object SelectionMask {
     ): Path? {
         if (selection == null || !selection.isUsable) return null
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
-        val mapped = ImageProcessor.mapScreenToBitmap(
-            selection.path, selection.canvasSize.width, selection.canvasSize.height,
-            bitmapWidth, bitmapHeight, layerScale, layerOffset, layerRotationZ,
-        )
-        if (mapped.size < 3) return null
-        val path = Path()
-        path.moveTo(mapped[0].x, mapped[0].y)
-        for (i in 1 until mapped.size) path.lineTo(mapped[i].x, mapped[i].y)
-        path.close()
-        if (selection.inverted) {
-            path.fillType = Path.FillType.EVEN_ODD
-            path.addRect(0f, 0f, bitmapWidth.toFloat(), bitmapHeight.toFloat(), Path.Direction.CW)
+
+        val region = Path()
+        var any = false
+        for (ring in selection.rings) {
+            if (!ring.isUsable) continue
+            val mapped = ImageProcessor.mapScreenToBitmap(
+                ring.path, selection.canvasSize.width, selection.canvasSize.height,
+                bitmapWidth, bitmapHeight, layerScale, layerOffset, layerRotationZ,
+            )
+            if (mapped.size < 3) continue
+            val ringPath = Path()
+            ringPath.moveTo(mapped[0].x, mapped[0].y)
+            for (i in 1 until mapped.size) ringPath.lineTo(mapped[i].x, mapped[i].y)
+            ringPath.close()
+            if (!any) {
+                // Nothing to combine with yet. A subtractive ring first cuts out of an empty
+                // region, which is still empty — skip it rather than seeding the region with it.
+                if (!ring.additive) continue
+                region.set(ringPath)
+                any = true
+            } else {
+                region.op(ringPath, if (ring.additive) Path.Op.UNION else Path.Op.DIFFERENCE)
+            }
         }
-        return path
+        if (!any) return null
+
+        if (selection.inverted) {
+            val whole = Path().apply {
+                addRect(0f, 0f, bitmapWidth.toFloat(), bitmapHeight.toFloat(), Path.Direction.CW)
+            }
+            whole.op(region, Path.Op.DIFFERENCE)
+            return whole
+        }
+        return region
     }
 
     /**

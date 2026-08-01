@@ -16,6 +16,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -154,7 +155,7 @@ fun SelectionCanvas(
         val d = moveDelta
         if (d != null && selection != null && selection.isUsable && d != Offset.Zero) {
             drawPolygon(
-                selection.path.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
+                selection.outline.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
                 closed = true, dash = floatArrayOf(ANT_DASH, ANT_DASH),
             )
         }
@@ -190,9 +191,13 @@ fun SelectionMarquee(
         if (!selection.isUsable) return@Canvas
         val width = 1.5.dp.toPx()
         val dash = floatArrayOf(ANT_DASH, ANT_DASH)
+        // The merged silhouette, not one outline per ring: after an Add the user has one region and
+        // expects one boundary, and drawing each ring separately would leave the seam where two
+        // added shapes overlap showing as an interior line that clips nothing.
+        val region = selectionOutline(selection) ?: return@Canvas
         // Black underlay then white ants on top: legible over light and dark artwork alike.
-        drawPolygon(selection.path, Color.Black.copy(alpha = 0.6f), width, closed = true)
-        drawPolygon(selection.path, Color.White, width, closed = true, dash = dash, phase = phase)
+        drawAnts(region, Color.Black.copy(alpha = 0.6f), width, null, 0f)
+        drawAnts(region, Color.White, width, dash, phase)
         if (selection.inverted) {
             val border = listOf(
                 Offset(0f, 0f), Offset(size.width, 0f), Offset(size.width, size.height), Offset(0f, size.height),
@@ -201,6 +206,49 @@ fun SelectionMarquee(
             drawPolygon(border, Color.White, width, closed = true, dash = dash, phase = phase)
         }
     }
+}
+
+/**
+ * The selection's merged boundary in screen space, or null when it encloses nothing.
+ *
+ * Mirrors [SelectionMask.bitmapPath]'s combination exactly — same ring order, same union/difference
+ * — so what the ants outline is what the paint is clipped to. It has to be built separately rather
+ * than shared because that one works in a layer's bitmap space and this works on screen.
+ */
+private fun selectionOutline(selection: Selection): Path? {
+    val region = Path()
+    var any = false
+    for (ring in selection.rings) {
+        if (!ring.isUsable) continue
+        val ringPath = Path().apply {
+            moveTo(ring.path[0].x, ring.path[0].y)
+            for (i in 1 until ring.path.size) lineTo(ring.path[i].x, ring.path[i].y)
+            close()
+        }
+        if (!any) {
+            // Cutting out of an empty region leaves it empty; nothing to seed from.
+            if (!ring.additive) continue
+            region.addPath(ringPath)
+            any = true
+        } else {
+            region.op(region, ringPath, if (ring.additive) PathOperation.Union else PathOperation.Difference)
+        }
+    }
+    return if (any) region else null
+}
+
+/** Strokes [path], optionally dashed and phase-shifted. */
+private fun DrawScope.drawAnts(path: Path, color: Color, width: Float, dash: FloatArray?, phase: Float) {
+    drawPath(
+        path = path,
+        color = color,
+        style = Stroke(
+            width = width,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+            pathEffect = dash?.let { PathEffect.dashPathEffect(it, phase) },
+        ),
+    )
 }
 
 /** Strokes [points] as a polyline (or closed polygon), optionally dashed and phase-shifted. */

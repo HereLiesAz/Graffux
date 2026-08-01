@@ -536,7 +536,7 @@ class EditorViewModel @Inject constructor(
                 val delta = command.command.moveDelta
                 if (command.command.tool == Tool.SELECT && delta != null) {
                     dispatch(EditorIntent.SetSelection(
-                        command.command.selection?.let { sel -> sel.copy(path = sel.path.map { it + delta }) }
+                        command.command.selection?.translated(delta)
                     ))
                 }
             }
@@ -3425,7 +3425,7 @@ class EditorViewModel @Inject constructor(
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
         val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.model.Selection(simplified, canvasSize)
+            com.hereliesaz.graffitixr.common.model.Selection.ofPolygon(simplified, canvasSize)
         ))
     }
 
@@ -3459,9 +3459,10 @@ class EditorViewModel @Inject constructor(
             return
         }
         val command = StrokeCommand(
-            // `path` carries the lasso too so the command reads sensibly on its own; the clip is
-            // built from `selection`, which also records whether it was inverted.
-            path = selection.path,
+            // `path` carries a representative outline so the command reads sensibly on its own;
+            // the clip is built from `selection`, which carries the full ring recipe and whether it
+            // was inverted.
+            path = selection.outline,
             canvasSize = selection.canvasSize,
             tool = Tool.SELECT,
             brushSize = 0f,
@@ -3491,7 +3492,7 @@ class EditorViewModel @Inject constructor(
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
                 }
-                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + delta })))
+                dispatch(EditorIntent.SetSelection(selection.translated(delta)))
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.

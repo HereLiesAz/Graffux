@@ -28,7 +28,7 @@ import org.junit.Test
 class SelectionTest {
 
     private val canvas = IntSize(100, 100)
-    private val square = Selection(
+    private val square = Selection.ofPolygon(
         path = listOf(Offset(10f, 10f), Offset(50f, 10f), Offset(50f, 50f), Offset(10f, 50f)),
         canvasSize = canvas,
     )
@@ -51,7 +51,7 @@ class SelectionTest {
     @Test
     fun `a polygon too small to enclose anything is treated as a deselect`() {
         // Otherwise it would silently clip every subsequent stroke to nothing.
-        val sliver = Selection(listOf(Offset.Zero, Offset(1f, 1f)), canvas)
+        val sliver = Selection.ofPolygon(listOf(Offset.Zero, Offset(1f, 1f)), canvas)
         val state = EditorReducer.reduce(EditorUiState(), EditorIntent.SetSelection(sliver))
         assertNull(state.selection)
     }
@@ -117,7 +117,7 @@ class SelectionTest {
     }
 
     private fun moveCommand(delta: Offset? = Offset(12f, -4f)) = StrokeCommand(
-        path = square.path,
+        path = square.outline,
         canvasSize = canvas,
         tool = Tool.SELECT,
         brushSize = 0f,

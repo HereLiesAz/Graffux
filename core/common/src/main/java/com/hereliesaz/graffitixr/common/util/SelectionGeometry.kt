@@ -21,13 +21,28 @@ object SelectionGeometry {
 
     /**
      * True when [point] (screen space) lies in the selected region, honouring
-     * [Selection.inverted]. Even-odd ray casting: count the polygon edges a ray cast to +x
-     * crosses; odd means inside. Points exactly on an edge may land either way — a half-pixel
-     * ambiguity that no gesture can perceive.
+     * [Selection.inverted].
+     *
+     * The rings are replayed in order — an additive ring ors its interior in, a subtractive one ands
+     * it out — which is exactly what `Path.op(Union)`/`op(Difference)` does to the same rings in the
+     * rasteriser. The two must agree: this decides whether a finger landed on the selection (a move)
+     * while that decides which pixels get painted, and a disagreement is a drag that grabs a region
+     * the paint won't honour.
+     *
+     * [featherPx] is deliberately ignored. A feathered edge is a gradient, and a gesture needs a
+     * yes or a no; the hard boundary is the honest midpoint of the ramp.
      */
     fun contains(selection: Selection, point: Offset): Boolean {
         if (!selection.isUsable) return false
-        val inside = insidePolygon(selection.path, point)
+        var inside = false
+        for (ring in selection.rings) {
+            if (!ring.isUsable) continue
+            // Short-circuit: an additive ring can't change an already-inside point, and a
+            // subtractive one can't change an already-outside one. Worth having because a magic-wand
+            // contour runs to hundreds of vertices and this is called per pointer event.
+            if (ring.additive == inside) continue
+            if (insidePolygon(ring.path, point)) inside = ring.additive
+        }
         return if (selection.inverted) !inside else inside
     }
 
