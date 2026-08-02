@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -57,6 +59,7 @@ import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.SelectionOp
@@ -74,6 +77,7 @@ import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.AnimationWindow
+import com.hereliesaz.graffitixr.feature.editor.ToolOptionsWindow
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
@@ -83,7 +87,6 @@ import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
-import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
 import com.hereliesaz.graffitixr.feature.editor.StrokeGate
@@ -184,7 +187,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showStoreChooser by remember { mutableStateOf(false) }
     var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
-    var showGalleryDialog by remember { mutableStateOf(false) }
+    var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
@@ -350,8 +353,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     // The same set the rail items tag themselves with; azConfig is what actually makes the library
     // render them active, and it is declared here rather than in the item builder.
-    val activeClassifiers =
-        activeRailClassifiers(uiState, brushes, customBrushes, modelWindowOpen = showModelDialog)
+    val activeClassifiers = activeRailClassifiers(
+        uiState, brushes, customBrushes,
+        modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
+    )
 
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -414,6 +419,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 onEditClicked = { showLayerOptionsDialog = true },
                 onModelClicked = { showModelDialog = true },
                 modelWindowOpen = showModelDialog,
+                onToolOptionsClicked = { showToolOptions = !showToolOptions },
+                toolOptionsOpen = showToolOptions,
             )
 
             background(weight = 0) {
@@ -438,14 +445,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     // silent way to end up with one unreadable line. Said once here instead.
                     fun menuItem(text: String, onClick: () -> Unit) =
                         azItem(color = menuItemColor, text = text, onClick = onClick)
-                    // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
-                    // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
-                    // the device; Gallery browses the projects already in the app; Import brings an
-                    // image or another design file INTO the current project, which is what the old
+                    // New starts a blank project; Open browses what exists; Import brings an image or
+                    // another design file INTO the current project, which is what the old
                     // "Open"/"Open File" pair actually did despite their names.
+                    //
+                    // "Gallery" is gone. It opened a window listing the app's own projects with
+                    // open/new/delete — a strict subset of what Open already does, since Open lists
+                    // exactly the same projects and adds the device scan and a location chooser on
+                    // top. The claim beside these entries that each "maps onto a distinct action"
+                    // was simply untrue of that pair.
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                    menuItem(text = "Gallery", onClick = { showGalleryDialog = true })
                     menuItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                     menuItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                     menuItem(text = "Add…", onClick = { showAddDialog = true })
@@ -483,12 +493,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    // Two entries, because they are two jobs. Store is where you *get* something and
-                    // opens the chooser; Extensions is what you already have, and is where the
-                    // installed list and its uninstall buttons live. Folding them together is what
-                    // previously made "Store" open a management window with a browse button buried
-                    // inside it.
-                    menuItem(text = "Store", onClick = { showStoreChooser = true })
+                    // One entry. It was split into "Store" (the chooser) and "Extensions" (the
+                    // manager) to stop Store from "opening a management window with a browse button
+                    // buried inside it" — except the manager still has that browse button, wired to
+                    // the very same chooser, so the split bought a second name for one destination
+                    // and left the thing it was meant to remove in place. Manage is the window you
+                    // want either way: it lists what is installed and browses from there.
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
                     menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
@@ -693,11 +703,16 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             onCornerRadius = { showCornerDialog = true },
                             onPolygonSides = { showSidesDialog = true },
                             onToggleFill = { vm.toggleVectorFill() },
-                            onOpacityChange = { vm.onOpacityChanged(it) },
-                            onOpacityStart = { vm.onLayerEditStart() },
-                            onOpacityCommit = { vm.onLayerEditEnd() },
-                            onBlendMode = { showBlendDialog = true },
-                            onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
+                            onEditStart = { vm.onLayerEditStart() },
+                            onEditCommit = { vm.onLayerEditEnd() },
+                            // Only for a layer that actually has children to arrange.
+                            autoLayoutGap = uiState.layers
+                                .firstOrNull { l -> l.id == overlay.id && uiState.layers.any { it.parentId == l.id } }
+                                ?.autoLayout?.gap,
+                            onGapChange = { gap ->
+                                val current = uiState.layers.first { it.id == overlay.id }.autoLayout
+                                vm.onSetAutoLayout(current.copy(gap = gap))
+                            },
                             onDismiss = { showLayerOptionsDialog = false },
                         )
                     }
@@ -727,17 +742,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             projectSaver.launch(ProjectFile.suggestedFileName(name))
                         },
                         onDismiss = { showSaveDialog = false },
-                    )
-                }
-
-                if (showGalleryDialog) {
-                    GalleryWindow(
-                        projects = projects,
-                        currentProjectId = uiState.projectId,
-                        onOpen = { vm.openProject(it) },
-                        onNew = { vm.createNewProject() },
-                        onDelete = { vm.deleteProjectById(it) },
-                        onDismiss = { showGalleryDialog = false },
                     )
                 }
 
@@ -806,6 +810,23 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
 
+                if (showToolOptions) {
+                    ToolOptionsWindow(
+                        stabilizerLevel = uiState.stabilizerLevel,
+                        onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
+                        // Both are null unless they mean something right now — the window shows the
+                        // dials the tool in hand actually has, never a dead control.
+                        magicWandTolerance =
+                            uiState.magicWandTolerance.takeIf { uiState.selectionShape == SelectionShape.AUTOMATIC },
+                        onSetMagicWandTolerance = { vm.onSetMagicWandTolerance(it) },
+                        selectionFeatherPx = uiState.selection?.featherPx,
+                        onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
+                        brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null },
+                        onSetBrushFlow = { vm.setBrushFlow(it) },
+                        onDismiss = { showToolOptions = false },
+                    )
+                }
+
                 if (showFigmaDialog) {
                     FigmaWindow(
                         state = figmaState,
@@ -864,37 +885,63 @@ private fun BrushSizePad(vm: EditorViewModel) {
             .pointerInput(Unit) {
                 detectDragGestures { change, drag ->
                     change.consume()
-                    val maxPx = maxOf(itemPx, 1f)
                     if (drag.y != 0f) {
                         val cur = vm.uiState.value.brushSize
-                        vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(1f, maxPx))
+                        // Clamped to the brush's real range, NOT to this pad's rendered width. The
+                        // pad used to cap the value at its own measured size, which was harmless
+                        // only while a rail slider could still reach 200 px; it is the sole size
+                        // control now, so that ceiling would silently become the maximum brush in
+                        // the app — and a pad narrower than the current size would snap it down on
+                        // the first touch. The width still bounds the *preview* below, which is all
+                        // it was ever entitled to bound.
+                        vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
                     }
                     if (drag.x != 0f) {
-                        if (vm.uiState.value.activeBrushName != null) {
-                            val cur = vm.uiState.value.brushFlow
-                            vm.setBrushFlow((cur + drag.x * 0.005f).coerceIn(0f, 1f))
-                        } else {
-                            val cur = vm.uiState.value.brushFeathering
-                            vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
-                        }
+                        // Hardness, always — never flow. The axis used to mean feathering for the
+                        // round brush and stamp-brush flow for anything else, so the same gesture
+                        // did two unrelated things depending on state you could not see from the
+                        // pad, and the preview had to show opacity to reflect it. Flow is a stamp
+                        // brush's own parameter and lives in Tool Options with the other dials.
+                        val cur = vm.uiState.value.brushFeathering
+                        vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
                     }
                 }
             },
         contentAlignment = Alignment.Center,
     ) {
-        val maxPx = maxOf(itemPx, 1f)
-        val isStamp = state.activeBrushName != null
-        val feather = state.brushFeathering
-        val haloDp = with(density) { state.brushSize.coerceIn(1f, maxPx).toDp() }
-        val coreDp = with(density) {
-            (if (isStamp) state.brushSize else state.brushSize * (1f - feather * 0.7f))
-                .coerceIn(2f, maxPx).toDp()
+        val feather = state.brushFeathering.coerceIn(0f, 1f)
+        // The preview is the brush's actual footprint at its actual size, so what you see while
+        // dragging is what the next stroke puts down.
+        //
+        // **Softness, drawn as softness.** A hard brush is a disc with a hard edge; a soft one fades
+        // out over its radius; and the horizontal drag moves continuously between the two, which is
+        // exactly what a radial gradient expresses. This used to be a flat 30%-alpha ring around a
+        // shrunken solid core — two hard edges standing in for one soft one, which reads as a
+        // translucent brush rather than a soft one. The pad ended up demonstrating *opacity*, the
+        // one property it does not control.
+        //
+        // Nothing here is ever drawn translucent. Alpha is opacity, the pad does not set opacity,
+        // and a preview that dims is a preview that lies about which dial you are on.
+        Canvas(Modifier.fillMaxSize()) {
+            val maxR = maxOf(minOf(size.width, size.height) / 2f, 1f)
+            val radius = (state.brushSize / 2f).coerceIn(1.5f, maxR)
+            // Where the solid core ends and the falloff begins: the whole radius when hard, the
+            // centre point when fully soft.
+            val core = (1f - feather).coerceIn(0f, 1f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    // Two stops at the same offset give the hard-edged case a genuine hard edge
+                    // rather than a one-pixel ramp.
+                    0f to Cyan,
+                    core to Cyan,
+                    1f to Cyan.copy(alpha = 0f),
+                    center = center,
+                    radius = radius,
+                ),
+                radius = radius,
+                center = center,
+            )
         }
-        if (!isStamp && feather > 0.05f) {
-            Box(Modifier.size(haloDp).background(Cyan.copy(alpha = 0.3f), CircleShape))
-        }
-        val coreAlpha = if (isStamp) state.brushFlow.coerceIn(0.08f, 1f) else 1f
-        Box(Modifier.size(coreDp).background(Cyan.copy(alpha = coreAlpha), CircleShape))
     }
 }
 
@@ -983,6 +1030,8 @@ private fun activeRailClassifiers(
     // floating window's. It is here at all because an item that opens a window has to light up while
     // that window is open, or the rail says nothing about a panel sitting over the artwork.
     modelWindowOpen: Boolean,
+    /** Whether the Tool Options window is open — same reasoning as [modelWindowOpen]. */
+    toolOptionsOpen: Boolean,
 ): Set<String> = buildSet {
     // The active tool. One of these at a time, by construction; Tool.NONE has no item, because it is
     // the absence of one.
@@ -995,6 +1044,13 @@ private fun activeRailClassifiers(
     if (uiState.activeTool in FOCUS_TOOLS) add(FOCUS_ID)
     // Node editing is a vector mode rather than a Tool, so it lights its host separately.
     if (uiState.pathEditLayerId != null) add(VECTOR_ID)
+    // The lasso lives under a host too, and for the same reason its host has to carry the light: a
+    // sub-item is out of sight whenever its group is closed.
+    if (uiState.activeTool == Tool.SELECT) add("grp.select")
+    if (uiState.symmetryMode != SymmetryMode.NONE) add("grp.symmetryMode")
+    // Clone's second step. It lights once the tool is aimed, which is the state that decides whether
+    // the next stroke copies anything — the item had declared this classifier since it was written
+    // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
     if (uiState.symmetryMode != SymmetryMode.NONE) add("tool.symmetry")
@@ -1003,7 +1059,9 @@ private fun activeRailClassifiers(
     // window's own item — otherwise a recording in progress would show nowhere in the rail.
     if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
     if (modelWindowOpen) add("tool.model")
+    if (toolOptionsOpen) add("tool.options")
     if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
+    if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
     if (uiState.selection?.inverted == true) add("tool.selectInvert")
     if (uiState.quickMenuAt != null) add("tool.quick")
     if (uiState.showColorPicker) add("tool.color")
@@ -1055,10 +1113,14 @@ private fun AzNavHostScope.ConfigureRailItems(
     onEditClicked: () -> Unit,
     onModelClicked: () -> Unit,
     modelWindowOpen: Boolean,
+    onToolOptionsClicked: () -> Unit,
+    toolOptionsOpen: Boolean,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
-    val activeIds =
-        activeRailClassifiers(uiState, brushes, customBrushes, modelWindowOpen = modelWindowOpen)
+    val activeIds = activeRailClassifiers(
+        uiState, brushes, customBrushes,
+        modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
+    )
     val navStrings = strings.nav
 
     /** An item's colour: the accent while it is active, the rail's base colour otherwise. */
@@ -1091,8 +1153,16 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor, shape = shape, onClick = onClick,
         )
 
-    /** A group header: the bordered circle every host in this rail shares. */
-    fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = emptySet()) =
+    /**
+     * A group header: the bordered circle every host in this rail shares.
+     *
+     * The id is the classifier, as it is for every other builder here. It used to default to
+     * `emptySet()`, and five of the six hosts took that default — so `railColor(id)` inside this
+     * function was computing an accent that the library could never apply, because AzNavRail marks
+     * an item active by matching its *classifiers* against the active set, and an empty set matches
+     * nothing. An armed Select tool showed nothing at all once its group was closed.
+     */
+    fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = setOf(id)) =
         azRailHostItem(
             id = id, text = text, content = content, classifiers = classifiers,
             color = railColor(id), shape = AzButtonShape.CIRCLE,
@@ -1126,30 +1196,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     fun modeItem(id: String, text: String, content: Any?, onClick: () -> Unit) =
         azRailItem(
             id = id, classifiers = setOf(id), text = text,
-            menuText = if (id in activeIds) "$text ✓" else text,
             content = content, color = railColor(id), onClick = onClick,
         )
-
-    /**
-     * A rail slider. Always vertical — the rail is — which is the whole of what the six
-     * `AzSliderConfig(orientation = VERTICAL, …)` blocks below used to restate between them.
-     */
-    fun railSlider(
-        id: String,
-        text: String,
-        value: Float,
-        range: ClosedFloatingPointRange<Float>,
-        format: (Float) -> String,
-        onChange: (Float) -> Unit,
-    ) = azRailSlider(
-        id = id, text = text, value = value,
-        config = AzSliderConfig(
-            orientation = AzSliderOrientation.VERTICAL,
-            valueFrom = range.start,
-            valueTo = range.endInclusive,
-        ),
-        color = navItemColor, valueFormatter = format, onValueChange = onChange,
-    )
+    // No `menuText` here any more. It rendered a "$text ✓" variant for the side drawer, and this app
+    // sets `azConfig(noMenu = true)` — the drawer does not exist. The library reads menuText only
+    // from its drawer surfaces, so every one of these strings was built and discarded, while the
+    // comment beside them described a list the user cannot open. The tick is carried by the item's
+    // own active state, which is the thing that is actually on screen.
 
     // ── Procreate's top-left group: Adjustments · Selection · Transform ────────────────────────────
     // Adjustments is `grp.adjust`, declared further down as a floating host — Procreate gives it a
@@ -1159,12 +1212,15 @@ private fun AzNavHostScope.ConfigureRailItems(
     // on a selection. These were four flat rail entries — Select, Quick, Invert, Deselect — sitting
     // among the paint tools, which is neither where Procreate puts them nor what they are: three of
     // the four do nothing at all until a selection exists.
-    hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectLasso)
+    // SelectAll for the group, not SelectLasso. The lasso glyph appeared three times inside this one
+    // group — on the host, on the Select tool, and on the Freehand shape — so opening it showed three
+    // identical pictures. The lasso now means exactly one thing: the freehand shape, further down.
+    hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectAll)
     // Selecting: pick up the tool, then pick how a drag is read. Procreate's modes sit inside its
     // Selection control the same way, and for the same reason — they are not four tools, they are
     // one tool that makes a region four ways. A region confines every raster tool until it's
     // cleared; dragging inside the marquee moves the selected pixels.
-    toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectLasso)
+    toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectSubject)
     SelectionShape.entries.forEach { mode ->
         stateSubItem(
             id = "selectShape.${mode.name}", hostId = "grp.select", text = mode.label,
@@ -1175,14 +1231,6 @@ private fun AzNavHostScope.ConfigureRailItems(
                 SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
             },
         ) { vm.onSetSelectionShape(mode) }
-    }
-    // How far from the tapped colour Automatic still counts as the same colour. Only while that
-    // mode is the one selected — on any other mode it is a control that does nothing.
-    if (uiState.selectionShape == SelectionShape.AUTOMATIC) {
-        railSlider(
-            "select.tolerance", "Threshold", uiState.magicWandTolerance.toFloat(), 0f..255f,
-            { "${(it / 255f * 100).roundToInt()}%" },
-        ) { vm.onSetMagicWandTolerance(it.roundToInt()) }
     }
     // What the next drag *does*, which is a separate question from what shape it draws — two
     // pickers of three rather than one picker of nine. Subtracting a lasso from a rectangle is a
@@ -1214,7 +1262,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         subItem("sel.copy", "grp.select", "Copy", GraffuxIcons.LayerDuplicate) { vm.onCopySelection() }
         subItem("sel.cut", "grp.select", "Cut", GraffuxIcons.PathKnife) { vm.onCutSelection() }
         subItem("sel.save", "grp.select", "Save Selection", GraffuxIcons.DocumentSave) {
-            vm.onSaveSelection("Selection ${uiState.savedSelections.size + 1}")
+            vm.onSaveSelection(vm.nextSelectionName())
         }
     }
     // Paste needs a clipboard, not a selection — it makes a new layer, so it is useful precisely
@@ -1243,19 +1291,13 @@ private fun AzNavHostScope.ConfigureRailItems(
             }
         }
     }
-    // Feather softens the boundary of the selection that exists, so it only appears once one does —
-    // there is nothing for it to act on otherwise, and it is stored on the selection rather than
-    // beside it, so it travels when the region moves.
-    uiState.selection?.let { sel ->
-        railSlider("select.feather", "Feather", sel.featherPx, 0f..64f, { "${it.roundToInt()} px" }) {
-            vm.onSetSelectionFeather(it)
-        }
-    }
 
     // Transform is its own control in Procreate's top bar, beside Adjustments and Selection — not an
     // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the
     // classifier set and the panel it opens are unchanged.
-    stateItem("adj.transform", "Transform", GraffuxIcons.SelectTransform) { vm.onTransformClicked() }
+    // Move, not SelectTransform: this item sat directly above the Freeform mode carrying the very
+    // same glyph, so the group header and its first member were indistinguishable.
+    stateItem("adj.transform", "Transform", GraffuxIcons.Move) { vm.onTransformClicked() }
     // Procreate's three transform modes. Freeform moves the layer; Distort and Warp bend it, and
     // are the same grid at two resolutions — four corners for a perspective, sixteen for a mesh.
     TransformMode.entries.forEach { mode ->
@@ -1337,7 +1379,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
-        id = VECTOR_ID, text = "Vector", content = GraffuxIcons.PenInk,
+        id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
         // Stays open while you work: node editing is several taps in a row, not one.
         keepNestedRailOpen = true,
@@ -1375,7 +1417,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Heal blends what it samples into the surrounding tone, Clone copies it verbatim — which is
     // exactly the distinction the group makes visible by putting them next to each other.
     azNestedRail(
-        id = RETOUCH_ID, text = "Retouch", content = GraffuxIcons.Heal,
+        id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
         color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
         keepNestedRailOpen = true,
     ) {
@@ -1408,7 +1450,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // dragging a brush across the canvas, so it is the same gesture as Smudge with a much larger
     // radius, and a user who wants one is choosing between the two.
     azNestedRail(
-        id = FOCUS_ID, text = "Focus & Tone", content = GraffuxIcons.Dodge,
+        id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
         color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
         keepNestedRailOpen = true,
     ) {
@@ -1447,7 +1489,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                             LayoutDirection.VERTICAL -> "Column"
                         },
                         content = when (dir) {
-                            LayoutDirection.NONE -> GraffuxIcons.SelectTransform
+                            LayoutDirection.NONE -> GraffuxIcons.Move
                             LayoutDirection.HORIZONTAL -> GraffuxIcons.DistributeHorizontal
                             LayoutDirection.VERTICAL -> GraffuxIcons.DistributeVertical
                         },
@@ -1458,9 +1500,6 @@ private fun AzNavHostScope.ConfigureRailItems(
                 if (current.direction != LayoutDirection.NONE) {
                     subItem("lay.hug", "grp.layout", "Hug Contents", GraffuxIcons.ScaleProportional) {
                         vm.onHugContents()
-                    }
-                    railSlider("lay.gap", "Gap", current.gap, 0f..100f, { "${it.roundToInt()}" }) {
-                        vm.onSetAutoLayout(current.copy(gap = it))
                     }
                     LayoutAlign.entries.forEach { align ->
                         azRailSubItem(
@@ -1523,7 +1562,12 @@ private fun AzNavHostScope.ConfigureRailItems(
         val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
         val hasShape = active?.shapes?.isNotEmpty() == true
         val hasText = active?.textParams != null
-        if (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) {
+        // A token existing is not on its own a reason to show this group: with no active layer there
+        // is nothing to create a token from and nothing to apply one to, so the host would open onto
+        // an empty list. It needs a layer, and then either something to lift a token from or a token
+        // to apply.
+        val hasTokens = uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty()
+        if (active != null && (hasTokens || hasShape || hasText)) {
             hostItem(id = "grp.styles", text = "Styles", content = GraffuxIcons.LayerStyle)
             if (hasShape) {
                 subItem("sty.newColor", "grp.styles", "New Colour Style", GraffuxIcons.ColorSwatch) {
@@ -1535,9 +1579,13 @@ private fun AzNavHostScope.ConfigureRailItems(
                     vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
                 }
             }
-            // Applying a token to the active layer, and re-pointing a token at the current colour.
+            // Applying a token needs a layer to apply it TO — which the guard above now requires.
+            // `onApplyColorStyle` and `onApplyTextStyle` both open with `activeLayerId ?: return`,
+            // so with no active layer these used to render, take the tap, and do nothing at all: no
+            // toast, no HUD, unlike every neighbouring action. The old guard admitted "a token
+            // exists" on its own, which is what let them through.
             uiState.colorStyles.forEach { style ->
-                val linked = active?.shapes?.any { it.fillStyleId == style.id } == true
+                val linked = active.shapes.any { it.fillStyleId == style.id }
                 azRailSubItem(
                     id = "sty.color.${style.id}", hostId = "grp.styles", text = style.name,
                     content = GraffuxIcons.ColorSwatches,
@@ -1546,7 +1594,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                 )
             }
             uiState.textStyles.forEach { style ->
-                val linked = active?.textParams?.styleId == style.id
+                val linked = active.textParams?.styleId == style.id
                 azRailSubItem(
                     id = "sty.text.${style.id}", hostId = "grp.styles", text = style.name,
                     content = GraffuxIcons.GlyphsPanel,
@@ -1617,12 +1665,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
     // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
     modeItem("tool.wraparound", "Wrap Around", GraffuxIcons.StampPattern) { vm.toggleWrapAroundMode() }
-    // Stroke stabilizer: smooths jitter out of a drag before it becomes a stroke point. Same gap as
-    // wrap-around — StrokeStabilizer and setStabilizerLevel() were both wired ViewModel-side with
-    // nothing in the rail ever calling it, so every stroke stayed unstabilized regardless of level.
-    railSlider("tool.stabilizer", "Stabilize", uiState.stabilizerLevel.toFloat(), 0f..100f, { "${it.roundToInt()}%" }) {
-        vm.setStabilizerLevel(it.roundToInt())
-    }
     // ── The two workspaces ────────────────────────────────────────────────────────────────────────
     // Animation and 3D are not tools you reach for mid-stroke; they are surfaces you set up and then
     // work inside, and both have far more state than a rail item can show. Each is one item here
@@ -1644,17 +1686,15 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it that draws a solid in three dimensions. Better a near-miss from the app's own set than a
     // stray icon from a library, which is how the rail ended up with a broom for the eraser.
     stateItem("tool.model", "3D Model", GraffuxIcons.GuideIsometric) { onModelClicked() }
-    // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
-    // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
-    // its own read-out while dragging, so it's obvious which is which and what value you're on.
-    railSlider("tool.size", "Size", uiState.brushSize, MIN_BRUSH_SIZE..MAX_BRUSH_SIZE, { "${it.roundToInt()} px" }) {
-        vm.setBrushSize(it)
-    }
-    // Brush opacity is the active colour's alpha — the value buildStrokePaint actually samples, so
-    // this moves the stroke itself rather than a proxy for it.
-    railSlider("tool.opacity", "Opacity", uiState.activeColor.alpha, MIN_BRUSH_ALPHA..1f, { "${(it * 100).roundToInt()}%" }) {
-        vm.setActiveColor(uiState.activeColor.copy(alpha = it))
-    }
+    // (No sliders on the rail. A rail of round buttons is the wrong place for a control that needs
+    // a length to be usable and a read-out to be meaningful, and `azRailSlider` has no "you let go"
+    // event — which is why the two that wrote to history wrote once per emitted frame. Brush size
+    // and feathering are the drag pad in the Adjust palette, which shows the real footprint at the
+    // real size; stabilize and the selection dials are the Tool Options window; auto-layout's gap is
+    // in the layer window with the rest of that layer's properties. Brush *opacity* is gone
+    // outright: layer opacity is already an Adjust knob, and the rail slider claimed to move "the
+    // value buildStrokePaint actually samples" when only one of fourteen tools ever read it.)
+    stateItem("tool.options", "Tool Options", GraffuxIcons.BrushSettings) { onToolOptionsClicked() }
 
     // The brush group is now unconditional: Brush Studio means there's always something to do here
     // (make one), where previously the whole group vanished unless a brush extension was installed.
@@ -1668,10 +1708,13 @@ private fun AzNavHostScope.ConfigureRailItems(
         onClick = { vm.selectBrushExtension(null) },
     )
     brushes.forEach { (id, name) ->
-        stateSubItem("brush.$id", "grp.brushes", name, GraffuxIcons.Brush) { vm.selectBrushExtension(id) }
+        // BrushLibrary, not Brush: the plain brush glyph is the brush *tool*. Using it here too meant
+        // the tool, every installed brush and every custom brush were the same picture — verbatim the
+        // defect the comment on the tool strip claims to have fixed.
+        stateSubItem("brush.$id", "grp.brushes", name, GraffuxIcons.BrushImport) { vm.selectBrushExtension(id) }
     }
     customBrushes.forEach { custom ->
-        stateSubItem("brush.custom.${custom.id}", "grp.brushes", custom.brush.name, GraffuxIcons.Brush) {
+        stateSubItem("brush.custom.${custom.id}", "grp.brushes", custom.brush.name, GraffuxIcons.BrushSettings) {
             vm.selectCustomBrush(custom.id)
         }
     }
@@ -1724,9 +1767,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
     // unattached host): the user parks it wherever it suits the artwork and the position persists
     // across launches, the way Procreate's panels stay where you leave them.
+    // The host is "Effects", not "Adjust". It used to carry the same label AND the same glyph as its
+    // own first child, so opening **Adjust** presented a button called **Adjust** with an identical
+    // picture, and there was no way to tell the container from the thing inside it. The group holds
+    // four different panels; only one of them is the tone adjustments.
     azUnattachedHostItem(
-        id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
-        content = GraffuxIcons.LayerAdjustment, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        id = "grp.adjust", text = "Effects", anchor = AzUnattachedAnchor.FLOATING,
+        content = GraffuxIcons.FilterGallery, color = navItemColor, shape = AzButtonShape.CIRCLE,
     )
     stateSubItem(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust,
@@ -1747,7 +1794,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
     // already worked end to end once selected, but nothing ever opened the panel to select from.
     stateSubItem(
-        id = "adj.extensions", hostId = "grp.adjust", text = "Extensions",
+        // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
+        // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
+        // windows under one name is how a user ends up in the wrong one.
+        id = "adj.extensions", hostId = "grp.adjust", text = "Run Extension",
         content = GraffuxIcons.FilterGallery, shape = AzButtonShape.CIRCLE,
     ) { vm.onExtensionsClicked() }
     // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
@@ -1818,7 +1868,11 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
             listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
         } else {
-            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            // The one rule, shared with the quick menu. This used to allow anything that was not a
+            // group, so a vector layer offered a lock no stroke would ever consult.
+            if (layer.supportsAlphaLock) {
+                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            }
             listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }

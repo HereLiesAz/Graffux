@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -297,5 +298,44 @@ class EditorReducerTest {
         val out = reduce(s, EditorIntent.PasteLayerModifications("a", source))
         assertEquals(0.2f, out.layers.first().opacity)
         assertEquals(listOf(1f, 2f), out.layers.first().warpMesh)
+    }
+    // ── Symmetry: the toggle and the picker are two controls for one setting ──────────────────────
+
+    /**
+     * The toggle must not throw away the mode the picker set.
+     *
+     * The rail has both a quick on/off and a five-way picker. The toggle used to hard-code Vertical
+     * on the way back on, so choosing Radial 6, tapping off and tapping on again silently left you
+     * on Vertical — a destructive interaction between two controls that look independent.
+     */
+    @Test
+    fun `toggling symmetry off and on restores the mode that was chosen`() {
+        var s = reduce(state(), EditorIntent.SetSymmetryMode(SymmetryMode.RADIAL_6))
+        assertEquals(SymmetryMode.RADIAL_6, s.symmetryMode)
+
+        s = reduce(s, EditorIntent.ToggleSymmetry)
+        assertEquals("toggling off must turn symmetry off", SymmetryMode.NONE, s.symmetryMode)
+
+        s = reduce(s, EditorIntent.ToggleSymmetry)
+        assertEquals("toggling back on must restore Radial 6", SymmetryMode.RADIAL_6, s.symmetryMode)
+    }
+
+    /** With nothing yet chosen, the toggle still has to turn something on. */
+    @Test
+    fun `toggling symmetry from the default turns it on`() {
+        val s = reduce(state(), EditorIntent.ToggleSymmetry)
+        assertTrue("the toggle must turn symmetry on", s.symmetryMode != SymmetryMode.NONE)
+    }
+
+    /**
+     * Picking NONE from the picker is "off", not a mode to come back to — otherwise the toggle would
+     * restore NONE and appear to do nothing at all.
+     */
+    @Test
+    fun `choosing None from the picker does not become the remembered mode`() {
+        var s = reduce(state(), EditorIntent.SetSymmetryMode(SymmetryMode.QUADRANT))
+        s = reduce(s, EditorIntent.SetSymmetryMode(SymmetryMode.NONE))
+        s = reduce(s, EditorIntent.ToggleSymmetry)
+        assertEquals(SymmetryMode.QUADRANT, s.symmetryMode)
     }
 }

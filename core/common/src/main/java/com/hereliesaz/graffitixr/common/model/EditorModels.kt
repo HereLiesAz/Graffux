@@ -100,6 +100,22 @@ data class Layer(
 )
 
 /**
+ * Whether Alpha Lock means anything for this layer.
+ *
+ * It confines paint to pixels that already carry alpha, so it needs a layer that is painted into and
+ * has pixels of its own. A **group** has no bitmap — it composites its children — and a **vector**
+ * layer is rendered from its shapes, so a stroke does not go into it either. Toggling it on either
+ * sets a flag that no paint will ever consult.
+ *
+ * Declared here because three separate places offered the control and each used a different rule:
+ * the layer row's menu allowed anything that was not a group, the layer window required no shapes,
+ * and the quick menu asked nothing at all beyond a layer being active. So the same layer could offer
+ * Alpha Lock in one place, refuse it in another, and silently accept a no-op in a third.
+ */
+val Layer.supportsAlphaLock: Boolean
+    get() = type == LayerType.RASTER && shapes.isEmpty()
+
+/**
  * The subset of a layer's visual/aesthetic properties that can be changed without replacing
  * the whole layer. Used by Op.LayerPropsChange to stream property-only mutations over the wire.
  */
@@ -197,6 +213,15 @@ data class EditorUiState(
     // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
     // vertical centre line as they're painted.
     val symmetryMode: SymmetryMode = SymmetryMode.NONE,
+    /**
+     * The mode the symmetry toggle restores when it is switched back on.
+     *
+     * Kept because the rail has two controls for one setting — a quick on/off and a five-way picker —
+     * and without this the toggle was destructive: pick Radial 6, tap the toggle to turn symmetry off
+     * for a moment, tap it again, and you were on Vertical with no way to know what you had lost.
+     * Never [SymmetryMode.NONE], because "restore the off state" is not a thing to restore to.
+     */
+    val lastSymmetryMode: SymmetryMode = SymmetryMode.VERTICAL,
     // Procreate's time-lapse: while true, EditorViewModel streams a downsampled canvas snapshot to
     // a GIF file after every committed stroke (see TimeLapseRecorder). Transient UI state, not history.
     val isTimeLapseRecording: Boolean = false,

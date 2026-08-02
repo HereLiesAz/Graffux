@@ -33,6 +33,10 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            // Robolectric needs the merged resources and manifest to inflate anything, and a Compose
+            // test inflates a real host Activity. Without this the gesture tests below cannot run at
+            // all — they fail at setContent, long before they reach an assertion.
+            isIncludeAndroidResources = true
         }
     }
 }
@@ -75,4 +79,10 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    // Compose UI testing, on the JVM via Robolectric. Needed to inject real multi-touch: the canvas
+    // gestures — two-finger pan/zoom/rotate above all — are pure pointer-event arbitration between
+    // stacked pointerInput layers, and nothing below the Compose runtime can exercise that. They had
+    // no coverage at all until this was wired up.
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
