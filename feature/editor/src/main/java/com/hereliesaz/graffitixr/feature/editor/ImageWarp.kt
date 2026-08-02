@@ -73,6 +73,20 @@ internal object ImageWarp {
             isDither = true
         }
 
+        // A destination that encloses no area has no useful transform, and the two APIs below fail
+        // it in different and equally unhelpful ways: drawBitmapMesh draws nothing, while
+        // setPolyToPoly *succeeds* for a fully collapsed quad and returns a matrix that maps the
+        // whole layer onto a single point — silently erasing the artwork. Its own false return only
+        // catches the collinear case. So the check has to be made here, before either sees it.
+        val minX = destination.minOf { it.x }
+        val maxX = destination.maxOf { it.x }
+        val minY = destination.minOf { it.y }
+        val maxY = destination.maxOf { it.y }
+        if (maxX - minX < 1f || maxY - minY < 1f) {
+            canvas.drawBitmap(source, 0f, 0f, paint)
+            return out
+        }
+
         if (n == 2) {
             val src = floatArrayOf(0f, 0f, w, 0f, 0f, h, w, h)
             val dst = FloatArray(8)
@@ -83,8 +97,8 @@ internal object ImageWarp {
                 dst[i * 2 + 1] = destination[idx].y
             }
             val matrix = Matrix()
-            // False when the quad is degenerate — dragged inside-out, or three handles collinear.
-            // There is no sensible transform then, so the untouched copy is the honest answer.
+            // Still checked: setPolyToPoly refuses a collinear quad (three handles in a line),
+            // which the bounding-box test above lets through when the fourth is off-axis.
             if (!matrix.setPolyToPoly(src, 0, dst, 0, 4)) {
                 canvas.drawBitmap(source, 0f, 0f, paint)
                 return out
