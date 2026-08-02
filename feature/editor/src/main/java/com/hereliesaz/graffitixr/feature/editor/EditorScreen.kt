@@ -132,6 +132,18 @@ fun EditorScreen(
             // canvas it is now being drawn and hit-tested in.
             .onSizeChanged { vm.onCanvasSizeChanged(it) }
             .then(gestureObserver)
+            // Two-finger camera navigation, under every tool. On the root rather than as a layer
+            // inside it: as an ancestor it is always in the pointer path and is dispatched after
+            // the tool surfaces, so it sees exactly the events they declined to consume. Dropped
+            // entirely while the quick menu is open, so a gesture aimed at the menu does not also
+            // swing the canvas behind it.
+            .then(
+                if (uiState.quickMenuAt == null) {
+                    Modifier.canvasNavigation { pan, zoom, centroid, rotation ->
+                        vm.onViewportPanZoom(pan, zoom, centroid, rotation)
+                    }
+                } else Modifier
+            )
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
         // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
@@ -220,26 +232,9 @@ fun EditorScreen(
         }
         } // end infinite-canvas camera container
 
-        // 1d. Camera navigation — two or more fingers pan, pinch-zoom and rotate the workspace.
-        // Mounted under EVERY tool. This used to live inside the `activeTool == Tool.NONE` block
-        // below, which meant that the moment you picked a brush (or eraser, pen, lasso — anything)
-        // the canvas froze: a second finger only cancelled the stroke and then nothing moved. In
-        // Procreate two fingers navigate at all times, whatever the tool and whatever is selected,
-        // and that is the whole point of the gesture.
-        //
-        // Placed BELOW the tool surfaces in z-order, so a single finger still reaches the brush
-        // first; this layer ignores single-finger events entirely and never consumes them. Once a
-        // second finger lands, the drawing surfaces have already dropped out of their own loops
-        // (they treat two fingers as "this is a gesture, not painting"), so the events arrive here
-        // unclaimed.
-        if (uiState.quickMenuAt == null) {
-            CanvasNavigation(
-                onPanZoom = { pan, zoom, centroid, rotation ->
-                    vm.onViewportPanZoom(pan, zoom, centroid, rotation)
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        // (Camera navigation is a modifier on the root Box above — see `Modifier.canvasNavigation`.
+        // It was a sibling layer here and received no pointer events at all, because Compose stops
+        // hit-testing a Box's children at the topmost one that is hit.)
 
         // 2. Transform / tap gestures — only when no brush tool is active.
         if (uiState.activeTool == Tool.NONE) {
@@ -684,38 +679,59 @@ private fun LayerStackNode(
  * claim the first down (the Transform layer's tap detector consumes it outright); waiting for an
  * unconsumed one would mean never starting to track, and the pinch that follows would be missed.
  */
-@Composable
-private fun CanvasNavigation(
+/**
+ * A **[Modifier], applied to an ancestor** — not a sibling layer, which is what this used to be and
+ * why canvas navigation did not work at all.
+ *
+ * Compose hit-tests a Box's children from the top down and stops at the first one that is hit.
+ * Overlapping siblings do not all receive pointer events; only the topmost does. So a full-size
+ * navigation layer sitting *underneath* the drawing surface received nothing whatsoever — not
+ * "consumed events it should ignore", nothing — for as long as any tool surface was mounted above
+ * it, which is whenever a tool is selected. The old code's comment reasoned carefully about
+ * consumption and z-order and was wrong about the only thing that mattered: whether the events
+ * arrived. `CanvasNavigationTest` demonstrates it directly — an inert sibling on top that consumes
+ * nothing at all still starves the layer below.
+ *
+ * Ancestors have no such problem. The pointer path runs root → leaf, so every ancestor of the node
+ * that was hit is in it, and on the Main pass ancestors are dispatched *after* their descendants.
+ * That gives exactly the arbitration this gesture wants for free: the tool surface sees each event
+ * first and consumes it while it is painting, drops out the moment a second finger lands, and the
+ * unconsumed two-finger events then arrive here.
+ *
+ * The rule itself is Procreate's, and unconditional: **two or more fingers pan, pinch-zoom and
+ * rotate the workspace, under every tool, with anything or nothing selected.** A single finger is
+ * left strictly alone — no camera drag, no consumption — because it belongs to whichever tool is
+ * active, and there is no other way to move the canvas while painting on it.
+ */
+internal fun Modifier.canvasNavigation(
     onPanZoom: (pan: Offset, zoom: Float, centroid: Offset, rotation: Float) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        // Keyed on Unit so it never restarts: keying on the viewport would cancel and relaunch this
-        // block on every frame of a pan, dropping the in-flight gesture and making navigation feel
-        // dead. The camera state it needs comes from the events themselves, which are deltas.
-        modifier = modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val pressed = event.changes.count { it.pressed }
-                    if (pressed == 0) break
-                    // One finger is never the camera's — leave it entirely unclaimed.
-                    if (pressed < 2) continue
-                    val centroid = event.calculateCentroid()
-                    if (centroid != Offset.Unspecified) {
-                        onPanZoom(
-                            event.calculatePan(),
-                            event.calculateZoom(),
-                            centroid,
-                            event.calculateRotation(),
-                        )
-                    }
-                    event.changes.forEach { it.consume() }
-                }
+): Modifier = this.pointerInput(Unit) {
+    // Keyed on Unit so it never restarts: keying on the viewport would cancel and relaunch this
+    // block on every frame of a pan, dropping the in-flight gesture and making navigation feel dead.
+    // The camera state it needs comes from the events themselves, which are deltas.
+    awaitEachGesture {
+        // requireUnconsumed = false because the tool surfaces below legitimately claim the first
+        // down (the Transform layer's tap detector consumes it outright); waiting for an unconsumed
+        // one would mean never starting to track, and the pinch that follows would be missed.
+        awaitFirstDown(requireUnconsumed = false)
+        while (true) {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.count { it.pressed }
+            if (pressed == 0) break
+            // One finger is never the camera's — leave it entirely unclaimed.
+            if (pressed < 2) continue
+            val centroid = event.calculateCentroid()
+            if (centroid != Offset.Unspecified) {
+                onPanZoom(
+                    event.calculatePan(),
+                    event.calculateZoom(),
+                    centroid,
+                    event.calculateRotation(),
+                )
             }
+            event.changes.forEach { it.consume() }
         }
-    )
+    }
 }
 
 /**
