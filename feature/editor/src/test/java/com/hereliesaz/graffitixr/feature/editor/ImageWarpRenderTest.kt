@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,17 +18,15 @@ import org.robolectric.annotation.GraphicsMode
  * The grid maths was already unit-tested; what could not be was whether `setPolyToPoly` and
  * `drawBitmapMesh` were being *fed* correctly — argument order, row-major layout, quad counts. Those
  * are exactly the mistakes that produce a mirrored or transposed image rather than an exception.
+ *
+ * No native-loader stub here, unlike its siblings: [ImageWarp] never touches [ImageProcessor], so it
+ * does not need one. Checked rather than assumed — a stub carried for no reason is one more thing
+ * that looks required and isn't, and it would blunt the signal that the others genuinely are.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class ImageWarpRenderTest {
-
-    companion object {
-        @JvmStatic
-        @BeforeClass
-        fun setUp() = RenderTestBase.stubNativeLibs()
-    }
 
     /** A bitmap with one quadrant coloured, so an orientation error is visible rather than subtle. */
     private fun quadrants(size: Int = 32) =
