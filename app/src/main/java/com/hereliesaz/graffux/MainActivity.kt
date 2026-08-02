@@ -86,7 +86,6 @@ import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
-import com.hereliesaz.graffitixr.feature.editor.GalleryWindow
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
 import com.hereliesaz.graffitixr.feature.editor.StrokeGate
@@ -188,7 +187,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
-    var showGalleryDialog by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
@@ -446,14 +444,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     // silent way to end up with one unreadable line. Said once here instead.
                     fun menuItem(text: String, onClick: () -> Unit) =
                         azItem(color = menuItemColor, text = text, onClick = onClick)
-                    // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
-                    // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
-                    // the device; Gallery browses the projects already in the app; Import brings an
-                    // image or another design file INTO the current project, which is what the old
+                    // New starts a blank project; Open browses what exists; Import brings an image or
+                    // another design file INTO the current project, which is what the old
                     // "Open"/"Open File" pair actually did despite their names.
+                    //
+                    // "Gallery" is gone. It opened a window listing the app's own projects with
+                    // open/new/delete — a strict subset of what Open already does, since Open lists
+                    // exactly the same projects and adds the device scan and a location chooser on
+                    // top. The claim beside these entries that each "maps onto a distinct action"
+                    // was simply untrue of that pair.
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                    menuItem(text = "Gallery", onClick = { showGalleryDialog = true })
                     menuItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                     menuItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                     menuItem(text = "Add…", onClick = { showAddDialog = true })
@@ -491,12 +492,12 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    // Two entries, because they are two jobs. Store is where you *get* something and
-                    // opens the chooser; Extensions is what you already have, and is where the
-                    // installed list and its uninstall buttons live. Folding them together is what
-                    // previously made "Store" open a management window with a browse button buried
-                    // inside it.
-                    menuItem(text = "Store", onClick = { showStoreChooser = true })
+                    // One entry. It was split into "Store" (the chooser) and "Extensions" (the
+                    // manager) to stop Store from "opening a management window with a browse button
+                    // buried inside it" — except the manager still has that browse button, wired to
+                    // the very same chooser, so the split bought a second name for one destination
+                    // and left the thing it was meant to remove in place. Manage is the window you
+                    // want either way: it lists what is installed and browses from there.
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
                     menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
@@ -743,17 +744,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             projectSaver.launch(ProjectFile.suggestedFileName(name))
                         },
                         onDismiss = { showSaveDialog = false },
-                    )
-                }
-
-                if (showGalleryDialog) {
-                    GalleryWindow(
-                        projects = projects,
-                        currentProjectId = uiState.projectId,
-                        onOpen = { vm.openProject(it) },
-                        onNew = { vm.createNewProject() },
-                        onDelete = { vm.deleteProjectById(it) },
-                        onDismiss = { showGalleryDialog = false },
                     )
                 }
 
@@ -1208,14 +1198,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     fun modeItem(id: String, text: String, content: Any?, onClick: () -> Unit) =
         azRailItem(
             id = id, classifiers = setOf(id), text = text,
-            menuText = if (id in activeIds) "$text ✓" else text,
             content = content, color = railColor(id), onClick = onClick,
         )
-
-    /**
-     * A rail slider. Always vertical — the rail is — which is the whole of what the six
-     * `AzSliderConfig(orientation = VERTICAL, …)` blocks below used to restate between them.
-     */
+    // No `menuText` here any more. It rendered a "$text ✓" variant for the side drawer, and this app
+    // sets `azConfig(noMenu = true)` — the drawer does not exist. The library reads menuText only
+    // from its drawer surfaces, so every one of these strings was built and discarded, while the
+    // comment beside them described a list the user cannot open. The tick is carried by the item's
+    // own active state, which is the thing that is actually on screen.
 
     // ── Procreate's top-left group: Adjustments · Selection · Transform ────────────────────────────
     // Adjustments is `grp.adjust`, declared further down as a floating host — Procreate gives it a
@@ -1225,12 +1214,15 @@ private fun AzNavHostScope.ConfigureRailItems(
     // on a selection. These were four flat rail entries — Select, Quick, Invert, Deselect — sitting
     // among the paint tools, which is neither where Procreate puts them nor what they are: three of
     // the four do nothing at all until a selection exists.
-    hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectLasso)
+    // SelectAll for the group, not SelectLasso. The lasso glyph appeared three times inside this one
+    // group — on the host, on the Select tool, and on the Freehand shape — so opening it showed three
+    // identical pictures. The lasso now means exactly one thing: the freehand shape, further down.
+    hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectAll)
     // Selecting: pick up the tool, then pick how a drag is read. Procreate's modes sit inside its
     // Selection control the same way, and for the same reason — they are not four tools, they are
     // one tool that makes a region four ways. A region confines every raster tool until it's
     // cleared; dragging inside the marquee moves the selected pixels.
-    toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectLasso)
+    toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectSubject)
     SelectionShape.entries.forEach { mode ->
         stateSubItem(
             id = "selectShape.${mode.name}", hostId = "grp.select", text = mode.label,
@@ -1305,7 +1297,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Transform is its own control in Procreate's top bar, beside Adjustments and Selection — not an
     // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the
     // classifier set and the panel it opens are unchanged.
-    stateItem("adj.transform", "Transform", GraffuxIcons.SelectTransform) { vm.onTransformClicked() }
+    // Move, not SelectTransform: this item sat directly above the Freeform mode carrying the very
+    // same glyph, so the group header and its first member were indistinguishable.
+    stateItem("adj.transform", "Transform", GraffuxIcons.Move) { vm.onTransformClicked() }
     // Procreate's three transform modes. Freeform moves the layer; Distort and Warp bend it, and
     // are the same grid at two resolutions — four corners for a perspective, sixteen for a mesh.
     TransformMode.entries.forEach { mode ->
@@ -1497,7 +1491,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                             LayoutDirection.VERTICAL -> "Column"
                         },
                         content = when (dir) {
-                            LayoutDirection.NONE -> GraffuxIcons.SelectTransform
+                            LayoutDirection.NONE -> GraffuxIcons.Move
                             LayoutDirection.HORIZONTAL -> GraffuxIcons.DistributeHorizontal
                             LayoutDirection.VERTICAL -> GraffuxIcons.DistributeVertical
                         },
@@ -1570,7 +1564,12 @@ private fun AzNavHostScope.ConfigureRailItems(
         val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
         val hasShape = active?.shapes?.isNotEmpty() == true
         val hasText = active?.textParams != null
-        if (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) {
+        // A token existing is not on its own a reason to show this group: with no active layer there
+        // is nothing to create a token from and nothing to apply one to, so the host would open onto
+        // an empty list. It needs a layer, and then either something to lift a token from or a token
+        // to apply.
+        val hasTokens = uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty()
+        if (active != null && (hasTokens || hasShape || hasText)) {
             hostItem(id = "grp.styles", text = "Styles", content = GraffuxIcons.LayerStyle)
             if (hasShape) {
                 subItem("sty.newColor", "grp.styles", "New Colour Style", GraffuxIcons.ColorSwatch) {
@@ -1582,9 +1581,13 @@ private fun AzNavHostScope.ConfigureRailItems(
                     vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
                 }
             }
-            // Applying a token to the active layer, and re-pointing a token at the current colour.
+            // Applying a token needs a layer to apply it TO — which the guard above now requires.
+            // `onApplyColorStyle` and `onApplyTextStyle` both open with `activeLayerId ?: return`,
+            // so with no active layer these used to render, take the tap, and do nothing at all: no
+            // toast, no HUD, unlike every neighbouring action. The old guard admitted "a token
+            // exists" on its own, which is what let them through.
             uiState.colorStyles.forEach { style ->
-                val linked = active?.shapes?.any { it.fillStyleId == style.id } == true
+                val linked = active.shapes.any { it.fillStyleId == style.id }
                 azRailSubItem(
                     id = "sty.color.${style.id}", hostId = "grp.styles", text = style.name,
                     content = GraffuxIcons.ColorSwatches,
@@ -1593,7 +1596,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                 )
             }
             uiState.textStyles.forEach { style ->
-                val linked = active?.textParams?.styleId == style.id
+                val linked = active.textParams?.styleId == style.id
                 azRailSubItem(
                     id = "sty.text.${style.id}", hostId = "grp.styles", text = style.name,
                     content = GraffuxIcons.GlyphsPanel,
@@ -1707,10 +1710,13 @@ private fun AzNavHostScope.ConfigureRailItems(
         onClick = { vm.selectBrushExtension(null) },
     )
     brushes.forEach { (id, name) ->
-        stateSubItem("brush.$id", "grp.brushes", name, GraffuxIcons.Brush) { vm.selectBrushExtension(id) }
+        // BrushLibrary, not Brush: the plain brush glyph is the brush *tool*. Using it here too meant
+        // the tool, every installed brush and every custom brush were the same picture — verbatim the
+        // defect the comment on the tool strip claims to have fixed.
+        stateSubItem("brush.$id", "grp.brushes", name, GraffuxIcons.BrushImport) { vm.selectBrushExtension(id) }
     }
     customBrushes.forEach { custom ->
-        stateSubItem("brush.custom.${custom.id}", "grp.brushes", custom.brush.name, GraffuxIcons.Brush) {
+        stateSubItem("brush.custom.${custom.id}", "grp.brushes", custom.brush.name, GraffuxIcons.BrushSettings) {
             vm.selectCustomBrush(custom.id)
         }
     }
@@ -1763,9 +1769,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
     // unattached host): the user parks it wherever it suits the artwork and the position persists
     // across launches, the way Procreate's panels stay where you leave them.
+    // The host is "Effects", not "Adjust". It used to carry the same label AND the same glyph as its
+    // own first child, so opening **Adjust** presented a button called **Adjust** with an identical
+    // picture, and there was no way to tell the container from the thing inside it. The group holds
+    // four different panels; only one of them is the tone adjustments.
     azUnattachedHostItem(
-        id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
-        content = GraffuxIcons.LayerAdjustment, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        id = "grp.adjust", text = "Effects", anchor = AzUnattachedAnchor.FLOATING,
+        content = GraffuxIcons.FilterGallery, color = navItemColor, shape = AzButtonShape.CIRCLE,
     )
     stateSubItem(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust,
@@ -1786,7 +1796,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
     // already worked end to end once selected, but nothing ever opened the panel to select from.
     stateSubItem(
-        id = "adj.extensions", hostId = "grp.adjust", text = "Extensions",
+        // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
+        // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
+        // windows under one name is how a user ends up in the wrong one.
+        id = "adj.extensions", hostId = "grp.adjust", text = "Run Extension",
         content = GraffuxIcons.FilterGallery, shape = AzButtonShape.CIRCLE,
     ) { vm.onExtensionsClicked() }
     // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
