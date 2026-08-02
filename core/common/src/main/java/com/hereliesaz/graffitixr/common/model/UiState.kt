@@ -33,7 +33,19 @@ enum class Tool {
      * back by `Tool.entries.getOrNull(...)` — so inserting a constant anywhere but the end would
      * silently re-map every stroke a peer or an older session had already recorded.
      */
-    SHARPEN
+    SHARPEN,
+
+    /**
+     * Photoshop's Smudge: drags the colour under the brush along the stroke, the way a finger drags
+     * wet paint.
+     *
+     * Distinct from [BLUR], which the rail spent a long time calling "Smudge" while running a box
+     * blur underneath. Blur averages a neighbourhood in place and moves nothing; smudge *carries*
+     * colour, so it has a direction and leaves a tail. Neither substitutes for the other.
+     *
+     * Appended at the end for the same wire-ordinal reason as [SHARPEN].
+     */
+    SMUDGE
 }
 
 enum class ArScanMode {

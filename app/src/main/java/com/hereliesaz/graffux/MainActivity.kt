@@ -50,7 +50,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.model.*
-import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
@@ -74,6 +73,7 @@ import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
+import com.hereliesaz.graffitixr.feature.editor.AnimationWindow
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
@@ -350,7 +350,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     // The same set the rail items tag themselves with; azConfig is what actually makes the library
     // render them active, and it is declared here rather than in the item builder.
-    val activeClassifiers = activeRailClassifiers(uiState, brushes, customBrushes)
+    val activeClassifiers =
+        activeRailClassifiers(uiState, brushes, customBrushes, modelWindowOpen = showModelDialog)
 
     val navItemColor = remember(uiState.canvasBackground) {
         val bg = uiState.canvasBackground
@@ -411,6 +412,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 onAddClicked = { showAddDialog = true },
                 onAlignClicked = { showAlignDialog = true },
                 onEditClicked = { showLayerOptionsDialog = true },
+                onModelClicked = { showModelDialog = true },
+                modelWindowOpen = showModelDialog,
             )
 
             background(weight = 0) {
@@ -489,7 +492,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
                     menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
-                    menuItem(text = "3D Model…", onClick = { showModelDialog = true })
                     menuItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                     menuItem(text = "Settings", onClick = { showSettings = true })
                 }
@@ -776,6 +778,34 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
 
+                // Animation Assist. Opening the window is what turns animation mode on, and closing
+                // it turns it off — the mode and the panel were two separate rail buttons before,
+                // which meant the panel could be shut with the mode still running (onion skins still
+                // drawn, playback still going) and nothing on screen saying so.
+                if (uiState.isAnimationMode) {
+                    AnimationWindow(
+                        frameCount = uiState.layers.count { it.parentId == null },
+                        activeFrameIndex = uiState.activeFrameIndex,
+                        isPlaying = uiState.isAnimationPlaying,
+                        onionSkinEnabled = uiState.onionSkinEnabled,
+                        onionSkinFrameCount = uiState.onionSkinFrameCount,
+                        loopMode = uiState.animationLoopMode,
+                        frameDurationMs = uiState.animationFrameDurationMs,
+                        isTimeLapseRecording = uiState.isTimeLapseRecording,
+                        onTogglePlayback = { vm.onToggleAnimationPlayback() },
+                        onPreviousFrame = { vm.onPreviousFrame() },
+                        onNextFrame = { vm.onNextFrame() },
+                        onAddFrame = { vm.onAddFrame() },
+                        onToggleOnionSkin = { vm.onToggleOnionSkin() },
+                        onSetOnionSkinFrameCount = { vm.onSetOnionSkinFrameCount(it) },
+                        onSetLoopMode = { vm.onSetAnimationLoopMode(it) },
+                        onSetFrameDurationMs = { vm.onSetAnimationFrameDurationMs(it) },
+                        onExport = { vm.exportAnimation() },
+                        onToggleTimeLapse = { vm.onToggleTimeLapseRecording() },
+                        onDismiss = { vm.onToggleAnimationMode() },
+                    )
+                }
+
                 if (showFigmaDialog) {
                     FigmaWindow(
                         state = figmaState,
@@ -891,6 +921,7 @@ private val TOOL_IDS: Map<Tool, String> = mapOf(
     Tool.BRUSH to "tool.brush",
     Tool.BLUR to "tool.blur",
     Tool.SHARPEN to "tool.sharpen",
+    Tool.SMUDGE to "tool.smudge",
     Tool.ERASER to "tool.eraser",
     Tool.PEN to "tool.pen",
     Tool.LIQUIFY to "tool.liquify",
@@ -921,7 +952,9 @@ private val TOOL_IDS: Map<Tool, String> = mapOf(
  */
 private val VECTOR_TOOLS: List<Tool> = listOf(Tool.PEN)
 private val RETOUCH_TOOLS: List<Tool> = listOf(Tool.HEAL, Tool.CLONE)
-private val FOCUS_TOOLS: List<Tool> = listOf(Tool.DODGE, Tool.BURN, Tool.BLUR, Tool.SHARPEN, Tool.COLOR)
+private val FOCUS_TOOLS: List<Tool> = listOf(
+    Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE, Tool.LIQUIFY, Tool.DODGE, Tool.BURN, Tool.COLOR,
+)
 
 /** Each group's host id, which is also its classifier. */
 private const val VECTOR_ID = "grp.vector"
@@ -945,6 +978,11 @@ private fun activeRailClassifiers(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
     customBrushes: List<CustomBrush>,
+    // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is
+    // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other
+    // floating window's. It is here at all because an item that opens a window has to light up while
+    // that window is open, or the rail says nothing about a panel sitting over the artwork.
+    modelWindowOpen: Boolean,
 ): Set<String> = buildSet {
     // The active tool. One of these at a time, by construction; Tool.NONE has no item, because it is
     // the absence of one.
@@ -961,8 +999,10 @@ private fun activeRailClassifiers(
     // Modes and toggles that stay on until turned off.
     if (uiState.symmetryMode != SymmetryMode.NONE) add("tool.symmetry")
     if (uiState.wrapAroundMode) add("tool.wraparound")
-    if (uiState.isTimeLapseRecording) add("tool.timelapse")
-    if (uiState.isAnimationMode) add("tool.animation")
+    // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
+    // window's own item — otherwise a recording in progress would show nowhere in the rail.
+    if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
+    if (modelWindowOpen) add("tool.model")
     if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
     if (uiState.selection?.inverted == true) add("tool.selectInvert")
     if (uiState.quickMenuAt != null) add("tool.quick")
@@ -977,10 +1017,9 @@ private fun activeRailClassifiers(
         else -> Unit
     }
 
-    // Animation.
-    if (uiState.isAnimationPlaying) add("anim.play")
-    if (uiState.onionSkinEnabled) add("anim.onion")
-    add("anim.loop.${uiState.animationLoopMode.name}")
+    // (No animation entries. Play/pause, onion skin and the loop mode are controls inside the
+    // Animation window now, and a window draws its own selected state — a classifier for an item
+    // that no longer exists lights nothing and only survives to confuse the next reader.)
 
     // The current brush. `null` is the built-in round brush, which is why the host itself lights up
     // rather than a member of its list.
@@ -1014,9 +1053,12 @@ private fun AzNavHostScope.ConfigureRailItems(
     onAddClicked: () -> Unit,
     onAlignClicked: () -> Unit,
     onEditClicked: () -> Unit,
+    onModelClicked: () -> Unit,
+    modelWindowOpen: Boolean,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
-    val activeIds = activeRailClassifiers(uiState, brushes, customBrushes)
+    val activeIds =
+        activeRailClassifiers(uiState, brushes, customBrushes, modelWindowOpen = modelWindowOpen)
     val navStrings = strings.nav
 
     /** An item's colour: the accent while it is active, the rail's base colour otherwise. */
@@ -1352,22 +1394,34 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    // Focus and tone. Three opposed pairs plus Colorize: Dodge lightens and Burn darkens, Blur
-    // removes local contrast and Sharpen adds it back, and Colorize replaces hue while leaving
-    // luminance alone. Every one of them modifies pixels that are already there rather than adding
-    // new marks, which is the line this group is drawn along.
+    // Focus and tone. Everything here reworks pixels that are already on the layer rather than
+    // adding new marks, which is the line the group is drawn along — and inside it the members pair
+    // off, which is the reason for putting them in this order rather than alphabetically:
+    //
+    //   Blur / Sharpen    remove local contrast, and add it back
+    //   Smudge / Liquify  carry pixels along a drag, at brush scale and at layer scale
+    //   Dodge / Burn      lighten, and darken
+    //   Colorize          replaces hue while leaving luminance alone
+    //
+    // Liquify used to sit in the floating Adjust palette on the reasoning that Procreate files it
+    // under Adjustments. That is true of Procreate and wrong here: this Liquify is driven by
+    // dragging a brush across the canvas, so it is the same gesture as Smudge with a much larger
+    // radius, and a user who wants one is choosing between the two.
     azNestedRail(
         id = FOCUS_ID, text = "Focus & Tone", content = GraffuxIcons.Dodge,
         color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
         keepNestedRailOpen = true,
     ) {
-        nestedTool(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
-        nestedTool(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
         // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
         // while `ImageProcessor` ran an actual box blur under the stroke — the one name in the rail
-        // that promised a tool the app doesn't have.
+        // that promised a tool the app didn't have. It does now, two items down, and the two are not
+        // substitutes: a blur averages in place, a smudge carries colour and leaves a tail.
         nestedTool(Tool.BLUR, "Blur", GraffuxIcons.Blur)
         nestedTool(Tool.SHARPEN, "Sharpen", GraffuxIcons.Sharpen)
+        nestedTool(Tool.SMUDGE, "Smudge", GraffuxIcons.Smudge)
+        nestedTool(Tool.LIQUIFY, "Liquify", GraffuxIcons.Liquify)
+        nestedTool(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
+        nestedTool(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
         nestedTool(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
     }
 
@@ -1569,51 +1623,27 @@ private fun AzNavHostScope.ConfigureRailItems(
     railSlider("tool.stabilizer", "Stabilize", uiState.stabilizerLevel.toFloat(), 0f..100f, { "${it.roundToInt()}%" }) {
         vm.setStabilizerLevel(it.roundToInt())
     }
-    // Time-lapse: streams a downsampled snapshot to a GIF after every committed stroke while on,
-    // then saves the finished clip to Downloads the moment it's turned back off.
-    modeItem("tool.timelapse", "Time-lapse", GraffuxIcons.ActionRecord) { vm.onToggleTimeLapseRecording() }
-    // Animation Assist. Every top-level layer is a frame (see AnimationFrames), so the layer group
-    // above doubles as the frame timeline — this group is the transport, onion-skin, and export
-    // controls that turn that stack into an animation.
-    modeItem("tool.animation", "Animation", GraffuxIcons.MotionTween) { vm.onToggleAnimationMode() }
-    if (uiState.isAnimationMode) {
-        val frameCount = uiState.layers.count { it.parentId == null }
-        hostItem(
-            id = "grp.animation",
-            text = "Frame ${(uiState.activeFrameIndex + 1).coerceAtMost(frameCount.coerceAtLeast(1))}/$frameCount",
-            content = GraffuxIcons.Timeline,
-        )
-        stateSubItem(
-            id = "anim.play", hostId = "grp.animation",
-            text = if (uiState.isAnimationPlaying) "Pause" else "Play",
-            content = if (uiState.isAnimationPlaying) GraffuxIcons.Pause else GraffuxIcons.Play,
-        ) { vm.onToggleAnimationPlayback() }
-        subItem("anim.prev", "grp.animation", "Previous", GraffuxIcons.StepBackward) { vm.onPreviousFrame() }
-        subItem("anim.next", "grp.animation", "Next", GraffuxIcons.StepForward) { vm.onNextFrame() }
-        subItem("anim.add", "grp.animation", "Add Frame", GraffuxIcons.FrameAdd) { vm.onAddFrame() }
-        stateSubItem("anim.onion", "grp.animation", "Onion Skin", GraffuxIcons.OnionSkin) {
-            vm.onToggleOnionSkin()
-        }
-        AnimationLoopMode.entries.forEach { mode ->
-            stateSubItem(
-                id = "anim.loop.${mode.name}", hostId = "grp.animation", text = mode.label,
-                content = when (mode) {
-                    AnimationLoopMode.LOOP -> GraffuxIcons.LoopPlayback
-                    AnimationLoopMode.PING_PONG -> GraffuxIcons.Symmetry
-                    AnimationLoopMode.ONCE -> GraffuxIcons.Play
-                },
-            ) { vm.onSetAnimationLoopMode(mode) }
-        }
-        subItem("anim.export", "grp.animation", "Export GIF", GraffuxIcons.ExportGif) { vm.exportAnimation() }
-        // Onion-skin depth and frame duration as sliders, since both are "dial it in while watching"
-        // values rather than discrete picks.
-        railSlider("anim.onionCount", "Onion", uiState.onionSkinFrameCount.toFloat(), 1f..5f, { "${it.roundToInt()}" }) {
-            vm.onSetOnionSkinFrameCount(it.roundToInt())
-        }
-        railSlider("anim.speed", "Speed", uiState.animationFrameDurationMs.toFloat(), 20f..500f, { "${it.roundToInt()}ms" }) {
-            vm.onSetAnimationFrameDurationMs(it.roundToInt())
-        }
-    }
+    // ── The two workspaces ────────────────────────────────────────────────────────────────────────
+    // Animation and 3D are not tools you reach for mid-stroke; they are surfaces you set up and then
+    // work inside, and both have far more state than a rail item can show. Each is one item here
+    // that opens one floating window — the same window every other panel in the app uses, so it
+    // drags where you want it, collapses, and never dims the artwork underneath.
+    //
+    // Animation used to be four separate places in this rail: a mode toggle, a host carrying the
+    // transport and the loop modes, two sliders further down among the brush sliders, and the
+    // time-lapse recorder several items above. Nothing said they were related, and the mode could be
+    // left running with its panel shut — onion skins still drawn, playback still going, no sign of
+    // it. Opening the window now *is* turning the mode on, and closing it turns it off.
+    //
+    // 3D was worse off: its only way in was an entry called "3D Model…" filed in the Actions
+    // drop-down between "Export for Figma" and "Install brush…". Everything it opens has always been
+    // collected — ModelWindow holds the viewport, the model picker, paint mode, clear, and add-to-
+    // canvas — but nothing in the rail admitted the feature existed.
+    stateItem("tool.animation", "Animation", GraffuxIcons.MotionTween) { vm.onToggleAnimationMode() }
+    // GuideIsometric rather than a cube: the Graffux set has no cube, and this is the one glyph in
+    // it that draws a solid in three dimensions. Better a near-miss from the app's own set than a
+    // stray icon from a library, which is how the rail ended up with a broom for the eraser.
+    stateItem("tool.model", "3D Model", GraffuxIcons.GuideIsometric) { onModelClicked() }
     // Procreate's edge sliders, as first-class rail items (AzNavRail 11.5's azRailSlider) rather than
     // the hand-rolled pair that used to float over the canvas unlabelled. Vertical, and each formats
     // its own read-out while dragging, so it's obvious which is which and what value you're on.
@@ -1702,10 +1732,10 @@ private fun AzNavHostScope.ConfigureRailItems(
         id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust,
         content = GraffuxIcons.LayerAdjustment, shape = AzButtonShape.CIRCLE,
     ) { vm.onAdjustClicked() }
-    // Procreate keeps Liquify in Adjustments, alongside the blurs and the colour work: it is a filter
-    // you apply, not a brush you paint with. It sat among the paint tools purely because it happens
-    // to be driven by dragging.
-    toolSubItem(Tool.LIQUIFY, hostId = "grp.adjust", text = "Liquify", content = GraffuxIcons.Liquify)
+    // (Liquify has moved to the "Focus & Tone" nested rail, next to Smudge. It was filed here on the
+    // grounds that Procreate keeps it in Adjustments, but this one is a brush you drag across the
+    // canvas, which makes it the same gesture as Smudge at a larger radius — and a panel is the
+    // wrong place for something you pick instead of another tool.)
     subItem("adj.blend", "grp.adjust", "Blend", GraffuxIcons.LayerBlend, AzButtonShape.CIRCLE) { onBlendMode() }
     // Color Balance: onBalanceClicked()/ToggleColorPanel and the panel it opens (ColorBalanceKnobsRow,
     // rendered by EditorUi.kt when activePanel == EditorPanel.COLOR) were both already fully wired —

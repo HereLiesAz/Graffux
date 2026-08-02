@@ -139,6 +139,24 @@ private const val MODEL_TEXTURE_FILE = "model_texture.png"
 // so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
 private const val MODEL_TEXTURE_KEY = "model:texture"
 
+/**
+ * The tools that rework pixels already on the layer instead of painting new ones.
+ *
+ * None of them can be previewed with a `Paint` — no colour, xfermode or mask filter expresses "blur
+ * what is under here", "add back the contrast a blur would remove", or "carry the colour you are
+ * passing over". So all three paint nothing live and commit the whole stroke on finger-up, through
+ * `ImageProcessor.applyToolToBitmap`.
+ *
+ * Named as a set rather than spelled out at each site because the two places that care —
+ * `buildStrokePaint`, which must give them a transparent paint, and `onStrokeEnd`, which must route
+ * them to the deferred commit — have to agree. A tool in one and not the other paints a translucent
+ * black line and never commits, or commits twice.
+ *
+ * [Tool.LIQUIFY] is deliberately absent: it also has no live paint, but it warps the whole layer
+ * through a displacement field rather than compositing a stroke, and has its own commit path.
+ */
+private val RESAMPLING_TOOLS = setOf(Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE)
+
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
     data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
@@ -2798,10 +2816,10 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        if (state.activeTool == Tool.BLUR || state.activeTool == Tool.SHARPEN) {
-            // Both resample the pixels under the stroke, which a Paint can't do — so neither has a
-            // live preview and both commit on finger-up via ImageProcessor.applyToolToBitmap (a
-            // full-bitmap pass, hence off the main thread). One branch rather than two copies: the
+        if (state.activeTool in RESAMPLING_TOOLS) {
+            // These resample the pixels under the stroke, which a Paint can't do — so none of them
+            // has a live preview and all commit on finger-up via ImageProcessor.applyToolToBitmap (a
+            // full-bitmap pass, hence off the main thread). One branch rather than three copies: the
             // only thing that differs between them is which `tool` goes on the command, and the
             // history push, the co-op emission and the selection clip are identical.
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
@@ -4379,10 +4397,10 @@ class EditorViewModel @Inject constructor(
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
                     if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                 }
-                Tool.BLUR, Tool.SHARPEN -> {
-                    // No live paint: a plain Paint can't blur or sharpen the underlying pixels (the
-                    // old code painted translucent BLACK — Paint's default color). Both are applied
-                    // on finger-up in onStrokeEnd via ImageProcessor.applyToolToBitmap.
+                Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE -> {
+                    // No live paint: a plain Paint can't blur, sharpen or drag the underlying pixels
+                    // (the old code painted translucent BLACK — Paint's default color). All three are
+                    // applied on finger-up in onStrokeEnd via ImageProcessor.applyToolToBitmap.
                     color = android.graphics.Color.TRANSPARENT
                     alpha = 0
                 }

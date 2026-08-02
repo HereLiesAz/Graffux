@@ -244,6 +244,35 @@ class CommitReplayInvariantTest {
         }
     }
 
+    /**
+     * Smudge is the one tool here whose result depends on the *order* it visits pixels in — the
+     * carrier accumulates along the stroke — so "commit equals replay" is a stronger claim for it
+     * than for anything else in this file. Any non-determinism at all, and the layer changes the
+     * first time it is undone.
+     */
+    @Test
+    fun `a smudge stroke changes something, and the same thing on replay`() = runTest {
+        val art = RenderTestBase.filled(48, 48, Color.WHITE).also { b ->
+            for (y in 0 until 48) for (x in 0 until 20) b.setPixel(x, y, Color.RED)
+        }
+        val cmd = StrokeCommand(
+            path = listOf(Offset(14f, 24f), Offset(40f, 24f)),
+            canvasSize = canvas,
+            tool = Tool.SMUDGE,
+            brushSize = 10f,
+            brushColor = 0,
+            intensity = 1f,
+            selection = selection(featherPx = 8f),
+        )
+        val committed = engine.applySingleStroke(art, cmd)
+        assertNotEquals(
+            "smudge must actually carry colour, not commit an untouched layer",
+            art.getPixel(28, 24),
+            committed.getPixel(28, 24),
+        )
+        assertSamePixels(committed, engine.composite(art, listOf(cmd)), "feathered smudge")
+    }
+
     @Test
     fun `a warp commits what it replays`() = runTest {
         val cmd = StrokeCommand(
