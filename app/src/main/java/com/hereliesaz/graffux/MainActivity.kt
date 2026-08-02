@@ -59,6 +59,7 @@ import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.SelectionOp
@@ -702,9 +703,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             onCornerRadius = { showCornerDialog = true },
                             onPolygonSides = { showSidesDialog = true },
                             onToggleFill = { vm.toggleVectorFill() },
-                            onOpacityChange = { vm.onOpacityChanged(it) },
-                            onOpacityStart = { vm.onLayerEditStart() },
-                            onOpacityCommit = { vm.onLayerEditEnd() },
+                            onEditStart = { vm.onLayerEditStart() },
+                            onEditCommit = { vm.onLayerEditEnd() },
                             // Only for a layer that actually has children to arrange.
                             autoLayoutGap = uiState.layers
                                 .firstOrNull { l -> l.id == overlay.id && uiState.layers.any { it.parentId == l.id } }
@@ -713,8 +713,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                                 val current = uiState.layers.first { it.id == overlay.id }.autoLayout
                                 vm.onSetAutoLayout(current.copy(gap = gap))
                             },
-                            onBlendMode = { showBlendDialog = true },
-                            onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
                             onDismiss = { showLayerOptionsDialog = false },
                         )
                     }
@@ -1870,7 +1868,11 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
             listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
         } else {
-            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            // The one rule, shared with the quick menu. This used to allow anything that was not a
+            // group, so a vector layer offered a lock no stroke would ever consult.
+            if (layer.supportsAlphaLock) {
+                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+            }
             listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }

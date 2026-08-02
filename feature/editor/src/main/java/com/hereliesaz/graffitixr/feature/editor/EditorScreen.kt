@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
@@ -503,7 +504,13 @@ fun EditorScreen(
                 actions = listOf(
                     QuickAction("Undo", enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
                     QuickAction("Layer") { vm.onAddBlankLayer() },
-                    QuickAction("Alpha", enabled = activeId != null) {
+                    // Enabled on the same terms as everywhere else. It used to ask only whether a
+                    // layer was active, so on a group or a vector layer this wedge took the tap and
+                    // set a flag nothing reads.
+                    QuickAction(
+                        "Alpha",
+                        enabled = uiState.layers.firstOrNull { it.id == activeId }?.supportsAlphaLock == true,
+                    ) {
                         activeId?.let { vm.onToggleAlphaLock(it) }
                     },
                     QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },

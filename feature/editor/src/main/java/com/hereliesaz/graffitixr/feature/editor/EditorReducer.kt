@@ -117,10 +117,19 @@ internal object EditorReducer {
         // already 94% of what any scale can save.
         is EditorIntent.SetCanvasRenderScale -> state.copy(canvasRenderScale = intent.scale.coerceIn(0.25f, 1f))
         EditorIntent.ToggleWrapAroundMode -> state.copy(wrapAroundMode = !state.wrapAroundMode)
+        // Turning symmetry back on restores the mode you were using, rather than resetting to
+        // Vertical. The toggle used to be destructive against the picker beside it: choose Radial 6,
+        // tap off, tap on, and you were silently on Vertical.
         EditorIntent.ToggleSymmetry -> state.copy(
-            symmetryMode = if (state.symmetryMode == SymmetryMode.NONE) SymmetryMode.VERTICAL else SymmetryMode.NONE,
+            symmetryMode = if (state.symmetryMode == SymmetryMode.NONE) state.lastSymmetryMode
+            else SymmetryMode.NONE,
         )
-        is EditorIntent.SetSymmetryMode -> state.copy(symmetryMode = intent.mode)
+        is EditorIntent.SetSymmetryMode -> state.copy(
+            symmetryMode = intent.mode,
+            // Remembered here rather than in the toggle, so picking a mode and then toggling twice
+            // comes back to the mode you picked.
+            lastSymmetryMode = if (intent.mode == SymmetryMode.NONE) state.lastSymmetryMode else intent.mode,
+        )
         EditorIntent.ToggleTimeLapseRecording -> state.copy(isTimeLapseRecording = !state.isTimeLapseRecording)
         EditorIntent.ToggleAnimationMode -> state.copy(
             isAnimationMode = !state.isAnimationMode,
