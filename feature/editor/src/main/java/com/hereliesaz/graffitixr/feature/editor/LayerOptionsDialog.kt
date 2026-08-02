@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +49,14 @@ fun LayerOptionsDialog(
     onOpacityCommit: () -> Unit,
     onBlendMode: () -> Unit,
     onToggleAlphaLock: () -> Unit,
+    /**
+     * Auto-layout gap, non-null only when this layer actually has children to space out. It moved
+     * here from a rail slider: it is a property of this layer, and this is the window that holds
+     * this layer's properties. The rail had it filed under a separate "Layout" group that only
+     * appeared under the same condition.
+     */
+    autoLayoutGap: Float?,
+    onGapChange: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val hasFill = overlay.shapes.any { it.hasFill }
@@ -55,6 +64,7 @@ fun LayerOptionsDialog(
     // reports neither "drag started" nor how many fingers are still down, so this is the only way
     // to fire onOpacityStart exactly once per drag instead of once per emitted value.
     var isDraggingOpacity by remember { mutableStateOf(false) }
+    var isDraggingGap by remember { mutableStateOf(false) }
     FloatingWindow(title = "Edit", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -72,6 +82,20 @@ fun LayerOptionsDialog(
                 onValueChangeFinished = { isDraggingOpacity = false; onOpacityCommit() },
                 valueRange = 0f..1f,
             )
+            if (autoLayoutGap != null) {
+                Text("Gap ${autoLayoutGap.roundToInt()}")
+                Slider(
+                    value = autoLayoutGap,
+                    // Same bracket as opacity above, and for the same reason: without it every
+                    // emitted sample of the drag became its own undo entry and its own disk write.
+                    onValueChange = {
+                        if (!isDraggingGap) { isDraggingGap = true; onOpacityStart() }
+                        onGapChange(it)
+                    },
+                    onValueChangeFinished = { isDraggingGap = false; onOpacityCommit() },
+                    valueRange = 0f..100f,
+                )
+            }
             AzButton(text = "Blend mode", onClick = { onBlendMode(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
             if (overlay.shapes.isEmpty()) {
                 AzButton(
