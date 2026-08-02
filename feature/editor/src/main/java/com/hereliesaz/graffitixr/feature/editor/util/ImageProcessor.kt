@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
+import kotlin.math.roundToInt
 
 /**
  * Kotlin UI layer implementation of image manipulation tools.
@@ -336,9 +337,13 @@ object ImageProcessor {
                                         val pr = p shr 16 and 0xFF
                                         val pg = p shr 8 and 0xFF
                                         val pb = p and 0xFF
-                                        val r = (pr + k * (pr - (q shr 16 and 0xFF))).toInt().coerceIn(0, 255)
-                                        val g = (pg + k * (pg - (q shr 8 and 0xFF))).toInt().coerceIn(0, 255)
-                                        val b = (pb + k * (pb - (q and 0xFF))).toInt().coerceIn(0, 255)
+                                        // Rounded, not truncated. `toInt()` rounds towards zero, which on a
+                                        // subtle sharpen — where the correction is a fraction of a unit —
+                                        // discards the whole effect AND darkens every pixel the brush touched
+                                        // by up to one level. A tool that dims what it is supposed to crisp.
+                                        val r = (pr + k * (pr - (q shr 16 and 0xFF))).roundToInt().coerceIn(0, 255)
+                                        val g = (pg + k * (pg - (q shr 8 and 0xFF))).roundToInt().coerceIn(0, 255)
+                                        val b = (pb + k * (pb - (q and 0xFF))).roundToInt().coerceIn(0, 255)
                                         out[i] = (p.toLong() and 0xFF000000L).toInt() or (r shl 16) or (g shl 8) or b
                                     }
 
@@ -661,10 +666,14 @@ object ImageProcessor {
                         val ir = (a shr 16 and 0xFF) + ((b shr 16 and 0xFF) - (a shr 16 and 0xFF)) * t
                         val ig = (a shr 8 and 0xFF) + ((b shr 8 and 0xFF) - (a shr 8 and 0xFF)) * t
                         val ib = (a and 0xFF) + ((b and 0xFF) - (a and 0xFF)) * t
-                        return (ia.toInt().coerceIn(0, 255) shl 24) or
-                            (ir.toInt().coerceIn(0, 255) shl 16) or
-                            (ig.toInt().coerceIn(0, 255) shl 8) or
-                            ib.toInt().coerceIn(0, 255)
+                        // Rounded rather than truncated, which matters far more here than it looks:
+                        // the carrier is fed back into itself at every dab, so a half-unit bias
+                        // towards zero compounds along the stroke and a smudge slowly darkens the
+                        // colour it is carrying.
+                        return (ia.roundToInt().coerceIn(0, 255) shl 24) or
+                            (ir.roundToInt().coerceIn(0, 255) shl 16) or
+                            (ig.roundToInt().coerceIn(0, 255) shl 8) or
+                            ib.roundToInt().coerceIn(0, 255)
                     }
 
                     // Half a radius between dabs: close enough that consecutive dabs overlap heavily, which
