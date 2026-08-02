@@ -22,9 +22,12 @@ object ContourTrace {
      * Every boundary of the true region of [mask], as rings in mask coordinates.
      *
      * A traced region can have holes — tap the background around a doughnut and the doughnut is one
-     * — so this returns outer boundaries as additive rings and holes as subtractive ones, in that
-     * order. The ring stack already means "union these, cut those", so a holed region needs no
-     * special case anywhere downstream.
+     * — so this returns outer boundaries as additive rings and holes as subtractive ones. The ring
+     * stack already means "union these, cut those", so a holed region needs no special case
+     * anywhere downstream.
+     *
+     * They come back ordered by containment, largest first, **not** all outers then all holes; see
+     * the note at the return for why that distinction matters once nesting goes past one level.
      *
      * The boundaries follow pixel edges, so the polygons are exact: a ring passes along the outside
      * of the last selected pixel rather than through its centre.
