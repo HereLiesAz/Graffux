@@ -2984,18 +2984,59 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        if (state.activeTool == Tool.LIQUIFY || strokeWorkingBitmap == null) {
-            // Liquify (or a stroke so fast the background copy hadn't finished):
-            // fall back to the full whole-stroke approach.
+        // Liquify. Its own branch, beside the other tools with no live paint, and for the same
+        // reason: it commits through DrawingEngine rather than doing the work itself.
+        //
+        // It used to bake here directly — `slamManager.bakeLiquify(baked)` on a copy — which bypassed
+        // the engine entirely. So the committed warp covered the whole layer while the *replay*, which
+        // does go through the engine, confined it to the selection: the layer changed the first time
+        // it was undone. Same bug class as the blur, the bucket and the clone; the fourth found in
+        // this function. Everything the warp needs is on the command.
+        if (state.activeTool == Tool.LIQUIFY) {
+            // Fall back to the committed layer bitmap if the original was already cleared (a second
+            // onStrokeEnd, or a start that never populated it) rather than NPE.
+            val base = liquifyOriginalBitmap ?: layer.bitmap ?: run { clearTransientStrokeState(); return }
+            val command = StrokeCommand(
+                path = points,
+                canvasSize = IntSize(canvasW, canvasH),
+                tool = Tool.LIQUIFY,
+                brushSize = state.brushSize,
+                brushColor = state.activeColor.toArgb(),
+                intensity = 0.5f,
+                feathering = state.brushFeathering,
+                layerScale = capturedScale,
+                layerOffset = capturedOffset,
+                layerRotationZ = capturedRotationZ,
+                selection = strokeSelection,
+            )
+            layerStore.addStroke(layerId, command)
+            history.pushDraw(layerId, command)
+            updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
+
+            viewModelScope.launch(dispatchers.default) {
+                val warped = drawingEngine.applySingleStroke(base, command)
+                withContext(dispatchers.main) {
+                    _uiState.update { s ->
+                        s.copy(
+                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it },
+                            liveStrokeLayerId = null,
+                            liveStrokeBitmap = null,
+                        )
+                    }
+                    scheduleDiskSave(layerId, warped, layer.uri)
+                }
+            }
+            clearTransientStrokeState()
+            return
+        }
+
+        if (strokeWorkingBitmap == null) {
+            // A stroke so fast the background copy hadn't finished: fall back to the full
+            // whole-stroke approach.
             val bitmap = layer.bitmap ?: return
             
-            val finalBitmap = if (state.activeTool == Tool.LIQUIFY) {
-                // Fall back to the committed layer bitmap if the original was already cleared
-                // (e.g. a second onStrokeEnd, or a start that never populated it) rather than NPE.
-                val baked = (liquifyOriginalBitmap ?: bitmap).copy(Bitmap.Config.ARGB_8888, true)
-                slamManager.bakeLiquify(baked)
-                baked
-            } else {
+            val finalBitmap = run {
                 // Fast stroke: the background working-bitmap copy never finished before finger-up, so
                 // rasterize the whole stroke onto a fresh copy here. Committing `bitmap` unchanged (the
                 // old behaviour) silently dropped the stroke — it lived only in history, which isn't

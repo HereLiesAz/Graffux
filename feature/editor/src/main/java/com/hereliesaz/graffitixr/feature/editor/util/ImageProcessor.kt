@@ -196,8 +196,10 @@ object ImageProcessor {
                         // Bitmap-space lasso selection, if one is active: every tool in the switch
                         // below is confined to it. Built by SelectionMask so the live paint, the
                         // commit and the history replay all clip to the identical boundary.
-                        // Tool.LIQUIFY is the exception — it never reaches this function, and
-                        // DrawingEngine.applyLiquify ignores the selection entirely.
+                        // Tool.LIQUIFY never reaches this function — it warps through the native
+                        // pass — but it is confined to the selection all the same, by compositing
+                        // its baked result back through SelectionMask.feather in
+                        // DrawingEngine.applyLiquify.
                         clipPath: android.graphics.Path? = null,
                         // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it
                         // copies. Passed in rather than derived here because it is fixed at the

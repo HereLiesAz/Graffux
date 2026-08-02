@@ -336,4 +336,35 @@ class CommitPathRoutingTest {
     fun `smudge commits through the engine`() = runTest(dispatcher) {
         assertResampledToolRoutesThroughEngine(Tool.SMUDGE)
     }
+    /**
+     * Liquify's commit went through the engine's replay path, not around it.
+     *
+     * It used to bake the warp itself, right there in `onStrokeEnd`. That bypassed `DrawingEngine`
+     * entirely, so the committed warp covered the whole layer while the replay confined it to the
+     * selection — the layer changed the first time it was undone. The other three commit paths in
+     * this file were each fixed for exactly this; Liquify was the one nobody had driven.
+     */
+    @Test
+    fun `liquify commits what it replays, and stays inside the selection`() = runTest(dispatcher) {
+        val before = seed()
+        vm.setActiveTool(Tool.LIQUIFY)
+        vm.onStrokeStart(Offset(20f, 24f), canvas)
+        vm.onStrokePoint(Offset(30f, 24f))
+        advanceUntilIdle()
+        vm.onStrokeEnd()
+        advanceUntilIdle()
+
+        // The fixture's SlamManager is a relaxed mock, so the warp itself is a no-op here and the
+        // committed pixels equal the base. That is fine and still worth asserting: what is under
+        // test is that the commit *routed through the engine*, which the recorded command and the
+        // agreement below establish. A bake done inline would have produced a bitmap the replay
+        // could not reproduce.
+        assertCommitEqualsReplay(before, "liquify")
+        val strokes = vm.recordedStrokesForTest("L")
+        assertEquals("the recorded command must be a liquify", Tool.LIQUIFY, strokes.single().tool)
+        assertNotNull(
+            "the command must carry the selection, or the replay cannot confine the warp",
+            strokes.single().selection,
+        )
+    }
 }

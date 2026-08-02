@@ -163,6 +163,42 @@ internal object SelectionMask {
     }
 
     /**
+     * Confines an **already-produced** bitmap to the selection: [produced] inside the region,
+     * [base] outside it.
+     *
+     * Distinct from [feather], and the distinction matters. [feather] assumes the paint was already
+     * clipped while it was being drawn, and does nothing at all at radius 0 — it exists only to add
+     * the soft ramp a canvas clip cannot express. That is right for every tool that paints through a
+     * `Canvas`, because those clip as they go.
+     *
+     * It is wrong for anything that produces a whole bitmap and cannot be clipped mid-flight. Liquify
+     * is the case: its warp happens in the native pass, which owns the entire bitmap, so by the time
+     * there is anything to mask the paint has already landed everywhere. Handing that to [feather]
+     * with a hard-edged selection returned it untouched, and the warp escaped the lasso.
+     */
+    fun confine(
+        base: android.graphics.Bitmap,
+        produced: android.graphics.Bitmap,
+        clipPath: Path?,
+        radiusPx: Float,
+    ): android.graphics.Bitmap {
+        if (clipPath == null) return produced
+        if (radiusPx > 0f) return feather(base, produced, clipPath, radiusPx)
+        val out = SafeBitmap.copy(base) ?: return produced
+        val canvas = Canvas(out)
+        canvas.save()
+        canvas.clipPath(clipPath)
+        // SRC, not SRC_OVER: the produced bitmap replaces what is under it inside the region rather
+        // than blending with it, which is what "these pixels are now those pixels" means. Blending
+        // would show the old layer through anywhere the warp left transparency.
+        canvas.drawBitmap(produced, 0f, 0f, android.graphics.Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
+        })
+        canvas.restore()
+        return out
+    }
+
+    /**
      * The selected pixels of [source] on their own, transparent everywhere else — what Copy takes.
      *
      * Full-canvas sized rather than cropped to the selection's bounds. That costs a full bitmap, but

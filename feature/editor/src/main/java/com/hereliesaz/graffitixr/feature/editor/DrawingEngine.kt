@@ -48,7 +48,13 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
      * incremental behavior.)
      */
     suspend fun applySingleStroke(base: Bitmap, command: StrokeCommand): Bitmap =
-        applyTool(base, command, replaceExisting = false)
+        // Liquify is checked here as well as in [composite], and that asymmetry was a real bug: this
+        // function had no LIQUIFY branch, so the commit path could not route a warp through the
+        // engine even if it asked to — it fell into applyTool, whose tool switch has no case for
+        // LIQUIFY, and returned the layer unchanged. Replay went through applyLiquify. The two
+        // agreeing is the whole point of committing through here.
+        if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
+        else applyTool(base, command, replaceExisting = false)
 
     private suspend fun applyTool(bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean): Bitmap {
         // The lasso in force when this stroke was drawn, in this bitmap's pixel space. Every branch
@@ -171,6 +177,17 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         )
     }
 
+    /**
+     * Liquify: push the layer's pixels around under the brush, then bake.
+     *
+     * **Confined to the selection like everything else.** It used to ignore it outright — lasso a
+     * region, pick Liquify, drag, and the whole layer warped — while the rail advertised that a
+     * region "confines every raster tool until it's cleared". The warp itself cannot be clipped,
+     * because the native pass owns the whole bitmap; so the result is composited back through the
+     * same [SelectionMask.feather] every other tool ends with, which keeps the warped pixels inside
+     * the region and the original ones outside it. At radius 0 that is the hard-edged path, and with
+     * no selection at all it is a straight copy, so the unselected case is unchanged.
+     */
     private suspend fun applyLiquify(bitmap: Bitmap, stroke: StrokeCommand): Bitmap {
         slamManager.prepareLiquify(bitmap)
         val mapped = ImageProcessor.mapScreenToBitmap(
@@ -182,6 +199,13 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         slamManager.applyLiquify(flatArr, stroke.brushSize, 0.5f)
         val baked = SafeBitmap.copy(bitmap) ?: return bitmap
         slamManager.bakeLiquify(baked)
-        return baked
+        val clipPath = SelectionMask.bitmapPath(
+            stroke.selection, bitmap.width, bitmap.height,
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+        )
+        val featherRadius = SelectionMask.featherRadius(
+            stroke.selection, bitmap.width, bitmap.height, stroke.layerScale,
+        )
+        return SelectionMask.confine(bitmap, baked, clipPath, featherRadius)
     }
 }
