@@ -56,10 +56,19 @@ class DrawingEngineTest {
     )
 
     @Test
-    fun `composite with no strokes returns a copy of the base and applies nothing`() = runTest {
+    fun `composite with no strokes copies the base rather than handing it back`() = runTest {
+        // The property that matters is that composite() COPIES. Its own KDoc explains why at
+        // length: callers publish the result as the layer's live bitmap, so returning `base` itself
+        // would alias LayerStore's pristine copy into the UI and let the next in-place stroke
+        // corrupt the one thing every rebuild and undo depends on.
+        //
+        // This used to assert `assertSame(base, result)` — the exact opposite — and passed only
+        // because the mock's copy() is stubbed to return itself. It would have gone on passing if
+        // the copy were deleted. Assert the call instead, which is the part the mock can actually
+        // witness.
         val base = bitmap()
-        val result = engine.composite(base, emptyList())
-        assertSame(base, result) // copy() is stubbed to return the same mock
+        engine.composite(base, emptyList())
+        verify(exactly = 1) { base.copy(any(), any()) }
         coVerify(exactly = 0) { ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 

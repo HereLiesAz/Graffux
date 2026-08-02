@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -125,6 +126,11 @@ fun EditorScreen(
             // Fixed dark workspace so the artboard (the document, its own fill) reads as a distinct
             // page rather than blending into an all-black canvas.
             .background(WorkspaceColor)
+            // The one authoritative measure of the canvas every screen-space geometry is authored
+            // against. Reported here rather than inferred from whichever tool last measured itself,
+            // so a selection made before the device was rotated can be re-expressed against the
+            // canvas it is now being drawn and hit-tested in.
+            .onSizeChanged { vm.onCanvasSizeChanged(it) }
             .then(gestureObserver)
     ) {
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).

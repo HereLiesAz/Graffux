@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.common.model
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import com.hereliesaz.graffitixr.common.serialization.BlendModeSerializer
@@ -255,6 +256,10 @@ data class EditorUiState(
     // Which Transform mode the panel is in, and — while it is a bending one — where the handles
     // currently sit, in screen space like every other gesture-authored geometry here. Empty means
     // the grid has not been laid over the layer yet.
+    // The editor canvas's current size in px. Screen-space geometry — selections, clone sources,
+    // warp handles — is only meaningful against the canvas it was authored on, and until now the
+    // only record of that was whatever the last brush stroke happened to set.
+    val canvasSize: IntSize = IntSize.Zero,
     val transformMode: TransformMode = TransformMode.FREEFORM,
     val warpHandles: List<Offset> = emptyList(),
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is

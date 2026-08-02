@@ -7,10 +7,10 @@ import kotlin.math.abs
  * Procreate's Automatic selection: the contiguous run of similarly-coloured pixels around a tap.
  *
  * Deliberately the same spread as [ImageProcessor.floodFill], the paint bucket — same per-channel
- * tolerance, same 4-connected scanline walk. The two answer the same question ("what counts as this
- * colour, from here?") and a user who has learned where the bucket stops has learned where the wand
- * stops. They differ only in what they do with the answer: the bucket writes pixels, this returns
- * the region so it can be traced into a selection.
+ * tolerance, same 4-connected scanline walk, and the same visited set. The two answer the same
+ * question ("what counts as this colour, from here?") and a user who has learned where the bucket
+ * stops has learned where the wand stops. They differ only in what they do with the answer: the
+ * bucket writes pixels, this returns the region so it can be traced into a selection.
  */
 internal object MagicWand {
 

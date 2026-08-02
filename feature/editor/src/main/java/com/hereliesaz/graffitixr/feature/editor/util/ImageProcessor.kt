@@ -192,9 +192,11 @@ object ImageProcessor {
                         // replay matches exactly what was painted live.
                         alphaLock: Boolean = false,
                         symmetryMode: SymmetryMode = SymmetryMode.NONE,
-                        // Bitmap-space lasso selection, if one is active: every tool below is
-                        // confined to it. Built by SelectionMask so the live paint, the commit and
-                        // the history replay all clip to the identical boundary.
+                        // Bitmap-space lasso selection, if one is active: every tool in the switch
+                        // below is confined to it. Built by SelectionMask so the live paint, the
+                        // commit and the history replay all clip to the identical boundary.
+                        // Tool.LIQUIFY is the exception — it never reaches this function, and
+                        // DrawingEngine.applyLiquify ignores the selection entirely.
                         clipPath: android.graphics.Path? = null,
                         // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it
                         // copies. Passed in rather than derived here because it is fixed at the
@@ -522,8 +524,17 @@ object ImageProcessor {
                     // A pixel joins the fill only if it both matches the seed colour and lies inside
                     // the selection — so the selection edge stops the spread exactly like a colour
                     // boundary does.
-                    fun fillable(px: Int, py: Int): Boolean =
-                        matches(pixels[py * w + px]) && allowed(px, py)
+                    // Visited set. Without it a fill whose own colour is within tolerance of the
+                    // seed never terminates: a pixel already written to fillColor still `matches`,
+                    // so each row re-tests and re-pushes its neighbours forever and the stack grows
+                    // until the process dies. Reachable by eyedropping a colour and nudging it
+                    // slightly — 0xFF000000 seed, 0xFF050505 fill, default tolerance 32.
+                    val seen = BooleanArray(w * h)
+
+                    fun fillable(px: Int, py: Int): Boolean {
+                        val idx = py * w + px
+                        return !seen[idx] && matches(pixels[idx]) && allowed(px, py)
+                    }
 
                     val stack = ArrayDeque<Int>()
                     stack.addLast(y * w + x)
@@ -537,6 +548,7 @@ object ImageProcessor {
                         var spanDown = false
                         var i = left
                         while (i < w && fillable(i, py)) {
+                            seen[py * w + i] = true
                             pixels[py * w + i] = fillColor
                             if (py > 0) {
                                 val up = fillable(i, py - 1)

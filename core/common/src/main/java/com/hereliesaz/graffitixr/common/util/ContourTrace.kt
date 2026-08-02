@@ -22,9 +22,12 @@ object ContourTrace {
      * Every boundary of the true region of [mask], as rings in mask coordinates.
      *
      * A traced region can have holes — tap the background around a doughnut and the doughnut is one
-     * — so this returns outer boundaries as additive rings and holes as subtractive ones, in that
-     * order. The ring stack already means "union these, cut those", so a holed region needs no
-     * special case anywhere downstream.
+     * — so this returns outer boundaries as additive rings and holes as subtractive ones. The ring
+     * stack already means "union these, cut those", so a holed region needs no special case
+     * anywhere downstream.
+     *
+     * They come back ordered by containment, largest first, **not** all outers then all holes; see
+     * the note at the return for why that distinction matters once nesting goes past one level.
      *
      * The boundaries follow pixel edges, so the polygons are exact: a ring passes along the outside
      * of the last selected pixel rather than through its centre.
@@ -86,9 +89,15 @@ object ContourTrace {
                 }
             }
         }
-        // Outers first: a hole cut before the region that contains it has been added would cut out
-        // of nothing, and then be filled back in by that region.
-        return outer + holes
+        // Interleaved by containment depth, NOT all outers then all holes.
+        //
+        // "Outers first" is right only one level deep. An island inside a lake inside an island
+        // emits two outer rings and one hole; ordered [big, island, lake] the lake is cut last and
+        // erases the island sitting inside it. Sorting by descending area puts every ring after the
+        // one that encloses it — a container is strictly larger than what it contains — so each cut
+        // lands on the region it belongs to and each island is re-added after the lake that
+        // surrounds it.
+        return (outer + holes).sortedByDescending { abs(signedArea(it.path)) }
     }
 
     /**

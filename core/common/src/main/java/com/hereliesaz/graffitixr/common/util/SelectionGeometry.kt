@@ -155,7 +155,14 @@ object SelectionGeometry {
     ): Selection? {
         val ring = SelectionRing(polygon, additive = true)
         if (!ring.isUsable) return current
-        val fresh = Selection(listOf(ring), canvasSize)
+        // Carries the current selection's inversion and feather. Without this, loading a saved
+        // selection under Add or Remove — which folds its rings through here one at a time —
+        // silently returned a hard-edged, non-inverted region whatever was saved.
+        val fresh = Selection(
+            listOf(ring), canvasSize,
+            inverted = current?.inverted ?: false,
+            featherPx = current?.featherPx ?: 0f,
+        )
         val base = current?.takeIf { it.isUsable && it.canvasSize == canvasSize }
         return when (op) {
             SelectionOp.NEW -> fresh
