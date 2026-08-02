@@ -2399,6 +2399,19 @@ class EditorViewModel @Inject constructor(
      * effects (history, persistence, co-op op emission) are orchestrated by the caller around
      * this call — the reducer itself stays pure.
      */
+    /**
+     * Seams for the commit-path tests, which need to put a layer and a selection in place and then
+     * read back what was recorded. Both are `internal` and marked, rather than the tests reaching
+     * through public API that means something else — an honest hole beats a contorted route through
+     * `onLayerAdded`/`onLayerActivated` that would exercise unrelated code on the way in.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun dispatchForTest(intent: EditorIntent) = dispatch(intent)
+
+    /** The commands recorded for [layerId] — what an undo/redo would replay. */
+    @androidx.annotation.VisibleForTesting
+    internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -2883,6 +2896,52 @@ class EditorViewModel @Inject constructor(
             return
         }
 
+        // CLONE has no live preview — a Paint cannot sample pixels from elsewhere on the layer — so
+        // whatever the working bitmap holds, it is not this stroke. Its own branch rather than a
+        // special case further down, because it has to hold on BOTH commit routes: a quick dab
+        // finishes before the background copy lands and takes the fast-stroke fallback, which paints
+        // with that same blank Paint and would commit an empty layer. Fixing only the real-time path
+        // left exactly that hole, and a ViewModel-level test found it.
+        if (state.activeTool == Tool.CLONE) {
+            val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
+            val command = StrokeCommand(
+                path = points,
+                canvasSize = IntSize(canvasW, canvasH),
+                tool = Tool.CLONE,
+                brushSize = state.brushSize,
+                brushColor = state.activeColor.toArgb(),
+                intensity = 0.5f,
+                feathering = state.brushFeathering,
+                layerScale = capturedScale,
+                layerOffset = capturedOffset,
+                layerRotationZ = capturedRotationZ,
+                symmetryMode = strokeSymmetry,
+                alphaLock = strokeAlphaLock,
+                selection = strokeSelection,
+                cloneOffset = cloneOffsetFor(state, points),
+            )
+            layerStore.addStroke(layerId, command)
+            history.pushDraw(layerId, command)
+            updateHistoryCounts()
+            maybeBakeOldStrokes(layerId)
+            viewModelScope.launch(dispatchers.default) {
+                val cloned = drawingEngine.applySingleStroke(base, command)
+                withContext(dispatchers.main) {
+                    _uiState.update { s ->
+                        s.copy(
+                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = cloned) else it },
+                            liveStrokeLayerId = null,
+                            liveStrokeBitmap = null,
+                        )
+                    }
+                    scheduleDiskSave(layerId, cloned, layer.uri)
+                }
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(cloned)))
+            }
+            clearTransientStrokeState()
+            return
+        }
+
         if (state.activeTool == Tool.LIQUIFY || strokeWorkingBitmap == null) {
             // Liquify (or a stroke so fast the background copy hadn't finished):
             // fall back to the full whole-stroke approach.
@@ -3047,19 +3106,15 @@ class EditorViewModel @Inject constructor(
             val featherRadius = if (base == null) 0f else SelectionMask.featherRadius(
                 strokeSelection, base.width, base.height, capturedScale,
             )
-            // Two reasons the live working bitmap is the wrong thing to commit, and both end the
-            // same way — re-render through the path that will replay this stroke:
+            // The working bitmap was hard-clipped to the selection when its canvas was made, which
+            // makes it the wrong pixels to commit under a feathered one: history replays this
+            // stroke through DrawingEngine, which paints unclipped and masks afterwards, so
+            // committing the hard-edged preview would leave the layer changing appearance the first
+            // time it was undone. Re-render through the path that will replay it.
             //
-            //  - A feathered selection. The working bitmap was hard-clipped when its canvas was
-            //    made, so committing it would leave the layer changing appearance on first undo.
-            //  - CLONE. Its live paint is deliberately blank, because a Paint cannot sample pixels
-            //    from elsewhere on the layer — so the working bitmap holds *nothing*, and
-            //    committing it dropped the stroke entirely. The pixels only appeared later, out of
-            //    nowhere, the first time history replayed. The composite lives in
-            //    ImageProcessor's CLONE branch, which is on this path and only on this path.
-            val needsRerender = base != null &&
-                (featherRadius > 0f || state.activeTool == Tool.CLONE)
-            if (needsRerender && base != null) {
+            // (CLONE used to be handled here too. It has its own branch above now, since it must
+            // also cover the fast-stroke fallback, which never reaches this code.)
+            if (featherRadius > 0f && base != null) {
                 val preview = workBitmap
                 viewModelScope.launch(dispatchers.default) {
                     val committed = drawingEngine.applySingleStroke(base, command)

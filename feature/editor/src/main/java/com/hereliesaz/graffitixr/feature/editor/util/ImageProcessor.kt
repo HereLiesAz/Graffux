@@ -429,12 +429,41 @@ object ImageProcessor {
                                                     // under the brush. Read from originalBitmap, so
                                                     // an in-place stroke samples the layer as it now
                                                     // stands — which is what a clone brush does.
-                                                    maskCanvas.drawBitmap(
-                                                        originalBitmap, d.x, d.y,
-                                                        Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) },
-                                                    )
-                                                    canvas.drawBitmap(maskBmp, 0f, 0f, null)
-                                                    maskBmp.recycle()
+                                                    //
+                                                    // NEGATED, and that is the whole of it.
+                                                    // cloneOffset points from the stroke TO its
+                                                    // source, so the wanted result is
+                                                    // out(p) = src(p + offset); drawBitmap(src, l, t)
+                                                    // gives out(p) = src(p - l). Passing it through
+                                                    // unnegated sampled the mirror-opposite point —
+                                                    // aim up-left of the brush and it copied from
+                                                    // down-right, usually from off the canvas, so
+                                                    // the stroke put down nothing at all.
+                                                    // Staged through a full-canvas bitmap rather
+                                                    // than drawn straight in. A Porter-Duff
+                                                    // xfermode only applies within the drawn
+                                                    // bitmap's destination rect, so shifting the
+                                                    // source leaves the stroke mask untouched
+                                                    // wherever the source no longer reaches — and
+                                                    // that mask is raw maskPaint, whose colour was
+                                                    // never set and so is BLACK. Clone a region
+                                                    // near an edge and the part of the brush
+                                                    // hanging past the source painted a solid
+                                                    // black smear. Staging makes the shifted source
+                                                    // transparent out there, so SRC_IN clears it.
+                                                    val shifted = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
+                                                    if (shifted == null) {
+                                                        maskBmp.recycle()
+                                                    } else {
+                                                        Canvas(shifted).drawBitmap(originalBitmap, -d.x, -d.y, null)
+                                                        maskCanvas.drawBitmap(
+                                                            shifted, 0f, 0f,
+                                                            Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) },
+                                                        )
+                                                        shifted.recycle()
+                                                        canvas.drawBitmap(maskBmp, 0f, 0f, null)
+                                                        maskBmp.recycle()
+                                                    }
                                                 }
                                             }
                                         }
