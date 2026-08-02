@@ -103,13 +103,17 @@ class CommitPathRoutingTest {
      * paths that composite with a bare Canvas do stay on the test dispatcher, which is why only some
      * of these tests need this. Poll rather than pretend otherwise.
      */
-    private fun awaitCommit(timeoutMs: Long = 5_000, until: () -> Boolean) {
+    private fun awaitCommit(
+        timeoutMs: Long = 5_000,
+        message: String = "commit did not land",
+        until: () -> Boolean,
+    ) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (until()) return
             Thread.sleep(10)
         }
-        throw AssertionError("commit did not land within ${timeoutMs}ms")
+        throw AssertionError("$message (waited ${timeoutMs}ms)")
     }
 
     private fun assertSamePixels(a: Bitmap, b: Bitmap, what: String) {
@@ -255,5 +259,81 @@ class CommitPathRoutingTest {
             )
         }
         assertCommitEqualsReplay(before, "clone")
+    }
+
+    /**
+     * The tools with no live paint all share one branch in `onStrokeEnd`, selected by membership of
+     * a set. That is exactly the kind of condition a new tool falls out of silently: leave one out
+     * and it paints a translucent black line (its transparent paint never runs) and commits nothing,
+     * or it never reaches the engine and the layer changes on the first undo. Driving each one
+     * through the real ViewModel is the only place that shows up.
+     *
+     * One test per tool rather than a loop over the three. A loop shares a `runTest` scope across
+     * iterations, and these commits finish on a real background thread — the second tool's commit
+     * did not land inside the poll window once the first iteration had already run a replay through
+     * `Dispatchers.Default` on the same scope. Separate tests also say which tool broke without the
+     * failure message having to name it.
+     */
+    private suspend fun assertResampledToolRoutesThroughEngine(tool: Tool) {
+        val toolVm = EditorViewModelFixture.build(dispatcher)
+        // A hard step between two mid-greys: an edge for each of them to bite on, since flat colour
+        // gives blur and sharpen nothing to do and smudge nothing to carry.
+        //
+        // Both details are load-bearing, and both were learned the hard way. **Mid-greys**, because
+        // sharpen cannot move a pixel already at 0 or 255 — original + k × (original − blurred)
+        // clamps — so a black-and-white edge leaves it nowhere to overshoot. And a **step** rather
+        // than a ramp, because a linear ramp is reproduced almost exactly by the bilinear
+        // down-and-up the blur is built from, so the difference sharpen works on vanishes across it.
+        val art = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888).also { b ->
+            for (y in 0 until 48) for (x in 0 until 48) {
+                val v = if (x < 24) 70 else 190
+                b.setPixel(x, y, Color.argb(255, v, v, v))
+            }
+        }
+        toolVm.dispatchForTest(EditorIntent.SetLayers(listOf(Layer(id = "L", name = "L", bitmap = art))))
+        toolVm.onLayerActivated("L")
+        toolVm.dispatchForTest(EditorIntent.SetCanvasSize(canvas))
+        val before = art.copy(Bitmap.Config.ARGB_8888, false)
+
+        toolVm.setActiveTool(tool)
+        toolVm.onStrokeStart(Offset(12f, 24f), canvas)
+        toolVm.onStrokePoint(Offset(36f, 24f))
+        toolVm.onStrokeEnd()
+
+        fun published(): Bitmap = toolVm.uiState.value.layers.single { it.id == "L" }.bitmap!!
+        fun changedPixels(after: Bitmap): Int =
+            (0 until 48).sumOf { y -> (0 until 48).count { x -> after.getPixel(x, y) != before.getPixel(x, y) } }
+        awaitCommit(message = "$tool published no change") { changedPixels(published()) > 0 }
+
+        // It painted the artwork rather than the stroke mask. Each of these draws its mask with a
+        // black-by-default Paint, so a black pixel on an image whose darkest value is 70 can only be
+        // that mask leaking through — the failure mode Clone actually shipped with.
+        val committed = published()
+        for (y in 0 until 48) for (x in 0 until 48) {
+            assertTrue(
+                "$tool: black at $x,$y means the stroke mask leaked instead of the result",
+                committed.getPixel(x, y) != Color.BLACK,
+            )
+        }
+
+        val strokes = toolVm.recordedStrokesForTest("L")
+        assertTrue("$tool: nothing recorded, so it never went through the engine", strokes.isNotEmpty())
+        assertEquals("$tool: the recorded command must name the tool it was", tool, strokes.single().tool)
+        assertSamePixels(committed, DrawingEngine(toolVm.slamManager).composite(before, strokes), "$tool")
+    }
+
+    @Test
+    fun `blur commits through the engine`() = runTest(dispatcher) {
+        assertResampledToolRoutesThroughEngine(Tool.BLUR)
+    }
+
+    @Test
+    fun `sharpen commits through the engine`() = runTest(dispatcher) {
+        assertResampledToolRoutesThroughEngine(Tool.SHARPEN)
+    }
+
+    @Test
+    fun `smudge commits through the engine`() = runTest(dispatcher) {
+        assertResampledToolRoutesThroughEngine(Tool.SMUDGE)
     }
 }
