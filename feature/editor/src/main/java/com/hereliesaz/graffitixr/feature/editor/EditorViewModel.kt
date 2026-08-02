@@ -139,6 +139,24 @@ private const val MODEL_TEXTURE_FILE = "model_texture.png"
 // so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
 private const val MODEL_TEXTURE_KEY = "model:texture"
 
+/**
+ * The tools that rework pixels already on the layer instead of painting new ones.
+ *
+ * None of them can be previewed with a `Paint` — no colour, xfermode or mask filter expresses "blur
+ * what is under here", "add back the contrast a blur would remove", or "carry the colour you are
+ * passing over". So all three paint nothing live and commit the whole stroke on finger-up, through
+ * `ImageProcessor.applyToolToBitmap`.
+ *
+ * Named as a set rather than spelled out at each site because the two places that care —
+ * `buildStrokePaint`, which must give them a transparent paint, and `onStrokeEnd`, which must route
+ * them to the deferred commit — have to agree. A tool in one and not the other paints a translucent
+ * black line and never commits, or commits twice.
+ *
+ * [Tool.LIQUIFY] is deliberately absent: it also has no live paint, but it warps the whole layer
+ * through a displacement field rather than compositing a stroke, and has its own commit path.
+ */
+private val RESAMPLING_TOOLS = setOf(Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE)
+
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
     data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
@@ -2811,15 +2829,17 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        if (state.activeTool == Tool.BLUR) {
-            // BLUR samples-and-blurs the pixels under the stroke, which a Paint can't do — so it has
-            // no live preview and commits on finger-up via ImageProcessor.applyToolToBitmap (a
-            // full-bitmap scale op, hence off the main thread).
+        if (state.activeTool in RESAMPLING_TOOLS) {
+            // These resample the pixels under the stroke, which a Paint can't do — so none of them
+            // has a live preview and all commit on finger-up via ImageProcessor.applyToolToBitmap (a
+            // full-bitmap pass, hence off the main thread). One branch rather than three copies: the
+            // only thing that differs between them is which `tool` goes on the command, and the
+            // history push, the co-op emission and the selection clip are identical.
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
             val command = StrokeCommand(
                 path = points,
                 canvasSize = IntSize(canvasW, canvasH),
-                tool = Tool.BLUR,
+                tool = state.activeTool,
                 brushSize = state.brushSize,
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
@@ -2842,19 +2862,20 @@ class EditorViewModel @Inject constructor(
                 // with a soft one — the layer changed the first time it was undone. Everything the
                 // composite needs is already on the command, so there is nothing here that
                 // DrawingEngine does not do, and doing it there is the only way the two agree.
-                val blurred = drawingEngine.applySingleStroke(base, command)
+                val resampled = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
-                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = blurred) else it },
+                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
                             liveStrokeLayerId = null,
                             liveStrokeBitmap = null,
                         )
                     }
-                    scheduleDiskSave(layerId, blurred, layer.uri)
+                    scheduleDiskSave(layerId, resampled, layer.uri)
                 }
             }
-            // Co-op: peers replay the same blur from the stroke command.
+            // Co-op: peers replay the same op from the stroke command. The ordinal comes from the
+            // command, not a literal — a literal here would have every sharpen arrive as a blur.
             val coopPoints = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, base.width, base.height,
                 capturedScale, capturedOffset, capturedRotationZ,
@@ -2867,7 +2888,7 @@ class EditorViewModel @Inject constructor(
                         colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
                         brushSize = state.brushSize,
                         brushFeathering = state.brushFeathering,
-                        blendModeOrdinal = Tool.BLUR.ordinal,
+                        blendModeOrdinal = command.tool.ordinal,
                     )
                 )
             )
@@ -4431,9 +4452,9 @@ class EditorViewModel @Inject constructor(
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
                     if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                 }
-                Tool.BLUR -> {
-                    // No live paint: a plain Paint can't blur the underlying pixels (the old code
-                    // painted translucent BLACK — Paint's default color). The real region blur is
+                Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE -> {
+                    // No live paint: a plain Paint can't blur, sharpen or drag the underlying pixels
+                    // (the old code painted translucent BLACK — Paint's default color). All three are
                     // applied on finger-up in onStrokeEnd via ImageProcessor.applyToolToBitmap.
                     color = android.graphics.Color.TRANSPARENT
                     alpha = 0
