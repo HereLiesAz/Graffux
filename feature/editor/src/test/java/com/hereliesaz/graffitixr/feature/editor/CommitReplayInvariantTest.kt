@@ -184,6 +184,67 @@ class CommitReplayInvariantTest {
     }
 
     @Test
+    fun `a sharpen stroke changes something, and the same thing on replay`() = runTest {
+        // Same trap as clone: sharpen has no live paint, so a commit path that forgot to run the
+        // composite would leave the layer untouched and a pure commit-equals-replay test would pass
+        // on two identical *unchanged* bitmaps. Assert it does something, first.
+        //
+        // Feathered, because that is the case that has broken every other tool here: the commit used
+        // to build its own hard clip while the replay built a soft one, so the layer changed the
+        // first time it was undone.
+        val art = RenderTestBase.filled(48, 48, Color.WHITE).also { b ->
+            // An edge for it to bite on — sharpen has nothing to do to a flat colour.
+            for (y in 0 until 48) for (x in 24 until 48) b.setPixel(x, y, Color.rgb(140, 140, 140))
+        }
+        val cmd = StrokeCommand(
+            path = listOf(Offset(6f, 24f), Offset(42f, 24f)),
+            canvasSize = canvas,
+            tool = Tool.SHARPEN,
+            brushSize = 10f,
+            brushColor = 0,
+            intensity = 1f,
+            selection = selection(featherPx = 8f),
+        )
+        val committed = engine.applySingleStroke(art, cmd)
+        assertNotEquals(
+            "sharpen must actually change pixels, not commit an untouched layer",
+            art.getPixel(25, 24),
+            committed.getPixel(25, 24),
+        )
+        assertSamePixels(committed, engine.composite(art, listOf(cmd)), "feathered sharpen")
+    }
+
+    /**
+     * The selection is a hard boundary for it, not a suggestion. Sharpen writes its result back with
+     * PorterDuff.SRC — a *replacing* mode — so if it ever stopped going through the clipped canvas
+     * it would overwrite the whole layer with its own copy rather than sharpening inside the lasso.
+     */
+    @Test
+    fun `sharpen does not touch pixels outside the selection`() = runTest {
+        val art = RenderTestBase.filled(48, 48, Color.WHITE).also { b ->
+            for (y in 0 until 48) for (x in 24 until 48) b.setPixel(x, y, Color.rgb(140, 140, 140))
+        }
+        val cmd = StrokeCommand(
+            path = listOf(Offset(0f, 24f), Offset(47f, 24f)),   // right across the layer
+            canvasSize = canvas,
+            tool = Tool.SHARPEN,
+            brushSize = 10f,
+            brushColor = 0,
+            intensity = 1f,
+            selection = selection(),                            // the 12..36 box, hard-edged
+        )
+        val committed = engine.applySingleStroke(art, cmd)
+
+        // The stroke crosses these, the selection does not contain them.
+        for (x in intArrayOf(2, 6, 44)) {
+            assertEquals(
+                "x=$x is outside the selection and must be untouched",
+                art.getPixel(x, 24), committed.getPixel(x, 24),
+            )
+        }
+    }
+
+    @Test
     fun `a warp commits what it replays`() = runTest {
         val cmd = StrokeCommand(
             path = emptyList(),

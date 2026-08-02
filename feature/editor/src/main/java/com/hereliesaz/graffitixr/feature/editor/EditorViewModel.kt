@@ -2798,15 +2798,17 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        if (state.activeTool == Tool.BLUR) {
-            // BLUR samples-and-blurs the pixels under the stroke, which a Paint can't do — so it has
-            // no live preview and commits on finger-up via ImageProcessor.applyToolToBitmap (a
-            // full-bitmap scale op, hence off the main thread).
+        if (state.activeTool == Tool.BLUR || state.activeTool == Tool.SHARPEN) {
+            // Both resample the pixels under the stroke, which a Paint can't do — so neither has a
+            // live preview and both commit on finger-up via ImageProcessor.applyToolToBitmap (a
+            // full-bitmap pass, hence off the main thread). One branch rather than two copies: the
+            // only thing that differs between them is which `tool` goes on the command, and the
+            // history push, the co-op emission and the selection clip are identical.
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
             val command = StrokeCommand(
                 path = points,
                 canvasSize = IntSize(canvasW, canvasH),
-                tool = Tool.BLUR,
+                tool = state.activeTool,
                 brushSize = state.brushSize,
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
@@ -2829,19 +2831,20 @@ class EditorViewModel @Inject constructor(
                 // with a soft one — the layer changed the first time it was undone. Everything the
                 // composite needs is already on the command, so there is nothing here that
                 // DrawingEngine does not do, and doing it there is the only way the two agree.
-                val blurred = drawingEngine.applySingleStroke(base, command)
+                val resampled = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
-                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = blurred) else it },
+                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
                             liveStrokeLayerId = null,
                             liveStrokeBitmap = null,
                         )
                     }
-                    scheduleDiskSave(layerId, blurred, layer.uri)
+                    scheduleDiskSave(layerId, resampled, layer.uri)
                 }
             }
-            // Co-op: peers replay the same blur from the stroke command.
+            // Co-op: peers replay the same op from the stroke command. The ordinal comes from the
+            // command, not a literal — a literal here would have every sharpen arrive as a blur.
             val coopPoints = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, base.width, base.height,
                 capturedScale, capturedOffset, capturedRotationZ,
@@ -2854,7 +2857,7 @@ class EditorViewModel @Inject constructor(
                         colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
                         brushSize = state.brushSize,
                         brushFeathering = state.brushFeathering,
-                        blendModeOrdinal = Tool.BLUR.ordinal,
+                        blendModeOrdinal = command.tool.ordinal,
                     )
                 )
             )
@@ -4376,10 +4379,10 @@ class EditorViewModel @Inject constructor(
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
                     if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                 }
-                Tool.BLUR -> {
-                    // No live paint: a plain Paint can't blur the underlying pixels (the old code
-                    // painted translucent BLACK — Paint's default color). The real region blur is
-                    // applied on finger-up in onStrokeEnd via ImageProcessor.applyToolToBitmap.
+                Tool.BLUR, Tool.SHARPEN -> {
+                    // No live paint: a plain Paint can't blur or sharpen the underlying pixels (the
+                    // old code painted translucent BLACK — Paint's default color). Both are applied
+                    // on finger-up in onStrokeEnd via ImageProcessor.applyToolToBitmap.
                     color = android.graphics.Color.TRANSPARENT
                     alpha = 0
                 }

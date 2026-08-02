@@ -275,6 +275,86 @@ object ImageProcessor {
                                     blurred.recycle()
                                 }
 
+                                Tool.SHARPEN -> {
+                                    // The inverse of BLUR: an **unsharp mask**, result = original +
+                                    // amount × (original − blurred). That is what sharpening actually is — no tool
+                                    // can invent detail that isn't in the pixels, so the only thing to add back is
+                                    // the local contrast a blur throws away. A fixed 3×3 convolution kernel is the
+                                    // other way to write it and is worse here: its strength isn't continuously
+                                    // adjustable, so `intensity` would have nothing to control.
+                                    //
+                                    // The blur it differences against is a *tight* one (factor 2, roughly a two-
+                                    // pixel radius) regardless of intensity. Widening it doesn't sharpen harder, it
+                                    // sharpens *coarser* — haloes around big shapes instead of crisper edges — so
+                                    // intensity moves the amount and leaves the radius alone.
+                                    val amount = 0.4f + intensity.coerceIn(0f, 1f) * 1.6f
+                                    val w = resultBitmap.width
+                                    val h = resultBitmap.height
+
+                                    // The stroke, rendered as a coverage mask. Same paint as every other tool here,
+                                    // so the brush edge, the feathering and the symmetry twin all match.
+                                    val maskBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                                    val maskPaint = Paint().apply {
+                                        strokeWidth = brushSize
+                                        style = Paint.Style.STROKE
+                                        strokeCap = Paint.Cap.ROUND
+                                        strokeJoin = Paint.Join.ROUND
+                                        isAntiAlias = true
+                                        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                                    }
+                                    drawStroke(Canvas(maskBmp), stroke, maskPaint, wrapAroundMode, symmetryMode)
+
+                                    val soft = cheapBlur(resultBitmap, 2)
+                                    val n = w * h
+                                    val out = IntArray(n)
+                                    val blur = IntArray(n)
+                                    val mask = IntArray(n)
+                                    resultBitmap.getPixels(out, 0, w, 0, 0, w, h)
+                                    soft.getPixels(blur, 0, w, 0, 0, w, h)
+                                    maskBmp.getPixels(mask, 0, w, 0, 0, w, h)
+                                    soft.recycle()
+                                    maskBmp.recycle()
+
+                                    // The mask is applied *here*, per pixel, rather than by stamping a sharpened
+                                    // copy through it with SRC_IN the way BLUR and CLONE do. Those two composite the
+                                    // masked copy back with SRC_OVER, and source-over of a translucent pixel onto
+                                    // itself RAISES alpha — a=4 over a=4 lands on 7 — so painting across a soft
+                                    // edge quietly makes it more opaque every time. Lerping the colour channels by
+                                    // the mask's coverage and never touching alpha at all has no such drift, and it
+                                    // gives the same soft brush edge because coverage scales the amount.
+                                    //
+                                    // Alpha is left alone for a second reason too: sharpening the alpha channel
+                                    // ratchets a soft edge towards fully-on/fully-off, so a stroke along the
+                                    // boundary of a shape would leave the shape's own outline ragged — damage to
+                                    // the artwork rather than to the pixels being worked on.
+                                    for (i in 0 until n) {
+                                        val coverage = mask[i] ushr 24 and 0xFF
+                                        if (coverage == 0) continue
+                                        val p = out[i]
+                                        val q = blur[i]
+                                        val k = amount * coverage / 255f
+                                        val pr = p shr 16 and 0xFF
+                                        val pg = p shr 8 and 0xFF
+                                        val pb = p and 0xFF
+                                        val r = (pr + k * (pr - (q shr 16 and 0xFF))).toInt().coerceIn(0, 255)
+                                        val g = (pg + k * (pg - (q shr 8 and 0xFF))).toInt().coerceIn(0, 255)
+                                        val b = (pb + k * (pb - (q and 0xFF))).toInt().coerceIn(0, 255)
+                                        out[i] = (p.toLong() and 0xFF000000L).toInt() or (r shl 16) or (g shl 8) or b
+                                    }
+
+                                    // Back through the canvas rather than straight onto resultBitmap with
+                                    // setPixels, because the selection clip lives on the canvas: writing pixels
+                                    // directly would sharpen right through a lasso. PorterDuff.SRC replaces rather
+                                    // than blends, which is what makes this a plain assignment of the array above —
+                                    // and outside the stroke that array is byte-identical to what is already there.
+                                    val composited = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                                    composited.setPixels(out, 0, w, 0, 0, w, h)
+                                    canvas.drawBitmap(composited, 0f, 0f, Paint().apply {
+                                        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+                                    })
+                                    composited.recycle()
+                                }
+
                                         Tool.CLONE -> {
                                             // Copies pixels from elsewhere on the same layer.
                                             //

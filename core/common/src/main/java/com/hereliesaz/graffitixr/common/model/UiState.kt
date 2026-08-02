@@ -22,7 +22,18 @@ enum class Tool {
      * fixed offset from where that stroke began, so the source travels with the brush and a whole
      * region can be duplicated by painting over it.
      */
-    CLONE
+    CLONE,
+
+    /**
+     * Photoshop's Sharpen brush: the inverse of [BLUR], painting local contrast back into the pixels
+     * under the stroke via an unsharp mask.
+     *
+     * Appended at the end of the enum rather than filed next to [BLUR] on purpose. Tool travels over
+     * the wire and through history as an **ordinal** — `Op.StrokeComplete.blendModeOrdinal`, read
+     * back by `Tool.entries.getOrNull(...)` — so inserting a constant anywhere but the end would
+     * silently re-map every stroke a peer or an older session had already recorded.
+     */
+    SHARPEN
 }
 
 enum class ArScanMode {

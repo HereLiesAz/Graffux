@@ -883,13 +883,14 @@ private fun BrushSizePad(vm: EditorViewModel) {
  *
  * The single statement of that mapping. `ConfigureRailItems` builds its tool items from it and
  * [activeRailClassifiers] derives the lit id from it, so the two cannot disagree about which item a
- * tool belongs to — they used to be two hand-written lists, and three of the names differ from their
- * enum ([Tool.BLUR] is "Smudge", [Tool.COLOR] is "Colorize"), which is exactly the kind of pair that
- * drifts. [Tool.NONE] is absent on purpose: it is the absence of a tool, so nothing lights up.
+ * tool belongs to — they used to be two hand-written lists, and one of the names differs from its
+ * enum ([Tool.COLOR] is "Colorize"), which is exactly the kind of pair that drifts. [Tool.NONE] is
+ * absent on purpose: it is the absence of a tool, so nothing lights up.
  */
 private val TOOL_IDS: Map<Tool, String> = mapOf(
     Tool.BRUSH to "tool.brush",
-    Tool.BLUR to "tool.smudge",
+    Tool.BLUR to "tool.blur",
+    Tool.SHARPEN to "tool.sharpen",
     Tool.ERASER to "tool.eraser",
     Tool.PEN to "tool.pen",
     Tool.LIQUIFY to "tool.liquify",
@@ -901,6 +902,31 @@ private val TOOL_IDS: Map<Tool, String> = mapOf(
     Tool.SELECT to "tool.select",
     Tool.CLONE to "tool.clone",
 )
+
+/**
+ * The tool groups that live inside a nested rail of their own rather than the top-level strip.
+ *
+ * Photoshop's palette, grouped the way Photoshop groups it — vector, retouching, and focus/tone —
+ * rather than Procreate's flat strip of five. The two arrangements were being run at once: a strip
+ * that copied Procreate's shape while carrying Photoshop's whole tool count, so it was thirteen
+ * items long and none of the relationships between them were visible.
+ *
+ * Declared here rather than inline in the rail because each host has to light up when one of *its*
+ * members is the active tool — otherwise picking a tool and closing the rail leaves nothing on
+ * screen saying which one is armed — and that condition lives in [activeRailClassifiers], a
+ * different function. One list per group, read by both.
+ *
+ * A tool appears in at most one group; nothing checks that, but the rail would draw it twice and
+ * two hosts would light up at once, which is loud enough to notice immediately.
+ */
+private val VECTOR_TOOLS: List<Tool> = listOf(Tool.PEN)
+private val RETOUCH_TOOLS: List<Tool> = listOf(Tool.HEAL, Tool.CLONE)
+private val FOCUS_TOOLS: List<Tool> = listOf(Tool.DODGE, Tool.BURN, Tool.BLUR, Tool.SHARPEN, Tool.COLOR)
+
+/** Each group's host id, which is also its classifier. */
+private const val VECTOR_ID = "grp.vector"
+private const val RETOUCH_ID = "grp.retouch"
+private const val FOCUS_ID = "grp.focus"
 
 /**
  * Every rail item that is currently *active*, by item id.
@@ -923,6 +949,14 @@ private fun activeRailClassifiers(
     // The active tool. One of these at a time, by construction; Tool.NONE has no item, because it is
     // the absence of one.
     TOOL_IDS[uiState.activeTool]?.let { add(it) }
+    // …and, when it is one of the tools that lives in a nested rail, the host that holds it. The
+    // member's own item is out of sight whenever that rail is closed, so without this the rail would
+    // show no armed tool at all while one is armed.
+    if (uiState.activeTool in VECTOR_TOOLS) add(VECTOR_ID)
+    if (uiState.activeTool in RETOUCH_TOOLS) add(RETOUCH_ID)
+    if (uiState.activeTool in FOCUS_TOOLS) add(FOCUS_ID)
+    // Node editing is a vector mode rather than a Tool, so it lights its host separately.
+    if (uiState.pathEditLayerId != null) add(VECTOR_ID)
 
     // Modes and toggles that stay on until turned off.
     if (uiState.symmetryMode != SymmetryMode.NONE) add("tool.symmetry")
@@ -1214,41 +1248,127 @@ private fun AzNavHostScope.ConfigureRailItems(
     // the brush tool, the round brush AND every installed brush, and the same pencil for Pen and Edit,
     // so nothing in it was identifiable at a glance.
     toolItem(Tool.BRUSH, uiState.activeBrushName ?: navStrings.brush, GraffuxIcons.Brush)
-    toolItem(Tool.BLUR, "Smudge", GraffuxIcons.Smudge)
     toolItem(Tool.ERASER, "Eraser", GraffuxIcons.Eraser)
 
-        // Procreate's constant tools run Brush, Smudge, Erase, Layers, Colour. The colour well
-        // is one of those five, not something to hunt for below a dozen extras, which is where
-        // it sat. Layers has left this strip entirely — it is an unattached floating host, the
-        // rail's nearest equivalent to Procreate's Layers panel — so Colour follows Erase
-        // directly. Everything below these is a tool Procreate does not put at top level.
     // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
-    // palette glyph that says nothing about what you're about to paint with.
+    // palette glyph that says nothing about what you're about to paint with. Layers is the other
+    // constant and has left this strip entirely — it is an unattached floating host, the rail's
+    // nearest equivalent to Procreate's Layers panel.
     stateItem(
         id = "tool.color", text = navStrings.color, content = uiState.activeColor,
         // Bordered: it opens the colour picker rather than selecting a tool.
         shape = AzButtonShape.CIRCLE,
     ) { vm.onColorClicked() }
 
-    // Below the five Procreate keeps at top level: tools it puts elsewhere, and Graffux's own.
-    toolItem(Tool.PEN, "Pen", GraffuxIcons.PenInk)
-    // Heal/Burn/Dodge/Color: ImageProcessor and buildStrokePaint already implement all four — they
-    // just had no rail entry, so a user could never actually select them.
-    toolItem(Tool.HEAL, "Heal", GraffuxIcons.Heal)
-    toolItem(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
-    toolItem(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
-    toolItem(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     toolItem(Tool.FILL, "Fill", GraffuxIcons.Colordrop)
-    // Clone. Aimed by tapping the canvas once, which is why it is a tool with a second step rather
-    // than a tool you just start painting with.
-    toolItem(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
-    if (uiState.activeTool == Tool.CLONE) {
-        stateItem(
-            id = "tool.cloneSource",
-            text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
-            content = GraffuxIcons.FilterCloneSource,
-        ) { vm.onResetCloneSource() }
+
+    // ── The three tool groups ─────────────────────────────────────────────────────────────────────
+    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's,
+    // and it is grouped the way Photoshop groups it: vector, retouching, focus and tone.
+    //
+    // Two arrangements were being run at once before this. The strip copied Procreate's *shape* — a
+    // flat row you don't have to open — while carrying Photoshop's whole tool count, so it ran to
+    // thirteen items when the thing it was imitating shows five, and none of the relationships
+    // between them were visible: Dodge and Burn are one idea in two directions, Blur and Sharpen
+    // another, Heal and Clone both sample from elsewhere on the layer. Flat, they read as thirteen
+    // unrelated buttons. Grouped, the strip is short and each group is a sentence.
+    //
+    // Every tool keeps its id, its classifier and its behaviour — only where you reach it moves, so
+    // nothing about a recorded stroke, a co-op peer or a saved project changes.
+    //
+    // The bodies below use the DSL directly rather than the `toolItem` helper above: that helper is
+    // a local function closed over the OUTER rail's receiver, so calling it in here would compile
+    // and then silently add the tool back to the strip these blocks exist to take it out of.
+
+    /** One tool item, built against whichever rail scope is the current receiver. */
+    fun AzNavRailScope.nestedTool(tool: Tool, label: String, icon: Int) {
+        val id = TOOL_IDS.getValue(tool)
+        azRailItem(
+            id = id, classifiers = setOf(id), text = label, content = icon,
+            color = railColor(id),
+            onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
+        )
+    }
+
+    // Vector. Pen draws a real PATH shape rather than pixels, and node editing operates on the shape
+    // it drew — the tool and the way you correct its output, which is why they sit together rather
+    // than the editing controls living twenty items further down the rail as they used to.
+    azNestedRail(
+        id = VECTOR_ID, text = "Vector", content = GraffuxIcons.PenInk,
+        color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
+        // Stays open while you work: node editing is several taps in a row, not one.
+        keepNestedRailOpen = true,
+    ) {
+        nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
+
+        // Node editing is offered only for a layer that actually has an editable path, so it isn't a
+        // permanently dead item on a raster document.
+        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
+        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
+        if (editable || uiState.pathEditLayerId != null) {
+            azRailItem(
+                id = "tool.nodeEdit", classifiers = setOf("tool.nodeEdit"), text = "Edit Nodes",
+                content = GraffuxIcons.PathSelectDirect, color = railColor("tool.nodeEdit"),
+                onClick = { vm.onToggleActivePathEdit() },
+            )
+        }
+        if (uiState.pathEditLayerId != null) {
+            azRailItem(
+                id = "tool.nodeClose", text = "Close Path",
+                content = GraffuxIcons.PathClose, color = navItemColor,
+                onClick = { vm.onTogglePathClosed() },
+            )
+            uiState.selectedNodeIndex?.let { index ->
+                azRailItem(
+                    id = "tool.nodeDelete", text = "Delete Node",
+                    content = GraffuxIcons.PenRemove, color = navItemColor,
+                    onClick = { vm.onDeletePathNode(index) },
+                )
+            }
+        }
+    }
+
+    // Retouching. Both of these repair by sampling pixels from somewhere else on the same layer —
+    // Heal blends what it samples into the surrounding tone, Clone copies it verbatim — which is
+    // exactly the distinction the group makes visible by putting them next to each other.
+    azNestedRail(
+        id = RETOUCH_ID, text = "Retouch", content = GraffuxIcons.Heal,
+        color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
+        keepNestedRailOpen = true,
+    ) {
+        nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
+        nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
+        // Clone is aimed by tapping the canvas once before painting, which is why it has a second
+        // step no other tool here has. Shown only while it's the active tool: aiming a tool you
+        // aren't holding means nothing.
+        if (uiState.activeTool == Tool.CLONE) {
+            azRailItem(
+                id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
+                text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
+                content = GraffuxIcons.FilterCloneSource, color = railColor("tool.cloneSource"),
+                onClick = { vm.onResetCloneSource() },
+            )
+        }
+    }
+
+    // Focus and tone. Three opposed pairs plus Colorize: Dodge lightens and Burn darkens, Blur
+    // removes local contrast and Sharpen adds it back, and Colorize replaces hue while leaving
+    // luminance alone. Every one of them modifies pixels that are already there rather than adding
+    // new marks, which is the line this group is drawn along.
+    azNestedRail(
+        id = FOCUS_ID, text = "Focus & Tone", content = GraffuxIcons.Dodge,
+        color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
+        keepNestedRailOpen = true,
+    ) {
+        nestedTool(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
+        nestedTool(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
+        // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
+        // while `ImageProcessor` ran an actual box blur under the stroke — the one name in the rail
+        // that promised a tool the app doesn't have.
+        nestedTool(Tool.BLUR, "Blur", GraffuxIcons.Blur)
+        nestedTool(Tool.SHARPEN, "Sharpen", GraffuxIcons.Sharpen)
+        nestedTool(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
     }
 
     // Symmetry guide: strokes mirror across one or more axes while it's on. This is the quick
@@ -1422,31 +1542,8 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    // Vector node editing (Figma's vector pen). Shown only for a layer that actually has an
-    // editable path, so it isn't a permanently-dead item on a raster document.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
-        if (editable || uiState.pathEditLayerId != null) {
-            modeItem("tool.nodeEdit", "Edit Nodes", GraffuxIcons.PathSelectDirect) {
-                vm.onToggleActivePathEdit()
-            }
-        }
-        if (uiState.pathEditLayerId != null) {
-            azRailItem(
-                id = "tool.nodeClose", text = "Close Path",
-                content = GraffuxIcons.PathClose, color = navItemColor,
-                onClick = { vm.onTogglePathClosed() },
-            )
-            uiState.selectedNodeIndex?.let { index ->
-                azRailItem(
-                    id = "tool.nodeDelete", text = "Delete Node",
-                    content = GraffuxIcons.PenRemove, color = navItemColor,
-                    onClick = { vm.onDeletePathNode(index) },
-                )
-            }
-        }
-    }
+    // (Vector node editing lives in the "Vector" nested rail above, next to the Pen that produces
+    // the paths it edits.)
     hostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = GraffuxIcons.Symmetry)
     SymmetryMode.entries.forEach { mode ->
         stateSubItem(
