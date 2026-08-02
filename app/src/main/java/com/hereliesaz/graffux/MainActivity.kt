@@ -995,6 +995,13 @@ private fun activeRailClassifiers(
     if (uiState.activeTool in FOCUS_TOOLS) add(FOCUS_ID)
     // Node editing is a vector mode rather than a Tool, so it lights its host separately.
     if (uiState.pathEditLayerId != null) add(VECTOR_ID)
+    // The lasso lives under a host too, and for the same reason its host has to carry the light: a
+    // sub-item is out of sight whenever its group is closed.
+    if (uiState.activeTool == Tool.SELECT) add("grp.select")
+    if (uiState.symmetryMode != SymmetryMode.NONE) add("grp.symmetryMode")
+    // Clone's second step. It lights once the tool is aimed, which is the state that decides whether
+    // the next stroke copies anything — the item had declared this classifier since it was written
+    // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
     if (uiState.symmetryMode != SymmetryMode.NONE) add("tool.symmetry")
@@ -1004,6 +1011,7 @@ private fun activeRailClassifiers(
     if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
     if (modelWindowOpen) add("tool.model")
     if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
+    if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
     if (uiState.selection?.inverted == true) add("tool.selectInvert")
     if (uiState.quickMenuAt != null) add("tool.quick")
     if (uiState.showColorPicker) add("tool.color")
@@ -1091,8 +1099,16 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor, shape = shape, onClick = onClick,
         )
 
-    /** A group header: the bordered circle every host in this rail shares. */
-    fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = emptySet()) =
+    /**
+     * A group header: the bordered circle every host in this rail shares.
+     *
+     * The id is the classifier, as it is for every other builder here. It used to default to
+     * `emptySet()`, and five of the six hosts took that default — so `railColor(id)` inside this
+     * function was computing an accent that the library could never apply, because AzNavRail marks
+     * an item active by matching its *classifiers* against the active set, and an empty set matches
+     * nothing. An armed Select tool showed nothing at all once its group was closed.
+     */
+    fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = setOf(id)) =
         azRailHostItem(
             id = id, text = text, content = content, classifiers = classifiers,
             color = railColor(id), shape = AzButtonShape.CIRCLE,
@@ -1214,7 +1230,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         subItem("sel.copy", "grp.select", "Copy", GraffuxIcons.LayerDuplicate) { vm.onCopySelection() }
         subItem("sel.cut", "grp.select", "Cut", GraffuxIcons.PathKnife) { vm.onCutSelection() }
         subItem("sel.save", "grp.select", "Save Selection", GraffuxIcons.DocumentSave) {
-            vm.onSaveSelection("Selection ${uiState.savedSelections.size + 1}")
+            vm.onSaveSelection(vm.nextSelectionName())
         }
     }
     // Paste needs a clipboard, not a selection — it makes a new layer, so it is useful precisely
@@ -1337,7 +1353,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
-        id = VECTOR_ID, text = "Vector", content = GraffuxIcons.PenInk,
+        id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
         // Stays open while you work: node editing is several taps in a row, not one.
         keepNestedRailOpen = true,
@@ -1375,7 +1391,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Heal blends what it samples into the surrounding tone, Clone copies it verbatim — which is
     // exactly the distinction the group makes visible by putting them next to each other.
     azNestedRail(
-        id = RETOUCH_ID, text = "Retouch", content = GraffuxIcons.Heal,
+        id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
         color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
         keepNestedRailOpen = true,
     ) {
@@ -1408,7 +1424,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // dragging a brush across the canvas, so it is the same gesture as Smudge with a much larger
     // radius, and a user who wants one is choosing between the two.
     azNestedRail(
-        id = FOCUS_ID, text = "Focus & Tone", content = GraffuxIcons.Dodge,
+        id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
         color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
         keepNestedRailOpen = true,
     ) {

@@ -56,6 +56,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -138,6 +140,14 @@ private const val MODEL_TEXTURE_FILE = "model_texture.png"
 // Key for the model texture in the pending-write map, which is otherwise keyed by layer id. Prefixed
 // so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
 private const val MODEL_TEXTURE_KEY = "model:texture"
+
+/**
+ * How long a continuous edit (a rail-slider drag) must be still before it is considered finished.
+ *
+ * Long enough to bridge the gap between emitted samples of a slow drag, short enough that letting go
+ * and immediately hitting Undo does the thing the user expects.
+ */
+private const val CONTINUOUS_EDIT_IDLE_MS = 400L
 
 /**
  * The tools that rework pixels already on the layer instead of painting new ones.
@@ -2036,6 +2046,38 @@ class EditorViewModel @Inject constructor(
      * commits correctly via [onAdjustmentStart]/[onAdjustmentEnd].
      */
     fun onLayerEditStart() = pushHistory()
+
+    /**
+     * Brackets a run of rapid edits — one drag of a rail slider — into **one** history entry and
+     * **one** project write.
+     *
+     * The rail's sliders have no "drag finished" callback: `azRailSlider` exposes `onValueChange`
+     * and nothing else, which is why the panel sliders can bracket themselves ([onLayerEditStart] /
+     * [onLayerEditEnd], driven by Material's `onValueChangeFinished`) and the rail's could not. So
+     * the bracket closes itself on an idle timeout instead: the first value in a run pushes history,
+     * every value applies, and the write happens once the user stops moving.
+     *
+     * Without it, each emitted sample pushed its own history entry and launched its own un-debounced
+     * `saveProject` — so one drag of Opacity buried the undo stack under a frame-by-frame replay of
+     * itself and wrote the project manifest dozens of times. (The 1.5 s save debounce covers layer
+     * *bitmaps* only; the manifest write is immediate.)
+     */
+    private var continuousEditJob: Job? = null
+
+    private fun continuousEdit(apply: () -> Unit) {
+        // Opening a new run, or continuing one already in flight? Read before the cancel below, and
+        // note the coroutine clears the handle itself when it completes — so a run that has already
+        // closed correctly opens a fresh history entry rather than silently extending the last one.
+        val opening = continuousEditJob == null
+        if (opening) pushHistory()
+        continuousEditJob?.cancel()
+        apply()
+        continuousEditJob = viewModelScope.launch(dispatchers.main) {
+            delay(CONTINUOUS_EDIT_IDLE_MS)
+            continuousEditJob = null
+            saveProject()
+        }
+    }
 
     /** See [onLayerEditStart]. */
     fun onLayerEditEnd() {
@@ -3997,14 +4039,32 @@ class EditorViewModel @Inject constructor(
     // ── Save / Load selections ───────────────────────────────────────────────────────────────
 
     /** Puts the current selection aside under a name, replacing any saved under the same one. */
+    /**
+     * The first "Selection N" that is not already taken.
+     *
+     * Not `size + 1`, which collides the moment anything has been forgotten: save three, delete
+     * "Selection 2", and the next save is offered the name "Selection 3" — which
+     * [onSaveSelection] then quietly replaces, because it de-duplicates by name. The user is told
+     * their selection was saved while a different one is destroyed.
+     */
+    fun nextSelectionName(): String {
+        val taken = _uiState.value.savedSelections.mapTo(HashSet()) { it.name }
+        var n = taken.size + 1
+        while ("Selection $n" in taken) n++
+        return "Selection $n"
+    }
+
     fun onSaveSelection(name: String) {
         val state = _uiState.value
         val selection = state.selection ?: return
-        val trimmed = name.trim().ifBlank { "Selection ${state.savedSelections.size + 1}" }
+        val trimmed = name.trim().ifBlank { nextSelectionName() }
+        // Replacing by name is deliberate — saving over a name you typed should overwrite it — but
+        // it is only safe because the *generated* names can no longer collide by accident.
+        val replaced = state.savedSelections.any { it.name == trimmed }
         val next = state.savedSelections.filterNot { it.name == trimmed } +
             SavedSelection(trimmed, selection)
         dispatch(EditorIntent.SetSavedSelections(next))
-        showHud("Saved “$trimmed”")
+        showHud(if (replaced) "Replaced “$trimmed”" else "Saved “$trimmed”")
         saveProject()
     }
 
@@ -4844,9 +4904,9 @@ class EditorViewModel @Inject constructor(
             Toast.makeText(context, "That layer has no children to lay out", Toast.LENGTH_SHORT).show()
             return
         }
-        pushHistory()
-        dispatch(EditorIntent.SetAutoLayout(frameId, layout))
-        saveProject()
+        // Bracketed: the rail's "Gap" slider drives this once per emitted sample, and the direction
+        // and alignment pickers route through the same function.
+        continuousEdit { dispatch(EditorIntent.SetAutoLayout(frameId, layout)) }
     }
 
     /** Resizes the active frame to exactly fit its laid-out children (Figma's "hug contents"). */
@@ -5398,9 +5458,8 @@ class EditorViewModel @Inject constructor(
                 if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.LINE) s.copy(strokeArgb = argb)
                 else s.copy(fillArgb = argb)
             }
-            pushHistory()
-            dispatch(EditorIntent.SetLayerShapes(active.id, recoloured))
-            saveProject()
+            // Bracketed: the rail's Opacity slider drives this, once per emitted sample.
+            continuousEdit { dispatch(EditorIntent.SetLayerShapes(active.id, recoloured)) }
         }
     }
 
