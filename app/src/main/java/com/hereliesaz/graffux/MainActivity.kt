@@ -110,6 +110,9 @@ import kotlin.math.roundToInt
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    /**
+     *
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedImage = incomingImageUri(intent)
