@@ -228,6 +228,15 @@ class PathEditingTest {
     }
 
     @Test
+    fun `a tap directly on a half-smooth node selects NodeHit, not a zero-length handle`() {
+        // Node 1 has a non-zero incoming handle, but a zero outgoing handle.
+        val shape = PathEditing.moveHandle(straight(), 1, outgoing = false, x = 80f, y = 0f)
+        // Tapping directly on Node 1 (100f, 0f) where outDx=0 must return NodeHit(1), not HandleHit(1, outgoing=true).
+        val hit = PathEditing.hitTest(shape, 100f, 0f, radius = 5f)
+        assertEquals(PathEditing.Hit.NodeHit(1), hit)
+    }
+
+    @Test
     fun `a tap on the line between nodes reports the segment and position along it`() {
         val hit = PathEditing.hitTest(straight(), 50f, 0f, radius = 10f)
         assertTrue("expected a segment hit, got $hit", hit is PathEditing.Hit.SegmentHit)

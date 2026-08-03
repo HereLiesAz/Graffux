@@ -26,7 +26,7 @@ object PathEditing {
         val outDx: Float = 0f,
         val outDy: Float = 0f,
     ) {
-        val isCorner: Boolean get() = inDx == 0f && inDy == 0f && outDx == 0f && outDy == 0f
+        val isCorner: Boolean get() = abs(inDx) < EPSILON && abs(inDy) < EPSILON && abs(outDx) < EPSILON && abs(outDy) < EPSILON
 
         /**
          * True when the curve passes through this node without a kink — the two handles are
@@ -262,9 +262,13 @@ object PathEditing {
         val r2 = radius * radius
 
         nodes.forEachIndexed { i, n ->
-            if (!n.isCorner) {
-                if (dist2(x, y, n.x + n.outDx, n.y + n.outDy) <= r2) return Hit.HandleHit(i, outgoing = true)
-                if (dist2(x, y, n.x + n.inDx, n.y + n.inDy) <= r2) return Hit.HandleHit(i, outgoing = false)
+            val hasOutHandle = abs(n.outDx) >= EPSILON || abs(n.outDy) >= EPSILON
+            val hasInHandle = abs(n.inDx) >= EPSILON || abs(n.inDy) >= EPSILON
+            if (hasOutHandle && dist2(x, y, n.x + n.outDx, n.y + n.outDy) <= r2) {
+                return Hit.HandleHit(i, outgoing = true)
+            }
+            if (hasInHandle && dist2(x, y, n.x + n.inDx, n.y + n.inDy) <= r2) {
+                return Hit.HandleHit(i, outgoing = false)
             }
         }
         nodes.forEachIndexed { i, n ->

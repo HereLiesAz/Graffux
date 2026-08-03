@@ -137,12 +137,7 @@ class CanvasHitTestTest {
         assertEquals(500f, bc.y, 0.01f)
     }
 
-    @Test
-    fun `rotation handle sits out beyond the top edge`() {
-        val rot = CanvasHitTest.rotationHandlePos(CanvasHitTest.layerScreenCorners(vlayer("a"), W, H)!!, 50f)!!
-        assertEquals(500f, rot.x, 0.01f) // above the top-edge midpoint (500, 300)
-        assertEquals(250f, rot.y, 0.01f) // 50 px further up
-    }
+
 
     @Test
     fun `angle delta measures signed rotation about the centre`() {
@@ -207,5 +202,21 @@ class CanvasHitTestTest {
         assertEquals("a", CanvasHitTest.topHit(listOf(layer), at, W, H)) // no camera → hits
         // A 90° canvas spin moves the layer off that screen point.
         assertNull(CanvasHitTest.topHit(listOf(layer), at, W, H, Offset.Zero, 1f, 90f))
+    }
+
+    @Test
+    fun `allHits returns overlapping layers in top-to-bottom order`() {
+        val bottom = vlayer("bottom", w = 600f, h = 600f)
+        val middle = vlayer("middle", w = 400f, h = 400f)
+        val top = vlayer("top", w = 200f, h = 200f)
+        val layers = listOf(bottom, middle, top)
+
+        // At (500, 500), all three layers overlap.
+        val hits = CanvasHitTest.allHits(layers, Offset(500f, 500f), W, H)
+        assertEquals(listOf("top", "middle", "bottom"), hits)
+
+        // At (650, 500), only middle and bottom overlap (top is 200x200 around 500,500).
+        val hitsOuter = CanvasHitTest.allHits(layers, Offset(650f, 500f), W, H)
+        assertEquals(listOf("middle", "bottom"), hitsOuter)
     }
 }

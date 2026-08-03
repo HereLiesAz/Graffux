@@ -25,6 +25,52 @@ import kotlin.math.sin
 internal object CanvasHitTest {
 
     /**
+     * Returns the ids of all visible layers whose transformed content contains [tap]
+     * (canvas pixels), ordered from top-most (front) to bottom-most (back).
+     */
+    fun allHits(
+        layers: List<Layer>,
+        tap: Offset,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
+    ): List<String> {
+        if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return emptyList()
+        val d = (tap - viewportOffset) / viewportZoom
+        val camRad = Math.toRadians(-viewportRotation.toDouble())
+        val camC = cos(camRad)
+        val camS = sin(camRad)
+        val worldTap = Offset(
+            (d.x * camC - d.y * camS).toFloat(),
+            (d.x * camS + d.y * camC).toFloat(),
+        )
+        val cx = canvasWidth / 2f
+        val cy = canvasHeight / 2f
+        val hits = mutableListOf<String>()
+        // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
+        for (layer in layers.asReversed()) {
+            if (!layer.isVisible || layer.scale <= 0f) continue
+            val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: continue
+            if (halfW <= 0f || halfH <= 0f) continue
+
+            val dx = worldTap.x - layer.offset.x - cx
+            val dy = worldTap.y - layer.offset.y - cy
+            val rad = Math.toRadians(layer.rotationZ.toDouble())
+            val c = cos(rad)
+            val s = sin(rad)
+            val localX = ((dx * c + dy * s) / layer.scale).toFloat()
+            val localY = ((-dx * s + dy * c) / layer.scale).toFloat()
+
+            if (abs(localX) <= halfW && abs(localY) <= halfH) {
+                hits.add(layer.id)
+            }
+        }
+        return hits
+    }
+
+    /**
      * Returns the id of the topmost visible layer whose transformed content contains [tap]
      * (canvas pixels), or null if the tap misses every layer. Layers are tested front-to-back so
      * the visually topmost one wins.
@@ -37,40 +83,8 @@ internal object CanvasHitTest {
         viewportOffset: Offset = Offset.Zero,
         viewportZoom: Float = 1f,
         viewportRotation: Float = 0f,
-    ): String? {
-        if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return null
-        // Undo the camera first: screen → world (container) space, where the per-layer math lives.
-        // screen = viewportOffset + zoom · R(rot) · world  ⇒  world = R(-rot) · (screen - offset) / zoom.
-        val d = (tap - viewportOffset) / viewportZoom
-        val camRad = Math.toRadians(-viewportRotation.toDouble())
-        val camC = cos(camRad)
-        val camS = sin(camRad)
-        val worldTap = Offset(
-            (d.x * camC - d.y * camS).toFloat(),
-            (d.x * camS + d.y * camC).toFloat(),
-        )
-        val cx = canvasWidth / 2f
-        val cy = canvasHeight / 2f
-        // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
-        for (layer in layers.asReversed()) {
-            if (!layer.isVisible || layer.scale <= 0f) continue
-            val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: continue
-            if (halfW <= 0f || halfH <= 0f) continue
+    ): String? = allHits(layers, tap, canvasWidth, canvasHeight, viewportOffset, viewportZoom, viewportRotation).firstOrNull()
 
-            // Invert the render transform: undo translation + centre, then rotation, then scale.
-            val dx = worldTap.x - layer.offset.x - cx
-            val dy = worldTap.y - layer.offset.y - cy
-            val rad = Math.toRadians(layer.rotationZ.toDouble())
-            val c = cos(rad)
-            val s = sin(rad)
-            // R(-rotationZ) · (dx, dy), then divide by the uniform scale.
-            val localX = ((dx * c + dy * s) / layer.scale).toFloat()
-            val localY = ((-dx * s + dy * c) / layer.scale).toFloat()
-
-            if (abs(localX) <= halfW && abs(localY) <= halfH) return layer.id
-        }
-        return null
-    }
 
     /**
      * The four screen-space corners of [layer]'s content bounding box, in local TL, TR, BR, BL
@@ -187,20 +201,7 @@ internal object CanvasHitTest {
         return if (best >= 0) best else null
     }
 
-    /**
-     * The screen position of the rotation handle: out beyond the top edge's midpoint ([corners] TL,
-     * TR), along the outward normal, by [distancePx]. Null if [corners] is degenerate. The handle
-     * follows the box's rotation because it is derived from the (already-rotated) corners.
-     */
-    fun rotationHandlePos(corners: List<Offset>, distancePx: Float): Offset? {
-        if (corners.size < 4) return null
-        val topMid = (corners[0] + corners[1]) / 2f
-        val boxCenter = (corners[0] + corners[1] + corners[2] + corners[3]) / 4f
-        val dir = topMid - boxCenter
-        val len = dir.getDistance()
-        if (len < 0.001f) return null
-        return topMid + (dir / len) * distancePx
-    }
+
 
     /**
      * The signed angle (degrees, normalised to (-180, 180]) swept from [from] to [to] as seen from

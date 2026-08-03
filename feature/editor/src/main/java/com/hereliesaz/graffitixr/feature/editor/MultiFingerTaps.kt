@@ -168,9 +168,11 @@ class MultiFingerRecognizer(private val slopPx: Float) {
         }
 
         if (pressed.size > maxPointers) {
-            // A finger joined: the gesture is only now assembled, so stillness starts here.
+            // A finger joined: if assembling the gesture (was < 2 pointers), stillness starts now.
+            // If already a multi-finger pan (maxPointers >= 2 and moved == true), preserve `moved`.
+            val wasPanning = maxPointers >= 2 && moved
             maxPointers = pressed.size
-            moved = false
+            moved = wasPanning
             origins.clear()
             pressed.forEach { origins[it.id] = it.position }
             scrubDirection = 0
@@ -225,9 +227,9 @@ class MultiFingerRecognizer(private val slopPx: Float) {
  * **three-finger scrub** to clear the layer. Every slot is user-reassignable, so the observer
  * reports a [GestureSlot] and the host decides what it does.
  *
- * A pure observer on [PointerEventPass.Initial]: it never consumes anything, so it coexists with
- * every other handler (drawing, pan/zoom, taps) — a qualifying tap is short, still, and lands
- * 2–4 fingers; anything travelling is someone else's gesture.
+ * An observer on [PointerEventPass.Initial]: a qualifying tap is short, still, and lands
+ * 2–4 fingers; anything travelling is someone else's gesture. When a multi-finger gesture fires,
+ * it consumes the pointer event so underlying UI controls are not dual-triggered.
  *
  * Install it as high in the tree as possible. These gestures are meant to work anywhere on screen,
  * and the nav rail, the floating panels and the onscreen chrome are siblings of the canvas rather
@@ -280,7 +282,10 @@ fun Modifier.multiFingerTaps(
                     )
                 }
 
-                if (fired != null) current.value(fired, recognizer.centroid)
+                if (fired != null) {
+                    event?.changes?.forEach { it.consume() }
+                    current.value(fired, recognizer.centroid)
+                }
                 if (recognizer.isFinished) break
             }
         }

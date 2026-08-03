@@ -33,7 +33,7 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
         // delegating to the default handler simply restores plain-JVM "only that thread dies" semantics.
         if (thread !== Looper.getMainLooper().thread && isRecoverableArCameraCrash(throwable)) {
             try {
-                // fatal = false so CrashUploadWorker files it as a recovered event, not a force-close.
+                // fatal = false indicates a recovered event, not a force-close.
                 saveReport(buildReport(throwable, fatal = false))
             } catch (e: Exception) {
                 Log.e("CrashReporter", "Failed to save crash report", e)
@@ -56,9 +56,7 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
         val stackTrace = Log.getStackTraceString(throwable)
         val logcat = collectLogcat()
 
-        // FATAL must be the first line so consumers (CrashUploadWorker) can classify the report
-        // cheaply: true = the process was killed, false = the exception was caught and the app kept
-        // running.
+        // FATAL is the first line: true = the process was killed, false = the exception was caught
         val report = """
             FATAL: $fatal
             TIMESTAMP: $timestamp
@@ -71,12 +69,8 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
             LOGCAT:
             $logcat
         """.trimIndent()
-        // CrashUploadWorker publishes this verbatim as a PUBLIC GitHub issue. Up to 1000 raw logcat
-        // lines (and, less likely, the stack trace's exception messages) can carry whatever the app
-        // or a library happened to log during the session — GPS coordinates, a co-op session token,
-        // an account/device identifier. Scrub known-sensitive shapes before anything leaves the
-        // device; this is defense-in-depth, not a substitute for not logging secrets in the first
-        // place.
+        // Scrub known-sensitive shapes before saving crash report to disk; this is defense-in-depth,
+        // not a substitute for not logging secrets in the first place.
         return redactSensitive(report)
     }
 

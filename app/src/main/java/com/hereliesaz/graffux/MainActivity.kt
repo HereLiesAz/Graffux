@@ -3,7 +3,7 @@ package com.hereliesaz.graffux
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -111,16 +111,13 @@ import kotlin.math.roundToInt
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
  * multi-layer image editor, migrated from GraffitiXR into :feature:editor). The Hilt-provided
  * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
- * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.[span_3](start_span)[span_3](end_span)
+ * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.
  */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
-    /**
-     *
-     */
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val sharedImage = incomingImageUri(intent)
+        val sharedImage = incomingImageUri(intent, this)
         setContent {
             MaterialTheme {
                 GraffuxApp(sharedImageUri = sharedImage)
@@ -130,11 +127,14 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Extracts a single image [Uri] from an inbound share/view intent, or null if this launch isn't one.[span_4](start_span)[span_4](end_span)
+ * Extracts a single image [Uri] from an inbound share/view intent, or null if this launch isn't one.
  */
-private fun incomingImageUri(intent: Intent?): Uri? {
+private fun incomingImageUri(intent: Intent?, context: android.content.Context): Uri? {
     if (intent == null) return null
-    val isImage = intent.type?.startsWith("image/") == true
+    val data = intent.data
+    val mimeType = intent.type ?: data?.let { context.contentResolver.getType(it) }
+    val isImage = mimeType?.startsWith("image/") == true ||
+        (intent.action == Intent.ACTION_VIEW && data?.scheme in listOf("file", "content"))
     return when (intent.action) {
         Intent.ACTION_SEND ->
             if (isImage) IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) else null

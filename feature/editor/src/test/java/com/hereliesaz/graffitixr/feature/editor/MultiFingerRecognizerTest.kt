@@ -90,6 +90,20 @@ class MultiFingerRecognizerTest {
     }
 
     @Test
+    fun `two finger pan followed by a third finger joining does not fire a three finger tap`() {
+        val r = recognizerStartedAt()
+        // 2 fingers land
+        r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 30L, suppressed = false)
+        // 2 fingers pan 120px
+        r.onEvent(listOf(p(0, 220f), p(1, 320f)), uptimeMs = 60L, suppressed = false)
+        // 3rd finger joins mid-pan
+        r.onEvent(listOf(p(0, 220f), p(1, 320f), p(2, 400f)), uptimeMs = 90L, suppressed = false)
+
+        // All fingers lift quickly — pan state must be preserved, so no 3-finger tap fires.
+        assertNull(r.onEvent(emptyList(), uptimeMs = 150L, suppressed = false))
+    }
+
+    @Test
     fun `a touch held past the hold threshold is not also a tap on lift`() {
         val r = recognizerStartedAt()
         r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 30L, suppressed = false)

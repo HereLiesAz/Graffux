@@ -1874,6 +1874,37 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A double tap on the canvas at [tap] (canvas pixels): cycles selection to the NEXT layer down
+     * at that specific location. If the next layer in line isn't in that spot, it is skipped.
+     */
+    fun onCanvasDoubleTap(tap: Offset, canvasWidth: Float, canvasHeight: Float) {
+        val st = _uiState.value
+        val hits = CanvasHitTest.allHits(
+            st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )
+        if (hits.isNotEmpty()) {
+            val currentActiveId = st.activeLayerId
+            val idx = if (currentActiveId != null) hits.indexOf(currentActiveId) else -1
+            val nextId = if (idx >= 0) {
+                hits[(idx + 1) % hits.size]
+            } else {
+                hits[0]
+            }
+            if (nextId != currentActiveId) {
+                dispatch(EditorIntent.ActivateLayer(nextId))
+            }
+        }
+    }
+
+    /** Specifically rotates the active layer on the Z axis (2D plane) from interactive handles. */
+    fun onRotateLayerHandle(rotationDelta: Float) {
+        val activeId = _uiState.value.activeLayerId ?: return
+        updateLinkedGroup(activeId) { layer ->
+            layer.copy(rotationZ = layer.rotationZ + rotationDelta)
+        }
+    }
+
     fun onTransformGesture(pan: Offset, zoom: Float, rotationDelta: Float, canvasW: Float = 0f, canvasH: Float = 0f) {
         val activeId = _uiState.value.activeLayerId ?: return
         val axis = _uiState.value.activeRotationAxis

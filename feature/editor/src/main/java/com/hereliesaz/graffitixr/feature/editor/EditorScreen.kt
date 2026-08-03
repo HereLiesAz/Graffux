@@ -244,7 +244,9 @@ fun EditorScreen(
                     .fillMaxSize()
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
                         detectTapGestures(
-                            onDoubleTap = { vm.onCycleRotationAxis() },
+                            onDoubleTap = { offset ->
+                                vm.onCanvasDoubleTap(offset, size.width.toFloat(), size.height.toFloat())
+                            },
                             // Tap selects the layer under the finger (or dismisses panels on a miss).
                             onTap = { offset ->
                                 vm.onCanvasTap(offset, size.width.toFloat(), size.height.toFloat())
@@ -252,22 +254,6 @@ fun EditorScreen(
                         )
                     }
                     .pointerInput(Unit) {
-                        // Object move only. Camera navigation is NOT handled here any more — it is
-                        // CanvasNavigation above, which is mounted under every tool instead of only
-                        // this one:
-                        //  • two+ fingers                   → not ours; CanvasNavigation drives the camera
-                        //  • one finger on the active layer → move that layer (history-bracketed)
-                        //  • one finger on empty space      → no-op; a single finger must NEVER pan the
-                        //    canvas (Procreate reserves camera navigation for two fingers exclusively —
-                        //    one finger is always either painting or, here in Transform mode, moving the
-                        //    layer it lands on; there is no single-finger canvas-drag gesture at all).
-                        // Handle drags are claimed by the SelectionHandles layer above (consumed),
-                        // so they never reach here.
-                        //
-                        // Keyed on Unit (never restarts): the per-gesture state (layers, viewport,
-                        // active layer) is read fresh from the view-model at each touch-down. Keying on
-                        // viewport would cancel + relaunch this block on every pan frame — which drops
-                        // the in-flight drag and makes panning/zooming feel dead.
                         awaitEachGesture {
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
@@ -285,10 +271,6 @@ fun EditorScreen(
                                 val pressed = event.changes.count { it.pressed }
                                 if (pressed == 0) break
                                 if (pressed >= 2) {
-                                    // A second finger means the user is navigating, not dragging the
-                                    // layer. Close out any in-flight move and stop consuming so
-                                    // CanvasNavigation gets a clean gesture — otherwise the layer
-                                    // would slide along under the pinch.
                                     if (movingObject) { vm.onGestureEnd(); movingObject = false }
                                     break
                                 }
@@ -297,8 +279,6 @@ fun EditorScreen(
                                     vm.onTransformGesture(event.calculatePan(), 1f, 0f, w, h)
                                     event.changes.forEach { it.consume() }
                                 }
-                                // One finger, off the active layer: not a canvas gesture. Leave the
-                                // event unconsumed and do nothing — no camera pan, ever, on one finger.
                             }
                             if (movingObject) vm.onGestureEnd()
                         }
@@ -306,9 +286,9 @@ fun EditorScreen(
             )
         }
 
-        // 2b. Selection outline — the active layer's transformed bounding box, so the picked shape is
-        // visible. Purely visual (no pointer input); only while a transform tool is active.
-        if (uiState.activeTool == Tool.NONE) {
+        // 2b. Selection outline — the active layer's transformed bounding box, so the active layer is
+        // always visibly bounded. Purely visual (no pointer input).
+        if (activeLayer != null) {
             SelectionOverlay(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
@@ -318,11 +298,9 @@ fun EditorScreen(
             )
         }
 
-        // 2c. Resize handles — dragging a corner scales the active layer about its centre (a
-        // single-finger "pinch", reusing onTransformGesture). Sits ABOVE the pan-gesture box so a
-        // drag that starts on a handle is claimed here; a drag elsewhere isn't consumed, so panning
-        // still works. Only when a layer is active and no brush tool is selected.
-        if (uiState.activeTool == Tool.NONE && activeLayer != null && !activeLayerLocked) {
+        // 2c. Resize and Rotate handles — dragging the top-right corner rotates the active layer on Z axis,
+        // and dragging the bottom-right corner scales it. Sits above the canvas so handle drags are claimed here.
+        if (activeLayer != null && !activeLayerLocked) {
             SelectionHandles(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
@@ -330,7 +308,7 @@ fun EditorScreen(
                 viewportRotation = uiState.viewportRotation,
                 onGestureStart = { vm.onGestureStart() },
                 onResize = { zoom -> vm.onTransformGesture(Offset.Zero, zoom, 0f) },
-                onRotate = { deg -> vm.onTransformGesture(Offset.Zero, 1f, deg) },
+                onRotate = { deg -> vm.onRotateLayerHandle(deg) },
                 onGestureEnd = { vm.onGestureEnd() },
                 modifier = Modifier.fillMaxSize(),
             )

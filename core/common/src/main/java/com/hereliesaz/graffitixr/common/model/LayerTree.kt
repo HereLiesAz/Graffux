@@ -11,19 +11,30 @@ data class LayerNode(
  */
 fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
     val byParent = layers.groupBy { it.parentId }
-    // `ancestry` guards against a cyclic parentId chain (e.g. A's parent is B and B's parent is A)
-    // recursing forever. Not reachable from a normally-edited project today, but nothing upstream
-    // validates parentId, so a malformed project file or an inconsistent co-op Op could produce one.
+    val visitedIds = mutableSetOf<String>()
+
     fun build(parentId: String?, depth: Int, ancestry: Set<String>): List<LayerNode> {
         return (byParent[parentId] ?: emptyList()).mapNotNull { layer ->
             if (layer.id in ancestry) {
                 null
             } else {
+                visitedIds.add(layer.id)
                 LayerNode(layer, depth, build(layer.id, depth + 1, ancestry + layer.id))
             }
         }
     }
-    return build(null, 0, emptySet())
+
+    val rootNodes = build(null, 0, emptySet()).toMutableList()
+
+    // Collect any orphaned or cyclic subtrees so no layer is dropped and internal parent-child relations are preserved
+    for (layer in layers) {
+        if (layer.id !in visitedIds) {
+            visitedIds.add(layer.id)
+            rootNodes.add(LayerNode(layer, 0, build(layer.id, 1, setOf(layer.id))))
+        }
+    }
+
+    return rootNodes
 }
 
 /**
@@ -32,7 +43,7 @@ fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
  */
 fun flattenTree(nodes: List<LayerNode>): List<LayerNode> {
     val result = mutableListOf<LayerNode>()
-    for (node in nodes.reversed()) {
+    for (node in nodes) {
         result.add(node)
         result.addAll(flattenTree(node.children))
     }

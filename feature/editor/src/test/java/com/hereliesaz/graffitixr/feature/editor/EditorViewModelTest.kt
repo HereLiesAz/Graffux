@@ -42,6 +42,8 @@ import java.io.InputStream
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
+import com.hereliesaz.graffitixr.common.model.VectorShape
+import com.hereliesaz.graffitixr.common.model.ShapeKind
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EditorViewModelTest {
@@ -501,4 +503,41 @@ class EditorViewModelTest {
         assertEquals(dup.id, viewModel.uiState.value.activeLayerId)
     }
 
+    @Test
+    fun `onCanvasDoubleTap cycles selection to next layer at tap location`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Two overlapping vector layers at center (500, 500)
+        val l1 = VectorShape(kind = ShapeKind.RECTANGLE, width = 400f, height = 400f)
+        val layer1 = Layer(id = "layer1", name = "1", shapes = listOf(l1))
+        val layer2 = Layer(id = "layer2", name = "2", shapes = listOf(l1))
+        viewModel.setLayers(listOf(layer1, layer2))
+        viewModel.onLayerActivated("layer2") // layer2 is topmost (last in list)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("layer2", viewModel.uiState.value.activeLayerId)
+
+        // Double tap at center: hits = [layer2, layer1]. Active is index 0 (layer2). Next is layer1.
+        viewModel.onCanvasDoubleTap(Offset(500f, 500f), 1000f, 1000f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("layer1", viewModel.uiState.value.activeLayerId)
+
+        // Double tap again at center: Active is index 1 (layer1). Next wraps to layer2.
+        viewModel.onCanvasDoubleTap(Offset(500f, 500f), 1000f, 1000f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("layer2", viewModel.uiState.value.activeLayerId)
+    }
+
+    @Test
+    fun `onRotateLayerHandle rotates active layer on Z axis`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val l = lyr("a").copy(rotationZ = 15f)
+        viewModel.setLayers(listOf(l))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onRotateLayerHandle(45f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(60f, viewModel.uiState.value.layers.first().rotationZ, 0.01f)
+    }
 }
