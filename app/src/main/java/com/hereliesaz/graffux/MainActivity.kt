@@ -24,10 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Surface
-<<<<<<< HEAD
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
-=======
->>>>>>> e6a97b340387ebbfe015df848ce9dc779e8e0ec8
 import androidx.compose.material3.Text
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -388,14 +385,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-<<<<<<< HEAD
                     azItem(text = "Import…", onClick = { showImportChooser = true })
-=======
-                    azItem(text = "Import…", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                    azItem(text = "Add…", onClick = { showAddDialog = true })
-                    azItem(text = "Reference", onClick = { showReferenceWindow = true })
-                    azItem(text = "Properties…", onClick = { showDocDialog = true })
->>>>>>> e6a97b340387ebbfe015df848ce9dc779e8e0ec8
                     azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     azItem(text = strings.nav.export, onClick = { showExportChooser = true })
                     azItem(text = strings.nav.share, onClick = {
@@ -420,11 +410,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     })
                     azDivider()
                     azItem(text = "Store", onClick = { showStoreDialog = true })
-<<<<<<< HEAD
                     azItem(text = "Extensions", onClick = { showStoreDialog = true })
-=======
-                    azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
->>>>>>> e6a97b340387ebbfe015df848ce9dc779e8e0ec8
                     azItem(text = "3D Model…", onClick = { showModelDialog = true })
                     azItem(text = "Settings", onClick = { showSettings = true })
                 }
