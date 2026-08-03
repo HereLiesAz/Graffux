@@ -370,8 +370,6 @@ fun EditorScreen(
         if (uiState.activeTool == Tool.SELECT) {
             SelectionCanvas(
                 selection = uiState.selection,
-                shape = uiState.selectionShape,
-                op = uiState.selectionOp,
                 gate = strokeGate,
                 viewportOffset = uiState.viewportOffset,
                 viewportZoom = uiState.viewportZoom,
@@ -379,7 +377,6 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
                 onSelectionMove = { delta -> vm.onSelectionMove(delta) },
-                onAutoSelect = { at, size -> vm.onAutoSelect(at, size) },
                 onClearSelection = { vm.onClearSelection() },
             )
         }

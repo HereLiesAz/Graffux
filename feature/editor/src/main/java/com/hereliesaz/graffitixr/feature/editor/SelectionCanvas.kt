@@ -83,7 +83,10 @@ fun SelectionCanvas(
                     val down = awaitFirstDown()
                     // The live selection is captured by the pointerInput key, so this decision is
                     // made against the selection actually on screen.
-                    val moving = selection != null && SelectionGeometry.contains(selection, down.position)
+                    val worldDown = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapScreenToWorld(
+                        listOf(down.position), viewportOffset, viewportZoom, viewportRotation
+                    ).first()
+                    val moving = selection != null && SelectionGeometry.contains(selection, worldDown)
                     var began = false
                     lasso = if (moving) emptyList() else listOf(down.position)
                     moveDelta = if (moving) Offset.Zero else null

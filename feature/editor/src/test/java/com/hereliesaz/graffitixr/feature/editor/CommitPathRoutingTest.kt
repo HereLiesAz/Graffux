@@ -140,7 +140,7 @@ class CommitPathRoutingTest {
     fun `colour fill inside a feathered selection commits what it replays`() = runTest(dispatcher) {
         val before = seed()
         vm.onColorFillSelection()
-        advanceUntilIdle()
+        awaitCommit { publishedBitmap().getPixel(24, 24) != before.getPixel(24, 24) }
         assertCommitEqualsReplay(before, "colour fill")
     }
 
@@ -150,7 +150,7 @@ class CommitPathRoutingTest {
         val before = seed()
         vm.setActiveTool(Tool.FILL)
         vm.onFillTap(Offset(24f, 24f), canvas)
-        advanceUntilIdle()
+        awaitCommit { publishedBitmap().getPixel(24, 24) != before.getPixel(24, 24) }
         assertCommitEqualsReplay(before, "paint bucket")
     }
 
@@ -158,7 +158,7 @@ class CommitPathRoutingTest {
     fun `clear inside a feathered selection commits what it replays`() = runTest(dispatcher) {
         val before = seed()
         vm.onClearLayer()
-        advanceUntilIdle()
+        awaitCommit { publishedBitmap().getPixel(24, 24) != before.getPixel(24, 24) }
         assertCommitEqualsReplay(before, "clear")
     }
 
@@ -197,10 +197,10 @@ class CommitPathRoutingTest {
         fun published(v: EditorViewModel) = v.uiState.value.layers.single { it.id == "L" }.bitmap!!
 
         val hardVm = startFill(0f)
-        advanceUntilIdle()
+        awaitCommit { published(hardVm).getPixel(24, 24) != Color.WHITE }
         val hard = published(hardVm).copy(Bitmap.Config.ARGB_8888, false)
         val softVm = startFill(10f)
-        advanceUntilIdle()
+        awaitCommit { published(softVm).getPixel(24, 24) != Color.WHITE }
         val soft = published(softVm)
 
         var differing = 0

@@ -107,11 +107,18 @@ class ExtensionStateStore(private val file: File) {
             // exactly the half-written file the rename exists to prevent.
             tmp.writeText(json.encodeToString(ExtensionStateDocument.serializer(), ExtensionStateDocument(entries)))
             if (!tmp.renameTo(file)) {
-                tmp.delete()
-                Log.w(TAG, "Could not replace ${file.name}: rename failed; extension state is stale")
-                return false
+                try {
+                    tmp.copyTo(file, overwrite = true)
+                    tmp.delete()
+                    true
+                } catch (t: Throwable) {
+                    tmp.delete()
+                    Log.w(TAG, "Could not replace ${file.name}: rename failed; extension state is stale", t)
+                    false
+                }
+            } else {
+                true
             }
-            true
         } catch (t: Throwable) {
             tmp.delete()
             Log.w(TAG, "Could not write ${file.name}; extension state is stale", t)

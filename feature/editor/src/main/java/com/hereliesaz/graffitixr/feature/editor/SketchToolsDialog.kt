@@ -74,17 +74,13 @@ fun ColorPickerDialog(
         initHsv
     )
 
-    var hue by remember { mutableFloatStateOf(initHsv[0]) }
-    var saturation by remember { mutableFloatStateOf(initHsv[1]) }
-    var brightness by remember { mutableFloatStateOf(initHsv[2]) }
+    var hue by remember(currentColor) { mutableFloatStateOf(initHsv[0]) }
+    var saturation by remember(currentColor) { mutableFloatStateOf(initHsv[1]) }
+    var brightness by remember(currentColor) { mutableFloatStateOf(initHsv[2]) }
 
     val selectedColor = remember(hue, saturation, brightness) {
         val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
         Color(argb).copy(alpha = currentColor.alpha)
-    }
-
-    LaunchedEffect(selectedColor) {
-        onSelectColor(selectedColor)
     }
 
     var mode by remember { mutableStateOf(ColorPickerMode.DISC) }
@@ -126,6 +122,8 @@ fun ColorPickerDialog(
                         onHueSaturationChanged = { h, s ->
                             hue = h
                             saturation = s
+                            val argb = android.graphics.Color.HSVToColor(floatArrayOf(h, s, brightness))
+                            onSelectColor(Color(argb).copy(alpha = currentColor.alpha))
                         }
                     )
 
@@ -156,7 +154,11 @@ fun ColorPickerDialog(
                     )
                     Slider(
                         value = brightness,
-                        onValueChange = { brightness = it },
+                        onValueChange = { b ->
+                            brightness = b
+                            val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, b))
+                            onSelectColor(Color(argb).copy(alpha = currentColor.alpha))
+                        },
                         valueRange = 0f..1f,
                         modifier = Modifier.fillMaxWidth()
                     )

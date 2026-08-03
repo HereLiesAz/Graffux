@@ -114,6 +114,9 @@ object ImageProcessor {
             layerScale: Float = 1f,
             layerOffset: Offset = Offset.Zero,
             layerRotationZ: Float = 0f,
+            viewportOffset: Offset = Offset.Zero,
+            viewportZoom: Float = 1f,
+            viewportRotation: Float = 0f
         ): List<Offset> {
             val screenCx = screenWidth / 2f
             val screenCy = screenHeight / 2f
@@ -121,6 +124,10 @@ object ImageProcessor {
             val angleRad = Math.toRadians(-layerRotationZ.toDouble())
             val cosA = Math.cos(angleRad).toFloat()
             val sinA = Math.sin(angleRad).toFloat()
+
+            val camRad = Math.toRadians(viewportRotation.toDouble())
+            val camC = Math.cos(camRad).toFloat()
+            val camS = Math.sin(camRad).toFloat()
 
             val imageAspect = bitmapWidth.toFloat() / bitmapHeight.toFloat()
             val screenAspect = screenWidth.toFloat() / screenHeight.toFloat()
@@ -148,14 +155,20 @@ object ImageProcessor {
                 val rx = (lx - screenCx) * safeScale
                 val ry = (ly - screenCy) * safeScale
 
-                // Step 2 undone: rotate back the other way. The forward pass multiplies by
-                // [cosA, -sinA; sinA, cosA], whose inverse — it is a rotation, so its transpose —
-                // is [cosA, sinA; -sinA, cosA].
+                // Step 2 undone: rotate back the other way.
                 val dx = rx * cosA + ry * sinA
                 val dy = -rx * sinA + ry * cosA
 
-                // Step 1 undone: back out of pivot-relative coords and reapply the translation.
-                Offset(dx + screenCx + layerOffset.x, dy + screenCy + layerOffset.y)
+                // Step 1 undone: back out of pivot-relative coords and reapply layer translation to get world coords.
+                val worldX = dx + screenCx + layerOffset.x
+                val worldY = dy + screenCy + layerOffset.y
+
+                // Step 0 undone: apply camera (viewport) transform to get screen coords.
+                val camX = (worldX * camC - worldY * camS).toFloat()
+                val camY = (worldX * camS + worldY * camC).toFloat()
+                val sx = camX * viewportZoom + viewportOffset.x
+                val sy = camY * viewportZoom + viewportOffset.y
+                Offset(sx, sy)
             }
         }
 

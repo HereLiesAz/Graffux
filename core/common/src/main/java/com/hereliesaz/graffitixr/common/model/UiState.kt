@@ -15,7 +15,10 @@ enum class Tool {
      * confined to it until it is cleared. Dragging inside an existing selection moves its pixels.
      */
     SELECT,
-    CROP
+    CROP,
+    SHARPEN,
+    SMUDGE,
+    CLONE,
 }
 
 enum class ArScanMode {

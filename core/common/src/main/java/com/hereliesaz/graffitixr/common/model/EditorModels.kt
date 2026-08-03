@@ -183,7 +183,6 @@ data class EditorUiState(
     // FIX: Default to NONE so transform gestures are always the baseline
     val activeTool: Tool = Tool.NONE,
     val lastCropTool: String = "tool.crop",
-    val lastSymmetryMode: SymmetryMode? = null,
     val hideUiForCapture: Boolean = false,
     val isRightHanded: Boolean = true,
     /** Mirrors the persisted Settings "Imperial units" toggle — see EditorViewModel's init collector. */
