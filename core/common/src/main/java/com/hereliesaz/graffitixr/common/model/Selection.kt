@@ -6,12 +6,9 @@ import androidx.compose.ui.unit.IntSize
 /**
  * A freehand (lasso) selection: the region every raster tool is confined to while it is active.
  *
- * [path] is stored in **screen space**, exactly like [com.hereliesaz.graffitixr.feature.editor]'s
- * stroke paths, together with the [canvasSize] it was drawn against. That is deliberate: a
- * selection is document-level but each layer has its own bitmap resolution and transform, so there
- * is no single "native" pixel space to store it in. Keeping it in the same space as strokes means
- * it maps into any layer through the very same `mapScreenToBitmap` call the paint uses — so the
- * clip and the paint can never disagree about where the boundary is.
+ * [path] is stored in **world space** (unzoomed, unpanned document space).
+ * This ensures the selection remains anchored to the canvas content when the camera moves.
+ * It maps into any layer's bitmap space by skipping the camera step of mapScreenToBitmap.
  *
  * The polygon is implicitly closed (last point joins the first); it is never stored closed, so a
  * round-trip through [inverted] or a re-map can't accumulate duplicate vertices.

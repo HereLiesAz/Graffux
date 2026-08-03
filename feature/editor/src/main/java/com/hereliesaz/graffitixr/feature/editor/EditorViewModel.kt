@@ -77,6 +77,9 @@ data class StrokeCommand(
     val layerScale: Float = 1f,
     val layerOffset: Offset = Offset.Zero,
     val layerRotationZ: Float = 0f,
+    val viewportOffset: Offset = Offset.Zero,
+    val viewportZoom: Float = 1f,
+    val viewportRotation: Float = 0f,
     // Azphalt stamp-brush stroke (null = the built-in round brush). [flow] is per-dab build-up and
     // [seed] fixes the dab jitter so a replayed stroke re-composites to identical pixels. [stampShape]
     // is the brush's optional greyscale/alpha tip image (null = a generated round tip).
@@ -1838,6 +1841,8 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onAdjustClicked() = dispatch(EditorIntent.ToggleAdjustPanel)
+    fun setLastCropTool(toolId: String) = dispatch(EditorIntent.SetLastCropTool(toolId))
+
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
     fun onExtensionsClicked() = dispatch(EditorIntent.ToggleExtensionsPanel)
@@ -1930,13 +1935,12 @@ class EditorViewModel @Inject constructor(
             focus.x + panDelta.x - k * rx,
             focus.y + panDelta.y - k * ry,
         )
-        // Procreate's rotation snap: within ~4° of square, the canvas clicks to exactly 0°, so a
-        // two-finger twist that's meant to straighten the page actually lands straight. The pull
-        // stays sticky until the twist accumulates past the window again.
+        // Rotation snap: within ~1° of square (0, 90, 180, 270), the canvas clicks straight.
+        // A very faint threshold so it's barely felt but still helps square the page.
         var newRotation = st.viewportRotation + rotationDelta
         if (rotationDelta != 0f) {
-            val norm = ((newRotation % 360f) + 540f) % 360f - 180f
-            if (kotlin.math.abs(norm) < 4f) newRotation -= norm
+            val norm = ((newRotation % 90f) + 135f) % 90f - 45f
+            if (kotlin.math.abs(norm) < 1f) newRotation -= norm
         }
         dispatch(EditorIntent.SetViewport(newOffset, newZoom, newRotation))
     }
@@ -2456,6 +2460,7 @@ class EditorViewModel @Inject constructor(
                                 SelectionMask.bitmapPath(
                                     strokeSelection, work.width, work.height,
                                     layer.scale, layer.offset, layer.rotationZ,
+                                    state.viewportOffset, state.viewportZoom, state.viewportRotation
                                 ),
                             )
                         }
@@ -2494,6 +2499,7 @@ class EditorViewModel @Inject constructor(
                 SelectionMask.bitmapPath(
                     strokeSelection, workBitmap.width, workBitmap.height,
                     layer.scale, layer.offset, layer.rotationZ,
+                    state.viewportOffset, state.viewportZoom, state.viewportRotation
                 ),
             )
             // Read the transform off the captured immutable `layer` (not the mutable stroke* members,
@@ -2513,7 +2519,7 @@ class EditorViewModel @Inject constructor(
             val catchUpPoints = snapshotStrokePoints()
             val mappedAll = ImageProcessor.mapScreenToBitmap(
                 catchUpPoints, canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height,
-                layerScale, layerOffset, layerRotationZ
+                layerScale, layerOffset, layerRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
 
             val bw = workBitmap.width.toFloat()
@@ -2626,6 +2632,7 @@ class EditorViewModel @Inject constructor(
             val capturedScale = strokeLayerScale
             val capturedOffset = strokeLayerOffset
             val capturedRotZ = strokeLayerRotationZ
+            val state = _uiState.value
 
             // Apply incremental liquify to the native engine
             if (points.size >= 2) {
@@ -2635,7 +2642,7 @@ class EditorViewModel @Inject constructor(
                 // We need to map these screen points to the bitmap space
                 val mapped = ImageProcessor.mapScreenToBitmap(
                     listOf(p1, p2), canvasW, canvasH, original.width, original.height,
-                    capturedScale, capturedOffset, capturedRotZ
+                    capturedScale, capturedOffset, capturedRotZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
                 )
 
                 val strokeArr = floatArrayOf(mapped[0].x, mapped[0].y, mapped[1].x, mapped[1].y)
@@ -2665,6 +2672,7 @@ class EditorViewModel @Inject constructor(
             // prefix, so re-drawing dabs beyond the count already stamped matches a full re-render.
             val canvas = stampLiveCanvas ?: return          // copy not ready yet; points still collected
             val work = stampLiveBitmap ?: return
+            val state = _uiState.value
             // Map only the points not yet mapped (per-point transform, so a tail maps the same as the
             // whole) and append to the cache — avoids re-mapping the full stroke every drag frame.
             val all = snapshotStrokePoints()
@@ -2672,7 +2680,7 @@ class EditorViewModel @Inject constructor(
             if (all.size > mappedCount) {
                 val fresh = ImageProcessor.mapScreenToBitmap(
                     all.subList(mappedCount, all.size), strokeCanvasW, strokeCanvasH, work.width, work.height,
-                    strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
+                    strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
                 )
                 fresh.forEach { stampMappedPoints.add(it.x); stampMappedPoints.add(it.y) }
             }
@@ -2695,10 +2703,11 @@ class EditorViewModel @Inject constructor(
         val paint = strokePaint ?: return
         val prev = strokePrevBitmapPoint ?: return
         val workBitmap = strokeWorkingBitmap ?: return
+        val state = _uiState.value
 
         val mapped = ImageProcessor.mapScreenToBitmap(
             listOf(currentPoint), strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height,
-            strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
+            strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
         ).first()
 
         // Dynamic brush width: advance the per-stroke recursion by this segment's length. The same
@@ -2786,6 +2795,9 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
+                viewportOffset = state.viewportOffset,
+                viewportZoom = state.viewportZoom,
+                viewportRotation = state.viewportRotation,
                 symmetryMode = strokeSymmetry,
                 selection = strokeSelection,
             )
@@ -2796,7 +2808,7 @@ class EditorViewModel @Inject constructor(
 
             val mapped = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, base.width, base.height,
-                capturedScale, capturedOffset, capturedRotationZ
+                capturedScale, capturedOffset, capturedRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
             val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, base.width, base.height, capturedScale)
             viewModelScope.launch(dispatchers.default) {
@@ -2809,6 +2821,7 @@ class EditorViewModel @Inject constructor(
                     clipPath = SelectionMask.bitmapPath(
                         command.selection, base.width, base.height,
                         capturedScale, capturedOffset, capturedRotationZ,
+                        state.viewportOffset, state.viewportZoom, state.viewportRotation
                     ),
                 )
                 withContext(dispatchers.main) {
@@ -2865,6 +2878,7 @@ class EditorViewModel @Inject constructor(
                         SelectionMask.bitmapPath(
                             strokeSelection, target.width, target.height,
                             capturedScale, capturedOffset, capturedRotationZ,
+                            state.viewportOffset, state.viewportZoom, state.viewportRotation
                         ),
                     )
                     val brushScale = ImageProcessor.screenToBitmapScale(
@@ -2876,7 +2890,7 @@ class EditorViewModel @Inject constructor(
                     )
                     val mapped = ImageProcessor.mapScreenToBitmap(
                         points, canvasW, canvasH, target.width, target.height,
-                        capturedScale, capturedOffset, capturedRotationZ
+                        capturedScale, capturedOffset, capturedRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
                     )
                     val bw = target.width.toFloat()
                     val bh = target.height.toFloat()
@@ -3002,7 +3016,7 @@ class EditorViewModel @Inject constructor(
             if (bitmap != null) {
                 val mappedPoints = ImageProcessor.mapScreenToBitmap(
                     points, canvasW, canvasH, bitmap.width, bitmap.height,
-                    capturedScale, capturedOffset, capturedRotationZ
+                    capturedScale, capturedOffset, capturedRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
                 )
                 val pointsFlat = mappedPoints.flatMap { listOf(it.x, it.y) }
                 val brushStroke = BrushStroke(
@@ -3064,6 +3078,9 @@ class EditorViewModel @Inject constructor(
             layerScale = scale,
             layerOffset = offset,
             layerRotationZ = rotationZ,
+            viewportOffset = state.viewportOffset,
+            viewportZoom = state.viewportZoom,
+            viewportRotation = state.viewportRotation,
             stampBrush = brush,
             flow = flow,
             // Reuse the live-preview seed so the committed pixels match what was previewed (no flash).
@@ -3083,7 +3100,8 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.default) {
             val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
             val mapped = ImageProcessor.mapScreenToBitmap(
-                points, canvasW, canvasH, target.width, target.height, scale, offset, rotationZ
+                points, canvasW, canvasH, target.width, target.height,
+                scale, offset, rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
             val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, target.width, target.height, scale)
             val pts = ArrayList<Float>(mapped.size * 2)
@@ -3091,7 +3109,10 @@ class EditorViewModel @Inject constructor(
             val commitCanvas = Canvas(target)
             SelectionMask.clip(
                 commitCanvas,
-                SelectionMask.bitmapPath(selection, target.width, target.height, scale, offset, rotationZ),
+                SelectionMask.bitmapPath(
+                    selection, target.width, target.height,
+                    scale, offset, rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
+                ),
             )
             StampBrushRenderer.paintStroke(
                 commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
@@ -3110,12 +3131,7 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Resets the imperative, in-flight stroke/liquify scratch state. These live as ViewModel fields
-     * (not in [EditorUiState]), so the pure reducer can't clear them — any caller that abandons an
-     * in-progress stroke (stroke end, mode switch, project load) must invoke this so a later
-     * onStrokePoint/onStrokeEnd can't commit to a stale layer or bitmap.
-     */
+
     /**
      * Cancels the in-flight stroke without committing — a second finger landing mid-stroke means
      * the user is gesturing (two-finger tap = undo, pinch = navigate), not painting; Procreate
@@ -3207,6 +3223,9 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
+            viewportOffset = state.viewportOffset,
+            viewportZoom = state.viewportZoom,
+            viewportRotation = state.viewportRotation,
             selection = state.selection,
         )
         layerStore.addStroke(layerId, command)
@@ -3216,12 +3235,12 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.default) {
             val mapped = ImageProcessor.mapScreenToBitmap(
                 listOf(position), canvasSize.width, canvasSize.height, base.width, base.height,
-                layer.scale, layer.offset, layer.rotationZ
+                layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             ).first()
             val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
             val clipPath = SelectionMask.bitmapPath(
                 command.selection, target.width, target.height,
-                layer.scale, layer.offset, layer.rotationZ,
+                layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
             ImageProcessor.floodFill(
                 target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb(),
@@ -3263,6 +3282,9 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
+            viewportOffset = state.viewportOffset,
+            viewportZoom = state.viewportZoom,
+            viewportRotation = state.viewportRotation,
             selection = state.selection,
             clearAll = true,
         )
@@ -3279,7 +3301,7 @@ class EditorViewModel @Inject constructor(
                 canvas,
                 SelectionMask.bitmapPath(
                     command.selection, target.width, target.height,
-                    layer.scale, layer.offset, layer.rotationZ,
+                    layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
                 ),
             )
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
@@ -3415,9 +3437,13 @@ class EditorViewModel @Inject constructor(
      * clips. A loop too small to enclose anything is treated as a deselect by the reducer.
      */
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
+        val state = _uiState.value
         val simplified = com.hereliesaz.graffitixr.common.util.SelectionGeometry.simplify(points)
+        val worldPoints = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapScreenToWorld(
+            simplified, state.viewportOffset, state.viewportZoom, state.viewportRotation
+        )
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.model.Selection(simplified, canvasSize)
+            com.hereliesaz.graffitixr.common.model.Selection(worldPoints, canvasSize)
         ))
     }
 
@@ -3459,6 +3485,9 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
+            viewportOffset = state.viewportOffset,
+            viewportZoom = state.viewportZoom,
+            viewportRotation = state.viewportRotation,
             selection = selection,
             moveDelta = delta,
         )
@@ -3474,13 +3503,18 @@ class EditorViewModel @Inject constructor(
             val d = SelectionMask.mapDelta(
                 delta, selection.canvasSize.width, selection.canvasSize.height,
                 base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+                state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
             val moved = SelectionMask.moveRegion(base, clipPath, d.x, d.y)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
                 }
-                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + delta })))
+                val pts = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapScreenToWorld(
+                    listOf(Offset.Zero, delta), state.viewportOffset, state.viewportZoom, state.viewportRotation
+                )
+                val worldDelta = if (pts.size == 2) pts[1] - pts[0] else Offset.Zero
+                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + worldDelta })))
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
@@ -3648,6 +3682,7 @@ class EditorViewModel @Inject constructor(
 
     fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
     fun onSetSymmetryMode(mode: SymmetryMode) = dispatch(EditorIntent.SetSymmetryMode(mode))
+    fun setLastSymmetryMode(mode: SymmetryMode) = dispatch(EditorIntent.SetLastSymmetryMode(mode))
 
     fun onToggleAlphaLock(id: String) {
         pushHistory()

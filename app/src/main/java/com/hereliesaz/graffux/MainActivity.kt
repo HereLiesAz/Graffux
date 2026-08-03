@@ -568,6 +568,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
                 if (showAddDialog) {
                     AddContentDialog(
+                        onAddBlankLayer = { vm.onAddBlankLayer() },
                         onAddText = { vm.onAddTextLayer() },
                         onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
                         onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
@@ -805,16 +806,55 @@ private fun AzNavHostScope.ConfigureRailItems(
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
     azRailItem(
-        id = "tool.smudge", text = "Smudge",
-        content = TablerIcons.HandFinger,
-        color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
-        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
-    )
-    azRailItem(
         id = "tool.eraser", text = "Eraser",
         content = TablerIcons.Eraser,
         color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
+    )
+    azRailItem(
+        id = "tool.select", text = "Select",
+        content = TablerIcons.Focus,
+        color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
+    )
+
+    // Crop host and nested tools
+    azRailHostItem(
+        id = "grp.crop", 
+        text = if (uiState.lastCropTool == "tool.transform") "Transform" else "Crop", 
+        content = if (uiState.lastCropTool == "tool.transform") DesignR.drawable.ic_ps_transform else TablerIcons.Crop, 
+        color = navItemColor, 
+        onClick = {
+            if (uiState.lastCropTool == "tool.transform") {
+                vm.onTransformClicked()
+            } else {
+                vm.setActiveTool(if (uiState.activeTool == Tool.CROP) Tool.NONE else Tool.CROP)
+            }
+        }
+    )
+    azRailSubItem(
+        id = "tool.crop", hostId = "grp.crop", text = "Crop Tool", shape = AzButtonShape.NONE,
+        content = TablerIcons.Crop, color = if (uiState.activeTool == Tool.CROP) activeColor else navItemColor,
+        onClick = { 
+            vm.setLastCropTool("tool.crop")
+            vm.setActiveTool(if (uiState.activeTool == Tool.CROP) Tool.NONE else Tool.CROP) 
+        }
+    )
+    azRailSubItem(
+        id = "tool.transform", hostId = "grp.crop", text = "Transform", shape = AzButtonShape.NONE,
+        content = DesignR.drawable.ic_ps_transform, color = navItemColor,
+        onClick = { 
+            vm.setLastCropTool("tool.transform")
+            vm.onTransformClicked() 
+        }
+    )
+
+    // The rest of the tools
+    azRailItem(
+        id = "tool.smudge", text = "Smudge",
+        content = TablerIcons.HandFinger,
+        color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
+        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
     azRailItem(
         id = "tool.pen", text = "Pen",
@@ -828,8 +868,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
-    // Heal/Burn/Dodge/Color: ImageProcessor and buildStrokePaint already implement all four — they
-    // just had no rail entry, so a user could never actually select them.
     azRailItem(
         id = "tool.heal", text = "Heal",
         content = TablerIcons.Bandage,
@@ -854,20 +892,11 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.COLOR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.COLOR) Tool.NONE else Tool.COLOR) },
     )
-    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     azRailItem(
         id = "tool.fill", text = "Fill",
         content = TablerIcons.Bucket,
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
-    )
-    // Procreate's freehand selection: lasso a region, and every raster tool is confined to it until
-    // it's cleared. Dragging inside the marquee moves the selected pixels.
-    azRailItem(
-        id = "tool.select", text = "Select",
-        content = TablerIcons.Focus,
-        color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
-        onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
     )
     // Only meaningful with something selected, so they appear with the selection rather than
     // sitting permanently greyed in the strip.
@@ -905,221 +934,222 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.symmetryMode != SymmetryMode.NONE) activeColor else navItemColor,
         onClick = { vm.onToggleSymmetry() },
     )
-    // Auto-layout and constraints (Figma). Auto-layout only appears on a layer that actually has
-    // children to arrange; constraints only on a layer that has a parent to be constrained within.
+
+
+    // Design tools (Figma). Wrapped in a single nested rail at the bottom.
     run {
         val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
         val hasChildren = active != null && uiState.layers.any { it.parentId == active.id }
         val hasParent = active?.parentId != null
-        if (hasChildren || hasParent) {
+        val hasShape = active?.shapes?.isNotEmpty() == true
+        val hasText = active?.textParams != null
+        val components = uiState.layers.filter { it.componentId != null }
+        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
+        
+        val showDesign = (hasChildren || hasParent) || 
+                         (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) || 
+                         (active != null || components.isNotEmpty()) || 
+                         (editable || uiState.pathEditLayerId != null)
+
+        if (showDesign) {
             azRailHostItem(
-                id = "grp.layout", text = "Layout",
+                id = "grp.designTools", text = "Design",
                 content = DesignR.drawable.ic_ps_transform, color = navItemColor,
             )
-            if (hasChildren) {
-                val current = active.autoLayout
-                LayoutDirection.entries.forEach { dir ->
-                    azRailSubItem(
-                        id = "lay.dir.${dir.name}", hostId = "grp.layout",
-                        text = when (dir) {
-                            LayoutDirection.NONE -> "Free"
-                            LayoutDirection.HORIZONTAL -> "Row"
-                            LayoutDirection.VERTICAL -> "Column"
-                        },
-                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
-                        color = if (current.direction == dir) activeColor else navItemColor,
-                        onClick = { vm.onSetAutoLayout(current.copy(direction = dir)) },
-                    )
-                }
-                if (current.direction != LayoutDirection.NONE) {
-                    azRailSubItem(
-                        id = "lay.hug", hostId = "grp.layout", text = "Hug Contents",
-                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_fit,
-                        color = navItemColor,
-                        onClick = { vm.onHugContents() },
-                    )
-                    azRailSlider(
-                        id = "lay.gap", text = "Gap",
-                        value = current.gap,
-                        config = AzSliderConfig(
-                            orientation = AzSliderOrientation.VERTICAL, valueFrom = 0f, valueTo = 100f,
-                        ),
-                        color = navItemColor,
-                        valueFormatter = { "${it.roundToInt()}" },
-                        onValueChange = { vm.onSetAutoLayout(current.copy(gap = it)) },
-                    )
-                    LayoutAlign.entries.forEach { align ->
+
+            // Layout
+            if (hasChildren || hasParent) {
+                if (hasChildren) {
+                    val current = active.autoLayout
+                    LayoutDirection.entries.forEach { dir ->
                         azRailSubItem(
-                            id = "lay.align.${align.name}", hostId = "grp.layout",
-                            text = "Align ${align.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                            id = "lay.dir.${dir.name}", hostId = "grp.designTools",
+                            text = when (dir) {
+                                LayoutDirection.NONE -> "Free"
+                                LayoutDirection.HORIZONTAL -> "Row"
+                                LayoutDirection.VERTICAL -> "Column"
+                            },
                             shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
-                            color = if (current.align == align) activeColor else navItemColor,
-                            onClick = { vm.onSetAutoLayout(current.copy(align = align)) },
+                            color = if (current.direction == dir) activeColor else navItemColor,
+                            onClick = { vm.onSetAutoLayout(current.copy(direction = dir)) },
+                        )
+                    }
+                    if (current.direction != LayoutDirection.NONE) {
+                        azRailSubItem(
+                            id = "lay.hug", hostId = "grp.designTools", text = "Hug Contents",
+                            shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_fit,
+                            color = navItemColor,
+                            onClick = { vm.onHugContents() },
+                        )
+                        azRailSlider(
+                            id = "lay.gap", text = "Gap",
+                            value = current.gap,
+                            config = AzSliderConfig(
+                                orientation = AzSliderOrientation.VERTICAL, valueFrom = 0f, valueTo = 100f,
+                            ),
+                            color = navItemColor,
+                            valueFormatter = { "${it.roundToInt()}" },
+                            onValueChange = { vm.onSetAutoLayout(current.copy(gap = it)) },
+                        )
+                        LayoutAlign.entries.forEach { align ->
+                            azRailSubItem(
+                                id = "lay.align.${align.name}", hostId = "grp.designTools",
+                                text = "Align ${align.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                                shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                                color = if (current.align == align) activeColor else navItemColor,
+                                onClick = { vm.onSetAutoLayout(current.copy(align = align)) },
+                            )
+                        }
+                    }
+                }
+                val parentAutoLays = active?.parentId
+                    ?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
+                    ?.autoLayout?.direction != LayoutDirection.NONE
+                if (hasParent && !parentAutoLays) {
+                    ConstraintAnchor.entries.forEach { anchor ->
+                        azRailSubItem(
+                            id = "lay.h.${anchor.name}", hostId = "grp.designTools",
+                            text = "H: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                            shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                            color = if (active.constraints.horizontal == anchor) activeColor else navItemColor,
+                            onClick = { vm.onSetConstraints(active.constraints.copy(horizontal = anchor)) },
+                        )
+                    }
+                    ConstraintAnchor.entries.forEach { anchor ->
+                        azRailSubItem(
+                            id = "lay.v.${anchor.name}", hostId = "grp.designTools",
+                            text = "V: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                            shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
+                            color = if (active.constraints.vertical == anchor) activeColor else navItemColor,
+                            onClick = { vm.onSetConstraints(active.constraints.copy(vertical = anchor)) },
                         )
                     }
                 }
             }
-            // Constraints are per-axis; a parent running auto-layout owns placement instead, so
-            // they're hidden in that case rather than shown as controls that do nothing.
-            val parentAutoLays = active?.parentId
-                ?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
-                ?.autoLayout?.direction != LayoutDirection.NONE
-            if (hasParent && !parentAutoLays) {
-                ConstraintAnchor.entries.forEach { anchor ->
+
+            // Styles
+            if (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) {
+                if (hasShape) {
                     azRailSubItem(
-                        id = "lay.h.${anchor.name}", hostId = "grp.layout",
-                        text = "H: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
-                        color = if (active.constraints.horizontal == anchor) activeColor else navItemColor,
-                        onClick = { vm.onSetConstraints(active.constraints.copy(horizontal = anchor)) },
+                        id = "sty.newColor", hostId = "grp.designTools", text = "New Colour Style",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
+                        color = navItemColor,
+                        onClick = { vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}") },
                     )
                 }
-                ConstraintAnchor.entries.forEach { anchor ->
+                if (hasText) {
                     azRailSubItem(
-                        id = "lay.v.${anchor.name}", hostId = "grp.layout",
-                        text = "V: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_transform,
-                        color = if (active.constraints.vertical == anchor) activeColor else navItemColor,
-                        onClick = { vm.onSetConstraints(active.constraints.copy(vertical = anchor)) },
+                        id = "sty.newText", hostId = "grp.designTools", text = "New Text Style",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
+                        color = navItemColor,
+                        onClick = { vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}") },
+                    )
+                }
+                uiState.colorStyles.forEach { style ->
+                    val linked = active?.shapes?.any { it.fillStyleId == style.id } == true
+                    azRailSubItem(
+                        id = "sty.color.${style.id}", hostId = "grp.designTools", text = style.name,
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
+                        color = if (linked) activeColor else navItemColor,
+                        onClick = { vm.onApplyColorStyle(if (linked) null else style.id) },
+                    )
+                }
+                uiState.textStyles.forEach { style ->
+                    val linked = active?.textParams?.styleId == style.id
+                    azRailSubItem(
+                        id = "sty.text.${style.id}", hostId = "grp.designTools", text = style.name,
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
+                        color = if (linked) activeColor else navItemColor,
+                        onClick = { vm.onApplyTextStyle(if (linked) null else style.id) },
+                    )
+                }
+            }
+
+            // Components
+            if (active != null || components.isNotEmpty()) {
+                if (active != null && active.componentId == null && active.instanceOf == null) {
+                    azRailSubItem(
+                        id = "cmp.make", hostId = "grp.designTools", text = "Make Component",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_extension,
+                        color = navItemColor,
+                        onClick = { vm.onMakeComponent() },
+                    )
+                }
+                if (active?.instanceOf != null) {
+                    azRailSubItem(
+                        id = "cmp.detach", hostId = "grp.designTools", text = "Detach Instance",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
+                        color = activeColor,
+                        onClick = { vm.onDetachInstance() },
+                    )
+                }
+                if (active?.componentId != null) {
+                    azRailSubItem(
+                        id = "cmp.release", hostId = "grp.designTools", text = "Release Component",
+                        shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
+                        color = activeColor,
+                        onClick = { vm.onReleaseComponent() },
+                    )
+                }
+                components.forEach { main ->
+                    azRailSubItem(
+                        id = "cmp.place.${main.componentId}", hostId = "grp.designTools",
+                        text = "Place ${main.name}", shape = AzButtonShape.NONE,
+                        content = DesignR.drawable.ic_ps_layers, color = navItemColor,
+                        onClick = { main.componentId?.let { vm.onPlaceInstance(it) } },
+                    )
+                }
+            }
+
+            // Vector Nodes
+            if (editable || uiState.pathEditLayerId != null) {
+                azRailSubItem(
+                    id = "tool.nodeEdit",
+                    hostId = "grp.designTools",
+                    text = if (uiState.pathEditLayerId != null) "Nodes On" else "Edit Nodes",
+                    shape = AzButtonShape.NONE,
+                    content = TablerIcons.Vector,
+                    color = if (uiState.pathEditLayerId != null) activeColor else navItemColor,
+                    onClick = { vm.onToggleActivePathEdit() },
+                )
+            }
+            if (uiState.pathEditLayerId != null) {
+                azRailSubItem(
+                    id = "tool.nodeClose", hostId = "grp.designTools", text = "Close Path",
+                    shape = AzButtonShape.NONE,
+                    content = TablerIcons.Circle, color = navItemColor,
+                    onClick = { vm.onTogglePathClosed() },
+                )
+                uiState.selectedNodeIndex?.let { index ->
+                    azRailSubItem(
+                        id = "tool.nodeDelete", hostId = "grp.designTools", text = "Delete Node",
+                        shape = AzButtonShape.NONE,
+                        content = TablerIcons.X, color = navItemColor,
+                        onClick = { vm.onDeletePathNode(index) },
                     )
                 }
             }
         }
     }
 
-    // Shared styles (Figma tokens). The library is a real registry on UiState, so the group shows
-    // whenever a token exists or the active layer is something a token could be lifted from.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val hasShape = active?.shapes?.isNotEmpty() == true
-        val hasText = active?.textParams != null
-        if (uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty() || hasShape || hasText) {
-            azRailHostItem(
-                id = "grp.styles", text = "Styles",
-                content = DesignR.drawable.ic_ps_color, color = navItemColor,
-            )
-            if (hasShape) {
-                azRailSubItem(
-                    id = "sty.newColor", hostId = "grp.styles", text = "New Colour Style",
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
-                    color = navItemColor,
-                    onClick = { vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}") },
-                )
-            }
-            if (hasText) {
-                azRailSubItem(
-                    id = "sty.newText", hostId = "grp.styles", text = "New Text Style",
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
-                    color = navItemColor,
-                    onClick = { vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}") },
-                )
-            }
-            // Applying a token to the active layer, and re-pointing a token at the current colour.
-            uiState.colorStyles.forEach { style ->
-                val linked = active?.shapes?.any { it.fillStyleId == style.id } == true
-                azRailSubItem(
-                    id = "sty.color.${style.id}", hostId = "grp.styles", text = style.name,
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_color,
-                    color = if (linked) activeColor else navItemColor,
-                    onClick = { vm.onApplyColorStyle(if (linked) null else style.id) },
-                )
-            }
-            uiState.textStyles.forEach { style ->
-                val linked = active?.textParams?.styleId == style.id
-                azRailSubItem(
-                    id = "sty.text.${style.id}", hostId = "grp.styles", text = style.name,
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_text,
-                    color = if (linked) activeColor else navItemColor,
-                    onClick = { vm.onApplyTextStyle(if (linked) null else style.id) },
-                )
-            }
-        }
-    }
+    val displayMode = if (uiState.symmetryMode != SymmetryMode.NONE) uiState.symmetryMode else uiState.lastSymmetryMode ?: SymmetryMode.VERTICAL
 
-    // Components and instances (Figma). The actions offered depend on what the active layer already
-    // is, so the rail never shows a control that would no-op — "Detach" only on an instance,
-    // "Release" only on a main, "Make Component" only on a plain layer.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val components = uiState.layers.filter { it.componentId != null }
-        if (active != null || components.isNotEmpty()) {
-            azRailHostItem(
-                id = "grp.components", text = "Components",
-                content = DesignR.drawable.ic_ps_extension, color = navItemColor,
-            )
-            if (active != null && active.componentId == null && active.instanceOf == null) {
-                azRailSubItem(
-                    id = "cmp.make", hostId = "grp.components", text = "Make Component",
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_extension,
-                    color = navItemColor,
-                    onClick = { vm.onMakeComponent() },
-                )
-            }
-            if (active?.instanceOf != null) {
-                azRailSubItem(
-                    id = "cmp.detach", hostId = "grp.components", text = "Detach Instance",
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
-                    color = activeColor,
-                    onClick = { vm.onDetachInstance() },
-                )
-            }
-            if (active?.componentId != null) {
-                azRailSubItem(
-                    id = "cmp.release", hostId = "grp.components", text = "Release Component",
-                    shape = AzButtonShape.NONE, content = DesignR.drawable.ic_ps_deselect,
-                    color = activeColor,
-                    onClick = { vm.onReleaseComponent() },
-                )
-            }
-            // One "place" entry per defined component — the library, derived from the stack.
-            components.forEach { main ->
-                azRailSubItem(
-                    id = "cmp.place.${main.componentId}", hostId = "grp.components",
-                    text = "Place ${main.name}", shape = AzButtonShape.NONE,
-                    content = DesignR.drawable.ic_ps_layers, color = navItemColor,
-                    onClick = { main.componentId?.let { vm.onPlaceInstance(it) } },
-                )
-            }
-        }
-    }
-
-    // Vector node editing (Figma's vector pen). Shown only for a layer that actually has an
-    // editable path, so it isn't a permanently-dead item on a raster document.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
-        if (editable || uiState.pathEditLayerId != null) {
-            azRailToggle(
-                id = "tool.nodeEdit",
-                isChecked = uiState.pathEditLayerId != null,
-                toggleOnText = "Nodes On",
-                toggleOffText = "Edit Nodes",
-                color = if (uiState.pathEditLayerId != null) activeColor else navItemColor,
-                onClick = { vm.onToggleActivePathEdit() },
-            )
-        }
-        if (uiState.pathEditLayerId != null) {
-            azRailItem(
-                id = "tool.nodeClose", text = "Close Path",
-                content = TablerIcons.Circle, color = navItemColor,
-                onClick = { vm.onTogglePathClosed() },
-            )
-            uiState.selectedNodeIndex?.let { index ->
-                azRailItem(
-                    id = "tool.nodeDelete", text = "Delete Node",
-                    content = TablerIcons.X, color = navItemColor,
-                    onClick = { vm.onDeletePathNode(index) },
-                )
-            }
-        }
-    }
-    azRailHostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = TablerIcons.LayersLinked, color = navItemColor)
+    azRailHostItem(
+        id = "grp.symmetryMode", 
+        text = displayMode.label, 
+        content = TablerIcons.LayersLinked, 
+        color = navItemColor,
+        onClick = { vm.onSetSymmetryMode(if (uiState.symmetryMode == displayMode) SymmetryMode.NONE else displayMode) }
+    )
     SymmetryMode.entries.forEach { mode ->
         azRailSubItem(
             id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label, shape = AzButtonShape.NONE,
             content = TablerIcons.LayersLinked,
             color = if (uiState.symmetryMode == mode) activeColor else navItemColor,
-            onClick = { vm.onSetSymmetryMode(mode) },
+            onClick = { 
+                if (mode != SymmetryMode.NONE) vm.setLastSymmetryMode(mode)
+                vm.onSetSymmetryMode(mode) 
+            },
         )
     }
     // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
@@ -1325,6 +1355,10 @@ private fun AzNavHostScope.ConfigureRailItems(
             vm.onOpenBrushStudio(editing)
         },
     )
+    azRailSubItem(
+        id = "brush.pad", hostId = "grp.brushes", text = "Brush Settings", shape = AzButtonShape.NONE,
+        content = AzComposableContent { BrushSizePad(vm) },
+    )
 
     // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
     // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
@@ -1335,54 +1369,29 @@ private fun AzNavHostScope.ConfigureRailItems(
     // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
     // indented stand-in — so reordering stays scoped to siblings at each level.
     if (uiState.layers.isNotEmpty()) {
-        azRailHostItem(id = "grp.layers", text = strings.editor.layers, content = DesignR.drawable.ic_ps_layers, color = navItemColor)
+        azUnattachedHostItem(
+            id = "grp.layers", text = strings.editor.layers, anchor = AzUnattachedAnchor.FLOATING,
+            content = DesignR.drawable.ic_ps_layers, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        )
         uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
-            renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings)
+            renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings, onBlendMode)
         }
+        azRailSubItem(
+            id = "layer.add",
+            hostId = "grp.layers",
+            text = "Add Layer",
+            content = TablerIcons.Plus,
+            shape = AzButtonShape.NONE,
+            color = navItemColor,
+            onClick = { onAddClicked() }
+        )
     }
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
-    // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
-    // unattached host): the user parks it wherever it suits the artwork and the position persists
-    // across launches, the way Procreate's panels stay where you leave them.
-    azUnattachedHostItem(
-        id = "grp.adjust", text = navStrings.adjust, anchor = AzUnattachedAnchor.FLOATING,
-        content = DesignR.drawable.ic_ps_adjust, color = navItemColor,
-    )
-    azRailSubItem(
-        id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust, shape = AzButtonShape.NONE,
-        content = DesignR.drawable.ic_ps_adjust,
-        color = if (uiState.activePanel == EditorPanel.ADJUST) activeColor else navItemColor, onClick = { vm.onAdjustClicked() },
-    )
-    azRailSubItem(
-        id = "adj.transform", hostId = "grp.adjust", text = "Transform", shape = AzButtonShape.NONE,
-        content = DesignR.drawable.ic_ps_transform,
-        color = if (uiState.activePanel == EditorPanel.TRANSFORM) activeColor else navItemColor, onClick = { vm.onTransformClicked() },
-    )
-    azRailSubItem(id = "adj.blend", hostId = "grp.adjust", text = "Blend", content = DesignR.drawable.ic_ps_blend, shape = AzButtonShape.NONE, onClick = { onBlendMode() })
-    // Color Balance: onBalanceClicked()/ToggleColorPanel and the panel it opens (ColorBalanceKnobsRow,
-    // rendered by EditorUi.kt when activePanel == EditorPanel.COLOR) were both already fully wired —
-    // this was the only piece missing, an entry point to actually call onBalanceClicked().
-    azRailSubItem(
-        id = "adj.balance", hostId = "grp.adjust", text = "Balance", shape = AzButtonShape.NONE,
-        content = DesignR.drawable.ic_ps_balance,
-        color = if (uiState.activePanel == EditorPanel.COLOR) activeColor else navItemColor, onClick = { vm.onBalanceClicked() },
-    )
-    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
-    // already worked end to end once selected, but nothing ever opened the panel to select from.
-    azRailSubItem(
-        id = "adj.extensions", hostId = "grp.adjust", text = "Extensions", shape = AzButtonShape.NONE,
-        content = DesignR.drawable.ic_ps_extension,
-        color = if (uiState.activePanel == EditorPanel.EXTENSIONS) activeColor else navItemColor, onClick = { vm.onExtensionsClicked() },
-    )
-    // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
-    // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
-    azRailSubItem(
-        id = "adj.brush", hostId = "grp.adjust", text = "Brush", shape = AzButtonShape.NONE,
-        content = AzComposableContent { BrushSizePad(vm) },
-    )
+    // Adjustments are now placed within the context menu of layers when they are long-pressed,
+    // and the Brush slider is moved to the Brush group.
 
     val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
     if (overlay != null) {
@@ -1407,6 +1416,7 @@ private fun AzNavHostScope.renderLayerRailItem(
     activeColor: Color,
     navItemColor: Color,
     strings: AppStrings,
+    onBlendMode: () -> Unit,
 ) {
     val isGroup = layer.type == LayerType.GROUP
     val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
@@ -1415,7 +1425,7 @@ private fun AzNavHostScope.renderLayerRailItem(
         hostId = hostId,
         text = layer.name,
         content = if (isGroup) DesignR.drawable.ic_ps_folder else (layer.bitmap ?: DesignR.drawable.ic_ps_layers),
-        shape = AzButtonShape.NONE,
+        shape = if (layer.id == uiState.activeLayerId) AzButtonShape.RECTANGLE else AzButtonShape.NONE,
         color = if (!isGroup && layer.id == uiState.activeLayerId) activeColor else navItemColor,
         onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
         onRelocate = { _, _, newOrder ->
@@ -1426,7 +1436,7 @@ private fun AzNavHostScope.renderLayerRailItem(
         nestedContent = if (isGroup) {
             {
                 children.reversed().forEach { child ->
-                    renderLayerRailItem(child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings)
+                    renderLayerRailItem(child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings, onBlendMode)
                 }
             }
         } else null,
@@ -1437,9 +1447,14 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
             listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
         } else {
+            listItem("Adjust") { vm.onLayerActivated(layer.id); vm.onAdjustClicked() }
+            listItem("Transform") { vm.onLayerActivated(layer.id); vm.onTransformClicked() }
+            listItem("Blend") { vm.onLayerActivated(layer.id); onBlendMode() }
             listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
             listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+            listItem("Balance") { vm.onLayerActivated(layer.id); vm.onBalanceClicked() }
+            listItem("Extensions") { vm.onLayerActivated(layer.id); vm.onExtensionsClicked() }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }
             listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
             listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }

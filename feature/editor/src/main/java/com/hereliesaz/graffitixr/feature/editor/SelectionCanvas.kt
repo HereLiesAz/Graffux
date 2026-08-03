@@ -52,6 +52,9 @@ private const val ANT_STEP_MS = 80L
 fun SelectionCanvas(
     selection: Selection?,
     gate: StrokeGate,
+    viewportOffset: Offset,
+    viewportZoom: Float,
+    viewportRotation: Float,
     modifier: Modifier = Modifier,
     onSelectionEnd: (List<Offset>, IntSize) -> Unit,
     onSelectionMove: (Offset) -> Unit,
@@ -135,8 +138,11 @@ fun SelectionCanvas(
         // Ghost of the marquee under a move-drag, previewing where the pixels will land.
         val d = moveDelta
         if (d != null && selection != null && selection.isUsable && d != Offset.Zero) {
+            val screenPath = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapWorldToScreen(
+                selection.path, viewportOffset, viewportZoom, viewportRotation
+            )
             drawPolygon(
-                selection.path.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
+                screenPath.map { it + d }, Color.White.copy(alpha = 0.7f), 1.5.dp.toPx(),
                 closed = true, dash = floatArrayOf(ANT_DASH, ANT_DASH),
             )
         }
@@ -154,6 +160,9 @@ fun SelectionCanvas(
 @Composable
 fun SelectionMarquee(
     selection: Selection,
+    viewportOffset: Offset,
+    viewportZoom: Float,
+    viewportRotation: Float,
     modifier: Modifier = Modifier,
 ) {
     // Stepped, not a continuous animation. An infiniteRepeatable drives this at the display's
@@ -172,9 +181,13 @@ fun SelectionMarquee(
         if (!selection.isUsable) return@Canvas
         val width = 1.5.dp.toPx()
         val dash = floatArrayOf(ANT_DASH, ANT_DASH)
+        // Map from document world-space to current screen-space
+        val screenPath = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapWorldToScreen(
+            selection.path, viewportOffset, viewportZoom, viewportRotation
+        )
         // Black underlay then white ants on top: legible over light and dark artwork alike.
-        drawPolygon(selection.path, Color.Black.copy(alpha = 0.6f), width, closed = true)
-        drawPolygon(selection.path, Color.White, width, closed = true, dash = dash, phase = phase)
+        drawPolygon(screenPath, Color.Black.copy(alpha = 0.6f), width, closed = true)
+        drawPolygon(screenPath, Color.White, width, closed = true, dash = dash, phase = phase)
         if (selection.inverted) {
             val border = listOf(
                 Offset(0f, 0f), Offset(size.width, 0f), Offset(size.width, size.height), Offset(0f, size.height),

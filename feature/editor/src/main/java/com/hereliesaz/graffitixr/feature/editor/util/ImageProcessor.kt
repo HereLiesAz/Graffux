@@ -48,67 +48,126 @@ object ImageProcessor {
             return fitScaleX / safeLayerScale
         }
 
+        fun mapScreenToWorld(
+            points: List<Offset>,
+            viewportOffset: Offset,
+            viewportZoom: Float,
+            viewportRotation: Float
+        ): List<Offset> {
+            val camRad = Math.toRadians(-viewportRotation.toDouble())
+            val camC = Math.cos(camRad).toFloat()
+            val camS = Math.sin(camRad).toFloat()
+            val safeZoom = if (kotlin.math.abs(viewportZoom) > 1e-4f) viewportZoom else 1f
+
+            return points.map { pt ->
+                var cx = pt.x - viewportOffset.x
+                var cy = pt.y - viewportOffset.y
+                cx /= safeZoom
+                cy /= safeZoom
+                val worldX = (cx * camC - cy * camS).toFloat()
+                val worldY = (cx * camS + cy * camC).toFloat()
+                Offset(worldX, worldY)
+            }
+        }
+
+        fun mapWorldToScreen(
+            points: List<Offset>,
+            viewportOffset: Offset,
+            viewportZoom: Float,
+            viewportRotation: Float
+        ): List<Offset> {
+            val camRad = Math.toRadians(viewportRotation.toDouble())
+            val camC = Math.cos(camRad).toFloat()
+            val camS = Math.sin(camRad).toFloat()
+
+            return points.map { pt ->
+                val rx = (pt.x * camC - pt.y * camS).toFloat()
+                val ry = (pt.x * camS + pt.y * camC).toFloat()
+                val sx = rx * viewportZoom + viewportOffset.x
+                val sy = ry * viewportZoom + viewportOffset.y
+                Offset(sx, sy)
+            }
+        }
+
         /**
              * Maps screen-space touch coordinates to pixel-space bitmap coordinates,
                   * accounting for Compose's ContentScale.Fit logic used in the UI.
                        */
         fun mapScreenToBitmap(
-                    stroke: List<Offset>,
-                    screenWidth: Int,
-                    screenHeight: Int,
-                    bitmapWidth: Int,
-                    bitmapHeight: Int,
-                    layerScale: Float = 1f,
-                    layerOffset: Offset = Offset.Zero,
-                    layerRotationZ: Float = 0f
-                ): List<Offset> {
-                    val screenCx = screenWidth / 2f
-                    val screenCy = screenHeight / 2f
+            stroke: List<Offset>,
+            screenWidth: Int,
+            screenHeight: Int,
+            bitmapWidth: Int,
+            bitmapHeight: Int,
+            layerScale: Float = 1f,
+            layerOffset: Offset = Offset.Zero,
+            layerRotationZ: Float = 0f,
+            viewportOffset: Offset = Offset.Zero,
+            viewportZoom: Float = 1f,
+            viewportRotation: Float = 0f
+        ): List<Offset> {
+            val screenCx = screenWidth / 2f
+            val screenCy = screenHeight / 2f
 
-                    // Precompute inverse rotation (negate the layer's rotationZ).
-                    val angleRad = Math.toRadians(-layerRotationZ.toDouble())
-                    val cosA = Math.cos(angleRad).toFloat()
-                    val sinA = Math.sin(angleRad).toFloat()
+            // Precompute inverse layer rotation (negate the layer's rotationZ).
+            val angleRad = Math.toRadians(-layerRotationZ.toDouble())
+            val cosA = Math.cos(angleRad).toFloat()
+            val sinA = Math.sin(angleRad).toFloat()
 
-                    // ContentScale.Fit: compute how the bitmap is letterboxed into the full screen.
-                    val imageAspect = bitmapWidth.toFloat() / bitmapHeight.toFloat()
-                    val screenAspect = screenWidth.toFloat() / screenHeight.toFloat()
-                    val renderWidth: Float
-                    val renderHeight: Float
-                    if (imageAspect > screenAspect) {
-                        renderWidth = screenWidth.toFloat()
-                        renderHeight = screenWidth / imageAspect
-                    } else {
-                        renderHeight = screenHeight.toFloat()
-                        renderWidth = screenHeight * imageAspect
-                    }
-                    val fitOffX = (screenWidth - renderWidth) / 2f
-                    val fitOffY = (screenHeight - renderHeight) / 2f
-                    val fitScaleX = bitmapWidth / renderWidth
-                    val fitScaleY = bitmapHeight / renderHeight
+            // Precompute inverse camera rotation (negate the viewportRotation).
+            val camRad = Math.toRadians(-viewportRotation.toDouble())
+            val camC = Math.cos(camRad).toFloat()
+            val camS = Math.sin(camRad).toFloat()
 
-                    return stroke.map { pt ->
-                        // Step 1: Move to pivot-relative coords and undo layer translation.
-                        val dx = pt.x - screenCx - layerOffset.x
-                        val dy = pt.y - screenCy - layerOffset.y
+            // ContentScale.Fit: compute how the bitmap is letterboxed into the full screen.
+            val imageAspect = bitmapWidth.toFloat() / bitmapHeight.toFloat()
+            val screenAspect = screenWidth.toFloat() / screenHeight.toFloat()
+            val renderWidth: Float
+            val renderHeight: Float
+            if (imageAspect > screenAspect) {
+                renderWidth = screenWidth.toFloat()
+                renderHeight = screenWidth / imageAspect
+            } else {
+                renderHeight = screenHeight.toFloat()
+                renderWidth = screenHeight * imageAspect
+            }
+            val fitOffX = (screenWidth - renderWidth) / 2f
+            val fitOffY = (screenHeight - renderHeight) / 2f
+            val fitScaleX = bitmapWidth / renderWidth
+            val fitScaleY = bitmapHeight / renderHeight
 
-                        // Step 2: Undo layer rotationZ.
-                        val rx = dx * cosA - dy * sinA
-                        val ry = dx * sinA + dy * cosA
+            return stroke.map { pt ->
+                // Step 0: Undo camera (viewport) transform. The camera scales and rotates around Offset.Zero (top-left)
+                // then translates by viewportOffset.
+                var cx = pt.x - viewportOffset.x
+                var cy = pt.y - viewportOffset.y
+                val safeZoom = if (kotlin.math.abs(viewportZoom) > 1e-4f) viewportZoom else 1f
+                cx /= safeZoom
+                cy /= safeZoom
+                val worldX = (cx * camC - cy * camS).toFloat()
+                val worldY = (cx * camS + cy * camC).toFloat()
 
-                        // Step 3: Undo layer scale (guard a degenerate ~0 scale → avoid Infinity coords).
-                        val safeScale = if (kotlin.math.abs(layerScale) > 1e-4f) layerScale else 1f
-                        val ux = rx / safeScale
-                        val uy = ry / safeScale
+                // Step 1: Move to pivot-relative coords and undo layer translation.
+                val dx = worldX - screenCx - layerOffset.x
+                val dy = worldY - screenCy - layerOffset.y
 
-                        // Step 4: Back to layout space, then undo ContentScale.Fit letterboxing.
-                        val lx = ux + screenCx
-                        val ly = uy + screenCy
-                        Offset(
-                            (lx - fitOffX) * fitScaleX,
-                            (ly - fitOffY) * fitScaleY
-                        )
-                    }
+                // Step 2: Undo layer rotationZ.
+                val rx = dx * cosA - dy * sinA
+                val ry = dx * sinA + dy * cosA
+
+                // Step 3: Undo layer scale (guard a degenerate ~0 scale → avoid Infinity coords).
+                val safeScale = if (kotlin.math.abs(layerScale) > 1e-4f) layerScale else 1f
+                val ux = rx / safeScale
+                val uy = ry / safeScale
+
+                // Step 4: Back to layout space, then undo ContentScale.Fit letterboxing.
+                val lx = ux + screenCx
+                val ly = uy + screenCy
+                Offset(
+                    (lx - fitOffX) * fitScaleX,
+                    (ly - fitOffY) * fitScaleY
+                )
+            }
         }
 
             suspend fun applyToolToBitmap(

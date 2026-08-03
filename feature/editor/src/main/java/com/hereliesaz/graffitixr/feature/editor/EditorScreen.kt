@@ -366,6 +366,9 @@ fun EditorScreen(
             SelectionCanvas(
                 selection = uiState.selection,
                 gate = strokeGate,
+                viewportOffset = uiState.viewportOffset,
+                viewportZoom = uiState.viewportZoom,
+                viewportRotation = uiState.viewportRotation,
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
                 onSelectionMove = { delta -> vm.onSelectionMove(delta) },
@@ -377,7 +380,13 @@ fun EditorScreen(
         // tool — the selection keeps clipping the brush after you switch back to it, so hiding the
         // outline would leave strokes mysteriously stopping at an invisible edge.
         uiState.selection?.let { sel ->
-            SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
+            SelectionMarquee(
+                selection = sel,
+                viewportOffset = uiState.viewportOffset,
+                viewportZoom = uiState.viewportZoom,
+                viewportRotation = uiState.viewportRotation,
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
         // 3b. Pen (vector) capture layer — a freeform drag traces a live poly-line that is committed

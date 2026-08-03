@@ -33,12 +33,16 @@ internal object SelectionMask {
         layerScale: Float = 1f,
         layerOffset: Offset = Offset.Zero,
         layerRotationZ: Float = 0f,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
     ): Path? {
         if (selection == null || !selection.isUsable) return null
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
         val mapped = ImageProcessor.mapScreenToBitmap(
             selection.path, selection.canvasSize.width, selection.canvasSize.height,
             bitmapWidth, bitmapHeight, layerScale, layerOffset, layerRotationZ,
+            Offset.Zero, 1f, 0f // Selection is already in world space
         )
         if (mapped.size < 3) return null
         val path = Path()
@@ -132,10 +136,14 @@ internal object SelectionMask {
         layerScale: Float,
         layerOffset: Offset,
         layerRotationZ: Float,
+        viewportOffset: Offset,
+        viewportZoom: Float,
+        viewportRotation: Float,
     ): Offset {
         val pts = ImageProcessor.mapScreenToBitmap(
             listOf(Offset.Zero, delta), canvasWidth, canvasHeight, bitmapWidth, bitmapHeight,
             layerScale, layerOffset, layerRotationZ,
+            viewportOffset, viewportZoom, viewportRotation
         )
         return if (pts.size == 2) pts[1] - pts[0] else Offset.Zero
     }

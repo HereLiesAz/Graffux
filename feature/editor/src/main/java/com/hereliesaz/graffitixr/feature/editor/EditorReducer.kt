@@ -79,6 +79,8 @@ internal object EditorReducer {
         is EditorIntent.ReplaceLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId, activeTool = Tool.NONE)
 
         is EditorIntent.SetActiveTool -> state.copy(activeTool = intent.tool, activePanel = EditorPanel.NONE)
+        is EditorIntent.SetLastCropTool -> state.copy(lastCropTool = intent.toolId)
+        is EditorIntent.SetLastSymmetryMode -> state.copy(lastSymmetryMode = intent.mode)
         EditorIntent.ToggleAdjustPanel ->
             state.copy(activePanel = if (state.activePanel == EditorPanel.ADJUST) EditorPanel.NONE else EditorPanel.ADJUST)
         EditorIntent.ToggleTransformPanel ->
@@ -230,7 +232,7 @@ internal object EditorReducer {
         is EditorIntent.SetActiveBrush -> state.copy(activeBrushName = intent.name)
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)
-        is EditorIntent.SetActiveColor -> state.copy(activeColor = intent.color, showColorPicker = false)
+        is EditorIntent.SetActiveColor -> state.copy(activeColor = intent.color)
         is EditorIntent.SetLayerWarp -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(warpMesh = intent.mesh) })
         is EditorIntent.SetLayerShapes -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(shapes = intent.shapes) })
         is EditorIntent.SetBlendMode -> state.mapActive { it.copy(blendMode = intent.mode.toComposeBlendMode()) }
