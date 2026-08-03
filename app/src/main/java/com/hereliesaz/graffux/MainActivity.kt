@@ -51,7 +51,7 @@ import androidx.compose.ui.res.painterResource
 
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
