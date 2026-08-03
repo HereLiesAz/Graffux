@@ -83,6 +83,10 @@ fun ColorPickerDialog(
         Color(argb).copy(alpha = currentColor.alpha)
     }
 
+    LaunchedEffect(selectedColor) {
+        onSelectColor(selectedColor)
+    }
+
     var mode by remember { mutableStateOf(ColorPickerMode.DISC) }
     var harmony by remember { mutableStateOf(HarmonyMode.COMPLEMENTARY) }
     val partners = remember(hue, harmony, mode) {
@@ -179,14 +183,6 @@ fun ColorPickerDialog(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-
-            AzButton(
-                text = strings.common.apply,
-                onClick = { onSelectColor(selectedColor) },
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -355,17 +351,14 @@ private fun ColorWheel(
         modifier = modifier
             .onSizeChanged { wheelSize = it }
             .pointerInput(wheelSize) {
-                detectTapGestures { offset -> pickFromOffset(offset) }
+                detectDragGestures(
+                    onDragStart = { offset -> pickFromOffset(offset) }
+                ) { change, _ ->
+                    pickFromOffset(change.position)
+                }
             }
             .pointerInput(wheelSize) {
-                detectDragGestures { _, dragAmount ->
-                    val radius = wheelSize.width / 2f
-                    if (radius <= 0f) return@detectDragGestures
-                    val angle = Math.toRadians(hue.toDouble())
-                    val curX = radius + cos(angle) * saturation * radius
-                    val curY = radius + sin(angle) * saturation * radius
-                    pickFromOffset(Offset((curX + dragAmount.x).toFloat(), (curY + dragAmount.y).toFloat()))
-                }
+                detectTapGestures { offset -> pickFromOffset(offset) }
             }
     ) {
         // Draw wheel bitmap
@@ -444,8 +437,6 @@ fun SizePickerDialog(
             }
 
             Slider(value = currentSize, onValueChange = onSizeChange, valueRange = 5f..150f)
-
-            AzButton(text = strings.common.done, onClick = onDismiss, modifier = Modifier.padding(top = 16.dp), shape = AzButtonShape.RECTANGLE)
         }
     }
 }

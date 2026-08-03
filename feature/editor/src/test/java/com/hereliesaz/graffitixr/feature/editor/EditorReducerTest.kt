@@ -190,11 +190,11 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `SetActiveColor sets the color and closes the picker`() {
+    fun `SetActiveColor sets the color`() {
         val s = state(lyr("a")).copy(showColorPicker = true)
         val out = reduce(s, EditorIntent.SetActiveColor(androidx.compose.ui.graphics.Color.Red))
         assertEquals(androidx.compose.ui.graphics.Color.Red, out.activeColor)
-        assertFalse(out.showColorPicker)
+        assertTrue(out.showColorPicker)
     }
 
     @Test

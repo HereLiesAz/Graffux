@@ -109,12 +109,14 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             val d = SelectionMask.mapDelta(
                 delta, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
             )
             return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y, featherRadius)
         }
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
         )
         // Flood fill replays deterministically from its tap point — same base, same seed pixel,
         // same result — so it records and undoes exactly like a brush stroke.
@@ -192,7 +194,8 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         slamManager.prepareLiquify(bitmap)
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
         )
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }
