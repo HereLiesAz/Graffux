@@ -969,22 +969,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
     )
-    // Only meaningful with something selected, so they appear with the selection rather than
-    // sitting permanently greyed in the strip.
-    if (uiState.selection != null) {
-        azRailItem(
-            id = "tool.selectInvert", text = "Invert",
-            content = GraffuxIcons.SelectInvert,
-            color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
-            onClick = { vm.onInvertSelection() },
-        )
-        azRailItem(
-            id = "tool.deselect", text = "Deselect",
-            content = GraffuxIcons.SelectNone,
-            color = navItemColor,
-            onClick = { vm.onClearSelection() },
-        )
-    }
     // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
     // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
     // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
@@ -994,6 +978,27 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
+    // Selection tools (Invert & Deselect) nested rail
+    if (uiState.selection != null) {
+        azRailHostItem(
+            id = "grp.selection",
+            text = "Selection",
+            content = GraffuxIcons.SelectInvert,
+            color = navItemColor,
+        )
+        azRailSubItem(
+            id = "tool.selectInvert", hostId = "grp.selection", text = "Invert",
+            content = GraffuxIcons.SelectInvert, shape = AzButtonShape.NONE,
+            color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
+            onClick = { vm.onInvertSelection() },
+        )
+        azRailSubItem(
+            id = "tool.deselect", hostId = "grp.selection", text = "Deselect",
+            content = GraffuxIcons.SelectNone, shape = AzButtonShape.NONE,
+            color = navItemColor,
+            onClick = { vm.onClearSelection() },
+        )
+    }
     // Symmetry guide: strokes mirror across one or more axes while it's on. The toggle is the quick
     // on/off (vertical, matching its old behaviour exactly); the picker beside it reaches every mode,
     // including turning it off from there too.

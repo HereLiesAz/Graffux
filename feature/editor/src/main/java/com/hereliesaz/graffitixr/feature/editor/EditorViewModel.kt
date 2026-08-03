@@ -1943,12 +1943,14 @@ class EditorViewModel @Inject constructor(
             focus.x + panDelta.x - k * rx,
             focus.y + panDelta.y - k * ry,
         )
-        // Rotation snap: within ~1° of square (0, 90, 180, 270), the canvas clicks straight.
-        // A very faint threshold so it's barely felt but still helps square the page.
+        // Rotation snap: within ~0.3° of square (0, 90, 180, 270), the canvas clicks straight.
+        // A very subtle threshold so it's barely felt and never traps the user when rotating away.
         var newRotation = st.viewportRotation + rotationDelta
         if (rotationDelta != 0f) {
             val norm = ((newRotation % 90f) + 135f) % 90f - 45f
-            if (kotlin.math.abs(norm) < 1f) newRotation -= norm
+            if (kotlin.math.abs(norm) < 0.3f && kotlin.math.abs(st.viewportRotation % 90f) > 0.01f) {
+                newRotation -= norm
+            }
         }
         dispatch(EditorIntent.SetViewport(newOffset, newZoom, newRotation))
     }
