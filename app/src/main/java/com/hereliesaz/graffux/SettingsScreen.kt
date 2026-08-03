@@ -88,7 +88,36 @@ fun SettingsScreen(
                     Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close settings")
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Text(
+                "Document & Canvas",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Canvas Dimensions", style = MaterialTheme.typography.bodyLarge)
+                    Text("Adjust canvas width, height, and unit measurements.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Background", style = MaterialTheme.typography.bodyLarge)
+                    Text("Configure canvas background color and transparency.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider()
 
             SwitchRow(
                 title = "Right-handed",

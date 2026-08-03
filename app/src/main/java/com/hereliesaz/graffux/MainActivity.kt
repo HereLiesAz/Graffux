@@ -21,7 +21,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Surface
+import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import androidx.compose.material3.Text
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -182,6 +185,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showGalleryDialog by remember { mutableStateOf(false) }
+    var showImportChooser by remember { mutableStateOf(false) }
+    var showExportChooser by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
@@ -380,12 +385,9 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-                    azItem(text = "Import…", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                    azItem(text = "Add…", onClick = { showAddDialog = true })
-                    azItem(text = "Reference", onClick = { showReferenceWindow = true })
-                    azItem(text = "Properties…", onClick = { showDocDialog = true })
+                    azItem(text = "Import…", onClick = { showImportChooser = true })
                     azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
-                    azItem(text = strings.nav.export, onClick = { vm.exportImage() })
+                    azItem(text = strings.nav.export, onClick = { showExportChooser = true })
                     azItem(text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
@@ -408,9 +410,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     })
                     azDivider()
                     azItem(text = "Store", onClick = { showStoreDialog = true })
-                    azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
+                    azItem(text = "Extensions", onClick = { showStoreDialog = true })
                     azItem(text = "3D Model…", onClick = { showModelDialog = true })
-                    azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                     azItem(text = "Settings", onClick = { showSettings = true })
                 }
             }
@@ -696,6 +697,66 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onImport = { vm.importFigmaFrames() },
                         onDismiss = { showFigmaDialog = false },
                     )
+                }
+
+                if (showImportChooser) {
+                    FloatingWindow(title = "Import", onDismiss = { showImportChooser = false }) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            AzButton(
+                                text = "Import Image…",
+                                onClick = {
+                                    showImportChooser = false
+                                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                },
+                                shape = AzButtonShape.RECTANGLE,
+                            )
+                            AzButton(
+                                text = "Import File…",
+                                onClick = {
+                                    showImportChooser = false
+                                    documentPicker.launch(arrayOf("*/*"))
+                                },
+                                shape = AzButtonShape.RECTANGLE,
+                            )
+                            AzButton(
+                                text = "Import from Figma…",
+                                onClick = {
+                                    showImportChooser = false
+                                    showFigmaDialog = true
+                                },
+                                shape = AzButtonShape.RECTANGLE,
+                            )
+                        }
+                    }
+                }
+
+                if (showExportChooser) {
+                    FloatingWindow(title = "Export", onDismiss = { showExportChooser = false }) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            AzButton(
+                                text = "Export Image (PNG)",
+                                onClick = {
+                                    showExportChooser = false
+                                    vm.exportImage()
+                                },
+                                shape = AzButtonShape.RECTANGLE,
+                            )
+                            AzButton(
+                                text = "Export for Figma",
+                                onClick = {
+                                    showExportChooser = false
+                                    vm.exportForFigma()
+                                },
+                                shape = AzButtonShape.RECTANGLE,
+                            )
+                        }
+                    }
                 }
 
                 if (showSettings) {
