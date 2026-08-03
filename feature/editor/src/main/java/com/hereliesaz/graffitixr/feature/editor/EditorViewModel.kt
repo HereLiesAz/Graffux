@@ -103,6 +103,12 @@ data class StrokeCommand(
     // as a command so it undoes by replay like everything else; honours [selection], so clearing
     // with a lasso active wipes only inside it.
     val clearAll: Boolean = false,
+    // Deforms the layer's pixels on a moved handle grid (Distort / Warp). Recorded as a command so it undoes by replay.
+    val warpHandles: List<Offset>? = null,
+    // Floods the selection with brushColor. Recorded as a command so it undoes by replay.
+    val fillSelection: Boolean = false,
+    // Screen-space offset for the clone stamp tool source point.
+    val cloneOffset: Offset? = null,
 )
 
 /**
@@ -531,7 +537,7 @@ class EditorViewModel @Inject constructor(
                 val delta = command.command.moveDelta
                 if (command.command.tool == Tool.SELECT && delta != null) {
                     dispatch(EditorIntent.SetSelection(
-                        command.command.selection?.let { sel -> sel.copy(path = sel.path.map { it + delta }) }
+                        command.command.selection?.translated(delta)
                     ))
                 }
             }
@@ -634,7 +640,9 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
-        val base = layerStore.base(layerId) ?: return
+        val base = layerStore.base(layerId)
+            ?: _uiState.value.layers.find { it.id == layerId }?.bitmap?.also { layerStore.putBase(layerId, it) }
+            ?: return
         val strokes = layerStore.strokes(layerId)
 
         rebuildJobs[layerId]?.cancel()
@@ -2779,15 +2787,15 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        if (state.activeTool == Tool.BLUR) {
-            // BLUR samples-and-blurs the pixels under the stroke, which a Paint can't do — so it has
-            // no live preview and commits on finger-up via ImageProcessor.applyToolToBitmap (a
-            // full-bitmap scale op, hence off the main thread).
+        if (state.activeTool == Tool.BLUR || state.activeTool == Tool.SHARPEN || state.activeTool == Tool.SMUDGE || state.activeTool == Tool.CLONE) {
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
+            val strokeCloneOffset = if (state.activeTool == Tool.CLONE) {
+                state.cloneSource?.let { src -> points.firstOrNull()?.let { start -> src - start } }
+            } else null
             val command = StrokeCommand(
                 path = points,
                 canvasSize = IntSize(canvasW, canvasH),
-                tool = Tool.BLUR,
+                tool = state.activeTool,
                 brushSize = state.brushSize,
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
@@ -2800,6 +2808,7 @@ class EditorViewModel @Inject constructor(
                 viewportRotation = state.viewportRotation,
                 symmetryMode = strokeSymmetry,
                 selection = strokeSelection,
+                cloneOffset = strokeCloneOffset,
             )
             layerStore.addStroke(layerId, command)
             history.pushDraw(layerId, command)
@@ -2810,32 +2819,19 @@ class EditorViewModel @Inject constructor(
                 points, canvasW, canvasH, base.width, base.height,
                 capturedScale, capturedOffset, capturedRotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
             )
-            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, base.width, base.height, capturedScale)
             viewModelScope.launch(dispatchers.default) {
-                val blurred = ImageProcessor.applyToolToBitmap(
-                    base, mapped, Tool.BLUR, state.brushSize * brushScale,
-                    state.activeColor.toArgb(), 0.5f, false, state.brushFeathering,
-                    symmetryMode = command.symmetryMode,
-                    // Read off the command, not `strokeSelection`: this runs after the caller has
-                    // already cleared the transient stroke state.
-                    clipPath = SelectionMask.bitmapPath(
-                        command.selection, base.width, base.height,
-                        capturedScale, capturedOffset, capturedRotationZ,
-                        state.viewportOffset, state.viewportZoom, state.viewportRotation
-                    ),
-                )
+                val updated = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
-                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = blurred) else it },
+                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = updated) else it },
                             liveStrokeLayerId = null,
                             liveStrokeBitmap = null,
                         )
                     }
-                    scheduleDiskSave(layerId, blurred, layer.uri)
+                    scheduleDiskSave(layerId, updated, layer.uri)
                 }
             }
-            // Co-op: peers replay the same blur from the stroke command.
             opEmitter.emit(
                 Op.StrokeComplete(
                     layerId,
@@ -2844,7 +2840,7 @@ class EditorViewModel @Inject constructor(
                         colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
                         brushSize = state.brushSize,
                         brushFeathering = state.brushFeathering,
-                        blendModeOrdinal = Tool.BLUR.ordinal,
+                        blendModeOrdinal = state.activeTool.ordinal,
                     )
                 )
             )
@@ -3233,26 +3229,13 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         viewModelScope.launch(dispatchers.default) {
-            val mapped = ImageProcessor.mapScreenToBitmap(
-                listOf(position), canvasSize.width, canvasSize.height, base.width, base.height,
-                layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
-            ).first()
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            val clipPath = SelectionMask.bitmapPath(
-                command.selection, target.width, target.height,
-                layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
-            )
-            ImageProcessor.floodFill(
-                target, mapped.x.toInt(), mapped.y.toInt(), state.activeColor.toArgb(),
-                clipRegion = SelectionMask.region(clipPath, target.width, target.height),
-            )
+            val target = drawingEngine.applySingleStroke(base, command)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
             }
-            // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
             opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
         }
     }
@@ -3295,16 +3278,7 @@ class EditorViewModel @Inject constructor(
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
         viewModelScope.launch(dispatchers.default) {
-            val target = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
-            val canvas = Canvas(target)
-            SelectionMask.clip(
-                canvas,
-                SelectionMask.bitmapPath(
-                    command.selection, target.width, target.height,
-                    layer.scale, layer.offset, layer.rotationZ, state.viewportOffset, state.viewportZoom, state.viewportRotation
-                ),
-            )
-            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            val target = drawingEngine.applySingleStroke(base, command)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -3443,8 +3417,151 @@ class EditorViewModel @Inject constructor(
             simplified, state.viewportOffset, state.viewportZoom, state.viewportRotation
         )
         dispatch(EditorIntent.SetSelection(
-            com.hereliesaz.graffitixr.common.model.Selection(worldPoints, canvasSize)
+            com.hereliesaz.graffitixr.common.model.Selection.ofPolygon(worldPoints, canvasSize)
         ))
+    }
+
+    fun nextSelectionName(): String {
+        val currentNames = _uiState.value.savedSelections.map { it.name }.toSet()
+        var i = 1
+        while ("Selection $i" in currentNames) i++
+        return "Selection $i"
+    }
+
+    fun onSaveSelection(name: String) {
+        val selection = _uiState.value.selection ?: return
+        if (!selection.isUsable) return
+        val current = _uiState.value.savedSelections.toMutableList()
+        val index = current.indexOfFirst { it.name == name }
+        val saved = com.hereliesaz.graffitixr.common.model.SavedSelection(name = name, selection = selection)
+        if (index >= 0) current[index] = saved else current.add(saved)
+        dispatch(EditorIntent.SetSavedSelections(current))
+    }
+
+    fun onDeleteSavedSelection(name: String) {
+        val current = _uiState.value.savedSelections.filterNot { it.name == name }
+        dispatch(EditorIntent.SetSavedSelections(current))
+    }
+
+    fun onCanvasSizeChanged(size: IntSize) = dispatch(EditorIntent.SetCanvasSize(size))
+
+    fun onSetCloneSource(at: Offset?) = dispatch(EditorIntent.SetCloneSource(at))
+
+    fun setSelectionShape(shape: com.hereliesaz.graffitixr.common.model.SelectionShape) =
+        dispatch(EditorIntent.SetSelectionShape(shape))
+
+    fun cycleSelectionShape() {
+        val entries = com.hereliesaz.graffitixr.common.model.SelectionShape.entries
+        val currentIndex = entries.indexOf(_uiState.value.selectionShape)
+        val nextShape = entries[(currentIndex + 1) % entries.size]
+        setSelectionShape(nextShape)
+    }
+
+    fun onAutoSelect(at: Offset, canvasSize: IntSize) {
+        val state = _uiState.value
+        val activeLayer = state.layers.find { it.id == state.activeLayerId } ?: return
+        val bitmap = activeLayer.bitmap ?: return
+        val mapped = com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor.mapScreenToBitmap(
+            listOf(at), canvasSize.width, canvasSize.height,
+            bitmap.width, bitmap.height, activeLayer.scale, activeLayer.offset, activeLayer.rotationZ,
+            state.viewportOffset, state.viewportZoom, state.viewportRotation
+        ).firstOrNull() ?: return
+        val x = mapped.x.toInt()
+        val y = mapped.y.toInt()
+        if (x !in 0 until bitmap.width || y !in 0 until bitmap.height) return
+        val mask = BooleanArray(bitmap.width * bitmap.height)
+        val targetColor = bitmap.getPixel(x, y)
+        val tol = state.magicWandTolerance
+        val q = java.util.ArrayDeque<Pair<Int, Int>>()
+        q.add(x to y)
+        mask[y * bitmap.width + x] = true
+        val tr = (targetColor shr 16) and 0xFF
+        val tg = (targetColor shr 8) and 0xFF
+        val tb = targetColor and 0xFF
+        while (q.isNotEmpty()) {
+            val (cx, cy) = q.removeFirst()
+            for ((dx, dy) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
+                val nx = cx + dx
+                val ny = cy + dy
+                if (nx in 0 until bitmap.width && ny in 0 until bitmap.height) {
+                    val idx = ny * bitmap.width + nx
+                    if (!mask[idx]) {
+                        val c = bitmap.getPixel(nx, ny)
+                        val cr = (c shr 16) and 0xFF
+                        val cg = (c shr 8) and 0xFF
+                        val cb = c and 0xFF
+                        if (kotlin.math.abs(cr - tr) <= tol && kotlin.math.abs(cg - tg) <= tol && kotlin.math.abs(cb - tb) <= tol) {
+                            mask[idx] = true
+                            q.add(nx to ny)
+                        }
+                    }
+                }
+            }
+        }
+        val rings = com.hereliesaz.graffitixr.common.util.ContourTrace.contours(mask, bitmap.width, bitmap.height)
+        if (rings.isEmpty()) return
+        val newSelection = com.hereliesaz.graffitixr.common.model.Selection(rings, canvasSize)
+        dispatch(EditorIntent.SetSelection(newSelection))
+    }
+
+    internal fun dispatchForTest(intent: EditorIntent) = dispatch(intent)
+
+    fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
+    fun onColorFillSelection() {
+        val state = _uiState.value
+        val selection = state.selection ?: return
+        if (!selection.isUsable) return
+        val layerId = state.activeLayerId ?: return
+        val layer = state.layers.find { it.id == layerId } ?: return
+        val command = StrokeCommand(
+            path = selection.path,
+            canvasSize = selection.canvasSize,
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = state.activeColor.toArgb(),
+            intensity = 1f,
+            fillSelection = true,
+            selection = selection,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            viewportOffset = state.viewportOffset,
+            viewportZoom = state.viewportZoom,
+            viewportRotation = state.viewportRotation,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        rebuildLayerBitmap(layerId, emitOp = true)
+    }
+
+    fun onWarpHandleMoved(index: Int, at: Offset) {
+        val current = _uiState.value.warpHandles.toMutableList()
+        if (index in current.indices) {
+            current[index] = at
+            dispatch(EditorIntent.SetWarpHandles(current))
+        }
+    }
+
+    fun onWarpHandleReleased() {
+        val state = _uiState.value
+        val activeLayerId = state.activeLayerId ?: return
+        val handles = state.warpHandles
+        if (handles.isEmpty()) return
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = state.canvasSize,
+            tool = Tool.NONE,
+            brushSize = 0f,
+            brushColor = 0,
+            intensity = 0f,
+            warpHandles = handles,
+        )
+        layerStore.addStroke(activeLayerId, command)
+        history.pushDraw(activeLayerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(activeLayerId)
     }
 
     fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
@@ -3514,7 +3631,7 @@ class EditorViewModel @Inject constructor(
                     listOf(Offset.Zero, delta), state.viewportOffset, state.viewportZoom, state.viewportRotation
                 )
                 val worldDelta = if (pts.size == 2) pts[1] - pts[0] else Offset.Zero
-                dispatch(EditorIntent.SetSelection(selection.copy(path = selection.path.map { it + worldDelta })))
+                dispatch(EditorIntent.SetSelection(selection.translated(worldDelta)))
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
@@ -4677,9 +4794,10 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    private var colorEditJob: kotlinx.coroutines.Job? = null
+
     override fun setActiveColor(color: Color) {
         dispatch(EditorIntent.SetActiveColor(color))
-        // If a vector layer is active, recolour its shapes: fill for rect/ellipse, stroke for lines.
         val st = _uiState.value
         val active = st.layers.find { it.id == st.activeLayerId }
         if (active != null && active.shapes.isNotEmpty()) {
@@ -4688,9 +4806,16 @@ class EditorViewModel @Inject constructor(
                 if (s.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.LINE) s.copy(strokeArgb = argb)
                 else s.copy(fillArgb = argb)
             }
-            pushHistory()
+            if (colorEditJob == null) {
+                onLayerEditStart()
+            }
+            colorEditJob?.cancel()
+            colorEditJob = viewModelScope.launch(dispatchers.main) {
+                kotlinx.coroutines.delay(100)
+                colorEditJob = null
+                onLayerEditEnd()
+            }
             dispatch(EditorIntent.SetLayerShapes(active.id, recoloured))
-            saveProject()
         }
     }
 

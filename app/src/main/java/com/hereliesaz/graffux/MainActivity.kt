@@ -22,6 +22,10 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,8 +47,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 
-import compose.icons.TablerIcons
-import compose.icons.tablericons.*
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 
 import androidx.compose.ui.unit.dp
@@ -347,33 +350,40 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     )
                 }
             }
-        
-            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
+
+            // Top Selection Mode Title Pill — Tapping cycles selection shape (Freehand -> Rectangle -> Ellipse -> Automatic)
+            onscreen(alignment = Alignment.TopCenter) {
+                if (!uiState.hideUiForCapture && (uiState.activeTool == Tool.SELECT || uiState.selection != null)) {
+                    Row(
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .padding(top = 8.dp)
+                            .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(20.dp))
+                            .clickable { vm.cycleSelectionShape() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = uiState.selectionShape.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                        )
+                    }
+                }
+            }
+
+            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)
             onscreen(alignment = Alignment.TopEnd) {
                 if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
                     azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
-                    // New/Open/Gallery/Import/Save map onto distinct actions rather than overloading one
-                    // another: New starts a blank project; Open reopens a `.fux` file from anywhere on
-                    // the device; Gallery browses the projects already in the app; Import brings an
-                    // image or another design file INTO the current project, which is what the old
-                    // "Open"/"Open File" pair actually did despite their names.
                     azItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     azItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     azItem(text = "Gallery", onClick = { showGalleryDialog = true })
-                    azItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                    azItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
+                    azItem(text = "Import…", onClick = { documentPicker.launch(arrayOf("*/*")) })
                     azItem(text = "Add…", onClick = { showAddDialog = true })
                     azItem(text = "Reference", onClick = { showReferenceWindow = true })
-                    azItem(text = "Align…", onClick = { showAlignDialog = true })
-                    azItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
-                    azItem(text = "Background", onClick = { showBgDialog = true })
-                    // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
-                    // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
-                    // per-layer equivalent this complements at the whole-project level.
-                    azItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
-                    // Save names the project and writes a `.fux` wherever the user chooses. It isn't
-                    // what keeps their work — autosave does that continuously — so it's free to be a
-                    // deliberate, two-step action rather than something they must remember to press.
+                    azItem(text = "Properties…", onClick = { showDocDialog = true })
                     azItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     azItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     azItem(text = strings.nav.share, onClick = {
@@ -399,7 +409,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     azDivider()
                     azItem(text = "Store", onClick = { showStoreDialog = true })
                     azItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
-                    azItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     azItem(text = "3D Model…", onClick = { showModelDialog = true })
                     azItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                     azItem(text = "Settings", onClick = { showSettings = true })
@@ -419,17 +428,17 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         uiState.viewportRotation != 0f
                     if (viewMoved) {
                         FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                            Icon(rememberVectorPainter(TablerIcons.Maximize), contentDescription = "Fit to screen")
+                            Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
                         }
                     }
                     if (uiState.undoCount > 0) {
                         FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(rememberVectorPainter(TablerIcons.ArrowBackUp), contentDescription = "Undo")
+                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = "Undo")
                         }
                     }
                     if (uiState.redoCount > 0) {
                         FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(rememberVectorPainter(TablerIcons.ArrowForwardUp), contentDescription = "Redo")
+                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = "Redo")
                         }
                     }
                 }
@@ -603,11 +612,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                             onCornerRadius = { showCornerDialog = true },
                             onPolygonSides = { showSidesDialog = true },
                             onToggleFill = { vm.toggleVectorFill() },
-                            onOpacityChange = { vm.onOpacityChanged(it) },
-                            onOpacityStart = { vm.onLayerEditStart() },
-                            onOpacityCommit = { vm.onLayerEditEnd() },
-                            onBlendMode = { showBlendDialog = true },
-                            onToggleAlphaLock = { vm.onToggleAlphaLock(overlay.id) },
+                            onEditStart = { vm.onLayerEditStart() },
+                            onEditCommit = { vm.onLayerEditEnd() },
+                            autoLayoutGap = if (uiState.layers.any { it.parentId == overlay.id }) overlay.autoLayout.gap else null,
+                            onGapChange = { vm.onSetAutoLayout(overlay.autoLayout.copy(gap = it)) },
                             onDismiss = { showLayerOptionsDialog = false },
                         )
                     }
@@ -804,19 +812,19 @@ private fun AzNavHostScope.ConfigureRailItems(
     // so nothing in it was identifiable at a glance.
     azRailItem(
         id = "tool.brush", text = uiState.activeBrushName ?: navStrings.brush,
-        content = TablerIcons.Brush,
+        content = GraffuxIcons.Brush,
         color = if (uiState.activeTool == Tool.BRUSH) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BRUSH) Tool.NONE else Tool.BRUSH) },
     )
     azRailItem(
         id = "tool.eraser", text = "Eraser",
-        content = TablerIcons.Eraser,
+        content = GraffuxIcons.Eraser,
         color = if (uiState.activeTool == Tool.ERASER) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.ERASER) Tool.NONE else Tool.ERASER) },
     )
     azRailItem(
         id = "tool.select", text = "Select",
-        content = TablerIcons.Focus,
+        content = GraffuxIcons.SelectFocus,
         color = if (uiState.activeTool == Tool.SELECT) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.SELECT) Tool.NONE else Tool.SELECT) },
     )
@@ -825,7 +833,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azRailHostItem(
         id = "grp.crop", 
         text = if (uiState.lastCropTool == "tool.transform") "Transform" else "Crop", 
-        content = if (uiState.lastCropTool == "tool.transform") DesignR.drawable.ic_ps_transform else TablerIcons.Crop, 
+        content = if (uiState.lastCropTool == "tool.transform") DesignR.drawable.ic_ps_transform else GraffuxIcons.Crop, 
         color = navItemColor, 
         onClick = {
             if (uiState.lastCropTool == "tool.transform") {
@@ -837,7 +845,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     )
     azRailSubItem(
         id = "tool.crop", hostId = "grp.crop", text = "Crop Tool", shape = AzButtonShape.NONE,
-        content = TablerIcons.Crop, color = if (uiState.activeTool == Tool.CROP) activeColor else navItemColor,
+        content = GraffuxIcons.Crop, color = if (uiState.activeTool == Tool.CROP) activeColor else navItemColor,
         onClick = { 
             vm.setLastCropTool("tool.crop")
             vm.setActiveTool(if (uiState.activeTool == Tool.CROP) Tool.NONE else Tool.CROP) 
@@ -855,49 +863,49 @@ private fun AzNavHostScope.ConfigureRailItems(
     // The rest of the tools
     azRailItem(
         id = "tool.smudge", text = "Smudge",
-        content = TablerIcons.HandFinger,
+        content = GraffuxIcons.Smudge,
         color = if (uiState.activeTool == Tool.BLUR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BLUR) Tool.NONE else Tool.BLUR) },
     )
     azRailItem(
         id = "tool.pen", text = "Pen",
-        content = TablerIcons.Pencil,
+        content = GraffuxIcons.Pen,
         color = if (uiState.activeTool == Tool.PEN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.PEN) Tool.NONE else Tool.PEN) },
     )
     azRailItem(
         id = "tool.liquify", text = "Liquify",
-        content = TablerIcons.Ripple,
+        content = GraffuxIcons.Liquify,
         color = if (uiState.activeTool == Tool.LIQUIFY) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.LIQUIFY) Tool.NONE else Tool.LIQUIFY) },
     )
     azRailItem(
         id = "tool.heal", text = "Heal",
-        content = TablerIcons.Bandage,
+        content = GraffuxIcons.Heal,
         color = if (uiState.activeTool == Tool.HEAL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.HEAL) Tool.NONE else Tool.HEAL) },
     )
     azRailItem(
         id = "tool.burn", text = navStrings.burn,
-        content = TablerIcons.Flame,
+        content = GraffuxIcons.Burn,
         color = if (uiState.activeTool == Tool.BURN) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.BURN) Tool.NONE else Tool.BURN) },
     )
     azRailItem(
         id = "tool.dodge", text = navStrings.dodge,
-        content = TablerIcons.Sun,
+        content = GraffuxIcons.Dodge,
         color = if (uiState.activeTool == Tool.DODGE) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.DODGE) Tool.NONE else Tool.DODGE) },
     )
     azRailItem(
         id = "tool.colorize", text = "Colorize",
-        content = TablerIcons.Palette,
+        content = GraffuxIcons.Tint,
         color = if (uiState.activeTool == Tool.COLOR) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.COLOR) Tool.NONE else Tool.COLOR) },
     )
     azRailItem(
         id = "tool.fill", text = "Fill",
-        content = TablerIcons.Bucket,
+        content = GraffuxIcons.Fill,
         color = if (uiState.activeTool == Tool.FILL) activeColor else navItemColor,
         onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FILL) Tool.NONE else Tool.FILL) },
     )
@@ -906,13 +914,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     if (uiState.selection != null) {
         azRailItem(
             id = "tool.selectInvert", text = "Invert",
-            content = TablerIcons.Exchange,
+            content = GraffuxIcons.SelectInvert,
             color = if (uiState.selection?.inverted == true) activeColor else navItemColor,
             onClick = { vm.onInvertSelection() },
         )
         azRailItem(
             id = "tool.deselect", text = "Deselect",
-            content = TablerIcons.X,
+            content = GraffuxIcons.SelectNone,
             color = navItemColor,
             onClick = { vm.onClearSelection() },
         )
@@ -922,7 +930,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
     azRailItem(
         id = "tool.quick", text = "Quick",
-        content = TablerIcons.Bolt,
+        content = GraffuxIcons.Prompt,
         color = if (uiState.quickMenuAt != null) activeColor else navItemColor,
         onClick = { vm.onOpenQuickMenu(screenCenter) },
     )
@@ -1111,7 +1119,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                     hostId = "grp.designTools",
                     text = if (uiState.pathEditLayerId != null) "Nodes On" else "Edit Nodes",
                     shape = AzButtonShape.NONE,
-                    content = TablerIcons.Vector,
+                    content = GraffuxIcons.PathOutlineStroke,
                     color = if (uiState.pathEditLayerId != null) activeColor else navItemColor,
                     onClick = { vm.onToggleActivePathEdit() },
                 )
@@ -1120,14 +1128,14 @@ private fun AzNavHostScope.ConfigureRailItems(
                 azRailSubItem(
                     id = "tool.nodeClose", hostId = "grp.designTools", text = "Close Path",
                     shape = AzButtonShape.NONE,
-                    content = TablerIcons.Circle, color = navItemColor,
+                    content = GraffuxIcons.PathClose, color = navItemColor,
                     onClick = { vm.onTogglePathClosed() },
                 )
                 uiState.selectedNodeIndex?.let { index ->
                     azRailSubItem(
                         id = "tool.nodeDelete", hostId = "grp.designTools", text = "Delete Node",
                         shape = AzButtonShape.NONE,
-                        content = TablerIcons.X, color = navItemColor,
+                        content = GraffuxIcons.Close, color = navItemColor,
                         onClick = { vm.onDeletePathNode(index) },
                     )
                 }
@@ -1140,14 +1148,14 @@ private fun AzNavHostScope.ConfigureRailItems(
     azRailHostItem(
         id = "grp.symmetryMode", 
         text = displayMode.label, 
-        content = TablerIcons.LayersLinked, 
+        content = GraffuxIcons.Symmetry, 
         color = navItemColor,
         onClick = { vm.onSetSymmetryMode(if (uiState.symmetryMode == displayMode) SymmetryMode.NONE else displayMode) }
     )
     SymmetryMode.entries.forEach { mode ->
         azRailSubItem(
             id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label, shape = AzButtonShape.NONE,
-            content = TablerIcons.LayersLinked,
+            content = GraffuxIcons.Symmetry,
             color = if (uiState.symmetryMode == mode) activeColor else navItemColor,
             onClick = { 
                 if (mode != SymmetryMode.NONE) vm.setLastSymmetryMode(mode)
@@ -1323,17 +1331,17 @@ private fun AzNavHostScope.ConfigureRailItems(
     )
     // The brush group is now unconditional: Brush Studio means there's always something to do here
     // (make one), where previously the whole group vanished unless a brush extension was installed.
-    azRailHostItem(id = "grp.brushes", text = "Brushes", content = TablerIcons.Brush, color = navItemColor)
+    azRailHostItem(id = "grp.brushes", text = "Brushes", content = GraffuxIcons.Brush, color = navItemColor)
     azRailSubItem(
         id = "brush.round", hostId = "grp.brushes", text = "Round", shape = AzButtonShape.NONE,
-        content = TablerIcons.Circle,
+        content = GraffuxIcons.Brush,
         color = if (uiState.activeBrushName == null) activeColor else navItemColor,
         onClick = { vm.selectBrushExtension(null) },
     )
     brushes.forEach { (id, name) ->
         azRailSubItem(
             id = "brush.$id", hostId = "grp.brushes", text = name, shape = AzButtonShape.NONE,
-            content = TablerIcons.Brush,
+            content = GraffuxIcons.Brush,
             color = if (uiState.activeBrushName == name) activeColor else navItemColor,
             onClick = { vm.selectBrushExtension(id) },
         )
@@ -1342,7 +1350,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailSubItem(
             id = "brush.custom.${custom.id}", hostId = "grp.brushes", text = custom.brush.name,
             shape = AzButtonShape.NONE,
-            content = TablerIcons.Brush,
+            content = GraffuxIcons.Brush,
             color = if (uiState.activeBrushName == custom.brush.name) activeColor else navItemColor,
             onClick = { vm.selectCustomBrush(custom.id) },
         )
@@ -1383,7 +1391,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             id = "layer.add",
             hostId = "grp.layers",
             text = "Add Layer",
-            content = TablerIcons.Plus,
+            content = GraffuxIcons.LayerAdd,
             shape = AzButtonShape.NONE,
             color = navItemColor,
             onClick = { onAddClicked() }

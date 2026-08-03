@@ -97,9 +97,19 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         if (stroke.clearAll) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val canvas = android.graphics.Canvas(target)
+            if (featherRadius > 0f && clipPath != null) {
+                val mask = SelectionMask.featherMask(clipPath, bitmap.width, bitmap.height, featherRadius)
+                if (mask != null) {
+                    canvas.drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+                    })
+                    mask.recycle()
+                    return target
+                }
+            }
             SelectionMask.clip(canvas, paintClip)
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
+            return target
         }
         // A selection move: lift the selected pixels, clear the hole, stamp them down offset. Fully
         // determined by (base, selection, delta), so it replays through history like any stroke.
