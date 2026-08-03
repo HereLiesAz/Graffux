@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/layer-delete — phosphor/trash -->
-  <path d="M17.94 6.87H14.97V6.06a1.35 1.35 0 0 0-1.35-1.35H10.38A1.35 1.35 0 0 0 9.03 6.06V6.87H6.06a0.27 0.27 0 0 0 0 0.54H6.87V17.4a0.81 0.81 0 0 0 0.81 0.81H16.32a0.81 0.81 0 0 0 0.81-0.81V7.41h0.81a0.27 0.27 0 0 0 0-0.54ZM9.57 6.06a0.81 0.81 0 0 1 0.81-0.81h3.24a0.81 0.81 0 0 1 0.81 0.81V6.87H9.57ZM16.59 17.4a0.27 0.27 0 0 1-0.27 0.27H7.68a0.27 0.27 0 0 1-0.27-0.27V7.41H16.59ZM10.65 10.38v4.32a0.27 0.27 0 0 1-0.54 0V10.38a0.27 0.27 0 0 1 0.54 0Zm3.24 0v4.32a0.27 0.27 0 0 1-0.54 0V10.38a0.27 0.27 0 0 1 0.54 0Z" fill="currentColor" stroke="none"/>
-</svg>

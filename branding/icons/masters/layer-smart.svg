@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/layer-smart — graffux -->
-  <path d="M12 4.8L17.6 7.6L12 10.4L6.4 7.6Z"/>
-  <path d="M7.2 13H16.8V19.8H7.2Z"/>
-  <path d="M7.2 13L16.8 19.8"/>
-  <path d="M16.8 13L7.2 19.8"/>
-</svg>

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/undo-history-slider — graffux -->
-  <path d="M10.4 8.6H13.6V15.4H10.4Z" fill="currentColor"/>
-  <path d="M4 12H20"/>
-  <path d="M4.3 12A1.1 1.1 0 1 0 6.5 12A1.1 1.1 0 1 0 4.3 12Z" fill="currentColor" stroke="none"/>
-  <path d="M17.5 12A1.1 1.1 0 1 0 19.7 12A1.1 1.1 0 1 0 17.5 12Z" fill="currentColor" stroke="none"/>
-</svg>

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/symmetry-radial — graffux -->
-  <path d="M12 10.4A1.6 1.6 0 1 0 12 13.6A1.6 1.6 0 1 0 12 10.4Z" fill="currentColor"/>
-  <path d="M12 4V20"/>
-  <path d="M5.1 8L18.9 16"/>
-  <path d="M5.1 16L18.9 8"/>
-</svg>

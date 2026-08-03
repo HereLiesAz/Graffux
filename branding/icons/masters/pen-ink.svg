@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/pen-ink — graffux -->
-  <path d="M12 15.4L13.4 17.6L12 19.6L10.6 17.6Z" fill="currentColor"/>
-  <path d="M12 4.4L15.4 12.6L12 18.2L8.6 12.6Z"/>
-  <path d="M9.8 14.6H14.2"/>
-  <path d="M12 9.4V14.6"/>
-</svg>

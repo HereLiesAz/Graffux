@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/type-point — graffux -->
-  <path d="M11.08 4.67L13.27 3.27V6.39H15.76V7.79H13.27V13.02C13.27 14.03 13.74 14.58 14.59 14.58C15.3 14.58 15.84 14.19 16.23 13.49L17.32 14.27C16.62 15.83 15.45 16.53 13.97 16.53C11.86 16.53 11.08 15.36 11.08 13.33V7.79H8.28V6.39H11.08Z"/>
-  <path d="M6 20.4H18"/>
-  <path d="M4.8 20.4A1.2 1.2 0 1 0 7.2 20.4A1.2 1.2 0 1 0 4.8 20.4Z" fill="currentColor" stroke="none"/>
-</svg>

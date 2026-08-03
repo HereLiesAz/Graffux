@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/baseline-shift — graffux -->
-  <path d="M17.6 3.8L15.7 7.6H19.5Z" fill="currentColor"/>
-  <path d="M7.93 14.72V13.6C7.37 14.44 6.53 14.93 5.41 14.93C3.87 14.93 2.89 14.02 2.89 12.69C2.89 11.01 4.29 10.17 6.81 9.82L7.86 9.68V9.26C7.86 8.14 7.3 7.58 6.18 7.58C5.2 7.58 4.57 8 4.29 8.91L3.31 8.63C3.73 7.3 4.78 6.67 6.25 6.67C8.14 6.67 8.91 7.58 8.91 9.4V14.72ZM7.86 10.52L6.95 10.66C5.06 10.94 3.94 11.5 3.94 12.62C3.94 13.46 4.57 14.02 5.55 14.02C6.95 14.02 7.86 13.11 7.86 11.71Z"/>
-  <path d="M3.6 18.8H20.4"/>
-  <path d="M17.6 6.2V13.4"/>
-</svg>

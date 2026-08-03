@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/shape-line — phosphor/line-segment -->
-  <path d="M17.657 6.343a1.89 1.89 0 0 0-2.851 2.468L8.811 14.807a1.89 1.89 0 0 0-2.468 0.178h0a1.89 1.89 0 1 0 2.851 0.203l5.995-5.995a1.89 1.89 0 0 0 2.468-2.851Zm-9.023 10.935a1.35 1.35 0 1 1 0-1.909A1.35 1.35 0 0 1 8.634 17.275Zm8.64-8.64a1.35 1.35 0 0 1-1.909 0h0a1.35 1.35 0 1 1 1.909 0Z" fill="currentColor" stroke="none"/>
-</svg>

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-     width="24" height="24" fill="none" stroke="currentColor"
-     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- graffux/liquify — graffux -->
-  <path d="M5.92 5.12C5.92 8.32 12.48 9.28 12.48 12C12.48 14.72 5.92 15.68 5.92 18.88"/>
-  <path d="M9.6 5.12C9.6 8.64 13.92 9.52 13.92 12C13.92 14.48 9.6 15.36 9.6 18.88"/>
-  <path d="M13.12 5.12C13.12 8.96 15.52 9.68 15.52 12C15.52 14.32 13.12 15.04 13.12 18.88"/>
-  <path d="M16.64 5.12C16.64 9.44 17.6 10.08 17.6 12C17.6 13.92 16.64 14.56 16.64 18.88"/>
-</svg>
