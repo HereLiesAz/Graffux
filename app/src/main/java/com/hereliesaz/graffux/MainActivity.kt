@@ -109,9 +109,8 @@ import kotlin.math.roundToInt
 
 /**
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
- * multi-layer image editor, migrated from GraffitiXR into :feature:editor). The Hilt-provided
- * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
- * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.
+ * multi-layer image editor). The Hilt-provided [EditorViewModel] and its whole dependency graph
+ * (core modules + native bridge) resolve here.
  */
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {

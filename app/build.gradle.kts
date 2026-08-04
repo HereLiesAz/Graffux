@@ -40,14 +40,6 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
-// Load version properties
-val versionPropsFile = project.rootProject.file("version.properties")
-val versionProps = Properties().apply {
-    if (versionPropsFile.exists()) {
-        versionPropsFile.inputStream().use { load(it) }
-    }
-}
-
 // Load local properties
 val localProperties = Properties().apply {
     val localPropertiesFile = project.rootProject.file("local.properties")
@@ -155,9 +147,19 @@ android {
             }
             jniLibs {
                 pickFirsts += "**/libc++_shared.so"
-                // <-- This is the NEW line that was missing
             }
         }
+
+        val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+        val envKeyAlias = System.getenv("KEY_ALIAS")
+        val envKeyPassword = System.getenv("KEY_PASSWORD")
+        val releaseKeystore = (System.getenv("KEYSTORE_FILE")?.let { rootProject.file(it) } ?: file("keystore.jks"))
+            .takeIf {
+                it.exists() &&
+                        !envKeystorePassword.isNullOrEmpty() &&
+                        !envKeyAlias.isNullOrEmpty() &&
+                        !envKeyPassword.isNullOrEmpty()
+            }
 
         signingConfigs {
             if (releaseKeystore != null) {
@@ -209,7 +211,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             val version = variant.outputs.first().versionName.get()
             val code = variant.outputs.first().versionCode.get()
-            val apkName = "GraffitiXR-${variant.name}-$version.$code.apk"
+            val apkName = "Graffux-${variant.name}-$version.$code.apk"
             (output as? com.android.build.api.variant.impl.VariantOutputImpl)?.outputFileName?.set(apkName)
         }
     }
