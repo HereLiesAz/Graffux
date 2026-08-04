@@ -23,6 +23,14 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
+// Load version properties
+val versionPropsFile = project.rootProject.file("version.properties")
+val versionProps = Properties().apply {
+    if (versionPropsFile.exists()) {
+        versionPropsFile.inputStream().use { load(it) }
+    }
+}
+
 // google-services.json is never committed (see .gitignore) — CI writes it from the GOOGLE_SERVICES
 // secret before this build runs (see the "Inject Google Services" step in the workflows), and local
 // dev needs its own copy from the Firebase console. The google-services plugin hard-fails
