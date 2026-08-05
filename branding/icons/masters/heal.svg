@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/heal — graffux -->
+  <defs>
+    <pattern id="gfxHatch-heal" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M9.32 12.32L12.32 9.32L15.62 12.62L12.62 15.62Z" fill="url(#gfxHatch-heal)"/>
+  <path d="M4.94 14.82A4.3 4.3 0 0 1 11.02 8.74L14.82 4.94A4.3 4.3 0 0 1 20.9 11.02L11.02 20.9A4.3 4.3 0 0 1 4.94 14.82Z"/>
+  <path d="M9.32 12.32L12.32 9.32L15.62 12.62L12.62 15.62Z"/>
+  <path d="M10.58 11.4A0.42 0.42 0 1 0 11.42 11.4A0.42 0.42 0 1 0 10.58 11.4Z" fill="currentColor" stroke="none"/>
+  <path d="M11.98 10A0.42 0.42 0 1 0 12.82 10A0.42 0.42 0 1 0 11.98 10Z" fill="currentColor" stroke="none"/>
+  <path d="M13.38 11.4A0.42 0.42 0 1 0 14.22 11.4A0.42 0.42 0 1 0 13.38 11.4Z" fill="currentColor" stroke="none"/>
+  <path d="M11.58 12.4A0.42 0.42 0 1 0 12.42 12.4A0.42 0.42 0 1 0 11.58 12.4Z" fill="currentColor" stroke="none"/>
+  <path d="M10.98 13.8A0.42 0.42 0 1 0 11.82 13.8A0.42 0.42 0 1 0 10.98 13.8Z" fill="currentColor" stroke="none"/>
+  <path d="M12.38 15.2A0.42 0.42 0 1 0 13.22 15.2A0.42 0.42 0 1 0 12.38 15.2Z" fill="currentColor" stroke="none"/>
+  <path d="M13.78 13.8A0.42 0.42 0 1 0 14.62 13.8A0.42 0.42 0 1 0 13.78 13.8Z" fill="currentColor" stroke="none"/>
+</svg>

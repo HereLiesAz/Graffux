@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-magnetic — graffux -->
+  <path d="M6 18.6V10.4A6 6 0 0 1 18 10.4V18.6H14.2V10.4A2.2 2.2 0 0 0 9.8 10.4V18.6Z"/>
+  <path d="M6 14.6H9.8"/>
+  <path d="M14.2 14.6H18"/>
+</svg>

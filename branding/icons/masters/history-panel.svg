@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/history-panel — phosphor/clock-counter-clockwise -->
+  <path d="M12.27 8.76v3.087l2.569 1.541a0.27 0.27 0 0 1-0.278 0.463l-2.7-1.62A0.27 0.27 0 0 1 11.73 12V8.76a0.27 0.27 0 0 1 0.54 0Zm-0.27-2.97A6.171 6.171 0 0 0 7.608 7.613C6.941 8.288 6.375 8.927 5.79 9.628V7.68a0.27 0.27 0 0 0-0.54 0v2.7a0.27 0.27 0 0 0 0.27 0.27H8.22a0.27 0.27 0 0 0 0-0.54H6.092C6.709 9.367 7.295 8.693 7.99 7.99a5.67 5.67 0 1 1 0.118 8.133a0.27 0.27 0 1 0-0.371 0.393A6.21 6.21 0 1 0 12 5.79Z" fill="currentColor" stroke="none"/>
+</svg>

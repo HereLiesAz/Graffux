@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/path-eraser-vector — graffux -->
+  <defs>
+    <pattern id="gfxHatch-path-eraser-vector" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M13.6 18.8L11.6 15.6L17 10.4A1.4 1.4 0 0 1 19 12.4Z" fill="url(#gfxHatch-path-eraser-vector)"/>
+  <path d="M4.6 17.6C4.6 10.6 9.4 7 15 7"/>
+  <path d="M3.4 17.6A1.2 1.2 0 1 0 5.8 17.6A1.2 1.2 0 1 0 3.4 17.6Z" fill="currentColor" stroke="none"/>
+</svg>

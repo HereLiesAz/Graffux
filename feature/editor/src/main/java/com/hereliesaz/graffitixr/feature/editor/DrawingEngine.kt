@@ -97,19 +97,9 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         if (stroke.clearAll) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val canvas = android.graphics.Canvas(target)
-            if (featherRadius > 0f && clipPath != null) {
-                val mask = SelectionMask.featherMask(clipPath, bitmap.width, bitmap.height, featherRadius)
-                if (mask != null) {
-                    canvas.drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
-                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
-                    })
-                    mask.recycle()
-                    return target
-                }
-            }
             SelectionMask.clip(canvas, paintClip)
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            return target
+            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         // A selection move: lift the selected pixels, clear the hole, stamp them down offset. Fully
         // determined by (base, selection, delta), so it replays through history like any stroke.
@@ -119,14 +109,12 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             val d = SelectionMask.mapDelta(
                 delta, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
-                stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
             )
             return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y, featherRadius)
         }
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
-            stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
         )
         // Flood fill replays deterministically from its tap point — same base, same seed pixel,
         // same result — so it records and undoes exactly like a brush stroke.
@@ -204,8 +192,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
         slamManager.prepareLiquify(bitmap)
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
-            stroke.viewportOffset, stroke.viewportZoom, stroke.viewportRotation
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
         )
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }

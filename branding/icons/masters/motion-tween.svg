@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/motion-tween — graffux -->
+  <path d="M4.6 17.4C8.6 17.4 15.4 6.6 19.4 6.6"/>
+  <path d="M2.8 17.4A1.8 1.8 0 1 0 6.4 17.4A1.8 1.8 0 1 0 2.8 17.4Z" fill="currentColor" stroke="none"/>
+  <path d="M17.6 6.6A1.8 1.8 0 1 0 21.2 6.6A1.8 1.8 0 1 0 17.6 6.6Z" fill="currentColor" stroke="none"/>
+  <path d="M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/channel-mixer — graffux -->
+  <path d="M5.6 8.4H8.4V11.2H5.6Z" fill="currentColor"/>
+  <path d="M10.6 13H13.4V15.8H10.6Z" fill="currentColor"/>
+  <path d="M15.6 6.6H18.4V9.4H15.6Z" fill="currentColor"/>
+  <path d="M7 4.6V19.4"/>
+  <path d="M12 4.6V19.4"/>
+  <path d="M17 4.6V19.4"/>
+</svg>

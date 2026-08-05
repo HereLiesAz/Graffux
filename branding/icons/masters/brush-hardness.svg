@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/brush-hardness — graffux -->
+  <defs>
+    <pattern id="gfxHatch-brush-hardness" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M12 9.6A2.4 2.4 0 1 0 12 14.4A2.4 2.4 0 1 0 12 9.6Z" fill="url(#gfxHatch-brush-hardness)"/>
+  <path d="M12 4.2A7.8 7.8 0 1 0 12 19.8A7.8 7.8 0 1 0 12 4.2Z"/>
+  <path d="M12 7.4A4.6 4.6 0 1 0 12 16.6A4.6 4.6 0 1 0 12 7.4Z"/>
+</svg>

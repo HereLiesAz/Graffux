@@ -74,9 +74,9 @@ fun ColorPickerDialog(
         initHsv
     )
 
-    var hue by remember(currentColor) { mutableFloatStateOf(initHsv[0]) }
-    var saturation by remember(currentColor) { mutableFloatStateOf(initHsv[1]) }
-    var brightness by remember(currentColor) { mutableFloatStateOf(initHsv[2]) }
+    var hue by remember { mutableFloatStateOf(initHsv[0]) }
+    var saturation by remember { mutableFloatStateOf(initHsv[1]) }
+    var brightness by remember { mutableFloatStateOf(initHsv[2]) }
 
     val selectedColor = remember(hue, saturation, brightness) {
         val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
@@ -122,8 +122,6 @@ fun ColorPickerDialog(
                         onHueSaturationChanged = { h, s ->
                             hue = h
                             saturation = s
-                            val argb = android.graphics.Color.HSVToColor(floatArrayOf(h, s, brightness))
-                            onSelectColor(Color(argb).copy(alpha = currentColor.alpha))
                         }
                     )
 
@@ -154,11 +152,7 @@ fun ColorPickerDialog(
                     )
                     Slider(
                         value = brightness,
-                        onValueChange = { b ->
-                            brightness = b
-                            val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, b))
-                            onSelectColor(Color(argb).copy(alpha = currentColor.alpha))
-                        },
+                        onValueChange = { brightness = it },
                         valueRange = 0f..1f,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -185,6 +179,14 @@ fun ColorPickerDialog(
                 }
             }
 
+            Spacer(Modifier.height(8.dp))
+
+            AzButton(
+                text = strings.common.apply,
+                onClick = { onSelectColor(selectedColor) },
+                shape = AzButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -353,14 +355,17 @@ private fun ColorWheel(
         modifier = modifier
             .onSizeChanged { wheelSize = it }
             .pointerInput(wheelSize) {
-                detectDragGestures(
-                    onDragStart = { offset -> pickFromOffset(offset) }
-                ) { change, _ ->
-                    pickFromOffset(change.position)
-                }
+                detectTapGestures { offset -> pickFromOffset(offset) }
             }
             .pointerInput(wheelSize) {
-                detectTapGestures { offset -> pickFromOffset(offset) }
+                detectDragGestures { _, dragAmount ->
+                    val radius = wheelSize.width / 2f
+                    if (radius <= 0f) return@detectDragGestures
+                    val angle = Math.toRadians(hue.toDouble())
+                    val curX = radius + cos(angle) * saturation * radius
+                    val curY = radius + sin(angle) * saturation * radius
+                    pickFromOffset(Offset((curX + dragAmount.x).toFloat(), (curY + dragAmount.y).toFloat()))
+                }
             }
     ) {
         // Draw wheel bitmap
@@ -439,6 +444,8 @@ fun SizePickerDialog(
             }
 
             Slider(value = currentSize, onValueChange = onSizeChange, valueRange = 5f..150f)
+
+            AzButton(text = strings.common.done, onClick = onDismiss, modifier = Modifier.padding(top = 16.dp), shape = AzButtonShape.RECTANGLE)
         }
     }
 }

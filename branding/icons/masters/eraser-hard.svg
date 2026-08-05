@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/eraser-hard — graffux -->
+  <defs>
+    <pattern id="gfxHatch-eraser-hard" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M10.57 8.42L5.61 10.33L8.48 17.9L13.44 15.99Z" fill="url(#gfxHatch-eraser-hard)" stroke-linejoin="miter"/>
+  <path d="M5.61 10.33L15.52 6.5L18.4 14.07L8.48 17.9Z" stroke-linejoin="miter"/>
+  <path d="M10.57 8.42L13.44 15.99" stroke-linejoin="miter"/>
+  <path d="M4 20.6H20" stroke-linejoin="miter"/>
+</svg>

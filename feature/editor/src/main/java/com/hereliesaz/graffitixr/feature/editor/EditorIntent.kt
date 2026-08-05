@@ -62,10 +62,9 @@ internal sealed interface EditorIntent {
 
     // ── Tool / panel / gesture ────────────────────────────────────────────────
     data class SetActiveTool(val tool: Tool) : EditorIntent
-    data class SetLastCropTool(val toolId: String) : EditorIntent
-    data class SetLastSymmetryMode(val mode: SymmetryMode) : EditorIntent
     data object ToggleAdjustPanel : EditorIntent
     data object ToggleTransformPanel : EditorIntent
+    data object ToggleLayersPanel : EditorIntent
     data object DismissPanel : EditorIntent
     data class SetGestureInProgress(val inProgress: Boolean) : EditorIntent
 
