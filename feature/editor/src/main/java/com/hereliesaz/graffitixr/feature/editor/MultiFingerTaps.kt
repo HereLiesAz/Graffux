@@ -74,9 +74,9 @@ private const val SCRUB_MIN_REVERSALS = 3
  * a 100 ms dead zone in which a deliberate two-finger tap did nothing at all — too long to register
  * as a tap, too short to start the hold repeat.
  */
-internal const val TAP_MAX_DURATION_MS = 450L
-internal const val REPEAT_START_MS = 450L
-internal const val REPEAT_TICK_MS = 130L
+internal const val TAP_MAX_DURATION_MS = 250L
+internal const val REPEAT_START_MS = 250L
+internal const val REPEAT_TICK_MS = 80L
 
 /** A pointer as [MultiFingerRecognizer] sees it — everything it needs from a `PointerInputChange`. */
 data class TouchPoint(val id: PointerId, val position: Offset)
