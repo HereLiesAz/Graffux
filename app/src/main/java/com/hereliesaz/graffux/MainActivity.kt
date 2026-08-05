@@ -132,7 +132,8 @@ private fun incomingImageUri(intent: Intent?, context: android.content.Context):
     if (intent == null) return null
     val data = intent.data
     val mimeType = intent.type ?: data?.let { context.contentResolver.getType(it) }
-    val isImage = mimeType?.startsWith("image/") == true ||
+    val resolvedMime = mimeType ?: data?.let { context.contentResolver.getType(it) }
+        val isImage = resolvedMime?.startsWith("image/") == true ||
         (intent.action == Intent.ACTION_VIEW && data?.scheme in listOf("file", "content"))
     return when (intent.action) {
         Intent.ACTION_SEND ->
