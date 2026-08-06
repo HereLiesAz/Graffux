@@ -48,6 +48,7 @@ fun WarpHandles(
                     // should not also paint.
                     val index = handles.indices.minByOrNull { (handles[it] - down.position).getDistance() }
                         ?.takeIf { (handles[it] - down.position).getDistance() <= grab }
+                        ?: return@awaitEachGesture
                     down.consume()
                     var moved = false
                     while (true) {

@@ -108,4 +108,10 @@ internal class LayerStore {
         baseBitmaps.clear()
         layerStrokes.clear()
     }
+
+    /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
+    fun retainOnly(liveIds: Set<String>) {
+        baseBitmaps.keys.retainAll(liveIds)
+        layerStrokes.keys.retainAll(liveIds)
+    }
 }

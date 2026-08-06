@@ -457,7 +457,7 @@ void MobileGS::relocThreadFunc() {
                         try {
                             std::vector<cv::Mat> rvecs, tvecs;
                             int n = cv::solvePnPGeneric(inObj, inImg, intr, cv::Mat(), rvecs, tvecs,
-                                                        false, cv::SOLVEPNP_IPPE);
+                                                        false, cv::SOLVEPNP_SQPNP);
                             for (int s = 0; s < n; ++s) {
                                 double e = reproj(rvecs[s], tvecs[s]);
                                 if (e < bestErr) { bestErr = e; rvecs[s].copyTo(rvec); tvecs[s].copyTo(tvec); }

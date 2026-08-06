@@ -168,13 +168,9 @@ class ProjectManager @Inject constructor(
         val tmp = File(target.parentFile, "${target.name}.tmp")
         tmp.writeText(text)
         if (!tmp.renameTo(target)) {
-            // Some filesystems won't rename onto an existing file; replace explicitly.
-            target.delete()
-            if (!tmp.renameTo(target)) {
-                target.writeText(text)
-                tmp.delete()
-            }
+            tmp.copyTo(target, overwrite = true)
         }
+        if (tmp.exists()) tmp.delete()
     }
 
     suspend fun loadProject(context: Context, projectId: String): LoadedProject? = withContext(Dispatchers.IO) {
@@ -320,8 +316,7 @@ class ProjectManager @Inject constructor(
      * a zip bomb can't OOM the app before the cap is hit — never `readBytes()` an entry unbounded.
      * Returns (entryBytes, newRunningTotal), or null once the cap is exceeded.
      */
-    private fun readEntryBounded(zis: ZipInputStream, runningTotal: Long): Pair<ByteArray, Long>? {
-        val out = ByteArrayOutputStream()
+    private fun streamEntryBounded(zis: ZipInputStream, out: java.io.OutputStream, runningTotal: Long): Long? {
         val chunk = ByteArray(64 * 1024)
         var total = runningTotal
         while (true) {
@@ -331,7 +326,7 @@ class ProjectManager @Inject constructor(
             if (total > MAX_IMPORT_BYTES) return null
             out.write(chunk, 0, n)
         }
-        return out.toByteArray() to total
+        return total
     }
 
     suspend fun importProjectFromUri(context: Context, uri: Uri): GraffitiProject? = withContext(Dispatchers.IO) {
@@ -350,23 +345,24 @@ class ProjectManager @Inject constructor(
                         val relativeName = if (name.contains('/')) name.substringAfter('/') else name
 
                         if (!entry.isDirectory && relativeName.isNotEmpty()) {
-                            val read = readEntryBounded(zis, totalBytes)
-                            if (read == null) {
+                            val tmpFile = File.createTempFile("gxr_", null, context.cacheDir)
+                            val newTotal = FileOutputStream(tmpFile).use { fos ->
+                                streamEntryBounded(zis, fos, totalBytes)
+                            }
+                            if (newTotal == null) {
+                                tmpFile.delete()
                                 Log.e("ProjectManager", "Import aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
                                 return@use null
                             }
-                            val (bytes, newTotal) = read
                             totalBytes = newTotal
                             if (relativeName == "project.json") {
                                 try {
-                                    projectData = json.decodeFromString<GraffitiProject>(bytes.decodeToString())
+                                    projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
                                 } catch (e: Exception) {
                                     Log.e("ProjectManager", "Failed to parse project.json", e)
                                 }
                             }
-                            extracted[relativeName] = File.createTempFile("gxr_", null, context.cacheDir).also {
-                                it.writeBytes(bytes)
-                            }
+                            extracted[relativeName] = tmpFile
                         }
                         zis.closeEntry()
                         entry = zis.nextEntry
@@ -494,24 +490,27 @@ class ProjectManager @Inject constructor(
             try {
                 ZipInputStream(bytes.inputStream()).use { zis ->
                     var projectData: GraffitiProject? = null
-                    val extractedFiles = mutableMapOf<String, ByteArray>()
+                    val extractedFiles = mutableMapOf<String, File>()
                     var totalBytes = 0L
 
                     var entry = zis.nextEntry
                     while (entry != null) {
                         val name = entry.name
                         if (!entry.isDirectory && name.isNotEmpty()) {
-                            val read = readEntryBounded(zis, totalBytes)
-                            if (read == null) {
+                            val tmpFile = File.createTempFile("gxr_spec_", null, context.cacheDir)
+                            val newTotal = FileOutputStream(tmpFile).use { fos ->
+                                streamEntryBounded(zis, fos, totalBytes)
+                            }
+                            if (newTotal == null) {
+                                tmpFile.delete()
                                 Log.e("ProjectManager", "Spectator load aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
                                 return@use
                             }
-                            val (fileBytes, newTotal) = read
                             totalBytes = newTotal
                             if (name == "project.json") {
-                                projectData = json.decodeFromString<GraffitiProject>(fileBytes.decodeToString())
+                                projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
                             }
-                            extractedFiles[name] = fileBytes
+                            extractedFiles[name] = tmpFile
                         }
                         zis.closeEntry()
                         entry = zis.nextEntry
@@ -525,14 +524,18 @@ class ProjectManager @Inject constructor(
                     }
                     val destDir = File(context.filesDir, "projects/${project.id}").also { it.mkdirs() }
 
-                    for ((name, fileBytes) in extractedFiles) {
+                    for ((name, tmpFile) in extractedFiles) {
                         val dest = resolveInside(destDir, name)
                         if (dest == null) {
                             Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
+                            tmpFile.delete()
                             continue
                         }
                         dest.parentFile?.mkdirs()
-                        dest.writeBytes(fileBytes)
+                        if (!tmpFile.renameTo(dest)) {
+                            tmpFile.copyTo(dest, overwrite = true)
+                        }
+                        if (tmpFile.exists()) tmpFile.delete()
                     }
 
                     withContext(Dispatchers.Main) {

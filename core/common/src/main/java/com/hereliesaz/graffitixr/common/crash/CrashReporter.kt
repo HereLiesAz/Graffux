@@ -89,6 +89,12 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
 
     private fun saveReport(report: String) {
         val file = File(context.cacheDir, "last_crash.txt")
+        if (file.exists() && report.contains("FATAL: false")) {
+            try {
+                val existing = file.readText()
+                if (existing.contains("FATAL: true")) return
+            } catch (_: Exception) {}
+        }
         FileOutputStream(file).use {
             it.write(report.toByteArray())
         }

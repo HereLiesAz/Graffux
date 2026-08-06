@@ -57,9 +57,9 @@ bool LowLightEnhancer::enhance(const cv::Mat& input, cv::Mat& output) {
             for (int x = 0; x < W; ++x) {
                 const int idx = y * W + x;
                 result.at<cv::Vec3b>(y, x) = {
-                    (uchar)std::min(255, (int)(data[idx]          * 255.0f)),
-                    (uchar)std::min(255, (int)(data[hw + idx]     * 255.0f)),
-                    (uchar)std::min(255, (int)(data[2 * hw + idx] * 255.0f))
+                    (uchar)std::min(255, std::max(0, (int)(data[idx]          * 255.0f))),
+                    (uchar)std::min(255, std::max(0, (int)(data[hw + idx]     * 255.0f))),
+                    (uchar)std::min(255, std::max(0, (int)(data[2 * hw + idx] * 255.0f)))
                 };
             }
         }

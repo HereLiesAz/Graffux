@@ -69,7 +69,8 @@ internal object EditorReducer {
             activePanel = if (intent.resetActivePanel) EditorPanel.NONE else state.activePanel,
         )
         is EditorIntent.RemoveLayer -> {
-            val remaining = state.layers.filter { it.id != intent.id }
+            val ungrouped = LayerListOps.ungroup(state.layers, intent.id)
+            val remaining = ungrouped.filter { it.id != intent.id }
             state.copy(
                 layers = remaining,
                 activeLayerId = if (state.activeLayerId == intent.id) remaining.firstOrNull()?.id else state.activeLayerId,
@@ -77,6 +78,9 @@ internal object EditorReducer {
             )
         }
         is EditorIntent.ReplaceLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId, activeTool = Tool.NONE)
+
+        EditorIntent.ToggleLayersPanel ->
+            state.copy(activePanel = if (state.activePanel == EditorPanel.LAYERS) EditorPanel.NONE else EditorPanel.LAYERS)
 
         is EditorIntent.SetActiveTool -> state.copy(activeTool = intent.tool, activePanel = EditorPanel.NONE)
         EditorIntent.ToggleAdjustPanel ->
@@ -171,7 +175,15 @@ internal object EditorReducer {
             // edited layer is a main component its instances have to follow in the same transition.
             layers = ComponentOps.syncInstances(
                 state.layers.map { layer ->
-                    if (layer.id == intent.layerId) layer.copy(shapes = listOf(intent.shape)) else layer
+                    if (layer.id == intent.layerId) {
+                        val current = layer.shapes
+                        val updated = if (current.any { it.kind == intent.shape.kind }) {
+                            current.map { if (it.kind == intent.shape.kind) intent.shape else it }
+                        } else {
+                            current + intent.shape
+                        }
+                        layer.copy(shapes = updated)
+                    } else layer
                 },
             ),
         )
@@ -266,7 +278,14 @@ internal object EditorReducer {
         is EditorIntent.RenderTextLayer -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(bitmap = intent.bitmap, textParams = intent.params) })
 
         is EditorIntent.AppendLayer -> state.copy(layers = state.layers + intent.layer)
-        is EditorIntent.RemoveLayerById -> state.copy(layers = state.layers.filterNot { it.id == intent.id })
+        is EditorIntent.RemoveLayerById -> {
+            val ungrouped = LayerListOps.ungroup(state.layers, intent.id)
+            val remaining = ungrouped.filterNot { it.id == intent.id }
+            state.copy(
+                layers = remaining,
+                activeLayerId = if (state.activeLayerId == intent.id) remaining.firstOrNull()?.id else state.activeLayerId,
+            )
+        }
         is EditorIntent.SetLayerTransformById -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
             it.copy(scale = intent.scale, offset = intent.offset, rotationX = intent.rx, rotationY = intent.ry, rotationZ = intent.rz)
         })

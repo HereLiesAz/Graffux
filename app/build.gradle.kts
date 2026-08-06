@@ -36,7 +36,8 @@ val versionProps = Properties().apply {
 // dev needs its own copy from the Firebase console. The google-services plugin hard-fails
 // configuration when the file is missing, so only apply it when the file is actually there —
 // otherwise every build without Firebase creds configured (fresh checkouts, fork PRs) would break.
-if (file("google-services.json").exists()) {
+val hasGoogleServices = file("google-services.json").exists()
+if (hasGoogleServices) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -48,65 +49,33 @@ val localProperties = Properties().apply {
     }
 }
 
-// Version resolution. On EVERY compile (any build type, any machine, any Gradle task that will
-// actually compile bytecode) both the build number and the patch are incremented:
-//   - versionBuild  -> the Android versionCode. Monotonic; NEVER resets.
-//   - versionPatch  -> the patch segment of the versionName. Increments each compile, but resets to
-//                      0 when versionMinor was bumped since the last build (a new minor starts at .0).
-//                      versionMinorLast tracks the minor we last built so that reset is automatic.
-// True when the requested tasks will trigger real compilation — not a sync, `tasks`, `clean`,
-// a `--dry-run`, or a diagnostic like `buildEnvironment`/`buildHealth`. Build verbs cover every
-// entry point that transitively invokes a KotlinCompile / JavaCompile task on this project: the
-// full android build lifecycle (assemble/bundle/install/package), explicit compile invocations,
-// unit-test / instrumented-test / verification tasks (test/check/lint/verify/connectedTest — all
-// depend on compileDebugKotlin / compileReleaseKotlin), and `run` for library modules. Verbs are
-// matched as a prefix on the leaf task name and the `build` lifecycle task is matched exactly, so
-// diagnostics that merely contain "build" don't trip it.
-val startParameter = gradle.startParameter
-val buildVerbs = listOf(
-    "assemble", "bundle", "install", "package", "compile",
-    "test", "check", "lint", "verify", "connected", "run",
-)
-val isBuilding = !startParameter.isDryRun && startParameter.taskNames.any { taskName ->
-    val task = taskName.substringAfterLast(':').lowercase()
-    task == "build" || buildVerbs.any { task.startsWith(it) }
-}
-
 val verMajor = versionProps.getProperty("versionMajor", "1")
 val verMinor = versionProps.getProperty("versionMinor", "0")
-// Detect a minor bump BEFORE the build-gated block so the reset also applies to CI/override builds
-// (and IDE syncs), where the block is skipped: a new minor always reads as patch 0 even if the file
-// still holds the previous minor's patch (it may not have been rewritten by a local build yet).
+
 val lastMinor = versionProps.getProperty("versionMinorLast", verMinor)
 val isMinorBumped = verMinor != lastMinor
 
 var currentVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
 var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt()
 
-if (isBuilding) {
-    currentVersionCode++ // build never resets
-    // A minor bump makes this build the new minor's .0; otherwise advance the patch.
-    if (!isMinorBumped) currentPatch++
-
-    versionProps.setProperty("versionBuild", currentVersionCode.toString())
-    versionProps.setProperty("versionPatch", currentPatch.toString())
-    versionProps.setProperty("versionMinorLast", verMinor)
-    versionPropsFile.outputStream().use {
-        versionProps.store(it, "Auto-incremented on compile")
+tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
+    doFirst {
+        var execVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
+        var execPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt()
+        
+        execVersionCode++
+        if (!isMinorBumped) execPatch++
+        
+        versionProps.setProperty("versionBuild", execVersionCode.toString())
+        versionProps.setProperty("versionPatch", execPatch.toString())
+        versionProps.setProperty("versionMinorLast", verMinor)
+        versionPropsFile.outputStream().use {
+            versionProps.store(it, "Auto-incremented on compile")
+        }
     }
 }
 
-
-// compute gitCount (existing approach)
-val gitCommitCount: Int = try {
-    val proc = Runtime.getRuntime().exec(arrayOf("bash", "-lc", "git rev-list --count HEAD"))
-    proc.inputStream.bufferedReader().readText().trim().toInt()
-} catch (e: Exception) {
-    0
-}
-
-// read project property if provided
-val versionCodeOffset: Int = (project.findProperty("versionCodeOffset") as? String)?.toIntOrNull() ?: 0
+val currentVersionName = "$verMajor.$verMinor.$currentPatch"
 
 android {
         namespace = "com.hereliesaz.graffux"
@@ -209,14 +178,14 @@ tasks.withType<KotlinCompile>().configureEach {
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
-            val version = variant.outputs.first().versionName.get()
-            val code = variant.outputs.first().versionCode.get()
+            val version = output.versionName.get()
+            val code = output.versionCode.get()
             val apkName = "Graffux-${variant.name}-$version.$code.apk"
-            (output as? com.android.build.api.variant.impl.VariantOutputImpl)?.outputFileName?.set(apkName)
+            output.outputFileName.set(apkName)
         }
     }
 }
-val currentVersionName = "$verMajor.$verMinor.$currentPatch"
+
 
 
 dependencies {

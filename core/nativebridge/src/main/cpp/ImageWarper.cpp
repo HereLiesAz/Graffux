@@ -151,6 +151,7 @@ void ImageWarper::reset() {
 
 void ImageWarper::applyLiquify(const std::vector<glm::vec2>& stroke, float brushSize, float intensity) {
     std::lock_guard<std::mutex> lock(mMutex);
+    if (mWidth == 0 || mHeight == 0) return;
     if (stroke.size() < 2) return;
 
     // Convert brush size to normalized [0, 1] relative to the image

@@ -27,10 +27,14 @@ fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
     val rootNodes = build(null, 0, emptySet()).toMutableList()
 
     // Collect any orphaned or cyclic subtrees so no layer is dropped and internal parent-child relations are preserved
+    val layerMap = layers.associateBy { it.id }
     for (layer in layers) {
         if (layer.id !in visitedIds) {
-            visitedIds.add(layer.id)
-            rootNodes.add(LayerNode(layer, 0, build(layer.id, 1, setOf(layer.id))))
+            val parentId = layer.parentId
+            if (parentId != null && parentId in layerMap && parentId !in visitedIds) {
+                continue
+            }
+            rootNodes.addAll(build(layer.parentId, 0, emptySet()))
         }
     }
 

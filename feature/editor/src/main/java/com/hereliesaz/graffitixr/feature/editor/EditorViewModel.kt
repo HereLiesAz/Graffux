@@ -495,6 +495,8 @@ class EditorViewModel @Inject constructor(
     private fun pushHistory() {
         history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null) })
         updateHistoryCounts()
+        val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
+        layerStore.retainOnly(liveIds)
     }
 
     private fun updateHistoryCounts() {
@@ -1751,6 +1753,7 @@ class EditorViewModel @Inject constructor(
                 }
 
                 val success = saveBitmapToGallery(context, exportBitmap)
+                exportBitmap.recycle()
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -1852,12 +1855,7 @@ class EditorViewModel @Inject constructor(
     override fun onLayerRemoved(id: String) {
         pushHistory()
         dispatch(EditorIntent.RemoveLayer(id))
-        // Deliberately NOT layerStore.remove(id): pushHistory() above stripped this layer's bitmap
-        // out of the undo snapshot (history only stores bitmap-less Layers to bound memory), so
-        // undoing this delete has nothing to rebuild the layer's pixels from except LayerStore's
-        // still-cached base+strokes for `id`. Evicting them here would make the layer come back
-        // permanently blank on undo. See onUndoClicked/onRedoClicked's PropertyChange branch, which
-        // rebuilds any restored layer missing a bitmap from this same cache.
+        layerStore.remove(id)
         opEmitter.emit(Op.LayerRemove(id))
         saveProject()
     }
@@ -3149,10 +3147,12 @@ class EditorViewModel @Inject constructor(
             )
 
             // Add stroke to history
-            layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
-            updateHistoryCounts()
-            maybeBakeOldStrokes(layerId)
+            if (finalBitmap !== bitmap) {
+                layerStore.addStroke(layerId, command)
+                history.pushDraw(layerId, command)
+                updateHistoryCounts()
+                maybeBakeOldStrokes(layerId)
+            }
 
             _uiState.update { s ->
                 s.copy(

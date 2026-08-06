@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.clickable
@@ -56,16 +57,13 @@ fun EditorUi(
     Box(modifier = Modifier.fillMaxSize()) {
 
         if (uiState.showColorPicker) {
-            val savedPalette by actions.savedPalette.collectAsState()
-            ColorPickerDialog(
-                currentColor = uiState.activeColor,
-                history = listOf(Color.Red, Color.Green, Color.Blue, Color.Yellow, Color.Black, Color.White),
-                onSelectColor = { actions.setActiveColor(it) },
+            BackgroundColorDialog(
+                current = uiState.activeColor,
+                onSelect = { color ->
+                    actions.setActiveColor(color)
+                    actions.onColorPickerDismissed()
+                },
                 onDismiss = { actions.onColorPickerDismissed() },
-                strings = strings,
-                savedPalette = savedPalette,
-                onSavePaletteColor = { actions.onSavePaletteColor(it) },
-                onRemovePaletteColor = { actions.onRemovePaletteColor(it) },
             )
         }
 
@@ -124,9 +122,9 @@ fun EditorUi(
                         activeLayerId = uiState.activeLayerId,
                         onSelectLayer = { actions.onLayerActivated(it) },
                         onToggleVisibility = { actions.onToggleVisibility(it) },
-                        onDuplicate = { actions.onDuplicateLayer(it) },
+                        onDuplicate = { actions.onLayerDuplicated(it) },
                         onDelete = { actions.onLayerRemoved(it) },
-                        onRename = { id, name -> actions.onRenameLayer(id, name) },
+                        onRename = { id, name -> actions.onLayerRenamed(id, name) },
                         onClose = { actions.onDismissPanel() },
                         strings = strings,
                     )

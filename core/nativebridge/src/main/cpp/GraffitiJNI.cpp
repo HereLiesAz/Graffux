@@ -1129,13 +1129,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallFingerprint
     if (mask) bitmapToMat(env, mask, maskMat);
 
     auto* depthData = static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer));
-    jfloat* intr = env->GetFloatArrayElements(intrArray, nullptr);
-    jfloat* view = env->GetFloatArrayElements(viewMatArray, nullptr);
+    jfloat* intr = intrArray ? env->GetFloatArrayElements(intrArray, nullptr) : nullptr;
+    jfloat* view = viewMatArray ? env->GetFloatArrayElements(viewMatArray, nullptr) : nullptr;
 
     MobileGS::FingerprintData fd = gSlamEngine->generateFingerprint(image, maskMat, depthData, depthW, depthH, depthStride, intr, view);
 
-    env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
-    env->ReleaseFloatArrayElements(viewMatArray, view, JNI_ABORT);
+    if (intrArray && intr) env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
+    if (viewMatArray && view) env->ReleaseFloatArrayElements(viewMatArray, view, JNI_ABORT);
 
     return buildFingerprintObject(env, fd);
 }

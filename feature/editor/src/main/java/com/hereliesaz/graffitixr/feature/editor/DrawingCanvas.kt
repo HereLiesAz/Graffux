@@ -170,12 +170,24 @@ fun DrawingCanvas(
                                 liquifyPending = emptyList()
                             }
                             onStrokeStart(down.position, canvasSize)
+                            change.historical.forEach { hist ->
+                                if (activeTool == Tool.LIQUIFY) {
+                                    liquifyPoints = liquifyPoints + hist.position
+                                }
+                                onStrokePoint(hist.position)
+                            }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
                             onStrokePoint(change.position)
                             change.consume()
                         } else if (began) {
+                            change.historical.forEach { hist ->
+                                if (activeTool == Tool.LIQUIFY) {
+                                    liquifyPoints = liquifyPoints + hist.position
+                                }
+                                onStrokePoint(hist.position)
+                            }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
