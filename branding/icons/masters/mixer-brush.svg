@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/mixer-brush — graffux -->
+  <defs>
+    <pattern id="gfxHatch-mixer-brush" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M7.06 14.97L15.64 7.2A0.82 0.82 0 0 1 16.8 8.36L9.03 16.94Z" fill="url(#gfxHatch-mixer-brush)"/>
+  <path d="M4.45 19.55C4.86 17.99 5.11 17.17 5.49 16.65L6.83 15.2L8.8 17.17L7.35 18.51C6.83 18.89 6.01 19.14 4.45 19.55Z"/>
+  <path d="M7.06 14.97L15.64 7.2A0.82 0.82 0 0 1 16.8 8.36L9.03 16.94Z"/>
+  <path d="M13.6 10.4C16.8 8.6 20 10.4 19.4 13.4C18.9 15.9 15.6 16.6 14 14.8"/>
+  <path d="M15.2 12.2C16.6 11.4 18 12.2 17.7 13.6"/>
+</svg>

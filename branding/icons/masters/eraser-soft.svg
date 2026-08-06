@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/eraser-soft — graffux -->
+  <defs>
+    <pattern id="gfxHatch-eraser-soft" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M10.57 8.42L7.57 9.57A2.1 2.1 0 0 0 6.36 12.29L7.73 15.94A2.1 2.1 0 0 0 10.44 17.14L13.44 15.99Z" fill="url(#gfxHatch-eraser-soft)"/>
+  <path d="M7.57 9.57L13.56 7.26A2.1 2.1 0 0 1 16.27 8.46L17.65 12.11A2.1 2.1 0 0 1 16.44 14.83L10.44 17.14A2.1 2.1 0 0 1 7.73 15.94L6.36 12.29A2.1 2.1 0 0 1 7.57 9.57Z"/>
+  <path d="M10.57 8.42L13.44 15.99"/>
+  <path d="M5 20.4H7"/>
+  <path d="M8.8 20.4H10.2"/>
+  <path d="M12 20.4H13"/>
+</svg>

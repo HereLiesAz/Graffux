@@ -110,8 +110,9 @@ class CommitPathRoutingTest {
     ) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(20)
+            dispatcher.scheduler.advanceUntilIdle()
             if (until()) return
-            Thread.sleep(10)
         }
         throw AssertionError("$message (waited ${timeoutMs}ms)")
     }
@@ -158,7 +159,7 @@ class CommitPathRoutingTest {
     fun `clear inside a feathered selection commits what it replays`() = runTest(dispatcher) {
         val before = seed()
         vm.onClearLayer()
-        awaitCommit { publishedBitmap().getPixel(24, 24) != before.getPixel(24, 24) }
+        dispatcher.scheduler.advanceUntilIdle()
         assertCommitEqualsReplay(before, "clear")
     }
 

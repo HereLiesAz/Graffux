@@ -1,0 +1,5055 @@
+{
+  "grid": {
+    "view": 24.0,
+    "live": [
+      2.0,
+      22.0
+    ],
+    "stroke": 0.5,
+    "cap": "round",
+    "join": "round",
+    "hatch": {
+      "pitch": 1.05,
+      "weight": 0.3,
+      "phase": 0.28
+    }
+  },
+  "categories": [
+    {
+      "key": "tools",
+      "title": "Tools",
+      "blurb": "Brushes, erasers, retouching, brush parameters, symmetry and guides"
+    },
+    {
+      "key": "selection",
+      "title": "Selection",
+      "blurb": "Marquees, lassos, boolean ops, masks"
+    },
+    {
+      "key": "layers",
+      "title": "Layers",
+      "blurb": "The stack and everything done to it"
+    },
+    {
+      "key": "color",
+      "title": "Colour",
+      "blurb": "Tone, hue, gradients, colour instruments"
+    },
+    {
+      "key": "filters",
+      "title": "Filters",
+      "blurb": "Blur, sharpen, noise, distort, stylise, generative fill"
+    },
+    {
+      "key": "vector",
+      "title": "Vector",
+      "blurb": "Pen tool, anchors, boolean path ops, live shapes"
+    },
+    {
+      "key": "type",
+      "title": "Type",
+      "blurb": "Type tools, character and paragraph controls"
+    },
+    {
+      "key": "transform",
+      "title": "Transform",
+      "blurb": "Move, scale, rotate, skew, align and distribute"
+    },
+    {
+      "key": "document",
+      "title": "Document",
+      "blurb": "New/open/save, canvas and image size, crop, view and zoom"
+    },
+    {
+      "key": "history",
+      "title": "History",
+      "blurb": "Undo, redo, history states, actions and macros"
+    },
+    {
+      "key": "animation",
+      "title": "Animation",
+      "blurb": "Timeline, keyframes, playback transport, export"
+    },
+    {
+      "key": "generative",
+      "title": "Generative",
+      "blurb": "AI generation, AR view, camera capture, stencils"
+    },
+    {
+      "key": "ui",
+      "title": "Interface",
+      "blurb": "Navigation chrome, status, sharing, gestures"
+    }
+  ],
+  "icons": [
+    {
+      "key": "airbrush",
+      "category": "tools",
+      "drawable": "ic_gx_airbrush",
+      "keywords": [
+        "spray",
+        "atomiser",
+        "soft",
+        "mist"
+      ],
+      "master": "masters/airbrush.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "alpha-lock",
+      "category": "tools",
+      "drawable": "ic_gx_alpha_lock",
+      "keywords": [
+        "lock transparency",
+        "paint inside",
+        "preserve"
+      ],
+      "master": "masters/alpha-lock.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "blob-brush",
+      "category": "tools",
+      "drawable": "ic_gx_blob_brush",
+      "keywords": [
+        "merge shapes",
+        "vector paint",
+        "blob"
+      ],
+      "master": "masters/blob-brush.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "blur",
+      "category": "tools",
+      "drawable": "ic_gx_blur",
+      "keywords": [
+        "soften",
+        "out of focus",
+        "droplet"
+      ],
+      "master": "masters/blur.svg",
+      "ruled": false,
+      "source": "phosphor/drop"
+    },
+    {
+      "key": "brush",
+      "category": "tools",
+      "drawable": "ic_gx_brush",
+      "keywords": [
+        "paint",
+        "bristle",
+        "draw",
+        "round brush"
+      ],
+      "master": "masters/brush.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-angle",
+      "category": "tools",
+      "drawable": "ic_gx_brush_angle",
+      "keywords": [
+        "rotation",
+        "nib angle",
+        "protractor"
+      ],
+      "master": "masters/brush-angle.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-flow",
+      "category": "tools",
+      "drawable": "ic_gx_brush_flow",
+      "keywords": [
+        "rate",
+        "load",
+        "delivery"
+      ],
+      "master": "masters/brush-flow.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-hardness",
+      "category": "tools",
+      "drawable": "ic_gx_brush_hardness",
+      "keywords": [
+        "edge",
+        "falloff",
+        "core"
+      ],
+      "master": "masters/brush-hardness.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-import",
+      "category": "tools",
+      "drawable": "ic_gx_brush_import",
+      "keywords": [
+        "load brush",
+        "install",
+        "abr"
+      ],
+      "master": "masters/brush-import.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-library",
+      "category": "tools",
+      "drawable": "ic_gx_brush_library",
+      "keywords": [
+        "brushes",
+        "presets",
+        "pot"
+      ],
+      "master": "masters/brush-library.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-opacity",
+      "category": "tools",
+      "drawable": "ic_gx_brush_opacity",
+      "keywords": [
+        "alpha",
+        "coverage",
+        "translucent"
+      ],
+      "master": "masters/brush-opacity.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-roundness",
+      "category": "tools",
+      "drawable": "ic_gx_brush_roundness",
+      "keywords": [
+        "flatten",
+        "squash",
+        "ellipse nib"
+      ],
+      "master": "masters/brush-roundness.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-scatter",
+      "category": "tools",
+      "drawable": "ic_gx_brush_scatter",
+      "keywords": [
+        "jitter",
+        "spread",
+        "random"
+      ],
+      "master": "masters/brush-scatter.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-settings",
+      "category": "tools",
+      "drawable": "ic_gx_brush_settings",
+      "keywords": [
+        "brush studio",
+        "parameters",
+        "engine"
+      ],
+      "master": "masters/brush-settings.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-size",
+      "category": "tools",
+      "drawable": "ic_gx_brush_size",
+      "keywords": [
+        "diameter",
+        "radius",
+        "scale brush"
+      ],
+      "master": "masters/brush-size.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-spacing",
+      "category": "tools",
+      "drawable": "ic_gx_brush_spacing",
+      "keywords": [
+        "stamps",
+        "interval",
+        "gap"
+      ],
+      "master": "masters/brush-spacing.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-texture",
+      "category": "tools",
+      "drawable": "ic_gx_brush_texture",
+      "keywords": [
+        "grain",
+        "tooth",
+        "paper"
+      ],
+      "master": "masters/brush-texture.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "burn",
+      "category": "tools",
+      "drawable": "ic_gx_burn",
+      "keywords": [
+        "darken",
+        "shade",
+        "cupped hand",
+        "aperture"
+      ],
+      "master": "masters/burn.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "calligraphy",
+      "category": "tools",
+      "drawable": "ic_gx_calligraphy",
+      "keywords": [
+        "broad edge",
+        "lettering",
+        "italic nib"
+      ],
+      "master": "masters/calligraphy.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "chalk",
+      "category": "tools",
+      "drawable": "ic_gx_chalk",
+      "keywords": [
+        "pastel",
+        "dry media",
+        "stick"
+      ],
+      "master": "masters/chalk.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "charcoal",
+      "category": "tools",
+      "drawable": "ic_gx_charcoal",
+      "keywords": [
+        "carbon",
+        "smudgy",
+        "dry media"
+      ],
+      "master": "masters/charcoal.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "colordrop",
+      "category": "tools",
+      "drawable": "ic_gx_colordrop",
+      "keywords": [
+        "flood fill",
+        "drag colour",
+        "drop"
+      ],
+      "master": "masters/colordrop.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "crayon",
+      "category": "tools",
+      "drawable": "ic_gx_crayon",
+      "keywords": [
+        "wax",
+        "kids",
+        "stub"
+      ],
+      "master": "masters/crayon.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "dodge",
+      "category": "tools",
+      "drawable": "ic_gx_dodge",
+      "keywords": [
+        "lighten",
+        "hold back",
+        "darkroom"
+      ],
+      "master": "masters/dodge.svg",
+      "ruled": false,
+      "source": "phosphor/lightbulb-filament"
+    },
+    {
+      "key": "eraser",
+      "category": "tools",
+      "drawable": "ic_gx_eraser",
+      "keywords": [
+        "rub out",
+        "delete",
+        "undo mark"
+      ],
+      "master": "masters/eraser.svg",
+      "ruled": true,
+      "source": "phosphor/eraser"
+    },
+    {
+      "key": "eraser-hard",
+      "category": "tools",
+      "drawable": "ic_gx_eraser_hard",
+      "keywords": [
+        "hard edge",
+        "crisp",
+        "block"
+      ],
+      "master": "masters/eraser-hard.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "eraser-soft",
+      "category": "tools",
+      "drawable": "ic_gx_eraser_soft",
+      "keywords": [
+        "feather",
+        "soft edge",
+        "fade"
+      ],
+      "master": "masters/eraser-soft.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "eyedropper",
+      "category": "tools",
+      "drawable": "ic_gx_eyedropper",
+      "keywords": [
+        "picker",
+        "sample",
+        "colour pick"
+      ],
+      "master": "masters/eyedropper.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "fill",
+      "category": "tools",
+      "drawable": "ic_gx_fill",
+      "keywords": [
+        "paint bucket",
+        "flood",
+        "pour"
+      ],
+      "master": "masters/fill.svg",
+      "ruled": false,
+      "source": "phosphor/paint-bucket"
+    },
+    {
+      "key": "guide-drawing",
+      "category": "tools",
+      "drawable": "ic_gx_guide_drawing",
+      "keywords": [
+        "assist",
+        "grid guide",
+        "on rails"
+      ],
+      "master": "masters/guide-drawing.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "guide-isometric",
+      "category": "tools",
+      "drawable": "ic_gx_guide_isometric",
+      "keywords": [
+        "axonometric",
+        "30 degrees",
+        "isometric"
+      ],
+      "master": "masters/guide-isometric.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "guide-perspective",
+      "category": "tools",
+      "drawable": "ic_gx_guide_perspective",
+      "keywords": [
+        "vanishing point",
+        "one point",
+        "recede"
+      ],
+      "master": "masters/guide-perspective.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "heal",
+      "category": "tools",
+      "drawable": "ic_gx_heal",
+      "keywords": [
+        "healing brush",
+        "plaster",
+        "repair"
+      ],
+      "master": "masters/heal.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "heal-spot",
+      "category": "tools",
+      "drawable": "ic_gx_heal_spot",
+      "keywords": [
+        "blemish",
+        "spot removal",
+        "target"
+      ],
+      "master": "masters/heal-spot.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "liquify",
+      "category": "tools",
+      "drawable": "ic_gx_liquify",
+      "keywords": [
+        "warp",
+        "push pixels",
+        "swirl"
+      ],
+      "master": "masters/liquify.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "marker",
+      "category": "tools",
+      "drawable": "ic_gx_marker",
+      "keywords": [
+        "felt tip",
+        "chisel",
+        "highlighter"
+      ],
+      "master": "masters/marker.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mixer-brush",
+      "category": "tools",
+      "drawable": "ic_gx_mixer_brush",
+      "keywords": [
+        "wet mix",
+        "blend paint",
+        "load"
+      ],
+      "master": "masters/mixer-brush.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "oil-brush",
+      "category": "tools",
+      "drawable": "ic_gx_oil_brush",
+      "keywords": [
+        "flat brush",
+        "bristle",
+        "impasto"
+      ],
+      "master": "masters/oil-brush.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "patch",
+      "category": "tools",
+      "drawable": "ic_gx_patch",
+      "keywords": [
+        "region repair",
+        "graft",
+        "swap"
+      ],
+      "master": "masters/patch.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "pen-ink",
+      "category": "tools",
+      "drawable": "ic_gx_pen_ink",
+      "keywords": [
+        "nib",
+        "dip pen",
+        "ink",
+        "line art"
+      ],
+      "master": "masters/pen-ink.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "pencil",
+      "category": "tools",
+      "drawable": "ic_gx_pencil",
+      "keywords": [
+        "draw",
+        "sketch",
+        "graphite",
+        "edit"
+      ],
+      "master": "masters/pencil.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "pressure",
+      "category": "tools",
+      "drawable": "ic_gx_pressure",
+      "keywords": [
+        "force",
+        "hard press",
+        "weight"
+      ],
+      "master": "masters/pressure.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "quickshape",
+      "category": "tools",
+      "drawable": "ic_gx_quickshape",
+      "keywords": [
+        "snap to shape",
+        "clean up",
+        "auto shape"
+      ],
+      "master": "masters/quickshape.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "red-eye",
+      "category": "tools",
+      "drawable": "ic_gx_red_eye",
+      "keywords": [
+        "pupil",
+        "flash",
+        "portrait fix"
+      ],
+      "master": "masters/red-eye.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "roller",
+      "category": "tools",
+      "drawable": "ic_gx_roller",
+      "keywords": [
+        "paint roller",
+        "flat fill",
+        "coat"
+      ],
+      "master": "masters/roller.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "sharpen",
+      "category": "tools",
+      "drawable": "ic_gx_sharpen",
+      "keywords": [
+        "crisp",
+        "detail",
+        "cone"
+      ],
+      "master": "masters/sharpen.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "smudge",
+      "category": "tools",
+      "drawable": "ic_gx_smudge",
+      "keywords": [
+        "finger",
+        "drag",
+        "blend"
+      ],
+      "master": "masters/smudge.svg",
+      "ruled": false,
+      "source": "phosphor/hand-pointing"
+    },
+    {
+      "key": "sponge",
+      "category": "tools",
+      "drawable": "ic_gx_sponge",
+      "keywords": [
+        "saturation",
+        "soak",
+        "porous"
+      ],
+      "master": "masters/sponge.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "spray-can",
+      "category": "tools",
+      "drawable": "ic_gx_spray_can",
+      "keywords": [
+        "aerosol",
+        "graffiti",
+        "rattle can"
+      ],
+      "master": "masters/spray-can.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "stamp",
+      "category": "tools",
+      "drawable": "ic_gx_stamp",
+      "keywords": [
+        "clone",
+        "rubber stamp",
+        "duplicate source"
+      ],
+      "master": "masters/stamp.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "stamp-pattern",
+      "category": "tools",
+      "drawable": "ic_gx_stamp_pattern",
+      "keywords": [
+        "pattern stamp",
+        "tile",
+        "repeat"
+      ],
+      "master": "masters/stamp-pattern.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "streamline",
+      "category": "tools",
+      "drawable": "ic_gx_streamline",
+      "keywords": [
+        "stabiliser",
+        "smoothing",
+        "steady"
+      ],
+      "master": "masters/streamline.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "stylus",
+      "category": "tools",
+      "drawable": "ic_gx_stylus",
+      "keywords": [
+        "pen hardware",
+        "pencil",
+        "digitiser"
+      ],
+      "master": "masters/stylus.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "symmetry",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry",
+      "keywords": [
+        "mirror",
+        "reflect drawing",
+        "guide"
+      ],
+      "master": "masters/symmetry.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "symmetry-horizontal",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_horizontal",
+      "keywords": [
+        "mirror y",
+        "top bottom"
+      ],
+      "master": "masters/symmetry-horizontal.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "symmetry-quadrant",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_quadrant",
+      "keywords": [
+        "four way",
+        "kaleidoscope"
+      ],
+      "master": "masters/symmetry-quadrant.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "symmetry-radial",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_radial",
+      "keywords": [
+        "rotational",
+        "mandala",
+        "spokes"
+      ],
+      "master": "masters/symmetry-radial.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "symmetry-vertical",
+      "category": "tools",
+      "drawable": "ic_gx_symmetry_vertical",
+      "keywords": [
+        "mirror x",
+        "left right"
+      ],
+      "master": "masters/symmetry-vertical.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "tilt",
+      "category": "tools",
+      "drawable": "ic_gx_tilt",
+      "keywords": [
+        "angle",
+        "shading",
+        "lean"
+      ],
+      "master": "masters/tilt.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "watercolor",
+      "category": "tools",
+      "drawable": "ic_gx_watercolor",
+      "keywords": [
+        "wet",
+        "wash",
+        "bleed"
+      ],
+      "master": "masters/watercolor.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "mask",
+      "category": "selection",
+      "drawable": "ic_gx_mask",
+      "keywords": [
+        "layer mask",
+        "reveal",
+        "conceal"
+      ],
+      "master": "masters/mask.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-add",
+      "category": "selection",
+      "drawable": "ic_gx_mask_add",
+      "keywords": [
+        "new mask",
+        "attach mask"
+      ],
+      "master": "masters/mask-add.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-apply",
+      "category": "selection",
+      "drawable": "ic_gx_mask_apply",
+      "keywords": [
+        "bake mask",
+        "commit",
+        "flatten mask"
+      ],
+      "master": "masters/mask-apply.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-channel",
+      "category": "selection",
+      "drawable": "ic_gx_mask_channel",
+      "keywords": [
+        "save selection",
+        "alpha channel",
+        "store"
+      ],
+      "master": "masters/mask-channel.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-clipping",
+      "category": "selection",
+      "drawable": "ic_gx_mask_clipping",
+      "keywords": [
+        "clip to layer",
+        "clipped",
+        "inside"
+      ],
+      "master": "masters/mask-clipping.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-delete",
+      "category": "selection",
+      "drawable": "ic_gx_mask_delete",
+      "keywords": [
+        "remove mask",
+        "discard"
+      ],
+      "master": "masters/mask-delete.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-disable",
+      "category": "selection",
+      "drawable": "ic_gx_mask_disable",
+      "keywords": [
+        "turn off mask",
+        "bypass"
+      ],
+      "master": "masters/mask-disable.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-luminance",
+      "category": "selection",
+      "drawable": "ic_gx_mask_luminance",
+      "keywords": [
+        "luminosity mask",
+        "by tone",
+        "highlights"
+      ],
+      "master": "masters/mask-luminance.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-quick",
+      "category": "selection",
+      "drawable": "ic_gx_mask_quick",
+      "keywords": [
+        "quick mask",
+        "rubylith",
+        "paint a selection"
+      ],
+      "master": "masters/mask-quick.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mask-vector",
+      "category": "selection",
+      "drawable": "ic_gx_mask_vector",
+      "keywords": [
+        "path mask",
+        "clip path"
+      ],
+      "master": "masters/mask-vector.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-add",
+      "category": "selection",
+      "drawable": "ic_gx_select_add",
+      "keywords": [
+        "union",
+        "unite",
+        "add to selection"
+      ],
+      "master": "masters/select-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-all",
+      "category": "selection",
+      "drawable": "ic_gx_select_all",
+      "keywords": [
+        "everything",
+        "whole canvas"
+      ],
+      "master": "masters/select-all.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-color-range",
+      "category": "selection",
+      "drawable": "ic_gx_select_color_range",
+      "keywords": [
+        "by colour",
+        "tolerance",
+        "sample"
+      ],
+      "master": "masters/select-color-range.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-ellipse",
+      "category": "selection",
+      "drawable": "ic_gx_select_ellipse",
+      "keywords": [
+        "marquee",
+        "oval",
+        "round"
+      ],
+      "master": "masters/select-ellipse.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-exclude",
+      "category": "selection",
+      "drawable": "ic_gx_select_exclude",
+      "keywords": [
+        "difference",
+        "xor",
+        "either but not both"
+      ],
+      "master": "masters/select-exclude.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-feather",
+      "category": "selection",
+      "drawable": "ic_gx_select_feather",
+      "keywords": [
+        "soften edge",
+        "falloff",
+        "blur selection"
+      ],
+      "master": "masters/select-feather.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-focus",
+      "category": "selection",
+      "drawable": "ic_gx_select_focus",
+      "keywords": [
+        "focus area",
+        "depth",
+        "sharp region"
+      ],
+      "master": "masters/select-focus.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-grow",
+      "category": "selection",
+      "drawable": "ic_gx_select_grow",
+      "keywords": [
+        "expand",
+        "dilate",
+        "outward"
+      ],
+      "master": "masters/select-grow.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-intersect",
+      "category": "selection",
+      "drawable": "ic_gx_select_intersect",
+      "keywords": [
+        "overlap",
+        "common",
+        "both"
+      ],
+      "master": "masters/select-intersect.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "select-invert",
+      "category": "selection",
+      "drawable": "ic_gx_select_invert",
+      "keywords": [
+        "inverse",
+        "everything else",
+        "swap"
+      ],
+      "master": "masters/select-invert.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "select-lasso",
+      "category": "selection",
+      "drawable": "ic_gx_select_lasso",
+      "keywords": [
+        "freehand",
+        "draw selection",
+        "loop"
+      ],
+      "master": "masters/select-lasso.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-magnetic",
+      "category": "selection",
+      "drawable": "ic_gx_select_magnetic",
+      "keywords": [
+        "snap to edge",
+        "magnetic lasso",
+        "cling"
+      ],
+      "master": "masters/select-magnetic.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-none",
+      "category": "selection",
+      "drawable": "ic_gx_select_none",
+      "keywords": [
+        "deselect",
+        "drop selection",
+        "clear"
+      ],
+      "master": "masters/select-none.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-object",
+      "category": "selection",
+      "drawable": "ic_gx_select_object",
+      "keywords": [
+        "object select",
+        "auto",
+        "detect"
+      ],
+      "master": "masters/select-object.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-polygon",
+      "category": "selection",
+      "drawable": "ic_gx_select_polygon",
+      "keywords": [
+        "polygonal lasso",
+        "straight",
+        "vertices"
+      ],
+      "master": "masters/select-polygon.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-quick",
+      "category": "selection",
+      "drawable": "ic_gx_select_quick",
+      "keywords": [
+        "quick selection",
+        "brush select",
+        "grow"
+      ],
+      "master": "masters/select-quick.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-rect",
+      "category": "selection",
+      "drawable": "ic_gx_select_rect",
+      "keywords": [
+        "marquee",
+        "rectangle",
+        "crop area"
+      ],
+      "master": "masters/select-rect.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-refine",
+      "category": "selection",
+      "drawable": "ic_gx_select_refine",
+      "keywords": [
+        "refine edge",
+        "hair",
+        "detail"
+      ],
+      "master": "masters/select-refine.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "select-reselect",
+      "category": "selection",
+      "drawable": "ic_gx_select_reselect",
+      "keywords": [
+        "restore selection",
+        "again"
+      ],
+      "master": "masters/select-reselect.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-shrink",
+      "category": "selection",
+      "drawable": "ic_gx_select_shrink",
+      "keywords": [
+        "contract",
+        "erode",
+        "inward"
+      ],
+      "master": "masters/select-shrink.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-similar",
+      "category": "selection",
+      "drawable": "ic_gx_select_similar",
+      "keywords": [
+        "grow",
+        "like this",
+        "match"
+      ],
+      "master": "masters/select-similar.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-sky",
+      "category": "selection",
+      "drawable": "ic_gx_select_sky",
+      "keywords": [
+        "sky replacement",
+        "horizon",
+        "upper region"
+      ],
+      "master": "masters/select-sky.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-subject",
+      "category": "selection",
+      "drawable": "ic_gx_select_subject",
+      "keywords": [
+        "person",
+        "cut out",
+        "isolate"
+      ],
+      "master": "masters/select-subject.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "select-subtract",
+      "category": "selection",
+      "drawable": "ic_gx_select_subtract",
+      "keywords": [
+        "minus front",
+        "remove",
+        "take away"
+      ],
+      "master": "masters/select-subtract.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-transform",
+      "category": "selection",
+      "drawable": "ic_gx_select_transform",
+      "keywords": [
+        "transform selection",
+        "handles",
+        "resize"
+      ],
+      "master": "masters/select-transform.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "select-wand",
+      "category": "selection",
+      "drawable": "ic_gx_select_wand",
+      "keywords": [
+        "magic wand",
+        "similar pixels",
+        "tolerance"
+      ],
+      "master": "masters/select-wand.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "artboard",
+      "category": "layers",
+      "drawable": "ic_gx_artboard",
+      "keywords": [
+        "canvas",
+        "page",
+        "document frame"
+      ],
+      "master": "masters/artboard.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "artboard-add",
+      "category": "layers",
+      "drawable": "ic_gx_artboard_add",
+      "keywords": [
+        "new artboard",
+        "new page"
+      ],
+      "master": "masters/artboard-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-add",
+      "category": "layers",
+      "drawable": "ic_gx_layer_add",
+      "keywords": [
+        "new layer",
+        "plus"
+      ],
+      "master": "masters/layer-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-adjustment",
+      "category": "layers",
+      "drawable": "ic_gx_layer_adjustment",
+      "keywords": [
+        "adjustment layer",
+        "non destructive"
+      ],
+      "master": "masters/layer-adjustment.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-background",
+      "category": "layers",
+      "drawable": "ic_gx_layer_background",
+      "keywords": [
+        "backdrop",
+        "base",
+        "foundation"
+      ],
+      "master": "masters/layer-background.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-blend",
+      "category": "layers",
+      "drawable": "ic_gx_layer_blend",
+      "keywords": [
+        "blend mode",
+        "mix",
+        "interaction"
+      ],
+      "master": "masters/layer-blend.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-count",
+      "category": "layers",
+      "drawable": "ic_gx_layer_count",
+      "keywords": [
+        "how many",
+        "stack depth"
+      ],
+      "master": "masters/layer-count.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-delete",
+      "category": "layers",
+      "drawable": "ic_gx_layer_delete",
+      "keywords": [
+        "remove layer",
+        "discard"
+      ],
+      "master": "masters/layer-delete.svg",
+      "ruled": false,
+      "source": "phosphor/trash"
+    },
+    {
+      "key": "layer-duplicate",
+      "category": "layers",
+      "drawable": "ic_gx_layer_duplicate",
+      "keywords": [
+        "copy layer",
+        "clone layer"
+      ],
+      "master": "masters/layer-duplicate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-fill",
+      "category": "layers",
+      "drawable": "ic_gx_layer_fill",
+      "keywords": [
+        "solid colour",
+        "fill layer"
+      ],
+      "master": "masters/layer-fill.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-filter",
+      "category": "layers",
+      "drawable": "ic_gx_layer_filter",
+      "keywords": [
+        "find layer",
+        "search stack"
+      ],
+      "master": "masters/layer-filter.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-flatten",
+      "category": "layers",
+      "drawable": "ic_gx_layer_flatten",
+      "keywords": [
+        "one layer",
+        "collapse all"
+      ],
+      "master": "masters/layer-flatten.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-frame",
+      "category": "layers",
+      "drawable": "ic_gx_layer_frame",
+      "keywords": [
+        "frame tool",
+        "placeholder",
+        "crop into"
+      ],
+      "master": "masters/layer-frame.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-group",
+      "category": "layers",
+      "drawable": "ic_gx_layer_group",
+      "keywords": [
+        "folder",
+        "nest",
+        "group"
+      ],
+      "master": "masters/layer-group.svg",
+      "ruled": false,
+      "source": "phosphor/stack-simple"
+    },
+    {
+      "key": "layer-hidden",
+      "category": "layers",
+      "drawable": "ic_gx_layer_hidden",
+      "keywords": [
+        "hide",
+        "eye off",
+        "invisible"
+      ],
+      "master": "masters/layer-hidden.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-isolate",
+      "category": "layers",
+      "drawable": "ic_gx_layer_isolate",
+      "keywords": [
+        "solo",
+        "only this",
+        "focus layer"
+      ],
+      "master": "masters/layer-isolate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-link",
+      "category": "layers",
+      "drawable": "ic_gx_layer_link",
+      "keywords": [
+        "chain",
+        "tie together",
+        "move as one"
+      ],
+      "master": "masters/layer-link.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-lock",
+      "category": "layers",
+      "drawable": "ic_gx_layer_lock",
+      "keywords": [
+        "protect",
+        "padlock",
+        "read only"
+      ],
+      "master": "masters/layer-lock.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-lower",
+      "category": "layers",
+      "drawable": "ic_gx_layer_lower",
+      "keywords": [
+        "send backward",
+        "down one"
+      ],
+      "master": "masters/layer-lower.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-merge-down",
+      "category": "layers",
+      "drawable": "ic_gx_layer_merge_down",
+      "keywords": [
+        "combine",
+        "flatten two",
+        "down"
+      ],
+      "master": "masters/layer-merge-down.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-merge-visible",
+      "category": "layers",
+      "drawable": "ic_gx_layer_merge_visible",
+      "keywords": [
+        "merge shown",
+        "collapse visible"
+      ],
+      "master": "masters/layer-merge-visible.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-opacity",
+      "category": "layers",
+      "drawable": "ic_gx_layer_opacity",
+      "keywords": [
+        "transparency",
+        "alpha",
+        "fade"
+      ],
+      "master": "masters/layer-opacity.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-raise",
+      "category": "layers",
+      "drawable": "ic_gx_layer_raise",
+      "keywords": [
+        "bring forward",
+        "up one"
+      ],
+      "master": "masters/layer-raise.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-rasterize",
+      "category": "layers",
+      "drawable": "ic_gx_layer_rasterize",
+      "keywords": [
+        "to pixels",
+        "commit",
+        "bake"
+      ],
+      "master": "masters/layer-rasterize.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-reference",
+      "category": "layers",
+      "drawable": "ic_gx_layer_reference",
+      "keywords": [
+        "reference layer",
+        "source",
+        "pin"
+      ],
+      "master": "masters/layer-reference.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-rename",
+      "category": "layers",
+      "drawable": "ic_gx_layer_rename",
+      "keywords": [
+        "label",
+        "title",
+        "edit name"
+      ],
+      "master": "masters/layer-rename.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-smart",
+      "category": "layers",
+      "drawable": "ic_gx_layer_smart",
+      "keywords": [
+        "smart object",
+        "linked",
+        "non destructive"
+      ],
+      "master": "masters/layer-smart.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-style",
+      "category": "layers",
+      "drawable": "ic_gx_layer_style",
+      "keywords": [
+        "fx",
+        "effects",
+        "layer effects"
+      ],
+      "master": "masters/layer-style.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-tag",
+      "category": "layers",
+      "drawable": "ic_gx_layer_tag",
+      "keywords": [
+        "colour label",
+        "flag",
+        "sort"
+      ],
+      "master": "masters/layer-tag.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-thumbnail",
+      "category": "layers",
+      "drawable": "ic_gx_layer_thumbnail",
+      "keywords": [
+        "preview",
+        "row",
+        "panel row"
+      ],
+      "master": "masters/layer-thumbnail.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-to-back",
+      "category": "layers",
+      "drawable": "ic_gx_layer_to_back",
+      "keywords": [
+        "send to back",
+        "bottom"
+      ],
+      "master": "masters/layer-to-back.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-to-front",
+      "category": "layers",
+      "drawable": "ic_gx_layer_to_front",
+      "keywords": [
+        "bring to front",
+        "top"
+      ],
+      "master": "masters/layer-to-front.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-ungroup",
+      "category": "layers",
+      "drawable": "ic_gx_layer_ungroup",
+      "keywords": [
+        "release",
+        "unnest",
+        "flatten group"
+      ],
+      "master": "masters/layer-ungroup.svg",
+      "ruled": false,
+      "source": "phosphor/stack-minus"
+    },
+    {
+      "key": "layer-unlink",
+      "category": "layers",
+      "drawable": "ic_gx_layer_unlink",
+      "keywords": [
+        "break chain",
+        "release"
+      ],
+      "master": "masters/layer-unlink.svg",
+      "ruled": false,
+      "source": "phosphor/link-break"
+    },
+    {
+      "key": "layer-unlock",
+      "category": "layers",
+      "drawable": "ic_gx_layer_unlock",
+      "keywords": [
+        "unprotect",
+        "open lock",
+        "editable"
+      ],
+      "master": "masters/layer-unlock.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "layer-visible",
+      "category": "layers",
+      "drawable": "ic_gx_layer_visible",
+      "keywords": [
+        "show",
+        "eye",
+        "toggle"
+      ],
+      "master": "masters/layer-visible.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "layers",
+      "category": "layers",
+      "drawable": "ic_gx_layers",
+      "keywords": [
+        "stack",
+        "sheets",
+        "panel"
+      ],
+      "master": "masters/layers.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "auto-tone",
+      "category": "color",
+      "drawable": "ic_gx_auto_tone",
+      "keywords": [
+        "auto levels",
+        "fix",
+        "one tap"
+      ],
+      "master": "masters/auto-tone.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "black-white",
+      "category": "color",
+      "drawable": "ic_gx_black_white",
+      "keywords": [
+        "mono",
+        "channel mix to grey"
+      ],
+      "master": "masters/black-white.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "brightness",
+      "category": "color",
+      "drawable": "ic_gx_brightness",
+      "keywords": [
+        "light",
+        "sun",
+        "lighten"
+      ],
+      "master": "masters/brightness.svg",
+      "ruled": false,
+      "source": "phosphor/sun"
+    },
+    {
+      "key": "channel-mixer",
+      "category": "color",
+      "drawable": "ic_gx_channel_mixer",
+      "keywords": [
+        "per channel",
+        "recombine"
+      ],
+      "master": "masters/channel-mixer.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "clarity",
+      "category": "color",
+      "drawable": "ic_gx_clarity",
+      "keywords": [
+        "local contrast",
+        "punch",
+        "dehaze"
+      ],
+      "master": "masters/clarity.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-alpha",
+      "category": "color",
+      "drawable": "ic_gx_color_alpha",
+      "keywords": [
+        "transparency",
+        "opacity channel"
+      ],
+      "master": "masters/color-alpha.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "color-balance",
+      "category": "color",
+      "drawable": "ic_gx_color_balance",
+      "keywords": [
+        "cast",
+        "cool warm",
+        "scales"
+      ],
+      "master": "masters/color-balance.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-cmyk",
+      "category": "color",
+      "drawable": "ic_gx_color_cmyk",
+      "keywords": [
+        "subtractive",
+        "print",
+        "process"
+      ],
+      "master": "masters/color-cmyk.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "color-disc",
+      "category": "color",
+      "drawable": "ic_gx_color_disc",
+      "keywords": [
+        "picker",
+        "wheel",
+        "choose colour"
+      ],
+      "master": "masters/color-disc.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-harmony",
+      "category": "color",
+      "drawable": "ic_gx_color_harmony",
+      "keywords": [
+        "complementary",
+        "triad",
+        "scheme"
+      ],
+      "master": "masters/color-harmony.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-hex",
+      "category": "color",
+      "drawable": "ic_gx_color_hex",
+      "keywords": [
+        "code",
+        "value",
+        "exact"
+      ],
+      "master": "masters/color-hex.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-history",
+      "category": "color",
+      "drawable": "ic_gx_color_history",
+      "keywords": [
+        "recent",
+        "used",
+        "last colours"
+      ],
+      "master": "masters/color-history.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-lookup",
+      "category": "color",
+      "drawable": "ic_gx_color_lookup",
+      "keywords": [
+        "lut",
+        "preset grade",
+        "cube"
+      ],
+      "master": "masters/color-lookup.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "color-profile",
+      "category": "color",
+      "drawable": "ic_gx_color_profile",
+      "keywords": [
+        "gamut",
+        "icc",
+        "colour space"
+      ],
+      "master": "masters/color-profile.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "color-rgb",
+      "category": "color",
+      "drawable": "ic_gx_color_rgb",
+      "keywords": [
+        "additive",
+        "screen",
+        "channels"
+      ],
+      "master": "masters/color-rgb.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "color-swatch",
+      "category": "color",
+      "drawable": "ic_gx_color_swatch",
+      "keywords": [
+        "chip",
+        "sample",
+        "current colour"
+      ],
+      "master": "masters/color-swatch.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "color-swatches",
+      "category": "color",
+      "drawable": "ic_gx_color_swatches",
+      "keywords": [
+        "palette",
+        "library",
+        "saved colours"
+      ],
+      "master": "masters/color-swatches.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "contrast",
+      "category": "color",
+      "drawable": "ic_gx_contrast",
+      "keywords": [
+        "tonal range",
+        "hard soft"
+      ],
+      "master": "masters/contrast.svg",
+      "ruled": false,
+      "source": "phosphor/circle-half-tilt"
+    },
+    {
+      "key": "curves",
+      "category": "color",
+      "drawable": "ic_gx_curves",
+      "keywords": [
+        "tone curve",
+        "s curve",
+        "remap"
+      ],
+      "master": "masters/curves.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "desaturate",
+      "category": "color",
+      "drawable": "ic_gx_desaturate",
+      "keywords": [
+        "greyscale",
+        "remove colour"
+      ],
+      "master": "masters/desaturate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "exposure",
+      "category": "color",
+      "drawable": "ic_gx_exposure",
+      "keywords": [
+        "stops",
+        "aperture",
+        "iris"
+      ],
+      "master": "masters/exposure.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient",
+      "category": "color",
+      "drawable": "ic_gx_gradient",
+      "keywords": [
+        "ramp",
+        "blend",
+        "fade"
+      ],
+      "master": "masters/gradient.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient-angle",
+      "category": "color",
+      "drawable": "ic_gx_gradient_angle",
+      "keywords": [
+        "sweep",
+        "conical"
+      ],
+      "master": "masters/gradient-angle.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient-linear",
+      "category": "color",
+      "drawable": "ic_gx_gradient_linear",
+      "keywords": [
+        "axis ramp",
+        "straight"
+      ],
+      "master": "masters/gradient-linear.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient-map",
+      "category": "color",
+      "drawable": "ic_gx_gradient_map",
+      "keywords": [
+        "remap tone to colour",
+        "duotone"
+      ],
+      "master": "masters/gradient-map.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient-mesh",
+      "category": "color",
+      "drawable": "ic_gx_gradient_mesh",
+      "keywords": [
+        "mesh",
+        "surface",
+        "multi point"
+      ],
+      "master": "masters/gradient-mesh.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "gradient-radial",
+      "category": "color",
+      "drawable": "ic_gx_gradient_radial",
+      "keywords": [
+        "from centre",
+        "round ramp"
+      ],
+      "master": "masters/gradient-radial.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "grain",
+      "category": "color",
+      "drawable": "ic_gx_grain",
+      "keywords": [
+        "noise",
+        "film",
+        "texture"
+      ],
+      "master": "masters/grain.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "histogram",
+      "category": "color",
+      "drawable": "ic_gx_histogram",
+      "keywords": [
+        "distribution",
+        "readout",
+        "levels display"
+      ],
+      "master": "masters/histogram.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "hue",
+      "category": "color",
+      "drawable": "ic_gx_hue",
+      "keywords": [
+        "colour angle",
+        "shift hue",
+        "wheel"
+      ],
+      "master": "masters/hue.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "invert",
+      "category": "color",
+      "drawable": "ic_gx_invert",
+      "keywords": [
+        "negative",
+        "flip tone"
+      ],
+      "master": "masters/invert.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "levels",
+      "category": "color",
+      "drawable": "ic_gx_levels",
+      "keywords": [
+        "histogram",
+        "black point",
+        "white point"
+      ],
+      "master": "masters/levels.svg",
+      "ruled": false,
+      "source": "phosphor/sliders"
+    },
+    {
+      "key": "photo-filter",
+      "category": "color",
+      "drawable": "ic_gx_photo_filter",
+      "keywords": [
+        "warming filter",
+        "gel",
+        "lens filter"
+      ],
+      "master": "masters/photo-filter.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "posterize",
+      "category": "color",
+      "drawable": "ic_gx_posterize",
+      "keywords": [
+        "quantise",
+        "steps",
+        "bands"
+      ],
+      "master": "masters/posterize.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "replace-color",
+      "category": "color",
+      "drawable": "ic_gx_replace_color",
+      "keywords": [
+        "swap hue",
+        "recolour"
+      ],
+      "master": "masters/replace-color.svg",
+      "ruled": false,
+      "source": "phosphor/swap"
+    },
+    {
+      "key": "saturation",
+      "category": "color",
+      "drawable": "ic_gx_saturation",
+      "keywords": [
+        "intensity",
+        "chroma",
+        "vivid"
+      ],
+      "master": "masters/saturation.svg",
+      "ruled": false,
+      "source": "phosphor/drop-half-bottom"
+    },
+    {
+      "key": "selective-color",
+      "category": "color",
+      "drawable": "ic_gx_selective_color",
+      "keywords": [
+        "one hue only",
+        "target colour"
+      ],
+      "master": "masters/selective-color.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "shadows-highlights",
+      "category": "color",
+      "drawable": "ic_gx_shadows_highlights",
+      "keywords": [
+        "recover",
+        "lift shadows",
+        "pull highlights"
+      ],
+      "master": "masters/shadows-highlights.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "temperature",
+      "category": "color",
+      "drawable": "ic_gx_temperature",
+      "keywords": [
+        "warm cool",
+        "kelvin",
+        "white balance"
+      ],
+      "master": "masters/temperature.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "threshold",
+      "category": "color",
+      "drawable": "ic_gx_threshold",
+      "keywords": [
+        "cutoff",
+        "two tone",
+        "clip"
+      ],
+      "master": "masters/threshold.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "tint",
+      "category": "color",
+      "drawable": "ic_gx_tint",
+      "keywords": [
+        "cast",
+        "shift",
+        "green magenta"
+      ],
+      "master": "masters/tint.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "vibrance",
+      "category": "color",
+      "drawable": "ic_gx_vibrance",
+      "keywords": [
+        "smart saturation",
+        "protect skin"
+      ],
+      "master": "masters/vibrance.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "vignette",
+      "category": "color",
+      "drawable": "ic_gx_vignette",
+      "keywords": [
+        "edge darkening",
+        "corners"
+      ],
+      "master": "masters/vignette.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-bevel",
+      "category": "filters",
+      "drawable": "ic_gx_filter_bevel",
+      "keywords": [
+        "ridge",
+        "3d edge",
+        "chamfer"
+      ],
+      "master": "masters/filter-bevel.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-blur-gaussian",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_gaussian",
+      "keywords": [
+        "soft focus",
+        "smooth"
+      ],
+      "master": "masters/filter-blur-gaussian.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-blur-lens",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_lens",
+      "keywords": [
+        "depth of field",
+        "bokeh"
+      ],
+      "master": "masters/filter-blur-lens.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-blur-motion",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_motion",
+      "keywords": [
+        "speed",
+        "streak",
+        "movement"
+      ],
+      "master": "masters/filter-blur-motion.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-blur-radial",
+      "category": "filters",
+      "drawable": "ic_gx_filter_blur_radial",
+      "keywords": [
+        "zoom blur",
+        "spin blur"
+      ],
+      "master": "masters/filter-blur-radial.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-clone-source",
+      "category": "filters",
+      "drawable": "ic_gx_filter_clone_source",
+      "keywords": [
+        "sample point",
+        "reference"
+      ],
+      "master": "masters/filter-clone-source.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-content-aware-fill",
+      "category": "filters",
+      "drawable": "ic_gx_filter_content_aware_fill",
+      "keywords": [
+        "ai fill",
+        "remove and fill"
+      ],
+      "master": "masters/filter-content-aware-fill.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-crystallize",
+      "category": "filters",
+      "drawable": "ic_gx_filter_crystallize",
+      "keywords": [
+        "facets",
+        "voronoi"
+      ],
+      "master": "masters/filter-crystallize.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-distort-pinch",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_pinch",
+      "keywords": [
+        "squeeze",
+        "implode"
+      ],
+      "master": "masters/filter-distort-pinch.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-distort-spherize",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_spherize",
+      "keywords": [
+        "bulge",
+        "inflate",
+        "fisheye"
+      ],
+      "master": "masters/filter-distort-spherize.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-distort-twirl",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_twirl",
+      "keywords": [
+        "swirl",
+        "vortex"
+      ],
+      "master": "masters/filter-distort-twirl.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-distort-wave",
+      "category": "filters",
+      "drawable": "ic_gx_filter_distort_wave",
+      "keywords": [
+        "ripple",
+        "undulate"
+      ],
+      "master": "masters/filter-distort-wave.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-emboss",
+      "category": "filters",
+      "drawable": "ic_gx_filter_emboss",
+      "keywords": [
+        "relief",
+        "3d edge"
+      ],
+      "master": "masters/filter-emboss.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-gallery",
+      "category": "filters",
+      "drawable": "ic_gx_filter_gallery",
+      "keywords": [
+        "stack of filters",
+        "fx library"
+      ],
+      "master": "masters/filter-gallery.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-generative-fill",
+      "category": "filters",
+      "drawable": "ic_gx_filter_generative_fill",
+      "keywords": [
+        "ai generate",
+        "text to image fill"
+      ],
+      "master": "masters/filter-generative-fill.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-glow",
+      "category": "filters",
+      "drawable": "ic_gx_filter_glow",
+      "keywords": [
+        "outer glow",
+        "bloom"
+      ],
+      "master": "masters/filter-glow.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-halftone",
+      "category": "filters",
+      "drawable": "ic_gx_filter_halftone",
+      "keywords": [
+        "dots",
+        "print screen",
+        "ben-day"
+      ],
+      "master": "masters/filter-halftone.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-lens-flare",
+      "category": "filters",
+      "drawable": "ic_gx_filter_lens_flare",
+      "keywords": [
+        "light leak",
+        "sun flare"
+      ],
+      "master": "masters/filter-lens-flare.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-liquify",
+      "category": "filters",
+      "drawable": "ic_gx_filter_liquify",
+      "keywords": [
+        "push",
+        "warp",
+        "reshape"
+      ],
+      "master": "masters/filter-liquify.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-mosaic",
+      "category": "filters",
+      "drawable": "ic_gx_filter_mosaic",
+      "keywords": [
+        "pixelate",
+        "blocks"
+      ],
+      "master": "masters/filter-mosaic.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-noise-add",
+      "category": "filters",
+      "drawable": "ic_gx_filter_noise_add",
+      "keywords": [
+        "grain",
+        "static",
+        "speckle"
+      ],
+      "master": "masters/filter-noise-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-noise-reduce",
+      "category": "filters",
+      "drawable": "ic_gx_filter_noise_reduce",
+      "keywords": [
+        "denoise",
+        "clean up",
+        "smooth grain"
+      ],
+      "master": "masters/filter-noise-reduce.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-render-clouds",
+      "category": "filters",
+      "drawable": "ic_gx_filter_render_clouds",
+      "keywords": [
+        "procedural sky",
+        "fractal"
+      ],
+      "master": "masters/filter-render-clouds.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-shadow-drop",
+      "category": "filters",
+      "drawable": "ic_gx_filter_shadow_drop",
+      "keywords": [
+        "cast shadow",
+        "depth"
+      ],
+      "master": "masters/filter-shadow-drop.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-shadow-inner",
+      "category": "filters",
+      "drawable": "ic_gx_filter_shadow_inner",
+      "keywords": [
+        "inset shadow",
+        "recessed"
+      ],
+      "master": "masters/filter-shadow-inner.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-sharpen-unsharp",
+      "category": "filters",
+      "drawable": "ic_gx_filter_sharpen_unsharp",
+      "keywords": [
+        "edge contrast",
+        "unsharp mask"
+      ],
+      "master": "masters/filter-sharpen-unsharp.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-sky-replace",
+      "category": "filters",
+      "drawable": "ic_gx_filter_sky_replace",
+      "keywords": [
+        "ai sky",
+        "replace background"
+      ],
+      "master": "masters/filter-sky-replace.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-smart-radius",
+      "category": "filters",
+      "drawable": "ic_gx_filter_smart_radius",
+      "keywords": [
+        "adaptive edge",
+        "AI mask edge"
+      ],
+      "master": "masters/filter-smart-radius.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-stroke-outline",
+      "category": "filters",
+      "drawable": "ic_gx_filter_stroke_outline",
+      "keywords": [
+        "outline effect",
+        "border"
+      ],
+      "master": "masters/filter-stroke-outline.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-vanishing-point",
+      "category": "filters",
+      "drawable": "ic_gx_filter_vanishing_point",
+      "keywords": [
+        "perspective clone",
+        "3d plane"
+      ],
+      "master": "masters/filter-vanishing-point.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "filter-vignette-post",
+      "category": "filters",
+      "drawable": "ic_gx_filter_vignette_post",
+      "keywords": [
+        "darken corners",
+        "frame edge"
+      ],
+      "master": "masters/filter-vignette-post.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "anchor-convert",
+      "category": "vector",
+      "drawable": "ic_gx_anchor_convert",
+      "keywords": [
+        "corner smooth toggle",
+        "convert point"
+      ],
+      "master": "masters/anchor-convert.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "boolean-exclude",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_exclude",
+      "keywords": [
+        "pathfinder exclude"
+      ],
+      "master": "masters/boolean-exclude.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "boolean-intersect",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_intersect",
+      "keywords": [
+        "pathfinder intersect"
+      ],
+      "master": "masters/boolean-intersect.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "boolean-minus",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_minus",
+      "keywords": [
+        "pathfinder subtract",
+        "minus front"
+      ],
+      "master": "masters/boolean-minus.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "boolean-unite",
+      "category": "vector",
+      "drawable": "ic_gx_boolean_unite",
+      "keywords": [
+        "pathfinder add",
+        "merge shapes"
+      ],
+      "master": "masters/boolean-unite.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "clipping-mask-vector",
+      "category": "vector",
+      "drawable": "ic_gx_clipping_mask_vector",
+      "keywords": [
+        "crop to shape",
+        "clip path"
+      ],
+      "master": "masters/clipping-mask-vector.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "compound-path",
+      "category": "vector",
+      "drawable": "ic_gx_compound_path",
+      "keywords": [
+        "make compound",
+        "holes"
+      ],
+      "master": "masters/compound-path.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "guide-ruler",
+      "category": "vector",
+      "drawable": "ic_gx_guide_ruler",
+      "keywords": [
+        "smart guide",
+        "snap"
+      ],
+      "master": "masters/guide-ruler.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "handle-asymmetric",
+      "category": "vector",
+      "drawable": "ic_gx_handle_asymmetric",
+      "keywords": [
+        "broken handles",
+        "independent tangent"
+      ],
+      "master": "masters/handle-asymmetric.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "handle-symmetric",
+      "category": "vector",
+      "drawable": "ic_gx_handle_symmetric",
+      "keywords": [
+        "smooth handles",
+        "mirrored tangent"
+      ],
+      "master": "masters/handle-symmetric.svg",
+      "ruled": false,
+      "source": "phosphor/bezier-curve"
+    },
+    {
+      "key": "path-close",
+      "category": "vector",
+      "drawable": "ic_gx_path_close",
+      "keywords": [
+        "closed path",
+        "join ends"
+      ],
+      "master": "masters/path-close.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-eraser-vector",
+      "category": "vector",
+      "drawable": "ic_gx_path_eraser_vector",
+      "keywords": [
+        "vector eraser",
+        "erase path"
+      ],
+      "master": "masters/path-eraser-vector.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "path-knife",
+      "category": "vector",
+      "drawable": "ic_gx_path_knife",
+      "keywords": [
+        "cut shape",
+        "slice"
+      ],
+      "master": "masters/path-knife.svg",
+      "ruled": false,
+      "source": "phosphor/scissors"
+    },
+    {
+      "key": "path-offset",
+      "category": "vector",
+      "drawable": "ic_gx_path_offset",
+      "keywords": [
+        "parallel copy",
+        "grow path"
+      ],
+      "master": "masters/path-offset.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-open",
+      "category": "vector",
+      "drawable": "ic_gx_path_open",
+      "keywords": [
+        "cut path",
+        "scissors"
+      ],
+      "master": "masters/path-open.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-outline-stroke",
+      "category": "vector",
+      "drawable": "ic_gx_path_outline_stroke",
+      "keywords": [
+        "stroke to fill",
+        "expand stroke"
+      ],
+      "master": "masters/path-outline-stroke.svg",
+      "ruled": false,
+      "source": "phosphor/path"
+    },
+    {
+      "key": "path-reverse",
+      "category": "vector",
+      "drawable": "ic_gx_path_reverse",
+      "keywords": [
+        "flip direction",
+        "winding"
+      ],
+      "master": "masters/path-reverse.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-select-direct",
+      "category": "vector",
+      "drawable": "ic_gx_path_select_direct",
+      "keywords": [
+        "white arrow",
+        "edit anchors"
+      ],
+      "master": "masters/path-select-direct.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-select-group",
+      "category": "vector",
+      "drawable": "ic_gx_path_select_group",
+      "keywords": [
+        "black arrow",
+        "select object"
+      ],
+      "master": "masters/path-select-group.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-simplify",
+      "category": "vector",
+      "drawable": "ic_gx_path_simplify",
+      "keywords": [
+        "reduce points",
+        "clean path"
+      ],
+      "master": "masters/path-simplify.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "path-width",
+      "category": "vector",
+      "drawable": "ic_gx_path_width",
+      "keywords": [
+        "variable width",
+        "width profile"
+      ],
+      "master": "masters/path-width.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "pen",
+      "category": "vector",
+      "drawable": "ic_gx_pen",
+      "keywords": [
+        "bezier",
+        "path tool",
+        "draw vector"
+      ],
+      "master": "masters/pen.svg",
+      "ruled": false,
+      "source": "phosphor/pen-nib-straight"
+    },
+    {
+      "key": "pen-add",
+      "category": "vector",
+      "drawable": "ic_gx_pen_add",
+      "keywords": [
+        "add anchor",
+        "insert point"
+      ],
+      "master": "masters/pen-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "pen-remove",
+      "category": "vector",
+      "drawable": "ic_gx_pen_remove",
+      "keywords": [
+        "delete anchor",
+        "remove point"
+      ],
+      "master": "masters/pen-remove.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "shape-line",
+      "category": "vector",
+      "drawable": "ic_gx_shape_line",
+      "keywords": [
+        "straight segment",
+        "line tool"
+      ],
+      "master": "masters/shape-line.svg",
+      "ruled": false,
+      "source": "phosphor/line-segment"
+    },
+    {
+      "key": "shape-polygon",
+      "category": "vector",
+      "drawable": "ic_gx_shape_polygon",
+      "keywords": [
+        "vector polygon",
+        "n sides"
+      ],
+      "master": "masters/shape-polygon.svg",
+      "ruled": false,
+      "source": "phosphor/polygon"
+    },
+    {
+      "key": "shape-rectangle",
+      "category": "vector",
+      "drawable": "ic_gx_shape_rectangle",
+      "keywords": [
+        "vector rect",
+        "live shape"
+      ],
+      "master": "masters/shape-rectangle.svg",
+      "ruled": false,
+      "source": "phosphor/rectangle"
+    },
+    {
+      "key": "shape-spiral",
+      "category": "vector",
+      "drawable": "ic_gx_shape_spiral",
+      "keywords": [
+        "vector spiral",
+        "coil"
+      ],
+      "master": "masters/shape-spiral.svg",
+      "ruled": false,
+      "source": "phosphor/spiral"
+    },
+    {
+      "key": "shape-star",
+      "category": "vector",
+      "drawable": "ic_gx_shape_star",
+      "keywords": [
+        "vector star",
+        "points"
+      ],
+      "master": "masters/shape-star.svg",
+      "ruled": false,
+      "source": "phosphor/star"
+    },
+    {
+      "key": "trace-image",
+      "category": "vector",
+      "drawable": "ic_gx_trace_image",
+      "keywords": [
+        "image trace",
+        "raster to vector"
+      ],
+      "master": "masters/trace-image.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "vectorize",
+      "category": "vector",
+      "drawable": "ic_gx_vectorize",
+      "keywords": [
+        "auto vector",
+        "convert to path"
+      ],
+      "master": "masters/vectorize.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "baseline-shift",
+      "category": "type",
+      "drawable": "ic_gx_baseline_shift",
+      "keywords": [
+        "raise lower glyph"
+      ],
+      "master": "masters/baseline-shift.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "find-replace-text",
+      "category": "type",
+      "drawable": "ic_gx_find_replace_text",
+      "keywords": [
+        "search text",
+        "swap words"
+      ],
+      "master": "masters/find-replace-text.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "font-family",
+      "category": "type",
+      "drawable": "ic_gx_font_family",
+      "keywords": [
+        "typeface",
+        "font picker"
+      ],
+      "master": "masters/font-family.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "font-size",
+      "category": "type",
+      "drawable": "ic_gx_font_size",
+      "keywords": [
+        "point size",
+        "text scale"
+      ],
+      "master": "masters/font-size.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "font-weight",
+      "category": "type",
+      "drawable": "ic_gx_font_weight",
+      "keywords": [
+        "bold",
+        "font weight axis"
+      ],
+      "master": "masters/font-weight.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "glyphs-panel",
+      "category": "type",
+      "drawable": "ic_gx_glyphs_panel",
+      "keywords": [
+        "special characters",
+        "ligatures"
+      ],
+      "master": "masters/glyphs-panel.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "kerning",
+      "category": "type",
+      "drawable": "ic_gx_kerning",
+      "keywords": [
+        "letter spacing pair",
+        "AV"
+      ],
+      "master": "masters/kerning.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "leading",
+      "category": "type",
+      "drawable": "ic_gx_leading",
+      "keywords": [
+        "line spacing",
+        "row gap"
+      ],
+      "master": "masters/leading.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "paragraph-align-center",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_center",
+      "keywords": [
+        "centre text"
+      ],
+      "master": "masters/paragraph-align-center.svg",
+      "ruled": false,
+      "source": "phosphor/text-align-center"
+    },
+    {
+      "key": "paragraph-align-left",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_left",
+      "keywords": [
+        "justify left"
+      ],
+      "master": "masters/paragraph-align-left.svg",
+      "ruled": false,
+      "source": "phosphor/text-align-left"
+    },
+    {
+      "key": "paragraph-align-right",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_align_right",
+      "keywords": [
+        "justify right"
+      ],
+      "master": "masters/paragraph-align-right.svg",
+      "ruled": false,
+      "source": "phosphor/text-align-right"
+    },
+    {
+      "key": "paragraph-indent",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_indent",
+      "keywords": [
+        "first line indent"
+      ],
+      "master": "masters/paragraph-indent.svg",
+      "ruled": false,
+      "source": "phosphor/text-indent"
+    },
+    {
+      "key": "paragraph-justify",
+      "category": "type",
+      "drawable": "ic_gx_paragraph_justify",
+      "keywords": [
+        "full justify"
+      ],
+      "master": "masters/paragraph-justify.svg",
+      "ruled": false,
+      "source": "phosphor/text-align-justify"
+    },
+    {
+      "key": "spell-check",
+      "category": "type",
+      "drawable": "ic_gx_spell_check",
+      "keywords": [
+        "proofing",
+        "typo underline"
+      ],
+      "master": "masters/spell-check.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "text-color",
+      "category": "type",
+      "drawable": "ic_gx_text_color",
+      "keywords": [
+        "font colour",
+        "fill text"
+      ],
+      "master": "masters/text-color.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "text-outline-convert",
+      "category": "type",
+      "drawable": "ic_gx_text_outline_convert",
+      "keywords": [
+        "create outlines",
+        "text to shape"
+      ],
+      "master": "masters/text-outline-convert.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "tracking",
+      "category": "type",
+      "drawable": "ic_gx_tracking",
+      "keywords": [
+        "letter spacing all",
+        "expand"
+      ],
+      "master": "masters/tracking.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type",
+      "category": "type",
+      "drawable": "ic_gx_type",
+      "keywords": [
+        "text tool",
+        "add text"
+      ],
+      "master": "masters/type.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-allcaps",
+      "category": "type",
+      "drawable": "ic_gx_type_allcaps",
+      "keywords": [
+        "uppercase",
+        "caps lock"
+      ],
+      "master": "masters/type-allcaps.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "type-area",
+      "category": "type",
+      "drawable": "ic_gx_type_area",
+      "keywords": [
+        "area text",
+        "text in shape"
+      ],
+      "master": "masters/type-area.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-bold",
+      "category": "type",
+      "drawable": "ic_gx_type_bold",
+      "keywords": [
+        "strong",
+        "b"
+      ],
+      "master": "masters/type-bold.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-italic",
+      "category": "type",
+      "drawable": "ic_gx_type_italic",
+      "keywords": [
+        "oblique",
+        "i"
+      ],
+      "master": "masters/type-italic.svg",
+      "ruled": false,
+      "source": "phosphor/text-italic"
+    },
+    {
+      "key": "type-mask",
+      "category": "type",
+      "drawable": "ic_gx_type_mask",
+      "keywords": [
+        "type selection",
+        "text as selection"
+      ],
+      "master": "masters/type-mask.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "type-path",
+      "category": "type",
+      "drawable": "ic_gx_type_path",
+      "keywords": [
+        "text on path",
+        "curved type"
+      ],
+      "master": "masters/type-path.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-point",
+      "category": "type",
+      "drawable": "ic_gx_type_point",
+      "keywords": [
+        "point text",
+        "click to type"
+      ],
+      "master": "masters/type-point.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-strikethrough",
+      "category": "type",
+      "drawable": "ic_gx_type_strikethrough",
+      "keywords": [
+        "s",
+        "strike"
+      ],
+      "master": "masters/type-strikethrough.svg",
+      "ruled": false,
+      "source": "phosphor/text-strikethrough"
+    },
+    {
+      "key": "type-subscript",
+      "category": "type",
+      "drawable": "ic_gx_type_subscript",
+      "keywords": [
+        "index",
+        "lowered"
+      ],
+      "master": "masters/type-subscript.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-superscript",
+      "category": "type",
+      "drawable": "ic_gx_type_superscript",
+      "keywords": [
+        "exponent",
+        "raised"
+      ],
+      "master": "masters/type-superscript.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-underline",
+      "category": "type",
+      "drawable": "ic_gx_type_underline",
+      "keywords": [
+        "u"
+      ],
+      "master": "masters/type-underline.svg",
+      "ruled": false,
+      "source": "phosphor/text-underline"
+    },
+    {
+      "key": "type-vertical",
+      "category": "type",
+      "drawable": "ic_gx_type_vertical",
+      "keywords": [
+        "vertical text",
+        "top to bottom"
+      ],
+      "master": "masters/type-vertical.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "type-warp",
+      "category": "type",
+      "drawable": "ic_gx_type_warp",
+      "keywords": [
+        "distort text",
+        "arc text"
+      ],
+      "master": "masters/type-warp.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "align-bottom",
+      "category": "transform",
+      "drawable": "ic_gx_align_bottom",
+      "keywords": [
+        "align objects bottom"
+      ],
+      "master": "masters/align-bottom.svg",
+      "ruled": false,
+      "source": "phosphor/align-bottom-simple"
+    },
+    {
+      "key": "align-center-h",
+      "category": "transform",
+      "drawable": "ic_gx_align_center_h",
+      "keywords": [
+        "align objects centre horizontal"
+      ],
+      "master": "masters/align-center-h.svg",
+      "ruled": false,
+      "source": "phosphor/align-center-horizontal-simple"
+    },
+    {
+      "key": "align-left",
+      "category": "transform",
+      "drawable": "ic_gx_align_left",
+      "keywords": [
+        "align objects left"
+      ],
+      "master": "masters/align-left.svg",
+      "ruled": false,
+      "source": "phosphor/align-left-simple"
+    },
+    {
+      "key": "align-middle-v",
+      "category": "transform",
+      "drawable": "ic_gx_align_middle_v",
+      "keywords": [
+        "align objects centre vertical"
+      ],
+      "master": "masters/align-middle-v.svg",
+      "ruled": false,
+      "source": "phosphor/align-center-vertical-simple"
+    },
+    {
+      "key": "align-right",
+      "category": "transform",
+      "drawable": "ic_gx_align_right",
+      "keywords": [
+        "align objects right"
+      ],
+      "master": "masters/align-right.svg",
+      "ruled": false,
+      "source": "phosphor/align-right-simple"
+    },
+    {
+      "key": "align-to-artboard",
+      "category": "transform",
+      "drawable": "ic_gx_align_to_artboard",
+      "keywords": [
+        "align to canvas",
+        "align to page"
+      ],
+      "master": "masters/align-to-artboard.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "align-top",
+      "category": "transform",
+      "drawable": "ic_gx_align_top",
+      "keywords": [
+        "align objects top"
+      ],
+      "master": "masters/align-top.svg",
+      "ruled": false,
+      "source": "phosphor/align-top-simple"
+    },
+    {
+      "key": "distort",
+      "category": "transform",
+      "drawable": "ic_gx_distort",
+      "keywords": [
+        "free distort",
+        "perspective corners"
+      ],
+      "master": "masters/distort.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "distribute-horizontal",
+      "category": "transform",
+      "drawable": "ic_gx_distribute_horizontal",
+      "keywords": [
+        "equal gaps across"
+      ],
+      "master": "masters/distribute-horizontal.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "distribute-vertical",
+      "category": "transform",
+      "drawable": "ic_gx_distribute_vertical",
+      "keywords": [
+        "equal gaps down"
+      ],
+      "master": "masters/distribute-vertical.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "flip-horizontal",
+      "category": "transform",
+      "drawable": "ic_gx_flip_horizontal",
+      "keywords": [
+        "mirror x",
+        "flip left right"
+      ],
+      "master": "masters/flip-horizontal.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "flip-vertical",
+      "category": "transform",
+      "drawable": "ic_gx_flip_vertical",
+      "keywords": [
+        "mirror y",
+        "flip top bottom"
+      ],
+      "master": "masters/flip-vertical.svg",
+      "ruled": false,
+      "source": "phosphor/flip-vertical"
+    },
+    {
+      "key": "move",
+      "category": "transform",
+      "drawable": "ic_gx_move",
+      "keywords": [
+        "position",
+        "pan object",
+        "translate"
+      ],
+      "master": "masters/move.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "perspective-transform",
+      "category": "transform",
+      "drawable": "ic_gx_perspective_transform",
+      "keywords": [
+        "perspective corners linked"
+      ],
+      "master": "masters/perspective-transform.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "puppet-warp",
+      "category": "transform",
+      "drawable": "ic_gx_puppet_warp",
+      "keywords": [
+        "mesh warp",
+        "pin and bend"
+      ],
+      "master": "masters/puppet-warp.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "reset-transform",
+      "category": "transform",
+      "drawable": "ic_gx_reset_transform",
+      "keywords": [
+        "clear transform",
+        "original state"
+      ],
+      "master": "masters/reset-transform.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rotate",
+      "category": "transform",
+      "drawable": "ic_gx_rotate",
+      "keywords": [
+        "turn",
+        "spin object"
+      ],
+      "master": "masters/rotate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rotate-180",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_180",
+      "keywords": [
+        "half turn"
+      ],
+      "master": "masters/rotate-180.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rotate-90-ccw",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_90_ccw",
+      "keywords": [
+        "quarter turn left"
+      ],
+      "master": "masters/rotate-90-ccw.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rotate-90-cw",
+      "category": "transform",
+      "drawable": "ic_gx_rotate_90_cw",
+      "keywords": [
+        "quarter turn right"
+      ],
+      "master": "masters/rotate-90-cw.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "scale",
+      "category": "transform",
+      "drawable": "ic_gx_scale",
+      "keywords": [
+        "resize",
+        "free transform"
+      ],
+      "master": "masters/scale.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "scale-proportional",
+      "category": "transform",
+      "drawable": "ic_gx_scale_proportional",
+      "keywords": [
+        "lock aspect",
+        "uniform scale"
+      ],
+      "master": "masters/scale-proportional.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "skew",
+      "category": "transform",
+      "drawable": "ic_gx_skew",
+      "keywords": [
+        "shear",
+        "slant"
+      ],
+      "master": "masters/skew.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "smart-guides",
+      "category": "transform",
+      "drawable": "ic_gx_smart_guides",
+      "keywords": [
+        "alignment guides",
+        "magenta lines"
+      ],
+      "master": "masters/smart-guides.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "snap-to-grid",
+      "category": "transform",
+      "drawable": "ic_gx_snap_to_grid",
+      "keywords": [
+        "snap",
+        "grid magnet"
+      ],
+      "master": "masters/snap-to-grid.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "transform-again",
+      "category": "transform",
+      "drawable": "ic_gx_transform_again",
+      "keywords": [
+        "repeat transform"
+      ],
+      "master": "masters/transform-again.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "bleed-marks",
+      "category": "document",
+      "drawable": "ic_gx_bleed_marks",
+      "keywords": [
+        "print bleed",
+        "trim marks"
+      ],
+      "master": "masters/bleed-marks.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "canvas-size",
+      "category": "document",
+      "drawable": "ic_gx_canvas_size",
+      "keywords": [
+        "resize canvas",
+        "expand document"
+      ],
+      "master": "masters/canvas-size.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "crop",
+      "category": "document",
+      "drawable": "ic_gx_crop",
+      "keywords": [
+        "trim",
+        "crop tool"
+      ],
+      "master": "masters/crop.svg",
+      "ruled": false,
+      "source": "phosphor/crop"
+    },
+    {
+      "key": "crop-straighten",
+      "category": "document",
+      "drawable": "ic_gx_crop_straighten",
+      "keywords": [
+        "level horizon",
+        "de-skew"
+      ],
+      "master": "masters/crop-straighten.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "document-close",
+      "category": "document",
+      "drawable": "ic_gx_document_close",
+      "keywords": [
+        "close file"
+      ],
+      "master": "masters/document-close.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "document-new",
+      "category": "document",
+      "drawable": "ic_gx_document_new",
+      "keywords": [
+        "new file",
+        "blank canvas"
+      ],
+      "master": "masters/document-new.svg",
+      "ruled": false,
+      "source": "phosphor/file-plus"
+    },
+    {
+      "key": "document-open",
+      "category": "document",
+      "drawable": "ic_gx_document_open",
+      "keywords": [
+        "open file"
+      ],
+      "master": "masters/document-open.svg",
+      "ruled": false,
+      "source": "phosphor/folder-open"
+    },
+    {
+      "key": "document-properties",
+      "category": "document",
+      "drawable": "ic_gx_document_properties",
+      "keywords": [
+        "file info",
+        "metadata"
+      ],
+      "master": "masters/document-properties.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "document-revert",
+      "category": "document",
+      "drawable": "ic_gx_document_revert",
+      "keywords": [
+        "revert to saved",
+        "discard changes"
+      ],
+      "master": "masters/document-revert.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "document-save",
+      "category": "document",
+      "drawable": "ic_gx_document_save",
+      "keywords": [
+        "save file"
+      ],
+      "master": "masters/document-save.svg",
+      "ruled": false,
+      "source": "phosphor/floppy-disk"
+    },
+    {
+      "key": "document-save-as",
+      "category": "document",
+      "drawable": "ic_gx_document_save_as",
+      "keywords": [
+        "save copy",
+        "duplicate file"
+      ],
+      "master": "masters/document-save-as.svg",
+      "ruled": false,
+      "source": "phosphor/floppy-disk-back"
+    },
+    {
+      "key": "full-screen",
+      "category": "document",
+      "drawable": "ic_gx_full_screen",
+      "keywords": [
+        "immersive mode",
+        "hide panels"
+      ],
+      "master": "masters/full-screen.svg",
+      "ruled": false,
+      "source": "phosphor/corners-out"
+    },
+    {
+      "key": "grid-overlay",
+      "category": "document",
+      "drawable": "ic_gx_grid_overlay",
+      "keywords": [
+        "pixel grid",
+        "show grid"
+      ],
+      "master": "masters/grid-overlay.svg",
+      "ruled": false,
+      "source": "phosphor/grid-four"
+    },
+    {
+      "key": "guides",
+      "category": "document",
+      "drawable": "ic_gx_guides",
+      "keywords": [
+        "ruler guides",
+        "drag out guide"
+      ],
+      "master": "masters/guides.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "image-size",
+      "category": "document",
+      "drawable": "ic_gx_image_size",
+      "keywords": [
+        "resize image",
+        "resample"
+      ],
+      "master": "masters/image-size.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "multi-window",
+      "category": "document",
+      "drawable": "ic_gx_multi_window",
+      "keywords": [
+        "new window",
+        "second view"
+      ],
+      "master": "masters/multi-window.svg",
+      "ruled": false,
+      "source": "phosphor/monitor"
+    },
+    {
+      "key": "pan-hand",
+      "category": "document",
+      "drawable": "ic_gx_pan_hand",
+      "keywords": [
+        "hand tool",
+        "scroll canvas"
+      ],
+      "master": "masters/pan-hand.svg",
+      "ruled": false,
+      "source": "phosphor/hand"
+    },
+    {
+      "key": "resample",
+      "category": "document",
+      "drawable": "ic_gx_resample",
+      "keywords": [
+        "interpolation",
+        "pixel resample"
+      ],
+      "master": "masters/resample.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rotate-view",
+      "category": "document",
+      "drawable": "ic_gx_rotate_view",
+      "keywords": [
+        "rotate canvas view"
+      ],
+      "master": "masters/rotate-view.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "rulers",
+      "category": "document",
+      "drawable": "ic_gx_rulers",
+      "keywords": [
+        "measurement guides",
+        "show rulers"
+      ],
+      "master": "masters/rulers.svg",
+      "ruled": false,
+      "source": "phosphor/ruler"
+    },
+    {
+      "key": "split-view",
+      "category": "document",
+      "drawable": "ic_gx_split_view",
+      "keywords": [
+        "compare",
+        "before after"
+      ],
+      "master": "masters/split-view.svg",
+      "ruled": false,
+      "source": "phosphor/corners-in"
+    },
+    {
+      "key": "thumbnails",
+      "category": "document",
+      "drawable": "ic_gx_thumbnails",
+      "keywords": [
+        "gallery",
+        "grid view"
+      ],
+      "master": "masters/thumbnails.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "view-actual-colors",
+      "category": "document",
+      "drawable": "ic_gx_view_actual_colors",
+      "keywords": [
+        "proof colours",
+        "soft proof"
+      ],
+      "master": "masters/view-actual-colors.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "view-cmyk-preview",
+      "category": "document",
+      "drawable": "ic_gx_view_cmyk_preview",
+      "keywords": [
+        "gamut warning",
+        "print preview"
+      ],
+      "master": "masters/view-cmyk-preview.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "zoom-100",
+      "category": "document",
+      "drawable": "ic_gx_zoom_100",
+      "keywords": [
+        "actual size",
+        "print size"
+      ],
+      "master": "masters/zoom-100.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "zoom-fit",
+      "category": "document",
+      "drawable": "ic_gx_zoom_fit",
+      "keywords": [
+        "fit to screen",
+        "fit window"
+      ],
+      "master": "masters/zoom-fit.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "zoom-in",
+      "category": "document",
+      "drawable": "ic_gx_zoom_in",
+      "keywords": [
+        "magnify",
+        "increase view"
+      ],
+      "master": "masters/zoom-in.svg",
+      "ruled": false,
+      "source": "phosphor/magnifying-glass-plus"
+    },
+    {
+      "key": "zoom-out",
+      "category": "document",
+      "drawable": "ic_gx_zoom_out",
+      "keywords": [
+        "shrink",
+        "decrease view"
+      ],
+      "master": "masters/zoom-out.svg",
+      "ruled": false,
+      "source": "phosphor/magnifying-glass-minus"
+    },
+    {
+      "key": "action-play",
+      "category": "history",
+      "drawable": "ic_gx_action_play",
+      "keywords": [
+        "run macro",
+        "play action"
+      ],
+      "master": "masters/action-play.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "action-record",
+      "category": "history",
+      "drawable": "ic_gx_action_record",
+      "keywords": [
+        "record macro",
+        "start recording"
+      ],
+      "master": "masters/action-record.svg",
+      "ruled": false,
+      "source": "phosphor/record"
+    },
+    {
+      "key": "action-stop",
+      "category": "history",
+      "drawable": "ic_gx_action_stop",
+      "keywords": [
+        "stop recording"
+      ],
+      "master": "masters/action-stop.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "actions-panel",
+      "category": "history",
+      "drawable": "ic_gx_actions_panel",
+      "keywords": [
+        "macro",
+        "recorded steps"
+      ],
+      "master": "masters/actions-panel.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "batch-process",
+      "category": "history",
+      "drawable": "ic_gx_batch_process",
+      "keywords": [
+        "run on folder",
+        "bulk action"
+      ],
+      "master": "masters/batch-process.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "checkpoint-restore",
+      "category": "history",
+      "drawable": "ic_gx_checkpoint_restore",
+      "keywords": [
+        "roll back",
+        "go to state"
+      ],
+      "master": "masters/checkpoint-restore.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "clear-history",
+      "category": "history",
+      "drawable": "ic_gx_clear_history",
+      "keywords": [
+        "purge undo stack",
+        "forget states"
+      ],
+      "master": "masters/clear-history.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "history-brush",
+      "category": "history",
+      "drawable": "ic_gx_history_brush",
+      "keywords": [
+        "restore from history",
+        "paint back"
+      ],
+      "master": "masters/history-brush.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "history-panel",
+      "category": "history",
+      "drawable": "ic_gx_history_panel",
+      "keywords": [
+        "state list",
+        "undo stack"
+      ],
+      "master": "masters/history-panel.svg",
+      "ruled": false,
+      "source": "phosphor/clock-counter-clockwise"
+    },
+    {
+      "key": "history-snapshot",
+      "category": "history",
+      "drawable": "ic_gx_history_snapshot",
+      "keywords": [
+        "checkpoint",
+        "save state"
+      ],
+      "master": "masters/history-snapshot.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "redo",
+      "category": "history",
+      "drawable": "ic_gx_redo",
+      "keywords": [
+        "step forward",
+        "ctrl y"
+      ],
+      "master": "masters/redo.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "timer",
+      "category": "history",
+      "drawable": "ic_gx_timer",
+      "keywords": [
+        "duration",
+        "processing time"
+      ],
+      "master": "masters/timer.svg",
+      "ruled": false,
+      "source": "phosphor/timer"
+    },
+    {
+      "key": "undo",
+      "category": "history",
+      "drawable": "ic_gx_undo",
+      "keywords": [
+        "step back",
+        "ctrl z"
+      ],
+      "master": "masters/undo.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "version-compare",
+      "category": "history",
+      "drawable": "ic_gx_version_compare",
+      "keywords": [
+        "diff",
+        "compare states"
+      ],
+      "master": "masters/version-compare.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "export-gif",
+      "category": "animation",
+      "drawable": "ic_gx_export_gif",
+      "keywords": [
+        "animated gif",
+        "loop export"
+      ],
+      "master": "masters/export-gif.svg",
+      "ruled": false,
+      "source": "phosphor/gif"
+    },
+    {
+      "key": "export-video",
+      "category": "animation",
+      "drawable": "ic_gx_export_video",
+      "keywords": [
+        "render animation",
+        "save as video"
+      ],
+      "master": "masters/export-video.svg",
+      "ruled": false,
+      "source": "phosphor/film-strip"
+    },
+    {
+      "key": "frame-add",
+      "category": "animation",
+      "drawable": "ic_gx_frame_add",
+      "keywords": [
+        "new frame",
+        "insert frame"
+      ],
+      "master": "masters/frame-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "frame-delete",
+      "category": "animation",
+      "drawable": "ic_gx_frame_delete",
+      "keywords": [
+        "remove frame"
+      ],
+      "master": "masters/frame-delete.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "frame-duplicate",
+      "category": "animation",
+      "drawable": "ic_gx_frame_duplicate",
+      "keywords": [
+        "copy frame",
+        "hold frame"
+      ],
+      "master": "masters/frame-duplicate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "frame-rate",
+      "category": "animation",
+      "drawable": "ic_gx_frame_rate",
+      "keywords": [
+        "fps",
+        "frames per second"
+      ],
+      "master": "masters/frame-rate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "keyframe",
+      "category": "animation",
+      "drawable": "ic_gx_keyframe",
+      "keywords": [
+        "key state",
+        "diamond marker"
+      ],
+      "master": "masters/keyframe.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "keyframe-add",
+      "category": "animation",
+      "drawable": "ic_gx_keyframe_add",
+      "keywords": [
+        "set key",
+        "record state"
+      ],
+      "master": "masters/keyframe-add.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "loop-playback",
+      "category": "animation",
+      "drawable": "ic_gx_loop_playback",
+      "keywords": [
+        "repeat",
+        "cycle"
+      ],
+      "master": "masters/loop-playback.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "motion-tween",
+      "category": "animation",
+      "drawable": "ic_gx_motion_tween",
+      "keywords": [
+        "interpolate",
+        "in between frames"
+      ],
+      "master": "masters/motion-tween.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "onion-skin",
+      "category": "animation",
+      "drawable": "ic_gx_onion_skin",
+      "keywords": [
+        "ghost frames",
+        "previous next frame"
+      ],
+      "master": "masters/onion-skin.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "pause",
+      "category": "animation",
+      "drawable": "ic_gx_pause",
+      "keywords": [
+        "hold playback"
+      ],
+      "master": "masters/pause.svg",
+      "ruled": false,
+      "source": "phosphor/pause"
+    },
+    {
+      "key": "play",
+      "category": "animation",
+      "drawable": "ic_gx_play",
+      "keywords": [
+        "run",
+        "playback start"
+      ],
+      "master": "masters/play.svg",
+      "ruled": false,
+      "source": "phosphor/play"
+    },
+    {
+      "key": "step-backward",
+      "category": "animation",
+      "drawable": "ic_gx_step_backward",
+      "keywords": [
+        "previous frame"
+      ],
+      "master": "masters/step-backward.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "step-forward",
+      "category": "animation",
+      "drawable": "ic_gx_step_forward",
+      "keywords": [
+        "next frame"
+      ],
+      "master": "masters/step-forward.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "stop",
+      "category": "animation",
+      "drawable": "ic_gx_stop",
+      "keywords": [
+        "end playback"
+      ],
+      "master": "masters/stop.svg",
+      "ruled": false,
+      "source": "phosphor/stop"
+    },
+    {
+      "key": "timeline",
+      "category": "animation",
+      "drawable": "ic_gx_timeline",
+      "keywords": [
+        "frames track",
+        "animation panel"
+      ],
+      "master": "masters/timeline.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "ar-view",
+      "category": "generative",
+      "drawable": "ic_gx_ar_view",
+      "keywords": [
+        "augmented reality",
+        "camera overlay"
+      ],
+      "master": "masters/ar-view.svg",
+      "ruled": false,
+      "source": "phosphor/cube"
+    },
+    {
+      "key": "camera-capture",
+      "category": "generative",
+      "drawable": "ic_gx_camera_capture",
+      "keywords": [
+        "take photo",
+        "reference photo"
+      ],
+      "master": "masters/camera-capture.svg",
+      "ruled": false,
+      "source": "phosphor/camera"
+    },
+    {
+      "key": "edge-detect",
+      "category": "generative",
+      "drawable": "ic_gx_edge_detect",
+      "keywords": [
+        "canny",
+        "outline extraction"
+      ],
+      "master": "masters/edge-detect.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "gallery-import",
+      "category": "generative",
+      "drawable": "ic_gx_gallery_import",
+      "keywords": [
+        "photo library",
+        "import image"
+      ],
+      "master": "masters/gallery-import.svg",
+      "ruled": false,
+      "source": "phosphor/images"
+    },
+    {
+      "key": "generate",
+      "category": "generative",
+      "drawable": "ic_gx_generate",
+      "keywords": [
+        "ai generate",
+        "text to image"
+      ],
+      "master": "masters/generate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "generate-expand",
+      "category": "generative",
+      "drawable": "ic_gx_generate_expand",
+      "keywords": [
+        "ai outpaint",
+        "generative expand"
+      ],
+      "master": "masters/generate-expand.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "generate-remove",
+      "category": "generative",
+      "drawable": "ic_gx_generate_remove",
+      "keywords": [
+        "ai remove",
+        "smart erase"
+      ],
+      "master": "masters/generate-remove.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "generate-variations",
+      "category": "generative",
+      "drawable": "ic_gx_generate_variations",
+      "keywords": [
+        "ai variations",
+        "reroll"
+      ],
+      "master": "masters/generate-variations.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "mural-scale",
+      "category": "generative",
+      "drawable": "ic_gx_mural_scale",
+      "keywords": [
+        "wall scale",
+        "project size"
+      ],
+      "master": "masters/mural-scale.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "prompt",
+      "category": "generative",
+      "drawable": "ic_gx_prompt",
+      "keywords": [
+        "ai text input",
+        "describe"
+      ],
+      "master": "masters/prompt.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "registration-mark",
+      "category": "generative",
+      "drawable": "ic_gx_registration_mark",
+      "keywords": [
+        "alignment target",
+        "print register"
+      ],
+      "master": "masters/registration-mark.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "stencil",
+      "category": "generative",
+      "drawable": "ic_gx_stencil",
+      "keywords": [
+        "screen mask",
+        "spray template"
+      ],
+      "master": "masters/stencil.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "stencil-layers",
+      "category": "generative",
+      "drawable": "ic_gx_stencil_layers",
+      "keywords": [
+        "multi layer stencil",
+        "registration"
+      ],
+      "master": "masters/stencil-layers.svg",
+      "ruled": true,
+      "source": "graffux"
+    },
+    {
+      "key": "style-transfer",
+      "category": "generative",
+      "drawable": "ic_gx_style_transfer",
+      "keywords": [
+        "ai style",
+        "restyle"
+      ],
+      "master": "masters/style-transfer.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "subject-isolate",
+      "category": "generative",
+      "drawable": "ic_gx_subject_isolate",
+      "keywords": [
+        "ml cutout",
+        "background removal"
+      ],
+      "master": "masters/subject-isolate.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "upscale",
+      "category": "generative",
+      "drawable": "ic_gx_upscale",
+      "keywords": [
+        "ai upscale",
+        "super resolution"
+      ],
+      "master": "masters/upscale.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "account",
+      "category": "ui",
+      "drawable": "ic_gx_account",
+      "keywords": [
+        "profile",
+        "user"
+      ],
+      "master": "masters/account.svg",
+      "ruled": false,
+      "source": "phosphor/user-circle"
+    },
+    {
+      "key": "back",
+      "category": "ui",
+      "drawable": "ic_gx_back",
+      "keywords": [
+        "navigate back",
+        "previous screen"
+      ],
+      "master": "masters/back.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "brush-cursor",
+      "category": "ui",
+      "drawable": "ic_gx_brush_cursor",
+      "keywords": [
+        "custom cursor",
+        "tool preview"
+      ],
+      "master": "masters/brush-cursor.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "chevron-down",
+      "category": "ui",
+      "drawable": "ic_gx_chevron_down",
+      "keywords": [
+        "expand",
+        "dropdown"
+      ],
+      "master": "masters/chevron-down.svg",
+      "ruled": false,
+      "source": "phosphor/caret-down"
+    },
+    {
+      "key": "chevron-up",
+      "category": "ui",
+      "drawable": "ic_gx_chevron_up",
+      "keywords": [
+        "collapse",
+        "close dropdown"
+      ],
+      "master": "masters/chevron-up.svg",
+      "ruled": false,
+      "source": "phosphor/caret-up"
+    },
+    {
+      "key": "close",
+      "category": "ui",
+      "drawable": "ic_gx_close",
+      "keywords": [
+        "x",
+        "dismiss",
+        "cancel"
+      ],
+      "master": "masters/close.svg",
+      "ruled": false,
+      "source": "phosphor/x"
+    },
+    {
+      "key": "cloud-offline",
+      "category": "ui",
+      "drawable": "ic_gx_cloud_offline",
+      "keywords": [
+        "no connection",
+        "local only"
+      ],
+      "master": "masters/cloud-offline.svg",
+      "ruled": false,
+      "source": "phosphor/cloud-slash"
+    },
+    {
+      "key": "cloud-sync",
+      "category": "ui",
+      "drawable": "ic_gx_cloud_sync",
+      "keywords": [
+        "backup",
+        "cloud save"
+      ],
+      "master": "masters/cloud-sync.svg",
+      "ruled": false,
+      "source": "phosphor/cloud-check"
+    },
+    {
+      "key": "collaborators",
+      "category": "ui",
+      "drawable": "ic_gx_collaborators",
+      "keywords": [
+        "shared users",
+        "team"
+      ],
+      "master": "masters/collaborators.svg",
+      "ruled": false,
+      "source": "phosphor/users-three"
+    },
+    {
+      "key": "comment",
+      "category": "ui",
+      "drawable": "ic_gx_comment",
+      "keywords": [
+        "annotation",
+        "leave a note"
+      ],
+      "master": "masters/comment.svg",
+      "ruled": false,
+      "source": "phosphor/chat-circle"
+    },
+    {
+      "key": "copy-link",
+      "category": "ui",
+      "drawable": "ic_gx_copy_link",
+      "keywords": [
+        "copy url",
+        "share link"
+      ],
+      "master": "masters/copy-link.svg",
+      "ruled": false,
+      "source": "phosphor/link-simple"
+    },
+    {
+      "key": "download",
+      "category": "ui",
+      "drawable": "ic_gx_download",
+      "keywords": [
+        "save to device",
+        "export local"
+      ],
+      "master": "masters/download.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "error",
+      "category": "ui",
+      "drawable": "ic_gx_error",
+      "keywords": [
+        "failure",
+        "problem"
+      ],
+      "master": "masters/error.svg",
+      "ruled": false,
+      "source": "phosphor/x-circle"
+    },
+    {
+      "key": "forward",
+      "category": "ui",
+      "drawable": "ic_gx_forward",
+      "keywords": [
+        "navigate forward",
+        "next screen"
+      ],
+      "master": "masters/forward.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "gesture-pinch",
+      "category": "ui",
+      "drawable": "ic_gx_gesture_pinch",
+      "keywords": [
+        "two finger zoom"
+      ],
+      "master": "masters/gesture-pinch.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "gesture-two-finger-tap",
+      "category": "ui",
+      "drawable": "ic_gx_gesture_two_finger_tap",
+      "keywords": [
+        "undo gesture",
+        "quick undo"
+      ],
+      "master": "masters/gesture-two-finger-tap.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "help",
+      "category": "ui",
+      "drawable": "ic_gx_help",
+      "keywords": [
+        "question",
+        "support"
+      ],
+      "master": "masters/help.svg",
+      "ruled": false,
+      "source": "phosphor/question"
+    },
+    {
+      "key": "info",
+      "category": "ui",
+      "drawable": "ic_gx_info",
+      "keywords": [
+        "about",
+        "help detail"
+      ],
+      "master": "masters/info.svg",
+      "ruled": false,
+      "source": "phosphor/info"
+    },
+    {
+      "key": "keyboard-shortcut",
+      "category": "ui",
+      "drawable": "ic_gx_keyboard_shortcut",
+      "keywords": [
+        "hotkeys",
+        "key command"
+      ],
+      "master": "masters/keyboard-shortcut.svg",
+      "ruled": false,
+      "source": "phosphor/keyboard"
+    },
+    {
+      "key": "language",
+      "category": "ui",
+      "drawable": "ic_gx_language",
+      "keywords": [
+        "locale",
+        "translate"
+      ],
+      "master": "masters/language.svg",
+      "ruled": false,
+      "source": "phosphor/translate"
+    },
+    {
+      "key": "link-external",
+      "category": "ui",
+      "drawable": "ic_gx_link_external",
+      "keywords": [
+        "open in browser",
+        "outbound"
+      ],
+      "master": "masters/link-external.svg",
+      "ruled": false,
+      "source": "phosphor/arrow-square-out"
+    },
+    {
+      "key": "menu",
+      "category": "ui",
+      "drawable": "ic_gx_menu",
+      "keywords": [
+        "hamburger",
+        "nav rail",
+        "more"
+      ],
+      "master": "masters/menu.svg",
+      "ruled": false,
+      "source": "phosphor/list"
+    },
+    {
+      "key": "more-horizontal",
+      "category": "ui",
+      "drawable": "ic_gx_more_horizontal",
+      "keywords": [
+        "overflow menu",
+        "kebab horizontal"
+      ],
+      "master": "masters/more-horizontal.svg",
+      "ruled": false,
+      "source": "phosphor/dots-three"
+    },
+    {
+      "key": "more-vertical",
+      "category": "ui",
+      "drawable": "ic_gx_more_vertical",
+      "keywords": [
+        "overflow menu",
+        "kebab vertical"
+      ],
+      "master": "masters/more-vertical.svg",
+      "ruled": false,
+      "source": "phosphor/dots-three-vertical"
+    },
+    {
+      "key": "notification",
+      "category": "ui",
+      "drawable": "ic_gx_notification",
+      "keywords": [
+        "bell",
+        "alerts"
+      ],
+      "master": "masters/notification.svg",
+      "ruled": false,
+      "source": "phosphor/bell"
+    },
+    {
+      "key": "search",
+      "category": "ui",
+      "drawable": "ic_gx_search",
+      "keywords": [
+        "find",
+        "magnifier"
+      ],
+      "master": "masters/search.svg",
+      "ruled": false,
+      "source": "phosphor/magnifying-glass"
+    },
+    {
+      "key": "settings",
+      "category": "ui",
+      "drawable": "ic_gx_settings",
+      "keywords": [
+        "preferences",
+        "gear"
+      ],
+      "master": "masters/settings.svg",
+      "ruled": false,
+      "source": "phosphor/gear"
+    },
+    {
+      "key": "share",
+      "category": "ui",
+      "drawable": "ic_gx_share",
+      "keywords": [
+        "send",
+        "export to app"
+      ],
+      "master": "masters/share.svg",
+      "ruled": false,
+      "source": "phosphor/share-network"
+    },
+    {
+      "key": "subscription",
+      "category": "ui",
+      "drawable": "ic_gx_subscription",
+      "keywords": [
+        "upgrade",
+        "pro badge"
+      ],
+      "master": "masters/subscription.svg",
+      "ruled": false,
+      "source": "phosphor/credit-card"
+    },
+    {
+      "key": "success",
+      "category": "ui",
+      "drawable": "ic_gx_success",
+      "keywords": [
+        "done",
+        "confirmed"
+      ],
+      "master": "masters/success.svg",
+      "ruled": false,
+      "source": "phosphor/check-circle"
+    },
+    {
+      "key": "theme-toggle",
+      "category": "ui",
+      "drawable": "ic_gx_theme_toggle",
+      "keywords": [
+        "dark mode",
+        "light mode"
+      ],
+      "master": "masters/theme-toggle.svg",
+      "ruled": false,
+      "source": "phosphor/moon"
+    },
+    {
+      "key": "undo-history-slider",
+      "category": "ui",
+      "drawable": "ic_gx_undo_history_slider",
+      "keywords": [
+        "scrub history",
+        "time slider"
+      ],
+      "master": "masters/undo-history-slider.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "upload",
+      "category": "ui",
+      "drawable": "ic_gx_upload",
+      "keywords": [
+        "import",
+        "add file"
+      ],
+      "master": "masters/upload.svg",
+      "ruled": false,
+      "source": "graffux"
+    },
+    {
+      "key": "warning",
+      "category": "ui",
+      "drawable": "ic_gx_warning",
+      "keywords": [
+        "caution",
+        "alert"
+      ],
+      "master": "masters/warning.svg",
+      "ruled": false,
+      "source": "phosphor/warning"
+    }
+  ]
+}

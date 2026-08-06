@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-flatten — graffux -->
+  <path d="M9 7.7L14.6 10.5L9 13.3L3.4 10.5Z"/>
+  <path d="M18.6 11.4L16.8 7L18.6 8L20.4 7Z"/>
+  <path d="M18.6 13L20.4 17.4L18.6 16.4L16.8 17.4Z"/>
+  <path d="M3.4 13.5L9 16.3L14.6 13.5"/>
+</svg>

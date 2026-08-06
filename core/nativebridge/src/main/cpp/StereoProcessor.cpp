@@ -26,16 +26,16 @@ StereoProcessor::~StereoProcessor() {
 
 void StereoProcessor::processStereo(int8_t* leftData, int8_t* rightData, int width, int height) {
     // Create OpenCV Mats from raw pointers
-    mLeftFrame = cv::Mat(height, width, CV_8UC1, leftData);
-    mRightFrame = cv::Mat(height, width, CV_8UC1, rightData);
+    cv::Mat leftFrame = cv::Mat(height, width, CV_8UC1, leftData);
+    cv::Mat rightFrame = cv::Mat(height, width, CV_8UC1, rightData);
 
-    if (mLeftFrame.empty() || mRightFrame.empty()) {
+    if (leftFrame.empty() || rightFrame.empty()) {
         LOGI("Empty frames passed to StereoProcessor");
         return;
     }
 
     // Compute disparity
-    mStereoMatcher->compute(mLeftFrame, mRightFrame, mDisparityMap);
+    mStereoMatcher->compute(leftFrame, rightFrame, mDisparityMap);
 
     LOGI("Stereo processing complete for %dx%d frame", width, height);
 }

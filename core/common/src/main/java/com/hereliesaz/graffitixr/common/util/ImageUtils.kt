@@ -97,25 +97,13 @@ object ImageUtils {
     suspend fun getBitmapDimensions(context: Context, uri: Uri): Pair<Int, Int> {
         return withContext(Dispatchers.IO) {
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    val source = ImageDecoder.createSource(context.contentResolver, uri)
-                    var width = 0
-                    var height = 0
-                    ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                        width = info.size.width
-                        height = info.size.height
-                        decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE)
-                    }
-                    Pair(width, height)
-                } else {
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                        BitmapFactory.decodeStream(inputStream, null, options)
-                    }
-                    Pair(options.outWidth, options.outHeight)
+                val options = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
                 }
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream, null, options)
+                }
+                Pair(options.outWidth, options.outHeight)
             } catch (e: Exception) {
                 Timber.e(e, "ImageUtils: getBitmapDimensions failed")
                 Pair(0, 0)

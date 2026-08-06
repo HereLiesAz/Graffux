@@ -20,7 +20,6 @@ import com.hereliesaz.graffitixr.design.components.FloatingWindow
  */
 @Composable
 fun AddContentDialog(
-    onAddBlankLayer: () -> Unit,
     onAddText: () -> Unit,
     onAddRectangle: () -> Unit,
     onAddEllipse: () -> Unit,
@@ -31,7 +30,6 @@ fun AddContentDialog(
     onDismiss: () -> Unit,
 ) {
     val choices = listOf(
-        "Blank Layer" to onAddBlankLayer,
         "Text" to onAddText,
         "Rectangle" to onAddRectangle,
         "Ellipse" to onAddEllipse,

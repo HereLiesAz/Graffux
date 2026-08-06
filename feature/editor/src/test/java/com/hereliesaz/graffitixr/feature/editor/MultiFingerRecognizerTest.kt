@@ -57,13 +57,13 @@ class MultiFingerRecognizerTest {
     }
 
     @Test
-    fun `a tap in the old 350-450ms dead zone still fires`() {
+    fun `a tap within max duration fires`() {
         val r = recognizerStartedAt()
         r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 30L, suppressed = false)
 
         assertEquals(
             GestureSlot.TWO_FINGER_TAP,
-            r.onEvent(emptyList(), uptimeMs = 400L, suppressed = false),
+            r.onEvent(emptyList(), uptimeMs = 240L, suppressed = false),
         )
     }
 
@@ -126,11 +126,11 @@ class MultiFingerRecognizerTest {
         val r = recognizerStartedAt()
         r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 30L, suppressed = false)
 
-        assertNull(r.onIdleTick(nowMs = 300L, suppressed = false))
-        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 470L, suppressed = false))
-        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 600L, suppressed = false))
+        assertNull(r.onIdleTick(nowMs = 200L, suppressed = false))
+        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 290L, suppressed = false))
+        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 380L, suppressed = false))
 
-        assertNull(r.onEvent(emptyList(), uptimeMs = 700L, suppressed = false))
+        assertNull(r.onEvent(emptyList(), uptimeMs = 500L, suppressed = false))
     }
 
     @Test

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/shape-rectangle — phosphor/rectangle -->
+  <path d="M17.94 6.33H6.06A0.81 0.81 0 0 0 5.25 7.14V16.86a0.81 0.81 0 0 0 0.81 0.81H17.94a0.81 0.81 0 0 0 0.81-0.81V7.14A0.81 0.81 0 0 0 17.94 6.33Zm0.27 10.53a0.27 0.27 0 0 1-0.27 0.27H6.06a0.27 0.27 0 0 1-0.27-0.27V7.14a0.27 0.27 0 0 1 0.27-0.27H17.94a0.27 0.27 0 0 1 0.27 0.27Z" fill="currentColor" stroke="none"/>
+</svg>

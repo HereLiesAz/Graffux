@@ -224,7 +224,7 @@ class EditorReducerTest {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.RemoveLayerById("a"))
         assertEquals(listOf("b"), out.layers.map { it.id })
-        assertEquals("a", out.activeLayerId) // unchanged, unlike RemoveLayer
+        assertEquals("b", out.activeLayerId)
     }
 
     @Test

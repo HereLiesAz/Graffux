@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/filter-noise-reduce — graffux -->
+  <path d="M4.4 4.4H19.6V19.6H4.4Z"/>
+  <path d="M6.6 15.4H17.4"/>
+  <path d="M7.4 7.6A0.6 0.6 0 1 0 8.6 7.6A0.6 0.6 0 1 0 7.4 7.6Z" fill="currentColor" stroke="none"/>
+  <path d="M12.9 6.6A0.5 0.5 0 1 0 13.9 6.6A0.5 0.5 0 1 0 12.9 6.6Z" fill="currentColor" stroke="none"/>
+  <path d="M15.8 10A0.6 0.6 0 1 0 17 10A0.6 0.6 0 1 0 15.8 10Z" fill="currentColor" stroke="none"/>
+  <path d="M9.5 11.4A0.5 0.5 0 1 0 10.5 11.4A0.5 0.5 0 1 0 9.5 11.4Z" fill="currentColor" stroke="none"/>
+</svg>

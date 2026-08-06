@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/select-reselect — graffux -->
+  <path d="M11.6 7.2L16.35 7.21L14.56 8.42L14.98 10.54Z"/>
+  <path d="M15 8.6L15.67 8.88"/>
+  <path d="M4 4H8"/>
+  <path d="M10 4H14"/>
+  <path d="M16 4H20"/>
+  <path d="M20 4V8"/>
+  <path d="M20 10V14"/>
+  <path d="M20 16V20"/>
+  <path d="M20 20H16"/>
+  <path d="M14 20H10"/>
+  <path d="M8 20H4"/>
+  <path d="M4 20V16"/>
+  <path d="M4 14V10"/>
+  <path d="M4 8V4"/>
+  <path d="M14.6 12A2.6 2.6 0 1 1 12 9.4"/>
+</svg>

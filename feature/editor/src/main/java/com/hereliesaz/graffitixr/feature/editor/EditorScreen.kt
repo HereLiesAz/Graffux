@@ -348,13 +348,13 @@ fun EditorScreen(
         if (uiState.activeTool == Tool.SELECT) {
             SelectionCanvas(
                 selection = uiState.selection,
+                shape = uiState.selectionShape,
+                op = uiState.selectionOp,
                 gate = strokeGate,
-                viewportOffset = uiState.viewportOffset,
-                viewportZoom = uiState.viewportZoom,
-                viewportRotation = uiState.viewportRotation,
                 modifier = Modifier.fillMaxSize(),
                 onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
                 onSelectionMove = { delta -> vm.onSelectionMove(delta) },
+                onAutoSelect = { at, size -> vm.onAutoSelect(at, size) },
                 onClearSelection = { vm.onClearSelection() },
             )
         }
@@ -363,13 +363,7 @@ fun EditorScreen(
         // tool — the selection keeps clipping the brush after you switch back to it, so hiding the
         // outline would leave strokes mysteriously stopping at an invisible edge.
         uiState.selection?.let { sel ->
-            SelectionMarquee(
-                selection = sel,
-                viewportOffset = uiState.viewportOffset,
-                viewportZoom = uiState.viewportZoom,
-                viewportRotation = uiState.viewportRotation,
-                modifier = Modifier.fillMaxSize()
-            )
+            SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
         }
 
         // 3a-quater. Clone's source reticle. Shown only while the tool is active, because it marks

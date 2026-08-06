@@ -62,6 +62,17 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
         redoStack.clear()
     }
 
+    fun referencedLayerIds(): Set<String> {
+        val set = mutableSetOf<String>()
+        (undoStack + redoStack).forEach { cmd ->
+            when (cmd) {
+                is EditCommand.Draw -> set.add(cmd.layerId)
+                is EditCommand.PropertyChange -> cmd.oldLayers.forEach { set.add(it.id) }
+            }
+        }
+        return set
+    }
+
     private fun trim() {
         if (undoStack.size > maxStackSize) undoStack.removeFirst()
     }

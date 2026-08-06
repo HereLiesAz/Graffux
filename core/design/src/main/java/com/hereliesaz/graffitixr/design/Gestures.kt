@@ -52,13 +52,21 @@ suspend fun PointerInputScope.detectSmartOverlayGestures(
                 rotation += rotationChange
                 pan += panChange
 
-                // calculateRotation() already returns degrees; the old `rotation * 180/PI`
-                // treated the accumulated degrees as radians and tripped the slop ~57x too early.
                 val rotationDegrees = abs(rotation)
                 val panAmount = pan.getDistance()
 
                 if (zoom > 1.1f || zoom < 0.9f || rotationDegrees > 10.0 || panAmount > touchSlop) {
                     pastTouchSlop = true
+                    // First frame crossing touch slop: pass the full accumulated movement
+                    // so the initial 10 deg / 10% zoom / slop pan isn't dropped.
+                    val centroid = event.calculateCentroid(useCurrent = false)
+                    onGesture(centroid, pan, zoom, rotation)
+                    pointerInputChanges.forEach {
+                        if (it.positionChanged()) {
+                            it.consume()
+                        }
+                    }
+                    continue
                 }
             }
 

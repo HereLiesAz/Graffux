@@ -31,6 +31,7 @@ object YuvConverter {
      * conversion + bitmap write to native.
      */
     fun yuvToRgbaBitmap(image: Image, out: Bitmap) {
+        require(image.planes.size >= 3) { "image must have at least 3 planes (YUV_420_888)" }
         require(out.config == Bitmap.Config.ARGB_8888) { "out must be ARGB_8888" }
         require(out.width == image.width && out.height == image.height) {
             "out bitmap ${out.width}x${out.height} does not match image ${image.width}x${image.height}"

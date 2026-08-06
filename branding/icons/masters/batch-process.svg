@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/batch-process — graffux -->
+  <path d="M20.8 17.2L16.4 19L17.6 17.2L16.4 15.4Z" fill="currentColor"/>
+  <path d="M4.4 8H12.4V16H4.4Z"/>
+  <path d="M7.2 5.6H15.2V13.6"/>
+  <path d="M10 3.2H18V11.2"/>
+</svg>

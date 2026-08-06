@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/font-family — graffux -->
+  <defs>
+    <pattern id="gfxHatch-font-family" patternUnits="userSpaceOnUse"
+             width="4.2" height="1.05">
+      <line x1="0" y1="0.294" x2="4.2" y2="0.294"
+            stroke="currentColor" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+  <path d="M19.89 17.75V16.28C19.15 17.38 18.05 18.03 16.58 18.03C14.55 18.03 13.26 16.83 13.26 15.08C13.26 12.88 15.1 11.77 18.42 11.31L19.8 11.13V10.58C19.8 9.1 19.06 8.37 17.59 8.37C16.3 8.37 15.47 8.92 15.1 10.12L13.82 9.75C14.37 8 15.75 7.17 17.68 7.17C20.16 7.17 21.18 8.37 21.18 10.76V17.75ZM19.8 12.23L18.6 12.42C16.12 12.78 14.64 13.52 14.64 14.99C14.64 16.1 15.47 16.83 16.76 16.83C18.6 16.83 19.8 15.64 19.8 13.8Z" fill="url(#gfxHatch-font-family)"/>
+  <path d="M2.82 19.2L4.11 19.2L5.77 14.78H11.29L12.94 19.2H14.42L9.17 5.4H7.98ZM6.23 13.59L8.53 7.42L10.83 13.59Z"/>
+</svg>

@@ -146,25 +146,6 @@ fun TextEditDialog(
                     }
                 }
 
-                // Alignment controls
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AzButton(
-                        text = "Align Left",
-                        onClick = { onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
-                    )
-                    AzButton(
-                        text = "Align Center",
-                        onClick = { onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
-                    )
-                    AzButton(
-                        text = "Align Right",
-                        onClick = { onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
-                    )
-                }
-
                 // Bold / italic / outline / drop-shadow toggles.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AzButton(

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/layer-merge-visible — graffux -->
+  <path d="M12 16.6L17.6 19.4L12 22.2L6.4 19.4Z" fill="currentColor"/>
+  <path d="M9 2.8L14.6 5.6L9 8.4L3.4 5.6Z"/>
+  <path d="M15 7.2L20.6 10L15 12.8L9.4 10Z"/>
+  <path d="M12 14V16.4"/>
+</svg>

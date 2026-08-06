@@ -129,12 +129,9 @@ class ProjectRepositoryImpl @Inject constructor(
         val tmp = File(root, "$filename.tmp")
         tmp.writeBytes(data)
         if (!tmp.renameTo(file)) {
-            file.delete()
-            if (!tmp.renameTo(file)) {
-                file.writeBytes(data)
-                tmp.delete()
-            }
+            tmp.copyTo(file, overwrite = true)
         }
+        if (tmp.exists()) tmp.delete()
         file.absolutePath
     }
 

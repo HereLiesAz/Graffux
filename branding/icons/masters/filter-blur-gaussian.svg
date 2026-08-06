@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24" fill="none" stroke="currentColor"
+     stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- graffux/filter-blur-gaussian — graffux -->
+  <path d="M12 4.2A7.8 7.8 0 1 0 12 19.8A7.8 7.8 0 1 0 12 4.2Z"/>
+  <path d="M12 6.4A5.6 5.6 0 1 0 12 17.6A5.6 5.6 0 1 0 12 6.4Z"/>
+  <path d="M12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z"/>
+</svg>
