@@ -3,7 +3,6 @@ package com.hereliesaz.graffux
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -134,32 +133,17 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Extracts a single image [Uri] from an inbound share/view intent, or null if this launch isn't one.
+ * Extracts a single image [Uri] from an inbound share/view intent, or null if this launch isn't one.[span_4](start_span)[span_4](end_span)
  */
 private fun incomingImageUri(intent: Intent?): Uri? {
     if (intent == null) return null
-    val type = intent.type
-    val isImage = type == null || type.startsWith("image/") || type == "*/*"
+    val isImage = intent.type?.startsWith("image/") == true
     return when (intent.action) {
         Intent.ACTION_SEND ->
             if (isImage) IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) else null
         Intent.ACTION_VIEW -> intent.data?.takeIf { isImage }
         else -> null
     }
-}
-
-private fun queryDisplayName(context: android.content.Context, uri: Uri): String? {
-    if (uri.scheme == "content") {
-        try {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index != -1) return cursor.getString(index)
-                }
-            }
-        } catch (_: Exception) {}
-    }
-    return uri.path?.substringAfterLast('/')
 }
 
 /** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
@@ -206,12 +190,14 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
-    var pendingSaveName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // The name confirmed in the Save dialog, held while the system location picker is up — the
+    // picker hands back a Uri and nothing else, so the name has to survive the round trip.
+    var pendingSaveName by remember { mutableStateOf<String?>(null) }
     // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
     // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
     // undo-tracked, and shouldn't survive into a save file the way a layer does.
     var showReferenceWindow by remember { mutableStateOf(false) }
-    var referenceImageUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Uri?>(null) }
+    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     // The rail's active/selected colour, and it has to differ from the colour items already are.
@@ -313,7 +299,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // opens on all files and the parser rejects anything that isn't a model.
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { vm.loadModel(it, queryDisplayName(context, it) ?: it.lastPathSegment?.substringAfterLast('/')) } }
+    ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
     val brushes by vm.installedBrushes.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
