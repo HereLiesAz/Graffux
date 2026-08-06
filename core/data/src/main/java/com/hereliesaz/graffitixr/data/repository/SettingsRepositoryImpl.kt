@@ -26,6 +26,19 @@ import com.hereliesaz.graffitixr.common.util.PaletteCodec
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
+/**
+ * Language codes written by older builds, mapped onto the entry that replaced them.
+ *
+ * The two Chinese entries stored an Android resource qualifier (`zh-rCN`) where a BCP-47 tag
+ * (`zh-CN`) was meant — see [AppLanguage]. Without this, correcting the tag would read every
+ * already-stored Chinese preference as unrecognised and silently reset those users to System
+ * Default; the setting is only ever written from the enum, so the old spellings need no writer.
+ */
+private val LEGACY_LANGUAGE_CODES: Map<String, AppLanguage> = mapOf(
+    "zh-rCN" to AppLanguage.CHINESE_SIMPLIFIED,
+    "zh-rHK" to AppLanguage.CHINESE_TRADITIONAL,
+)
+
 class SettingsRepositoryImpl @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) : SettingsRepository {
@@ -59,7 +72,9 @@ class SettingsRepositoryImpl @Inject constructor(
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { preferences ->
             val code = preferences[LANGUAGE] ?: ""
-            AppLanguage.entries.find { it.code == code } ?: AppLanguage.SYSTEM
+            AppLanguage.entries.find { it.code == code }
+                ?: LEGACY_LANGUAGE_CODES[code]
+                ?: AppLanguage.SYSTEM
         }
 
     override suspend fun setLanguage(language: AppLanguage) {

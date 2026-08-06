@@ -209,8 +209,14 @@ object ImageProcessor {
                     ): Bitmap = withContext(Dispatchers.Default) {
                         if (stroke.isEmpty()) return@withContext originalBitmap
 
+                        // SafeBitmap, not a bare Bitmap.copy(): every layer here is a full-screen
+                        // ARGB_8888 buffer, so this is the allocation that fails first under memory
+                        // pressure — and copy() returns a platform type, so a failure surfaced as an
+                        // NPE inside Canvas() on the drawing path rather than as a stroke that
+                        // quietly didn't take. Every other copy site in the editor already routes
+                        // through SafeBitmap; this was the one that didn't.
                         val resultBitmap = if (mutateInPlace) originalBitmap
-                        else originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                        else SafeBitmap.copy(originalBitmap) ?: return@withContext originalBitmap
                                 val canvas = Canvas(resultBitmap)
                                 // Clip once, up front: applies to every branch below, including the
                                 // symmetry twin and the BLUR composite.

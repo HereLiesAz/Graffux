@@ -88,37 +88,18 @@ fun SettingsScreen(
                     Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close settings")
                 }
             }
+            // No "Canvas Dimensions" or "Background" entries here. Both were rows of title-and-
+            // subtitle text with no control and no click handler behind them — they described
+            // settings this screen does not host and could not be operated at all. Both live in the
+            // Actions dropdown beside the artwork they change (the "W×H" entry opens
+            // DocumentSizeDialog, "Background" opens BackgroundColorDialog), which is where a
+            // per-document property belongs rather than in app-wide preferences.
             Text(
-                "Document & Canvas",
+                "Interface",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Canvas Dimensions", style = MaterialTheme.typography.bodyLarge)
-                    Text("Adjust canvas width, height, and unit measurements.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            HorizontalDivider()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Background", style = MaterialTheme.typography.bodyLarge)
-                    Text("Configure canvas background color and transparency.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            HorizontalDivider()
-
             SwitchRow(
                 title = "Right-handed",
                 subtitle = "Docks the tool rail on the left; turn off for a left-side rail.",

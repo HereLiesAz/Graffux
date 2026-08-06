@@ -26,7 +26,10 @@ fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
 
     val rootNodes = build(null, 0, emptySet()).toMutableList()
 
-    // Collect any orphaned or cyclic subtrees so no layer is dropped and internal parent-child relations are preserved
+    // Collect any orphaned subtrees so no layer is dropped and internal parent-child relations are
+    // preserved. A layer whose parent id names nothing in the list is promoted by building from
+    // that dangling id, which emits it together with its siblings and descendants; a layer whose
+    // parent IS present is deferred, because it will be emitted as part of that parent's subtree.
     val layerMap = layers.associateBy { it.id }
     for (layer in layers) {
         if (layer.id !in visitedIds) {
@@ -36,6 +39,19 @@ fun buildLayerTree(layers: List<Layer>): List<LayerNode> {
             }
             rootNodes.addAll(build(layer.parentId, 0, emptySet()))
         }
+    }
+
+    // Whatever is still unreached is in a parent CYCLE: every member's parent is another member, so
+    // the pass above defers each of them to the next and none is ever emitted. That silently deleted
+    // the whole cycle from the tree — and the tree is what the layers panel lists, what Animation
+    // Assist counts as frames, and what the exporter composites, so those layers disappeared from
+    // the artwork rather than merely from a view of it. Break the cycle at its first member in list
+    // order and build from there, repeating until nothing is left; `build`'s own ancestry guard cuts
+    // the back edge when the walk returns to that member.
+    for (layer in layers) {
+        if (layer.id in visitedIds) continue
+        visitedIds.add(layer.id)
+        rootNodes += LayerNode(layer, 0, build(layer.id, 1, setOf(layer.id)))
     }
 
     return rootNodes
