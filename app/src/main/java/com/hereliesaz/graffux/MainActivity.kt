@@ -275,13 +275,18 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.onImportDocument(it) } }
 
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            val type = context.contentResolver.getType(it)
+            if (type?.startsWith("image/") == true) vm.onAddLayer(it) else vm.onImportDocument(it)
+        }
+    }
+
     val referencePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { referenceImageUri = it } }
-
-    val brushPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
 
     // The azphalt acquisition handoff (spec/store-app.md): a separate store app does the browsing and
     // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
@@ -387,11 +392,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
     )
 
-    val navItemColor = remember(uiState.canvasBackground) {
-        val bg = uiState.canvasBackground
-        val luminance = 0.299f * bg.red + 0.587f * bg.green + 0.114f * bg.blue
-        if (luminance > 0.5f) Color.Black else Color.White
-    }
+    val navItemColor = Color.White
 
     // Procreate's history gestures are installed HERE, above the whole app, not inside EditorScreen.
     // The nav rail, the onscreen chrome (dropdown, FAB row) and the floating windows are siblings of
@@ -422,7 +423,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 // window. Every leaf tool, toggle and picker inherits this.
                 defaultShape = AzButtonShape.NONE_CIRCLE,
                 headerIconShape = AzHeaderIconShape.CIRCLE,
-                translucentBackground = Color.Black.copy(alpha = 0.55f)
+                translucentBackground = Color.Black.copy(alpha = 0.85f)
             )
             // The help overlay: a card per rail item, its label plus whatever RAIL_HELP says about
             // it. This is the app explaining itself without a scripted tutorial — every conditional
@@ -525,31 +526,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     // silent way to end up with one unreadable line. Said once here instead.
                     fun menuItem(text: String, onClick: () -> Unit) =
                         azItem(color = menuItemColor, text = text, onClick = onClick)
-                    // New starts a blank project; Open browses what exists; Import brings an image or
-                    // another design file INTO the current project, which is what the old
-                    // "Open"/"Open File" pair actually did despite their names.
-                    //
-                    // "Gallery" is gone. It opened a window listing the app's own projects with
-                    // open/new/delete — a strict subset of what Open already does, since Open lists
-                    // exactly the same projects and adds the device scan and a location chooser on
-                    // top. The claim beside these entries that each "maps onto a distinct action"
-                    // was simply untrue of that pair.
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                    menuItem(text = "Import Image…", onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                    menuItem(text = "Import File…", onClick = { documentPicker.launch(arrayOf("*/*")) })
-                    menuItem(text = "Add…", onClick = { showAddDialog = true })
+                    menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
                     menuItem(text = "Reference", onClick = { showReferenceWindow = true })
-                    menuItem(text = "Align…", onClick = { showAlignDialog = true })
-                    menuItem(text = "${uiState.documentWidth}×${uiState.documentHeight}", onClick = { showDocDialog = true })
-                    menuItem(text = "Background", onClick = { showBgDialog = true })
-                    // onFlattenAllLayers() was fully implemented (rasterizes every layer to one, undo-safe)
-                    // but had no menu entry anywhere — see LayerOptionsDialog's "Merge Down" for the
-                    // per-layer equivalent this complements at the whole-project level.
-                    menuItem(text = "Flatten", onClick = { vm.onFlattenAllLayers() })
-                    // Save names the project and writes a `.fux` wherever the user chooses. It isn't
-                    // what keeps their work — autosave does that continuously — so it's free to be a
-                    // deliberate, two-step action rather than something they must remember to press.
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     menuItem(text = strings.nav.share, onClick = {
@@ -581,16 +561,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    // One entry. It was split into "Store" (the chooser) and "Extensions" (the
-                    // manager) to stop Store from "opening a management window with a browse button
-                    // buried inside it" — except the manager still has that browse button, wired to
-                    // the very same chooser, so the split bought a second name for one destination
-                    // and left the thing it was meant to remove in place. Manage is the window you
-                    // want either way: it lists what is installed and browses from there.
+                    menuItem(text = "Store", onClick = openAzphaltStore)
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
                     menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
-                    menuItem(text = "Install brush…", onClick = { brushPicker.launch(arrayOf("*/*")) })
                     menuItem(text = "Settings", onClick = { showSettings = true })
                 }
             }
@@ -1848,6 +1822,7 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }
+            listItem("Flatten All") { vm.onFlattenAllLayers() }
             listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
             listItem("Clear", on { vm.onClearLayer() })
             listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
