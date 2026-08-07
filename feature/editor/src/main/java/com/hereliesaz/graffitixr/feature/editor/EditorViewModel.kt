@@ -420,7 +420,7 @@ class EditorViewModel @Inject constructor(
                                     if (layer.bitmap == null && layerUri != null) {
                                         val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri)
                                         if (loadedBmp != null) {
-                                            layerStore.putBase(layer.id, loadedBmp.copy(Bitmap.Config.ARGB_8888, false))
+                                            putLayerBase(layer.id, loadedBmp)
                                             layerStore.initStrokes(layer.id)
                                         }
                                         layer.copy(bitmap = loadedBmp)
@@ -1028,7 +1028,7 @@ class EditorViewModel @Inject constructor(
                     scale = initialScale
                 )
 
-                layerStore.putBase(newLayer.id, bitmap.copy(Bitmap.Config.ARGB_8888, false))
+                putLayerBase(newLayer.id, bitmap)
                 layerStore.initStrokes(newLayer.id)
 
                 withContext(dispatchers.main) {
@@ -1191,7 +1191,7 @@ class EditorViewModel @Inject constructor(
             isVisible = true,
             scale = initialScale,
         )
-        layerStore.putBase(layer.id, bitmap.copy(Bitmap.Config.ARGB_8888, false))
+        putLayerBase(layer.id, bitmap)
         layerStore.initStrokes(layer.id)
         withContext(dispatchers.main) {
             pushHistory()
@@ -1246,7 +1246,7 @@ class EditorViewModel @Inject constructor(
                 scale = initialScale,
                 blendMode = imported.blendMode.toComposeBlendMode(),
             )
-            layerStore.putBase(layer.id, full.copy(Bitmap.Config.ARGB_8888, false))
+            putLayerBase(layer.id, full)
             layerStore.initStrokes(layer.id)
             created += layer
         }
@@ -1322,7 +1322,7 @@ class EditorViewModel @Inject constructor(
                     uri = localUri
                 )
 
-                layerStore.putBase(newLayer.id, blankBitmap.copy(Bitmap.Config.ARGB_8888, false))
+                putLayerBase(newLayer.id, blankBitmap)
                 layerStore.initStrokes(newLayer.id)
 
                 dispatch(EditorIntent.AddLayer(newLayer, activeToolOverride = activeToolOverride))
@@ -1470,6 +1470,9 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    // Also GraffitiXR's: the background bitmap is the camera backdrop its Overlay and Mockup modes
+    // composite against. Graffux is a design-only host with no such mode, so nothing here sets one —
+    // the exporter still honours it, because a project made in GraffitiXR carries one.
     fun setBackgroundImage(uri: Uri) {
         val projectId = _uiState.value.projectId ?: return
         viewModelScope.launch(dispatchers.io) {
@@ -1875,7 +1878,7 @@ class EditorViewModel @Inject constructor(
                     val updatedLayers = state.layers.map {
                         if (it.id == id) {
                             bitmap?.let { bmp ->
-                                layerStore.putBase(id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+                                putLayerBase(id, bmp)
                                 layerStore.initStrokes(id)
                             }
                             it.copy(uri = uri, bitmap = bitmap)
@@ -2131,9 +2134,8 @@ class EditorViewModel @Inject constructor(
                 return@launch
             }
             val graded = bitmap.applyCubeLut(lut)
-            val base = graded.copy(Bitmap.Config.ARGB_8888, false)
-            if (base != graded) graded.recycle()
-            layerStore.putBase(layerId, base)
+            putLayerBase(layerId, graded)
+            graded.recycle()
             layerStore.initStrokes(layerId)
             rebuildLayerBitmap(layerId, emitOp = true)
             dispatch(EditorIntent.SetLoading(false))
@@ -2147,6 +2149,10 @@ class EditorViewModel @Inject constructor(
      * multiplicative/additive knobs to the AR mode-adjustment and colour balance to the layer, exactly
      * as the AR composite consumes them). A starting point the user then fine-tunes — not a hard grade.
      */
+    // GraffitiXR's, not Graffux's. It grades the artwork against a photographed WALL, and Graffux
+    // has no camera, no capture and therefore no wall to pass — every caller would have to invent
+    // one. Left unwired here on purpose rather than given a Graffux entry point that grades against
+    // something this function was not written to compare against.
     fun autoTuneActiveLayer(wall: com.hereliesaz.graffitixr.common.util.ImageStats?) {
         if (wall == null) return
         val bitmap = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }?.bitmap ?: return
@@ -2229,6 +2235,15 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLayerWarp(layerId, mesh))
         saveProject()
     }
+
+    /**
+     * Whether [copyLayerModifications] has anything on its clipboard, so a menu can hide "Paste"
+     * rather than offer a row that returns immediately.
+     *
+     * Deliberately a plain property and not UiState: the copied look is a scratch buffer, not part
+     * of the document, and a layer menu is rebuilt on every recomposition anyway.
+     */
+    val hasCopiedLayerModifications: Boolean get() = copiedLayerState != null
 
     override fun copyLayerModifications(id: String) { copiedLayerState = _uiState.value.layers.find { it.id == id } }
 
@@ -2390,7 +2405,7 @@ class EditorViewModel @Inject constructor(
             )
 
             newBitmap?.let { bmp ->
-                layerStore.putBase(duplicated.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+                putLayerBase(duplicated.id, bmp)
                 layerStore.initStrokes(duplicated.id)
             }
 
@@ -2469,6 +2484,32 @@ class EditorViewModel @Inject constructor(
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
 
+    /**
+     * Records a pristine, immutable copy of [bitmap] as [layerId]'s replay base.
+     *
+     * Every call site used to be `layerStore.putBase(id, bmp.copy(ARGB_8888, false))`. `Bitmap.copy`
+     * returns a platform type, so an out-of-memory copy — and a full-screen layer buffer is the
+     * allocation most likely to fail — arrived at `putBase`'s non-null parameter as an NPE, taking
+     * the app down mid-edit. Two sites in this same file already wrote `?: return@launch` against
+     * that exact call, so the file disagreed with itself about whether it could fail.
+     *
+     * Failing means the layer keeps no base, so its stroke history cannot be replayed
+     * (rebuildLayerBitmap already no-ops for a layer LayerStore never cached) — the visible pixels
+     * are untouched and nothing crashes. Aliasing the live bitmap in as its own base would be worse:
+     * the next in-place stroke would corrupt the one copy every rebuild and undo depend on.
+     */
+    private fun putLayerBase(layerId: String, bitmap: Bitmap) {
+        val base = SafeBitmap.copy(bitmap, mutable = false)
+        if (base == null) {
+            android.util.Log.w(
+                "EditorViewModel",
+                "Out of memory copying the base for layer $layerId; its stroke history won't replay",
+            )
+            return
+        }
+        layerStore.putBase(layerId, base)
+    }
+
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
     private fun emitActiveLayerProps() {
         val id = _uiState.value.activeLayerId ?: return
@@ -2531,7 +2572,9 @@ class EditorViewModel @Inject constructor(
             // so calling it on every stroke start is cheap after the first.
             slamManager.ensureInitialized()
             // Store the original bitmap so live-preview warps can be applied from a clean copy.
-            liquifyOriginalBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            // A failed copy means no clean original to warp previews from; the stroke simply
+            // doesn't start, which beats an NPE inside prepareLiquify on the main thread.
+            liquifyOriginalBitmap = SafeBitmap.copy(originalBitmap, mutable = false) ?: return
             slamManager.prepareLiquify(originalBitmap)
             _uiState.update { it.copy(liveStrokeLayerId = layerId) }
             return
@@ -2751,7 +2794,7 @@ class EditorViewModel @Inject constructor(
 
             liquifyJob?.cancel()
             liquifyJob = viewModelScope.launch(dispatchers.default) {
-                val warpBitmap = original.copy(Bitmap.Config.ARGB_8888, true)
+                val warpBitmap = SafeBitmap.copy(original) ?: return@launch
                 slamManager.bakeLiquify(warpBitmap)
 
                 if (isActive) {
@@ -3049,7 +3092,7 @@ class EditorViewModel @Inject constructor(
                 // replayed on reload, so it vanished on screen and on disk.
                 // Bitmap.copy can return null under memory pressure — never construct a Canvas from it
                 // unchecked (NPE on the main thread). Fall back to the unmodified bitmap if the copy fails.
-                val target = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val target = SafeBitmap.copy(bitmap)
                 val fastHard = SelectionMask.bitmapPath(
                     strokeSelection, bitmap.width, bitmap.height,
                     capturedScale, capturedOffset, capturedRotationZ,
@@ -3320,7 +3363,7 @@ class EditorViewModel @Inject constructor(
         // otherwise a stroke that started before this commit finished would have its preview wiped.
         val previewBitmap = stampLiveBitmap
         viewModelScope.launch(dispatchers.default) {
-            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val work = SafeBitmap.copy(base) ?: return@launch
             val mapped = ImageProcessor.mapScreenToBitmap(
                 points, canvasW, canvasH, work.width, work.height, scale, offset, rotationZ
             )
@@ -3556,7 +3599,7 @@ class EditorViewModel @Inject constructor(
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
         viewModelScope.launch(dispatchers.default) {
-            val work = base.copy(Bitmap.Config.ARGB_8888, true) ?: return@launch
+            val work = SafeBitmap.copy(base) ?: return@launch
             val hard = SelectionMask.bitmapPath(
                 command.selection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
             )
@@ -3624,7 +3667,7 @@ class EditorViewModel @Inject constructor(
                 val stillThere = current.any { it.id == upper.id } && current.any { it.id == lower.id }
                 if (!stillThere) return@withContext
                 val at = current.indexOfFirst { it.id == lower.id }
-                layerStore.putBase(mergedLayer.id, merged.copy(Bitmap.Config.ARGB_8888, false))
+                putLayerBase(mergedLayer.id, merged)
                 layerStore.initStrokes(mergedLayer.id)
                 val next = current.filterNot { it.id == upper.id || it.id == lower.id }
                     .toMutableList()
@@ -4074,7 +4117,7 @@ class EditorViewModel @Inject constructor(
                 bitmap = bmp,
                 uri = "file://$path".toUri(),
             )
-            layerStore.putBase(pasted.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            putLayerBase(pasted.id, bmp)
             layerStore.initStrokes(pasted.id)
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(pasted, resetActivePanel = false))
@@ -5026,6 +5069,44 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    /**
+     * Links (or with null, unlinks) the active shape's **stroke** to a colour token.
+     *
+     * The fill half of this pair has always had a caller; the stroke half had none, so
+     * [EditorIntent.SetShapeStrokeStyle] and the [StyleOps.setShapeStrokeStyle] behind it were
+     * reachable only from the reducer's own `when`. A shape has two colours and the token registry
+     * could only ever describe one of them.
+     */
+    fun onApplyStrokeStyle(styleId: String?) {
+        val layerId = _uiState.value.activeLayerId ?: return
+        pushHistory()
+        dispatch(EditorIntent.SetShapeStrokeStyle(layerId, styleId))
+        saveProject()
+    }
+
+    /**
+     * Repoints a text token at the active text layer's current look — every layer using it follows.
+     *
+     * The colour-token equivalent ([onUpdateColorStyleToActiveColor]) existed; this one did not, so
+     * [EditorIntent.UpdateTextStyle] had no caller and a text token, once created, could never be
+     * changed — only deleted and made again, which unlinks every layer that was using it.
+     */
+    fun onUpdateTextStyleToActive(styleId: String) {
+        val existing = _uiState.value.textStyles.firstOrNull { it.id == styleId } ?: return
+        val layerId = _uiState.value.activeLayerId ?: return
+        val params = _uiState.value.layers.firstOrNull { it.id == layerId }?.textParams
+        if (params == null) {
+            Toast.makeText(context, "Select a text layer first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val next = com.hereliesaz.graffitixr.common.model.StyleOps
+            .textStyleFromParams(params, existing.name)
+            .copy(id = existing.id)
+        pushHistory()
+        dispatch(EditorIntent.UpdateTextStyle(next))
+        saveProject()
+    }
+
     /** Repoints a colour token at the current colour — every shape using it follows. */
     fun onUpdateColorStyleToActiveColor(styleId: String) {
         val existing = _uiState.value.colorStyles.firstOrNull { it.id == styleId } ?: return
@@ -5075,7 +5156,7 @@ class EditorViewModel @Inject constructor(
         // The instance shares the main's bitmap reference, so it needs its own stroke-store entries
         // or painting on it would be replayed against the main's base.
         instance.bitmap?.let { bmp ->
-            layerStore.putBase(instance.id, bmp.copy(Bitmap.Config.ARGB_8888, false))
+            putLayerBase(instance.id, bmp)
             layerStore.initStrokes(instance.id)
         }
         dispatch(EditorIntent.PlaceInstance(instance))
@@ -5564,7 +5645,7 @@ class EditorViewModel @Inject constructor(
                 // onLayerRemoved for the same reasoning and onUndoClicked/onRedoClicked for the
                 // rebuild-on-restore that depends on this cache surviving.
                 val oldLayerIds = _uiState.value.layers.map { it.id }
-                layerStore.putBase(flatLayer.id, composite.copy(Bitmap.Config.ARGB_8888, false))
+                putLayerBase(flatLayer.id, composite)
                 layerStore.initStrokes(flatLayer.id)
                 dispatch(EditorIntent.ReplaceLayers(listOf(flatLayer), flatLayer.id))
                 // Without this a spectator's layer list silently diverges from the host's until some
@@ -5638,7 +5719,7 @@ class EditorViewModel @Inject constructor(
                 isVisible = true,
                 textParams = defaultParams
             )
-            layerStore.putBase(newLayer.id, bitmap.copy(Bitmap.Config.ARGB_8888, false))
+            putLayerBase(newLayer.id, bitmap)
             layerStore.initStrokes(newLayer.id)
 
             withContext(dispatchers.main) {
@@ -5679,7 +5760,7 @@ class EditorViewModel @Inject constructor(
                 }
             }
 
-            layerStore.putBase(layerId, bitmap.copy(Bitmap.Config.ARGB_8888, false))
+            putLayerBase(layerId, bitmap)
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.RenderTextLayer(layerId, bitmap, params))
@@ -5743,6 +5824,8 @@ class EditorViewModel @Inject constructor(
     // -------------------------------------------------------------------------
 
     /** Applies a remote Op received from the host, without echoing it back through opEmitter. */
+    // Co-op, so GraffitiXR's. Graffux binds NoOpOpEmitter (see CoopModule) and never joins a
+    // session, so no remote op ever arrives for this to apply.
     fun applySpectatorOp(op: Op) {
         when (op) {
             is Op.LayerAdd -> dispatch(EditorIntent.AppendLayer(op.layer))
@@ -5822,8 +5905,11 @@ class EditorViewModel @Inject constructor(
                         )
                         return@launch
                     }
-                    val base = decoded.copy(Bitmap.Config.ARGB_8888, false)
-                    if (base != decoded) decoded.recycle()
+                    val base = SafeBitmap.copy(decoded, mutable = false) ?: run {
+                        decoded.recycle()
+                        return@launch
+                    }
+                    if (base !== decoded) decoded.recycle()
                     // Re-check the layer still exists — it can be removed while we were decoding
                     // off-thread. Without this, `putBase` on a stale layerId would leak the base
                     // pixel memory (nothing takes ownership of it).

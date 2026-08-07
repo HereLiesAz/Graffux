@@ -170,7 +170,10 @@ fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap {
     val x = (nx * w).toInt().coerceIn(0, w - 1)
     val y = (ny * h).toInt().coerceIn(0, h - 1)
 
-    val out = this.copy(Bitmap.Config.ARGB_8888, true)
+    // SafeBitmap, not a bare copy(): the receiver is a full-size image, so this is exactly the
+    // allocation that fails under pressure, and a platform-type null would surface as an NPE on
+    // `getPixels` rather than as an erase that didn't happen.
+    val out = SafeBitmap.copy(this) ?: return this
     val pixels = IntArray(w * h)
     out.getPixels(pixels, 0, w, 0, 0, w, h)
 

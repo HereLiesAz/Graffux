@@ -151,11 +151,14 @@ data class BrushStroke(
 
 /**
  * UI panels available for interaction within the editor interface.
+ *
+ * No `LAYERS` and no `ADJUSTMENTS`. The layers moved into their own floating rail, so the panel that
+ * constant selected was deleted along with the intent that used to select it — and `ADJUSTMENTS` was
+ * never referenced anywhere at all, a second spelling of `ADJUST` that no reducer produced and no
+ * screen rendered. A constant nothing can produce is a branch every reader has to rule out.
  */
 enum class EditorPanel {
     NONE,
-    LAYERS,
-    ADJUSTMENTS,
     TRANSFORM,
     COLOR,
     ADJUST,

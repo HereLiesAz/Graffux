@@ -15,7 +15,9 @@ enum class Tool {
      * confined to it until it is cleared. Dragging inside an existing selection moves its pixels.
      */
     SELECT,
-    CROP,
+    // No CROP. It was declared here and referenced by nothing: no rail item selected it, no branch
+    // of ImageProcessor's tool switch handled it, and no gesture produced it. Cropping is the
+    // artboard's job (the document size dialog), not a brush you pick up.
     SHARPEN,
     SMUDGE,
     CLONE,
