@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.nativebridge
 
 import android.content.res.AssetManager
 import android.graphics.Bitmap
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import android.util.Log
 import com.hereliesaz.graffitixr.common.model.Fingerprint
 import com.hereliesaz.graffitixr.common.model.WallFeatureMap
@@ -447,8 +448,14 @@ class SlamManager @Inject constructor(
         }
     }
 
+    /**
+     * Draws the tracker's keypoints over a copy of [bitmap]. Returns [bitmap] unchanged when the
+     * copy cannot be allocated — `Bitmap.copy` returns a platform type, so an out-of-memory copy
+     * used to reach `nativeAnnotateKeypoints` as an NPE rather than as a diagnostic overlay that
+     * simply didn't draw.
+     */
     fun annotateKeypoints(bitmap: Bitmap): Bitmap {
-        val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val mutable = SafeBitmap.copy(bitmap) ?: return bitmap
         nativeAnnotateKeypoints(mutable)
         return mutable
     }

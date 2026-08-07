@@ -107,29 +107,12 @@ fun EditorUi(
                 }
             }
 
-            // 1d. Floating Layers Panel
-            if (uiState.activePanel == EditorPanel.LAYERS) {
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .widthIn(max = 360.dp)
-                        .heightIn(max = 400.dp)
-                        .background(Color.Black.copy(alpha = 0.9f), RoundedCornerShape(16.dp))
-                        .padding(16.dp)
-                ) {
-                    LayersPanel(
-                        layers = uiState.layers,
-                        activeLayerId = uiState.activeLayerId,
-                        onSelectLayer = { actions.onLayerActivated(it) },
-                        onToggleVisibility = { actions.onToggleVisibility(it) },
-                        onDuplicate = { actions.onLayerDuplicated(it) },
-                        onDelete = { actions.onLayerRemoved(it) },
-                        onRename = { id, name -> actions.onLayerRenamed(id, name) },
-                        onClose = { actions.onDismissPanel() },
-                        strings = strings,
-                    )
-                }
-            }
+            // No floating Layers panel. The layers live in their own floating rail now (an
+            // AzNavRail unattached host at FLOATING — see MainActivity's `grp.layers`), each with a
+            // hidden menu carrying that layer's own tools. `EditorPanel.LAYERS` was still rendered
+            // here, and the `LayersPanel` composable behind it was complete and correct, but nothing
+            // in the app ever dispatched `ToggleLayersPanel`: there was no way to open it and no way
+            // to reach the code. Two layer lists, one of them unreachable, is worse than one.
 
             // 2. Integrated Adjustments Panel (Knobs + Undo/Redo/Magic)
             val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
@@ -175,101 +158,6 @@ fun EditorUi(
                 onAdjustmentEnd = actions::onAdjustmentEnd,
                 strings = strings,
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun LayersPanel(
-    layers: List<Layer>,
-    activeLayerId: String?,
-    onSelectLayer: (String) -> Unit,
-    onToggleVisibility: (String) -> Unit,
-    onDuplicate: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onRename: (String, String) -> Unit,
-    onClose: () -> Unit,
-    strings: AppStrings
-) {
-    var editingId by remember { mutableStateOf<String?>(null) }
-    var editingName by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(strings.editor.layers, style = MaterialTheme.typography.titleMedium, color = Color.White)
-            Text(
-                strings.common.close,
-                color = Color.Gray,
-                modifier = Modifier.clickable { onClose() }.padding(8.dp)
-            )
-        }
-        val layerNodes = remember(layers) { flattenTree(buildLayerTree(layers)) }
-        LazyColumn(Modifier.fillMaxWidth()) {
-            items(layerNodes) { node ->
-                val layer = node.layer
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(if (layer.id == activeLayerId) Color.Gray.copy(alpha = 0.3f) else Color.Transparent)
-                        .padding(start = (node.depth * 16).dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { onToggleVisibility(layer.id) }) {
-                        Icon(
-                            imageVector = if (layer.isVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                            contentDescription = if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer,
-                            tint = if (layer.isVisible) Color.White else Color.Gray,
-                        )
-                    }
-                    
-                    if (layer.type == LayerType.GROUP) {
-                        Text("📁 ", color = Color.White)
-                    } else if (layer.type == LayerType.FILTER) {
-                        Text("✨ ", color = Color.White)
-                    }
-
-                    if (editingId == layer.id) {
-                        OutlinedTextField(
-                            value = editingName,
-                            onValueChange = { editingName = it },
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(vertical = 4.dp, horizontal = 4.dp),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                onRename(layer.id, editingName.trim().ifBlank { layer.name })
-                                editingId = null
-                            }),
-                        )
-                    } else {
-                        Text(
-                            layer.name,
-                            color = Color.White,
-                            modifier = Modifier
-                                .weight(1f)
-                                .combinedClickable(
-                                    onClick = { onSelectLayer(layer.id) },
-                                    onLongClick = {
-                                        editingId = layer.id
-                                        editingName = layer.name
-                                    },
-                                )
-                                .padding(vertical = 12.dp)
-                        )
-                    }
-                    IconButton(onClick = { onDuplicate(layer.id) }) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = strings.editor.duplicate, tint = Color.White)
-                    }
-                    IconButton(onClick = { onDelete(layer.id) }) {
-                        Icon(Icons.Filled.Delete, contentDescription = strings.editor.delete, tint = Color.White)
-                    }
-                }
-            }
         }
     }
 }

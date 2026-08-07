@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -37,10 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -417,6 +416,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 uiState = uiState,
                 brushes = brushes,
                 customBrushes = customBrushes,
+                installedExtensionCount = allInstalledExtensions.size,
                 strings = strings,
                 navItemColor = navItemColor,
                 activeColor = activeRailColor, // Pass down to DSL builder
@@ -1032,12 +1032,17 @@ private const val FOCUS_ID = "grp.focus"
  * a much louder "you are here" than colour alone. Each stateful item tags itself with its own id and
  * this decides, in one place, which of those ids are lit.
  *
+ * `internal` rather than private so it can be unit-tested: it is the only substantial piece of pure
+ * logic in `:app`, it decides what the whole rail looks like, and every one of its conditions is a
+ * silent failure when wrong — a mistyped or missing classifier does not break anything, the item
+ * just never lights up.
+ *
  * One place is the point. Every one of these conditions previously sat inline on the item that used
  * it, restated 33 times; the same duplication in the extensions panel had already drifted into the
  * install toast contradicting the panel it pointed at. Both the classifier and the item's colour now
  * read from this set, so the two cannot disagree about what is active.
  */
-private fun activeRailClassifiers(
+internal fun activeRailClassifiers(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
     customBrushes: List<CustomBrush>,
@@ -1119,6 +1124,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
     customBrushes: List<CustomBrush>,
+    /** How many azphalt extensions are installed — badged on the Run Extension item. */
+    installedExtensionCount: Int,
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
@@ -1351,6 +1358,19 @@ private fun AzNavHostScope.ConfigureRailItems(
     // so nothing in it was identifiable at a glance.
     toolItem(Tool.BRUSH, uiState.activeBrushName ?: navStrings.brush, GraffuxIcons.Brush)
     toolItem(Tool.ERASER, "Eraser", GraffuxIcons.Eraser)
+    // The brush size / hardness pad, in the strip beside the brush it sizes.
+    //
+    // Drag up/down for size, across for hardness — one gesture for both, which is why this is a pad
+    // and not two sliders. It used to hang off an unattached host of its own, so the control reached
+    // for most often sat in a different part of the screen from the brush it belongs to.
+    //
+    // NONE, not NONE_CIRCLE: the content is a drag pad rather than a glyph, and a circular footprint
+    // gives the across-axis nothing to travel along. It is the one item in the strip that is wider
+    // than it is tall, and the shape is carrying layout rather than affordance.
+    azRailItem(
+        id = "adj.brush", text = navStrings.brush, shape = AzButtonShape.NONE,
+        color = navItemColor, content = AzComposableContent { BrushSizePad(vm) },
+    )
 
     // The colour item IS the current colour, the way Procreate's swatch is, rather than a generic
     // palette glyph that says nothing about what you're about to paint with. Layers is the other
@@ -1488,179 +1508,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Symmetry guide: strokes mirror across one or more axes while it's on. This is the quick
     // on/off; the picker below reaches every mode, including turning it off from there too.
     modeItem("tool.symmetry", "Symmetry", GraffuxIcons.Symmetry) { vm.onToggleSymmetry() }
-    // Auto-layout and constraints (Figma). Auto-layout only appears on a layer that actually has
-    // children to arrange; constraints only on a layer that has a parent to be constrained within.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val hasChildren = active != null && uiState.layers.any { it.parentId == active.id }
-        val hasParent = active?.parentId != null
-        if (hasChildren || hasParent) {
-            hostItem(id = "grp.layout", text = "Layout", content = GraffuxIcons.AlignToArtboard)
-            if (hasChildren) {
-                val current = active.autoLayout
-                LayoutDirection.entries.forEach { dir ->
-                    azRailSubItem(
-                        id = "lay.dir.${dir.name}", hostId = "grp.layout",
-                        text = when (dir) {
-                            LayoutDirection.NONE -> "Free"
-                            LayoutDirection.HORIZONTAL -> "Row"
-                            LayoutDirection.VERTICAL -> "Column"
-                        },
-                        content = when (dir) {
-                            LayoutDirection.NONE -> GraffuxIcons.Move
-                            LayoutDirection.HORIZONTAL -> GraffuxIcons.DistributeHorizontal
-                            LayoutDirection.VERTICAL -> GraffuxIcons.DistributeVertical
-                        },
-                        color = if (current.direction == dir) activeColor else navItemColor,
-                        onClick = { vm.onSetAutoLayout(current.copy(direction = dir)) },
-                    )
-                }
-                if (current.direction != LayoutDirection.NONE) {
-                    subItem("lay.hug", "grp.layout", "Hug Contents", GraffuxIcons.ScaleProportional) {
-                        vm.onHugContents()
-                    }
-                    LayoutAlign.entries.forEach { align ->
-                        azRailSubItem(
-                            id = "lay.align.${align.name}", hostId = "grp.layout",
-                            text = "Align ${align.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                            content = when (align) {
-                                LayoutAlign.START -> GraffuxIcons.AlignTop
-                                LayoutAlign.CENTER -> GraffuxIcons.AlignMiddleV
-                                LayoutAlign.END -> GraffuxIcons.AlignBottom
-                            },
-                            color = if (current.align == align) activeColor else navItemColor,
-                            onClick = { vm.onSetAutoLayout(current.copy(align = align)) },
-                        )
-                    }
-                }
-            }
-            // Constraints are per-axis; a parent running auto-layout owns placement instead, so
-            // they're hidden in that case rather than shown as controls that do nothing.
-            val parentAutoLays = active?.parentId
-                ?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
-                ?.autoLayout?.direction != LayoutDirection.NONE
-            if (hasParent && !parentAutoLays) {
-                ConstraintAnchor.entries.forEach { anchor ->
-                    azRailSubItem(
-                        id = "lay.h.${anchor.name}", hostId = "grp.layout",
-                        text = "H: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                        content = when (anchor) {
-                            ConstraintAnchor.START -> GraffuxIcons.AlignLeft
-                            ConstraintAnchor.CENTER -> GraffuxIcons.AlignCenterH
-                            ConstraintAnchor.END -> GraffuxIcons.AlignRight
-                            ConstraintAnchor.STRETCH -> GraffuxIcons.Scale
-                            ConstraintAnchor.SCALE -> GraffuxIcons.ScaleProportional
-                        },
-                        color = if (active.constraints.horizontal == anchor) activeColor else navItemColor,
-                        onClick = { vm.onSetConstraints(active.constraints.copy(horizontal = anchor)) },
-                    )
-                }
-                ConstraintAnchor.entries.forEach { anchor ->
-                    azRailSubItem(
-                        id = "lay.v.${anchor.name}", hostId = "grp.layout",
-                        text = "V: ${anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                        content = when (anchor) {
-                            ConstraintAnchor.START -> GraffuxIcons.AlignTop
-                            ConstraintAnchor.CENTER -> GraffuxIcons.AlignMiddleV
-                            ConstraintAnchor.END -> GraffuxIcons.AlignBottom
-                            ConstraintAnchor.STRETCH -> GraffuxIcons.Scale
-                            ConstraintAnchor.SCALE -> GraffuxIcons.ScaleProportional
-                        },
-                        color = if (active.constraints.vertical == anchor) activeColor else navItemColor,
-                        onClick = { vm.onSetConstraints(active.constraints.copy(vertical = anchor)) },
-                    )
-                }
-            }
-        }
-    }
-
-    // Shared styles (Figma tokens). The library is a real registry on UiState, so the group shows
-    // whenever a token exists or the active layer is something a token could be lifted from.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val hasShape = active?.shapes?.isNotEmpty() == true
-        val hasText = active?.textParams != null
-        // A token existing is not on its own a reason to show this group: with no active layer there
-        // is nothing to create a token from and nothing to apply one to, so the host would open onto
-        // an empty list. It needs a layer, and then either something to lift a token from or a token
-        // to apply.
-        val hasTokens = uiState.colorStyles.isNotEmpty() || uiState.textStyles.isNotEmpty()
-        if (active != null && (hasTokens || hasShape || hasText)) {
-            hostItem(id = "grp.styles", text = "Styles", content = GraffuxIcons.LayerStyle)
-            if (hasShape) {
-                subItem("sty.newColor", "grp.styles", "New Colour Style", GraffuxIcons.ColorSwatch) {
-                    vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}")
-                }
-            }
-            if (hasText) {
-                subItem("sty.newText", "grp.styles", "New Text Style", GraffuxIcons.FontFamily) {
-                    vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
-                }
-            }
-            // Applying a token needs a layer to apply it TO — which the guard above now requires.
-            // `onApplyColorStyle` and `onApplyTextStyle` both open with `activeLayerId ?: return`,
-            // so with no active layer these used to render, take the tap, and do nothing at all: no
-            // toast, no HUD, unlike every neighbouring action. The old guard admitted "a token
-            // exists" on its own, which is what let them through.
-            uiState.colorStyles.forEach { style ->
-                val linked = active.shapes.any { it.fillStyleId == style.id }
-                azRailSubItem(
-                    id = "sty.color.${style.id}", hostId = "grp.styles", text = style.name,
-                    content = GraffuxIcons.ColorSwatches,
-                    color = if (linked) activeColor else navItemColor,
-                    onClick = { vm.onApplyColorStyle(if (linked) null else style.id) },
-                )
-            }
-            uiState.textStyles.forEach { style ->
-                val linked = active.textParams?.styleId == style.id
-                azRailSubItem(
-                    id = "sty.text.${style.id}", hostId = "grp.styles", text = style.name,
-                    content = GraffuxIcons.GlyphsPanel,
-                    color = if (linked) activeColor else navItemColor,
-                    onClick = { vm.onApplyTextStyle(if (linked) null else style.id) },
-                )
-            }
-        }
-    }
-
-    // Components and instances (Figma). The actions offered depend on what the active layer already
-    // is, so the rail never shows a control that would no-op — "Detach" only on an instance,
-    // "Release" only on a main, "Make Component" only on a plain layer.
-    run {
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val components = uiState.layers.filter { it.componentId != null }
-        if (active != null || components.isNotEmpty()) {
-            hostItem(id = "grp.components", text = "Components", content = GraffuxIcons.LayerSmart)
-            if (active != null && active.componentId == null && active.instanceOf == null) {
-                subItem("cmp.make", "grp.components", "Make Component", GraffuxIcons.LayerSmart) {
-                    vm.onMakeComponent()
-                }
-            }
-            // Detach and Release are one-shots, but they only exist while the active layer *is* an
-            // instance or a main — the accent says "this is what the layer you're on already is".
-            if (active?.instanceOf != null) {
-                azRailSubItem(
-                    id = "cmp.detach", hostId = "grp.components", text = "Detach Instance",
-                    content = GraffuxIcons.LayerUnlink, color = activeColor,
-                    onClick = { vm.onDetachInstance() },
-                )
-            }
-            if (active?.componentId != null) {
-                azRailSubItem(
-                    id = "cmp.release", hostId = "grp.components", text = "Release Component",
-                    content = GraffuxIcons.LayerUngroup, color = activeColor,
-                    onClick = { vm.onReleaseComponent() },
-                )
-            }
-            // One "place" entry per defined component — the library, derived from the stack.
-            components.forEach { main ->
-                subItem(
-                    "cmp.place.${main.componentId}", "grp.components",
-                    "Place ${main.name}", GraffuxIcons.LayerDuplicate,
-                ) { main.componentId?.let { vm.onPlaceInstance(it) } }
-            }
-        }
-    }
+    // No Layout, Styles or Components hosts in the rail. All three acted on "the active layer,
+    // wherever it is" — three more places you had to select a layer first and then go looking, and
+    // three more groups in a strip that is meant to hold the tools you reach for mid-stroke. They
+    // are rows in each layer's own hidden menu now, on the layer whose menu you opened, gated on
+    // that layer actually having children to arrange, a parent to be constrained within, or a shape
+    // or text to lift a token from. See renderLayerLayoutMenu / renderLayerStyleMenu /
+    // renderLayerComponentMenu.
 
     // (Vector node editing lives in the "Vector" nested rail above, next to the Pen that produces
     // the paths it edits.)
@@ -1704,12 +1558,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it that draws a solid in three dimensions. Better a near-miss from the app's own set than a
     // stray icon from a library, which is how the rail ended up with a broom for the eraser.
     stateItem("tool.model", "3D Model", GraffuxIcons.GuideIsometric) { onModelClicked() }
-    // (No sliders on the rail. A rail of round buttons is the wrong place for a control that needs
-    // a length to be usable and a read-out to be meaningful, and `azRailSlider` has no "you let go"
-    // event — which is why the two that wrote to history wrote once per emitted frame. Brush size
-    // and feathering are the drag pad in the Adjust palette, which shows the real footprint at the
-    // real size; stabilize and the selection dials are the Tool Options window; auto-layout's gap is
-    // in the layer window with the rest of that layer's properties. Brush *opacity* is gone
+    // (No sliders on the rail. Still none, and this is the standing rule rather than an omission: a
+    // rail of round buttons is the wrong place for a control that needs a length to be usable and a
+    // read-out to be meaningful, and `azRailSlider` has no "you let go" event — which is why the two
+    // that wrote to history wrote once per emitted frame. Brush size and hardness are the drag pad
+    // up in the tool strip, which shows the real footprint at the real size and carries the number
+    // on its badge; stabilize and the selection dials are the Tool Options window; auto-layout's gap
+    // is in that layer's own hidden menu with the rest of its properties. Brush *opacity* is gone
     // outright: layer opacity is already an Adjust knob, and the rail slider claimed to move "the
     // value buildStrokePaint actually samples" when only one of fourteen tools ever read it.)
     stateItem("tool.options", "Tool Options", GraffuxIcons.BrushSettings) { onToolOptionsClicked() }
@@ -1785,32 +1640,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
-    // The brush pad, alone at the OPPOSITE edge rather than in the FLOATING stack.
-    //
-    // There is exactly ONE floating stack: every unattached host declared with
-    // AzUnattachedAnchor.FLOATING joins the same draggable column (see the AzNavRail guide,
-    // "Unattached hosts"). So the old "Effects" host did not float *beside* the layers, it floated
-    // *with* them — the layer tools and the layers themselves sharing one panel, which is the thing
-    // this rail was reorganised to stop doing. FLOATING now belongs to the layers alone.
-    //
-    // What used to be inside Effects has gone two ways. Adjust, Balance, Blend and Layer Options are
-    // per-layer panels and now open from each layer's own hidden menu, on the layer whose menu you
-    // opened — see renderLayerRailItem. Run Extension went into the rail strip proper, since it acts
-    // on the artwork rather than on a layer you picked. Only the brush pad is left, and it is not a
-    // layer tool at all.
-    azUnattachedHostItem(
-        id = "grp.brushpad", text = navStrings.brush, anchor = AzUnattachedAnchor.OPPOSITE,
-        content = GraffuxIcons.BrushSettings, color = navItemColor, shape = AzButtonShape.CIRCLE,
-    )
-    // The size/feathering pad keeps a host of its own rather than a rail slot: the edge slider covers
-    // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
-    azRailSubItem(
-        // The one item that keeps the wide NONE footprint rather than NONE_CIRCLE: its content is a
-        // drag pad, not a glyph, and the pad wants room to drag across. On a circle footprint that
-        // collapses to the rail's 44dp, so the shape here is carrying layout, not affordance.
-        id = "adj.brush", hostId = "grp.brushpad", text = navStrings.brush, shape = AzButtonShape.NONE,
-        content = AzComposableContent { BrushSizePad(vm) },
-    )
     // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT.
     // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
     // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
@@ -1818,6 +1647,34 @@ private fun AzNavHostScope.ConfigureRailItems(
     stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.CIRCLE) {
         vm.onExtensionsClicked()
     }
+
+    // ── Badges ───────────────────────────────────────────────────────────────────────────────────
+    //
+    // Declared here rather than on each item, for the same reason activeRailClassifiers is one
+    // function: `azItemState` is applied after every item is declared, so order does not matter and
+    // an unknown id is ignored — which makes this the one place to read what the rail is counting.
+    //
+    // A badge earns its place when the item's own picture cannot say the number: how big the brush
+    // is, how many layers deep the document is, how many brushes or extensions are installed, how
+    // many frames the animation has. Items whose content already IS their state get none — the
+    // colour swatch, every tool glyph, the mode pickers. A badge repeating what the button already
+    // draws is noise in a strip this dense.
+    azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString())
+    azItemState(id = "grp.layers", badge = uiState.layers.size.takeIf { it > 0 }?.toString())
+    azItemState(
+        id = "grp.brushes",
+        // +1 for the built-in round brush, which is a real choice in the list and not a placeholder.
+        badge = (brushes.size + customBrushes.size + 1).toString(),
+    )
+    azItemState(id = "adj.extensions", badge = installedExtensionCount.takeIf { it > 0 }?.toString())
+    // Frames, but only while Animation Assist is on: outside it the layer count is what `grp.layers`
+    // already says, and the same number badged twice under two names is worse than one.
+    azItemState(
+        id = "tool.animation",
+        badge = vm.animationFrameCount().takeIf { uiState.isAnimationMode }?.toString(),
+    )
+    azItemState(id = "grp.select", badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
+    azItemState(id = "sel.manage", badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
 }
 
 /**
@@ -1875,11 +1732,13 @@ private fun AzNavHostScope.renderLayerRailItem(
         // "the active layer, wherever it is". Panels are opened, not drawn: a hidden menu is a list
         // of rows (listItem / inputItem — see the AzNavRail guide), so the knobs stay in the panels
         // they already live in and these are the way in to them.
-        listItem(strings.nav.adjust) { vm.onLayerActivated(layer.id); vm.onAdjustClicked() }
-        listItem("Balance") { vm.onLayerActivated(layer.id); vm.onBalanceClicked() }
-        listItem("Blend Mode") { vm.onLayerActivated(layer.id); onBlendMode() }
-        listItem("Transform") { vm.onLayerActivated(layer.id); vm.onTransformClicked() }
-        listItem("Layer Options") { vm.onLayerActivated(layer.id); onEditClicked() }
+        fun on(action: () -> Unit): () -> Unit = { vm.onLayerActivated(layer.id); action() }
+
+        listItem(strings.nav.adjust, on { vm.onAdjustClicked() })
+        listItem("Balance", on { vm.onBalanceClicked() })
+        listItem("Blend Mode", on(onBlendMode))
+        listItem("Transform", on { vm.onTransformClicked() })
+        listItem("Layer Options", on(onEditClicked))
 
         inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
         listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
@@ -1896,8 +1755,153 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }
             listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
-            listItem("Clear") { vm.onLayerActivated(layer.id); vm.onClearLayer() }
+            listItem("Clear", on { vm.onClearLayer() })
             listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
         }
+
+        // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks
+        // the contiguous run, and onTransformGesture already moves the whole linked group as one —
+        // but onToggleLinkLayer had no caller anywhere, so no layer could ever be linked and the
+        // group-move path was unreachable. The README advertised the feature all the same.
+        listItem(if (layer.isLinked) "Linked ✓" else "Link to Below") { vm.onToggleLinkLayer(layer.id) }
+
+        // Copy/paste the layer's *look* — opacity, the tone knobs, blend mode and the warp mesh —
+        // without touching its pixels. Both halves were implemented and neither had a caller.
+        listItem("Copy Adjustments") { vm.copyLayerModifications(layer.id) }
+        if (vm.hasCopiedLayerModifications) {
+            listItem("Paste Adjustments") { vm.pasteLayerModifications(layer.id) }
+        }
+
+        renderLayerStyleMenu(layer, uiState, vm, ::on)
+        renderLayerLayoutMenu(layer, uiState, vm, ::on)
+        renderLayerComponentMenu(layer, uiState, vm, ::on)
+    }
+}
+
+/**
+ * Shared styles (Figma tokens) for one layer, as hidden-menu rows.
+ *
+ * Every row is gated on the layer actually having something for it to act on, so a raster layer's
+ * menu carries none of this. Creating a token also links the layer to it, which is why "New …" only
+ * shows where there is a look to lift.
+ */
+private fun HiddenMenuScope.renderLayerStyleMenu(
+    layer: Layer,
+    uiState: EditorUiState,
+    vm: EditorViewModel,
+    on: (() -> Unit) -> () -> Unit,
+) {
+    val shape = layer.shapes.firstOrNull()
+    val params = layer.textParams
+    if (shape != null) {
+        listItem("New Colour Style", on {
+            vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}")
+        })
+    }
+    if (params != null) {
+        listItem("New Text Style", on {
+            vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
+        })
+    }
+    uiState.colorStyles.forEach { style ->
+        val fillLinked = layer.shapes.any { it.fillStyleId == style.id }
+        val strokeLinked = layer.shapes.any { it.strokeStyleId == style.id }
+        if (shape != null) {
+            listItem(if (fillLinked) "Fill: ${style.name} ✓" else "Fill: ${style.name}", on {
+                vm.onApplyColorStyle(if (fillLinked) null else style.id)
+            })
+            // The stroke half of the pair. It had an intent and a StyleOps function and no way in.
+            listItem(if (strokeLinked) "Stroke: ${style.name} ✓" else "Stroke: ${style.name}", on {
+                vm.onApplyStrokeStyle(if (strokeLinked) null else style.id)
+            })
+        }
+        listItem("Update ${style.name} to Colour", on { vm.onUpdateColorStyleToActiveColor(style.id) })
+        listItem("Delete ${style.name}") { vm.onDeleteColorStyle(style.id) }
+    }
+    uiState.textStyles.forEach { style ->
+        if (params != null) {
+            val linked = params.styleId == style.id
+            listItem(if (linked) "Text: ${style.name} ✓" else "Text: ${style.name}", on {
+                vm.onApplyTextStyle(if (linked) null else style.id)
+            })
+            // The text equivalent of "Update … to Colour", which until now did not exist: a text
+            // token could be made and deleted but never edited.
+            listItem("Update ${style.name} from Layer", on { vm.onUpdateTextStyleToActive(style.id) })
+        }
+        listItem("Delete ${style.name}") { vm.onDeleteTextStyle(style.id) }
+    }
+}
+
+/**
+ * Auto-layout and constraints (Figma) for one layer.
+ *
+ * Auto-layout only where the layer has children to arrange; constraints only where it has a parent
+ * to be constrained within — and not even then if that parent runs auto-layout, since the parent
+ * owns placement in that case and a constraint would be a control that does nothing.
+ */
+private fun HiddenMenuScope.renderLayerLayoutMenu(
+    layer: Layer,
+    uiState: EditorUiState,
+    vm: EditorViewModel,
+    on: (() -> Unit) -> () -> Unit,
+) {
+    val hasChildren = uiState.layers.any { it.parentId == layer.id }
+    if (hasChildren) {
+        val current = layer.autoLayout
+        LayoutDirection.entries.forEach { dir ->
+            val label = when (dir) {
+                LayoutDirection.NONE -> "Free"
+                LayoutDirection.HORIZONTAL -> "Row"
+                LayoutDirection.VERTICAL -> "Column"
+            }
+            listItem(if (current.direction == dir) "Layout: $label ✓" else "Layout: $label", on {
+                vm.onSetAutoLayout(current.copy(direction = dir))
+            })
+        }
+        if (current.direction != LayoutDirection.NONE) {
+            listItem("Hug Contents", on { vm.onHugContents() })
+            LayoutAlign.entries.forEach { align ->
+                val name = align.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                listItem(if (current.align == align) "Align $name ✓" else "Align $name", on {
+                    vm.onSetAutoLayout(current.copy(align = align))
+                })
+            }
+        }
+    }
+    val parent = layer.parentId?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
+    if (parent != null && parent.autoLayout.direction == LayoutDirection.NONE) {
+        ConstraintAnchor.entries.forEach { anchor ->
+            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+            listItem(if (layer.constraints.horizontal == anchor) "H: $name ✓" else "H: $name", on {
+                vm.onSetConstraints(layer.constraints.copy(horizontal = anchor))
+            })
+        }
+        ConstraintAnchor.entries.forEach { anchor ->
+            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+            listItem(if (layer.constraints.vertical == anchor) "V: $name ✓" else "V: $name", on {
+                vm.onSetConstraints(layer.constraints.copy(vertical = anchor))
+            })
+        }
+    }
+}
+
+/**
+ * Components and instances (Figma) for one layer. What is offered follows what the layer already
+ * is, so the menu never shows a control that would no-op — Detach only on an instance, Release only
+ * on a main, Make Component only on a plain layer.
+ */
+private fun HiddenMenuScope.renderLayerComponentMenu(
+    layer: Layer,
+    uiState: EditorUiState,
+    vm: EditorViewModel,
+    on: (() -> Unit) -> () -> Unit,
+) {
+    if (layer.componentId == null && layer.instanceOf == null) {
+        listItem("Make Component", on { vm.onMakeComponent() })
+    }
+    if (layer.instanceOf != null) listItem("Detach Instance", on { vm.onDetachInstance() })
+    if (layer.componentId != null) listItem("Release Component", on { vm.onReleaseComponent() })
+    uiState.layers.filter { it.componentId != null }.forEach { main ->
+        listItem("Place ${main.name}") { main.componentId?.let { vm.onPlaceInstance(it) } }
     }
 }
