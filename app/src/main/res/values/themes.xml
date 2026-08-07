@@ -2,11 +2,15 @@
 <resources>
     <!--
         The UI is fully Compose-driven (MaterialTheme supplies colors/typography), so this XML theme
-        only has to keep the system chrome out of the way. It is an AppCompat descendant rather than
-        a bare platform theme because MainActivity is an AppCompatActivity — which it is so that the
-        per-app language setting works below API 33; see MainActivity's own note. AppCompat hard-fails
-        with "You need to use a Theme.AppCompat theme (or descendant) with this activity" if this
-        parent is ever changed back to a platform theme.
+        only has to keep the system chrome out of the way and resolve the platform attributes that
+        vector drawables reference — every icon drawable tints itself with
+        ?android:attr/colorControlNormal, which resolves through THIS theme, not through Compose's
+        MaterialTheme. A Light parent made that attribute dark, painting every rail icon dark-on-dark.
+
+        AppCompat.NoActionBar (dark) is used rather than a bare platform theme because something in
+        the view stack historically required an AppCompat ancestor; harmless to keep.
     -->
-    <style name="Theme.Graffux" parent="Theme.AppCompat.Light.NoActionBar" />
+    <style name="Theme.Graffux" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>
