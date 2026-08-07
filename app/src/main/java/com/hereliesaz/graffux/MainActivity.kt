@@ -1083,10 +1083,12 @@ private fun activeRailClassifiers(
     if (uiState.showColorPicker) add("tool.color")
 
     // Which panel is open — the rail item that opened it stays lit while it is.
+    //
+    // Only two of the five panels have a rail item left to light. Adjust, Balance and Layer Options
+    // are opened from a layer's hidden menu now, and a hidden-menu row has no persistent state to
+    // show: the menu is closed by the time the panel is up. The panel itself is the indication.
     when (uiState.activePanel) {
-        EditorPanel.ADJUST -> add("adj.adjust")
         EditorPanel.TRANSFORM -> add("adj.transform")
-        EditorPanel.COLOR -> add("adj.balance")
         EditorPanel.EXTENSIONS -> add("adj.extensions")
         else -> Unit
     }
@@ -1773,64 +1775,48 @@ private fun AzNavHostScope.ConfigureRailItems(
             shape = AzButtonShape.SQUARE,
         )
         uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
-            renderLayerRailItem(layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings)
+            renderLayerRailItem(
+                layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
+                onBlendMode = onBlendMode, onEditClicked = onEditClicked,
+            )
         }
     }
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
-    // Adjust/Transform/Blend float free of the rail as a draggable palette (AzNavRail 11.3's
-    // unattached host): the user parks it wherever it suits the artwork and the position persists
-    // across launches, the way Procreate's panels stay where you leave them.
-    // The host is "Effects", not "Adjust". It used to carry the same label AND the same glyph as its
-    // own first child, so opening **Adjust** presented a button called **Adjust** with an identical
-    // picture, and there was no way to tell the container from the thing inside it. The group holds
-    // four different panels; only one of them is the tone adjustments.
+    // The brush pad, alone at the OPPOSITE edge rather than in the FLOATING stack.
+    //
+    // There is exactly ONE floating stack: every unattached host declared with
+    // AzUnattachedAnchor.FLOATING joins the same draggable column (see the AzNavRail guide,
+    // "Unattached hosts"). So the old "Effects" host did not float *beside* the layers, it floated
+    // *with* them — the layer tools and the layers themselves sharing one panel, which is the thing
+    // this rail was reorganised to stop doing. FLOATING now belongs to the layers alone.
+    //
+    // What used to be inside Effects has gone two ways. Adjust, Balance, Blend and Layer Options are
+    // per-layer panels and now open from each layer's own hidden menu, on the layer whose menu you
+    // opened — see renderLayerRailItem. Run Extension went into the rail strip proper, since it acts
+    // on the artwork rather than on a layer you picked. Only the brush pad is left, and it is not a
+    // layer tool at all.
     azUnattachedHostItem(
-        id = "grp.adjust", text = "Effects", anchor = AzUnattachedAnchor.FLOATING,
-        content = GraffuxIcons.FilterGallery, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        id = "grp.brushpad", text = navStrings.brush, anchor = AzUnattachedAnchor.OPPOSITE,
+        content = GraffuxIcons.BrushSettings, color = navItemColor, shape = AzButtonShape.CIRCLE,
     )
-    stateSubItem(
-        id = "adj.adjust", hostId = "grp.adjust", text = navStrings.adjust,
-        content = GraffuxIcons.LayerAdjustment, shape = AzButtonShape.CIRCLE,
-    ) { vm.onAdjustClicked() }
-    // (Liquify has moved to the "Focus & Tone" nested rail, next to Smudge. It was filed here on the
-    // grounds that Procreate keeps it in Adjustments, but this one is a brush you drag across the
-    // canvas, which makes it the same gesture as Smudge at a larger radius — and a panel is the
-    // wrong place for something you pick instead of another tool.)
-    subItem("adj.blend", "grp.adjust", "Blend", GraffuxIcons.LayerBlend, AzButtonShape.CIRCLE) { onBlendMode() }
-    // Color Balance: onBalanceClicked()/ToggleColorPanel and the panel it opens (ColorBalanceKnobsRow,
-    // rendered by EditorUi.kt when activePanel == EditorPanel.COLOR) were both already fully wired —
-    // this was the only piece missing, an entry point to actually call onBalanceClicked().
-    stateSubItem(
-        id = "adj.balance", hostId = "grp.adjust", text = "Balance",
-        content = GraffuxIcons.ColorBalance, shape = AzButtonShape.CIRCLE,
-    ) { vm.onBalanceClicked() }
-    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT — both
-    // already worked end to end once selected, but nothing ever opened the panel to select from.
-    stateSubItem(
-        // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
-        // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
-        // windows under one name is how a user ends up in the wrong one.
-        id = "adj.extensions", hostId = "grp.adjust", text = "Run Extension",
-        content = GraffuxIcons.FilterGallery, shape = AzButtonShape.CIRCLE,
-    ) { vm.onExtensionsClicked() }
-    // The size/feathering pad keeps its home here rather than in the rail: the edge slider covers
+    // The size/feathering pad keeps a host of its own rather than a rail slot: the edge slider covers
     // size, but feathering (drag across) and stamp-brush flow have nowhere else to live.
     azRailSubItem(
         // The one item that keeps the wide NONE footprint rather than NONE_CIRCLE: its content is a
-        // drag pad, not a glyph, and BrushSizePad clamps the maximum brush size to its own measured
-        // width (`maxPx = itemPx`). On a circle footprint that ceiling would collapse to the rail's
-        // 44dp, so the shape here is carrying layout, not affordance.
-        id = "adj.brush", hostId = "grp.adjust", text = "Brush", shape = AzButtonShape.NONE,
+        // drag pad, not a glyph, and the pad wants room to drag across. On a circle footprint that
+        // collapses to the rail's 44dp, so the shape here is carrying layout, not affordance.
+        id = "adj.brush", hostId = "grp.brushpad", text = navStrings.brush, shape = AzButtonShape.NONE,
         content = AzComposableContent { BrushSizePad(vm) },
     )
-
-    val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
-    if (overlay != null) {
-        // Bordered: opens the layer-options window.
-        azRailItem(id = "edit", text = "Edit", content = GraffuxIcons.Menu, color = navItemColor, shape = AzButtonShape.CIRCLE, onClick = { onEditClicked() })
+    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT.
+    // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
+    // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
+    // windows under one name is how a user ends up in the wrong one.
+    stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.CIRCLE) {
+        vm.onExtensionsClicked()
     }
 }
 
@@ -1851,6 +1837,8 @@ private fun AzNavHostScope.renderLayerRailItem(
     activeColor: Color,
     navItemColor: Color,
     strings: AppStrings,
+    onBlendMode: () -> Unit,
+    onEditClicked: () -> Unit,
 ) {
     val isGroup = layer.type == LayerType.GROUP
     val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
@@ -1873,11 +1861,26 @@ private fun AzNavHostScope.renderLayerRailItem(
         nestedContent = if (isGroup) {
             {
                 children.reversed().forEach { child ->
-                    renderLayerRailItem(child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings)
+                    renderLayerRailItem(
+                        child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings,
+                        onBlendMode = onBlendMode, onEditClicked = onEditClicked,
+                    )
                 }
             }
         } else null,
     ) {
+        // The layer's own tools, on the layer whose menu you opened. Each one selects that layer
+        // first, so a tool never lands on whichever layer happened to be active a moment ago — which
+        // is what made these worth moving here rather than leaving them as rail buttons that act on
+        // "the active layer, wherever it is". Panels are opened, not drawn: a hidden menu is a list
+        // of rows (listItem / inputItem — see the AzNavRail guide), so the knobs stay in the panels
+        // they already live in and these are the way in to them.
+        listItem(strings.nav.adjust) { vm.onLayerActivated(layer.id); vm.onAdjustClicked() }
+        listItem("Balance") { vm.onLayerActivated(layer.id); vm.onBalanceClicked() }
+        listItem("Blend Mode") { vm.onLayerActivated(layer.id); onBlendMode() }
+        listItem("Transform") { vm.onLayerActivated(layer.id); vm.onTransformClicked() }
+        listItem("Layer Options") { vm.onLayerActivated(layer.id); onEditClicked() }
+
         inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
         listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
         if (isGroup) {

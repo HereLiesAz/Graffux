@@ -5,6 +5,8 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -218,5 +220,77 @@ class CanvasHitTestTest {
         // At (650, 500), only middle and bottom overlap (top is 200x200 around 500,500).
         val hitsOuter = CanvasHitTest.allHits(layers, Offset(650f, 500f), W, H)
         assertEquals(listOf("middle", "bottom"), hitsOuter)
+    }
+    // ── The transform frame: what you can pick a layer up by ───────────────────────────────────
+    //
+    // Two of the box's four corners carry no handle, and none of its four edges did either, so a
+    // drag that began on them did nothing at all — the frame looked grabbable the whole way round
+    // and answered in two places. These pin the geometry the move grip is built on.
+
+    @Test
+    fun `nearBoxEdge catches a point on an edge and not one well inside the box`() {
+        val corners = listOf(
+            Offset(100f, 100f), Offset(300f, 100f), Offset(300f, 300f), Offset(100f, 300f),
+        )
+        // On the top edge, midway along it.
+        assertTrue(CanvasHitTest.nearBoxEdge(corners, Offset(200f, 104f), tolerancePx = 14f))
+        // On the left edge.
+        assertTrue(CanvasHitTest.nearBoxEdge(corners, Offset(96f, 200f), tolerancePx = 14f))
+        // The middle of the box is the artwork, not the frame.
+        assertFalse(CanvasHitTest.nearBoxEdge(corners, Offset(200f, 200f), tolerancePx = 14f))
+        // Well outside it.
+        assertFalse(CanvasHitTest.nearBoxEdge(corners, Offset(200f, 60f), tolerancePx = 14f))
+    }
+
+    @Test
+    fun `nearBoxEdge follows the box when it is rotated`() {
+        // The same square turned 45 degrees about (200, 200): the corners move to the axis points.
+        val corners = listOf(
+            Offset(200f, 60f), Offset(340f, 200f), Offset(200f, 340f), Offset(60f, 200f),
+        )
+        // Midpoint of the top-right edge is on the frame...
+        assertTrue(CanvasHitTest.nearBoxEdge(corners, Offset(270f, 130f), tolerancePx = 14f))
+        // ...and the point that WOULD be on an edge if the box were still axis-aligned is not.
+        assertFalse(CanvasHitTest.nearBoxEdge(corners, Offset(70f, 70f), tolerancePx = 14f))
+    }
+
+    @Test
+    fun `distanceToSegment measures to the nearer end beyond a segment, not to the infinite line`() {
+        val a = Offset(0f, 0f)
+        val b = Offset(100f, 0f)
+        // Alongside the segment: the perpendicular distance.
+        assertEquals(5f, CanvasHitTest.distanceToSegment(Offset(50f, 5f), a, b), 1e-3f)
+        // Past the end: measured to the end, NOT 5f down the infinite line the segment sits on.
+        assertEquals(
+            kotlin.math.hypot(50f, 5f),
+            CanvasHitTest.distanceToSegment(Offset(150f, 5f), a, b),
+            1e-3f,
+        )
+        // A degenerate edge is a point.
+        assertEquals(10f, CanvasHitTest.distanceToSegment(Offset(0f, 10f), a, a), 1e-3f)
+    }
+
+    @Test
+    fun `screenDeltaToWorld undoes the camera zoom`() {
+        // At 2x, a 20px drag on screen is 10px of world - the layer must not outrun the finger.
+        val world = CanvasHitTest.screenDeltaToWorld(Offset(20f, -40f), viewportZoom = 2f, viewportRotation = 0f)
+        assertEquals(10f, world.x, 1e-3f)
+        assertEquals(-20f, world.y, 1e-3f)
+    }
+
+    @Test
+    fun `screenDeltaToWorld undoes the camera rotation`() {
+        // Camera turned 90 degrees: a drag straight down the screen is a drag along world +x.
+        val world = CanvasHitTest.screenDeltaToWorld(Offset(0f, 10f), viewportZoom = 1f, viewportRotation = 90f)
+        assertEquals(10f, world.x, 1e-3f)
+        assertEquals(0f, world.y, 1e-3f)
+    }
+
+    @Test
+    fun `screenDeltaToWorld is the identity for an untouched camera, and survives a zero zoom`() {
+        val d = Offset(7f, -3f)
+        assertEquals(d, CanvasHitTest.screenDeltaToWorld(d, viewportZoom = 1f, viewportRotation = 0f))
+        // A degenerate zoom must not produce infinities on the drag path.
+        assertEquals(d, CanvasHitTest.screenDeltaToWorld(d, viewportZoom = 0f, viewportRotation = 0f))
     }
 }
