@@ -67,6 +67,8 @@ class SettingsRepositoryImpl @Inject constructor(
     private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
     private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
     private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
+    private val TOOL_USAGE = stringPreferencesKey("tool_usage")
+    private val FAVORITE_TOOLS = stringPreferencesKey("favorite_tools")
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -280,5 +282,39 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setGestureAction(slot: GestureSlot, action: GestureAction) {
         context.dataStore.edit { it[GESTURE_KEYS.getValue(slot)] = action.name }
+    }
+
+    override val toolUsage: Flow<com.hereliesaz.graffitixr.common.model.ToolUsage> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { com.hereliesaz.graffitixr.common.model.ToolUsageCodec.decode(it[TOOL_USAGE]) }
+
+    override suspend fun recordToolUse(
+        tool: com.hereliesaz.graffitixr.common.model.Tool,
+        atMs: Long,
+    ) {
+        if (tool == com.hereliesaz.graffitixr.common.model.Tool.NONE) return
+        context.dataStore.edit { prefs ->
+            val next = com.hereliesaz.graffitixr.common.model.ToolUsageCodec
+                .decode(prefs[TOOL_USAGE])
+                .recording(tool, atMs)
+            prefs[TOOL_USAGE] = com.hereliesaz.graffitixr.common.model.ToolUsageCodec.encode(next)
+        }
+    }
+
+    override val favoriteTools: Flow<List<String>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        // A LIST in a string, not a stringSetPreferencesKey: DataStore's set has no order, and the
+        // order the user pinned them in is the arrangement they are relying on.
+        .map { prefs -> prefs[FAVORITE_TOOLS]?.split(',')?.filter { it.isNotBlank() } ?: emptyList() }
+
+    override suspend fun toggleFavoriteTool(tool: com.hereliesaz.graffitixr.common.model.Tool) {
+        if (tool == com.hereliesaz.graffitixr.common.model.Tool.NONE) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[FAVORITE_TOOLS]?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
+            // Un-pinning removes; pinning appends, so a newly pinned tool lands at the end rather
+            // than displacing whatever the user had at the front.
+            val next = if (tool.name in current) current - tool.name else current + tool.name
+            prefs[FAVORITE_TOOLS] = next.joinToString(",")
+        }
     }
 }
