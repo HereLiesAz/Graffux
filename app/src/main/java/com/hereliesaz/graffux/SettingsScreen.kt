@@ -1,7 +1,6 @@
 package com.hereliesaz.graffux
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,13 +13,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
@@ -44,15 +40,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
-import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 
 /**
  * Graffux settings — the design-relevant preferences, shown as a full-bleed overlay over the editor.
- * Handedness controls which side the nav rail docks to; units feed the canvas rulers; language sets the
- * app locale. Also offers a tutorial reset and shows the build version. Values are read from and written
- * straight through [SettingsViewModel]; there's no local editing state to commit.
+ * Handedness controls which side the nav rail docks to; units feed the canvas rulers. Also offers a
+ * tutorial reset and shows the build version. Values are read from and written straight through
+ * [SettingsViewModel]; there's no local editing state to commit.
  */
 @Composable
 fun SettingsScreen(
@@ -65,7 +60,6 @@ fun SettingsScreen(
 
     val rightHanded by vm.isRightHanded.collectAsStateWithLifecycle()
     val imperial by vm.isImperialUnits.collectAsStateWithLifecycle()
-    val language by vm.language.collectAsStateWithLifecycle()
     val sampleRate by vm.inputSampleRateHz.collectAsStateWithLifecycle()
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
@@ -114,8 +108,14 @@ fun SettingsScreen(
                 onCheckedChange = vm::setImperialUnits,
             )
             HorizontalDivider()
-            LanguageRow(current = language, onSelect = vm::setLanguage)
-            HorizontalDivider()
+            // No language picker. The only translations `:core:design` carried were GraffitiXR's —
+            // its own `app_name`, its AR/Overlay/Mockup mode copy — and they have been removed from
+            // this repository. Graffux ships one language, so a picker here would have offered
+            // fourteen options that all resolve to the same English resources: the dead control this
+            // audit keeps finding, rather than a feature waiting to work.
+            //
+            // `AppLanguage` and `SettingsRepository.language` stay where they are, in the shared
+            // core modules GraffitiXR also consumes. Nothing in Graffux reads them.
 
             Text(
                 "Performance",
@@ -283,35 +283,3 @@ private fun SwitchRow(
     }
 }
 
-@Composable
-private fun LanguageRow(current: AppLanguage, onSelect: (AppLanguage) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("Language", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Interface language (restart to fully apply).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.width(16.dp))
-        Box {
-            OutlinedButton(onClick = { expanded = true }) {
-                Text(current.displayName)
-                Icon(painterResource(GraffuxIcons.ChevronDown), contentDescription = null)
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                AppLanguage.entries.forEach { lang ->
-                    DropdownMenuItem(
-                        text = { Text(lang.displayName) },
-                        onClick = { onSelect(lang); expanded = false },
-                    )
-                }
-            }
-        }
-    }
-}

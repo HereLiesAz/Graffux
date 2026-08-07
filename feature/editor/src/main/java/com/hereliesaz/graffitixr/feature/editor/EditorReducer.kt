@@ -249,17 +249,17 @@ internal object EditorReducer {
         is EditorIntent.SetSelectionShape -> state.copy(selectionShape = intent.shape)
         is EditorIntent.SetSelectionOp -> state.copy(selectionOp = intent.op)
         is EditorIntent.SetMagicWandTolerance -> state.copy(magicWandTolerance = intent.tolerance.coerceIn(0, 255))
-        // Feather lives on the selection itself, not beside it: it is part of what the region means,
-        // so it travels with a moved selection and is recorded into the strokes it clips.
         is EditorIntent.SetCloneSource -> state.copy(cloneSource = intent.at)
+        is EditorIntent.SetCanvasSize -> state.copy(canvasSize = intent.size)
         // Changing mode drops the handles: they are a grid of a particular size laid over a
         // particular layer, so carrying a distort's four corners into warp's sixteen would be
         // meaningless. The pixels already baked are kept — only the live grid resets.
-        is EditorIntent.SetCanvasSize -> state.copy(canvasSize = intent.size)
         is EditorIntent.SetTransformMode -> state.copy(transformMode = intent.mode, warpHandles = emptyList())
         is EditorIntent.SetWarpHandles -> state.copy(warpHandles = intent.handles)
         is EditorIntent.SetHasClipboard -> state.copy(hasClipboard = intent.has)
         is EditorIntent.SetSavedSelections -> state.copy(savedSelections = intent.selections)
+        // Feather lives on the selection itself, not beside it: it is part of what the region means,
+        // so it travels with a moved selection and is recorded into the strokes it clips.
         is EditorIntent.SetSelectionFeather -> state.copy(
             selection = state.selection?.copy(featherPx = intent.featherPx.coerceAtLeast(0f))
         )

@@ -3,7 +3,6 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.net.Uri
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.IntSize
 
 interface EditorActions {
     fun onOpacityChanged(v: Float)
@@ -48,11 +47,13 @@ interface EditorActions {
     fun setLayerTransform(scale: Float, offset: Offset, rx: Float, ry: Float, rz: Float)
 
     fun onFeedbackShown()
-    fun onDoubleTapHintDismissed()
-    fun onOnboardingComplete(mode: Any)
 
-    // Add canvas size to route strokes appropriately
-    fun onDrawingPathFinished(path: List<Offset>, canvasSize: IntSize)
+    // No onDrawingPathFinished / onDoubleTapHintDismissed / onOnboardingComplete. All three were
+    // declared here, implemented in EditorViewModel as an empty `{}` "for interface compliance",
+    // and called by nothing: the drawing surfaces moved to the three-phase
+    // onStrokeStart/onStrokeMove/onStrokeEnd API, and the hint and onboarding flows they belonged to
+    // no longer exist. An interface member that every implementation must write and no caller can
+    // reach is a instruction to write dead code.
 
     fun onAdjustClicked()
     fun onColorClicked()
