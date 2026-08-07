@@ -151,3 +151,56 @@ class RailClassifiersTest {
         assertTrue(lit.count { it.startsWith("transform.") } == 1)
     }
 }
+
+/**
+ * [secondaryRailClassifiers] — the third highlight, which is a *condition* rather than a place.
+ *
+ * Both of these were editor state the rail had no way to show before 11.9 gave it a second colour,
+ * and both are the kind that bites silently: a selection quietly clipping every stroke, and layers
+ * that come along when you drag one without ever having said they would.
+ */
+class SecondaryRailClassifiersTest {
+
+    private fun layer(id: String, linked: Boolean = false) =
+        Layer(id = id, name = id, isLinked = linked)
+
+    @Test
+    fun `an unlinked layer marks nothing`() {
+        val state = EditorUiState(
+            layers = listOf(layer("a"), layer("b"), layer("c")),
+            activeLayerId = "b",
+        )
+        assertTrue(secondaryRailClassifiers(state).none { it.startsWith("layer.") })
+    }
+
+    @Test
+    fun `a link run marks its other members and never the active layer itself`() {
+        // isLinked means "linked to the layer below me", so b and c form a run with a.
+        val state = EditorUiState(
+            layers = listOf(layer("a"), layer("b", linked = true), layer("c", linked = true), layer("d")),
+            activeLayerId = "b",
+        )
+        val lit = secondaryRailClassifiers(state)
+        assertTrue("layer.a" in lit)
+        assertTrue("layer.c" in lit)
+        // The one you are on is ACTIVE, not secondary — it would be lit twice otherwise, and the
+        // rail would say the same thing about the layer you are editing and the ones tagging along.
+        assertFalse("layer.b" in lit)
+        // d is outside the run.
+        assertFalse("layer.d" in lit)
+    }
+
+    @Test
+    fun `a live selection marks the Selection group, because it clips every raster tool`() {
+        val ring = SelectionRing(listOf(Offset(0f, 0f), Offset(10f, 0f), Offset(10f, 10f)), additive = true)
+        val none = EditorUiState()
+        assertFalse("grp.select" in secondaryRailClassifiers(none))
+        val selected = EditorUiState(selection = Selection(listOf(ring), IntSize(100, 100)))
+        assertTrue("grp.select" in secondaryRailClassifiers(selected))
+    }
+
+    @Test
+    fun `nothing is secondary in an empty document`() {
+        assertTrue(secondaryRailClassifiers(EditorUiState()).isEmpty())
+    }
+}

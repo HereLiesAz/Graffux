@@ -1,46 +1,40 @@
 // FILE: core/design/src/main/java/com/hereliesaz/graffitixr/design/components/FloatingWindow.kt
 package com.hereliesaz.graffitixr.design.components
 
-import com.hereliesaz.graffitixr.design.GraffuxIcons
-
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlin.math.roundToInt
+import com.hereliesaz.aznavrail.AzWindow
+import com.hereliesaz.aznavrail.AzWindowState
 
 /**
- * A floating, draggable, collapsible panel for tool options — Procreate-style, in place of a
- * modal [androidx.compose.material3.AlertDialog]. The header bar is the drag handle; unlike a
- * dialog it never dims or blocks the canvas, so several can be open over the artwork at once,
- * each positioned and collapsed independently.
+ * A floating, draggable, collapsible panel for tool options — Procreate-style, in place of a modal
+ * [androidx.compose.material3.AlertDialog]. The header bar is the drag handle; unlike a dialog it
+ * never dims or blocks the canvas, so several can be open over the artwork at once, each positioned
+ * and collapsed independently.
+ *
+ * **This is now a thin wrapper over AzNavRail's [AzWindow]** (11.9), not a hand-rolled panel. The
+ * ninety lines it replaced were a re-implementation of the same thing, and one of them was a bug:
+ * the drag handler was `offset += dragAmount` with no bounds of any kind, so any of the two dozen
+ * windows in this app could be dragged clean off the screen and was then unreachable — no way to
+ * grab a title bar that isn't on screen, and no way to get the panel back short of closing and
+ * reopening it, losing whatever was in it. [AzWindow] clamps the drag so a title bar's worth always
+ * stays visible, which is the whole reason to use the library's version rather than keep our own.
+ *
+ * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
+ * they get for free: the clamp, a fold control that matches every other AzNavRail surface, and an
+ * accent that follows the rail's rather than being independently themed here.
+ *
+ * [initialOffset] seeds the position once. Hoist an [AzWindowState] via [rememberFloatingWindowState]
+ * and pass it as [state] when a window's placement or folded state has to outlive the window itself.
  */
 @Composable
 fun FloatingWindow(
@@ -48,50 +42,29 @@ fun FloatingWindow(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     initialOffset: Offset = Offset(60f, 160f),
+    state: AzWindowState? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    var offset by remember { mutableStateOf(initialOffset) }
-    var collapsed by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = modifier
-            .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
-            .widthIn(min = 220.dp, max = 320.dp)
-            .zIndex(10f)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+    val windowState = state ?: rememberFloatingWindowState(initialOffset)
+    AzWindow(
+        modifier = modifier.zIndex(10f).widthIn(min = 220.dp, max = 320.dp),
+        title = title,
+        state = windowState,
+        // Not the rail's accent by default here: these panels sit over the artwork, and the rail's
+        // accent is tuned to read against the rail rather than against whatever the user is painting.
+        accent = MaterialTheme.colorScheme.outlineVariant,
+        surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+        onDismiss = onDismiss,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        offset += dragAmount
-                    }
-                }
-                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { collapsed = !collapsed }, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    painter = painterResource(if (collapsed) GraffuxIcons.ChevronDown else GraffuxIcons.ChevronUp),
-                    contentDescription = if (collapsed) "Expand" else "Collapse",
-                )
-            }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close")
-            }
-        }
-        AnimatedVisibility(visible = !collapsed) {
-            Column(modifier = Modifier.padding(12.dp), content = content)
-        }
+        Column(modifier = Modifier.padding(12.dp), content = content)
     }
 }
+
+/**
+ * Position + folded state for a [FloatingWindow], for the caller that needs it to survive the
+ * window closing. `remember`ed against [initialOffset], so a window given a fresh starting position
+ * takes it rather than silently keeping the first one it was ever handed.
+ */
+@Composable
+fun rememberFloatingWindowState(initialOffset: Offset = Offset(60f, 160f)): AzWindowState =
+    remember(initialOffset) { AzWindowState(initialOffset.x, initialOffset.y, false) }

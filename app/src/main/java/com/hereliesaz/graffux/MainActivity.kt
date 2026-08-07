@@ -50,6 +50,8 @@ import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
+import com.hereliesaz.aznavrail.AzPopupKind
+import com.hereliesaz.aznavrail.rememberAzPopupController
 import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
@@ -58,6 +60,7 @@ import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LinkOps
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
@@ -172,6 +175,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
+
+    // Failures that used to be a Toast, or — worse — a logcat line. An AzPopup binds itself to a
+    // rail item and can write back to it (a badge, a warning flag), and `show()` with no item id
+    // lands on whichever item the user last touched, which is exactly right for something that
+    // failed a moment after they pressed it. A Toast is gone in two seconds and says nothing about
+    // which control it belonged to.
+    val alerts = rememberAzPopupController()
 
     var showSettings by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -337,11 +347,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 .onFailure {
                     runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
                         .onFailure {
-                            android.widget.Toast.makeText(
-                                context,
-                                "Nothing on this device can open the store",
-                                android.widget.Toast.LENGTH_LONG,
-                            ).show()
+                            alerts.show(
+                                kind = AzPopupKind.WARNING,
+                                title = "No way to reach the store",
+                                message = "This device has no store app, no Play, and no browser " +
+                                    "to open azphalt.store with. Extensions can still be installed " +
+                                    "by hand from a file: Install brush… in the menu at the top right.",
+                            )
                         }
                 }
         }
@@ -352,9 +364,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         showStoreChooser = false
         runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
             .onFailure {
-                android.widget.Toast.makeText(
-                    context, "No browser to open azphalt.store", android.widget.Toast.LENGTH_LONG,
-                ).show()
+                alerts.show(
+                    kind = AzPopupKind.WARNING,
+                    title = "No browser",
+                    message = "Nothing on this device can open azphalt.store.",
+                )
             }
     }
 
@@ -388,6 +402,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         AzHostActivityLayout(navController = navController, initiallyExpanded = false) {
             azTheme(
                 activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
+                // The third highlight (11.9). `active` answers "where am I", `secondary` answers
+                // "what is true of this". They have to be different colours or the rail says the
+                // same thing about a layer you are editing and a layer that merely comes along when
+                // you drag it. Amber because it reads as a condition rather than a place.
+                secondaryColor = Color(0xFFFFB300),
                 // The border is what distinguishes "this opens something" from "this does something".
                 // The rail's default is therefore borderless (AzNavRail's NONE_CIRCLE keeps the
                 // CIRCLE footprint, so a borderless item still lines up with a bordered one) and the
@@ -397,10 +416,26 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 headerIconShape = AzHeaderIconShape.CIRCLE,
                 translucentBackground = Color.Black.copy(alpha = 0.55f)
             )
+            // The help overlay: a card per rail item, its label plus whatever RAIL_HELP says about
+            // it. This is the app explaining itself without a scripted tutorial — every conditional
+            // item, every piece of Procreate vocabulary, and the multi-finger gestures that have no
+            // button at all are written down in one place the user can reach from the rail.
+            //
+            // `helpEnabled` is deliberately not passed: `azHelpRailItem` owns the overlay's
+            // visibility, and setting the flag as well would mean two things deciding one boolean.
+            // Pass it if help ever needs opening from somewhere other than its own item.
+            azAdvanced(
+                helpList = RAIL_HELP,
+                onDismissHelp = { },
+            )
             azConfig(
                 // What the rail should render as active. Without this only a transient last-tap
                 // highlights, which is not a state — it is a memory of a gesture.
                 activeClassifiers = activeClassifiers,
+                // State the rail could not show at all before 11.9 gave it a second colour: which
+                // layers travel with the one you are moving, and whether a selection is quietly
+                // confining every raster tool. See secondaryRailClassifiers.
+                secondaryClassifiers = secondaryRailClassifiers(uiState),
                 noMenu = true,
                 packButtons = true,
                 dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
@@ -430,6 +465,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 onToolOptionsClicked = { showToolOptions = !showToolOptions },
                 toolOptionsOpen = showToolOptions,
             )
+
+            // Registered on the host so a popup raised from anywhere — a menu action, a coroutine,
+            // a callback off the main flow — can bind itself to the rail item that caused it. No
+            // body: the built-in title/message/OK panel is what these are.
+            azPopup(alerts)
 
             background(weight = 0) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -496,7 +536,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                                 }
                                 context.startActivity(chooser)
                             } catch (t: Throwable) {
+                                // Was a logcat line and nothing else: Share appeared to do nothing
+                                // at all, with no way for the user to tell a failure from a slow
+                                // export.
                                 android.util.Log.w("Graffux", "Share failed", t)
+                                alerts.show(
+                                    kind = AzPopupKind.WARNING,
+                                    title = "Couldn't share",
+                                    message = t.message ?: "No app accepted the image.",
+                                )
                             }
                         }
                     })
@@ -1119,6 +1167,30 @@ internal fun activeRailClassifiers(
     add("transform.${uiState.transformMode.name}")
 }
 
+/**
+ * Every rail item that is currently **secondary** — a condition that is true of it, as opposed to
+ * [activeRailClassifiers]'s "this is where you are".
+ *
+ * AzNavRail 11.9 added a third highlight for exactly this distinction, and two pieces of editor
+ * state had no way to show at all until it did:
+ *
+ *  * **Linked layers.** Linking makes a contiguous run of layers move, scale and rotate as one, and
+ *    the machinery for it has always worked — but nothing on screen said which layers were in the
+ *    run, so you dragged one and two others came with it for no visible reason. The active layer
+ *    keeps the active colour; its peers take the secondary one.
+ *  * **A live selection.** A region confines every raster tool until it is cleared, and it is
+ *    invisible whenever the marching ants are off-screen or the Selection group is closed. This is
+ *    the rail admitting that the next stroke will be clipped.
+ *
+ * Kept separate from [activeRailClassifiers] rather than folded into it, because the library takes
+ * them as two sets and because they answer two different questions — an item can legitimately be in
+ * both, and `focus` beats `active` beats `secondary` when they collide.
+ */
+internal fun secondaryRailClassifiers(uiState: EditorUiState): Set<String> = buildSet {
+    LinkOps.linkedPeers(uiState.layers, uiState.activeLayerId).forEach { add("layer.$it") }
+    if (uiState.selection != null) add("grp.select")
+}
+
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
@@ -1647,6 +1719,18 @@ private fun AzNavHostScope.ConfigureRailItems(
     stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.CIRCLE) {
         vm.onExtensionsClicked()
     }
+
+    // The `?`. It opens the library's help overlay, which draws a card for every item currently in
+    // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
+    // entire interface and a good deal of it is conditional, which means the ordinary way to
+    // discover a control is to already have caused it to appear. This is the way that isn't.
+    //
+    // Bordered, like everything else that opens something rather than doing something. Last in the
+    // strip: it is the item you reach for when the others have not explained themselves.
+    azHelpRailItem(
+        id = "help", text = "Help", content = GraffuxIcons.Help,
+        color = navItemColor, shape = AzButtonShape.CIRCLE,
+    )
 
     // ── Badges ───────────────────────────────────────────────────────────────────────────────────
     //

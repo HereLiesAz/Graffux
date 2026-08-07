@@ -2518,18 +2518,8 @@ class EditorViewModel @Inject constructor(
 
     /** Returns the IDs of all layers in the same link-group as [layerId].
      *  A group is a contiguous run where each layer above the bottom has isLinked = true. */
-    private fun getLinkedGroupIds(layerId: String): Set<String> {
-        val layers = _uiState.value.layers
-        val idx = layers.indexOfFirst { it.id == layerId }
-        if (idx < 0) return setOf(layerId)
-        // Walk down to find group bottom (first layer in run whose isLinked is false)
-        var bottom = idx
-        while (bottom > 0 && layers[bottom].isLinked) bottom--
-        // Walk up to find group top (last consecutive layer whose next has isLinked = true)
-        var top = idx
-        while (top + 1 < layers.size && layers[top + 1].isLinked) top++
-        return layers.subList(bottom, top + 1).map { it.id }.toSet()
-    }
+    private fun getLinkedGroupIds(layerId: String): Set<String> =
+        com.hereliesaz.graffitixr.common.model.LinkOps.linkedGroupIds(_uiState.value.layers, layerId)
 
     private fun updateLinkedGroup(activeId: String, transform: (Layer) -> Layer) {
         val groupIds = getLinkedGroupIds(activeId)
