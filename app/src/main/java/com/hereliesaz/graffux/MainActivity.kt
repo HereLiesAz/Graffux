@@ -3,11 +3,11 @@ package com.hereliesaz.graffux
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -114,17 +114,15 @@ import kotlin.math.roundToInt
  * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.[span_3](start_span)[span_3](end_span)
  */
 /**
- * [AppCompatActivity], not a bare `ComponentActivity`, and the Settings language picker is the
- * reason. `AppCompatDelegate.setApplicationLocales` (see [SettingsViewModel]) hands off to the
- * platform `LocaleManager` on API 33+, but below that it is a pure AppCompat backport: it records
- * the locales and then recreates the activities AppCompat knows about — which is only ever its own
- * delegates. Under `ComponentActivity` there were none, so on Android 8 through 12 picking a
- * language wrote the preference, reported success, and changed nothing on screen for the entire
- * life of the install. `Theme.Graffux` already descends from `Theme.AppCompat`, so this costs
- * nothing else.
+ * Back to a plain `ComponentActivity`. It was briefly an `AppCompatActivity` so that
+ * `AppCompatDelegate.setApplicationLocales` could recreate it and apply the Settings language
+ * picker below API 33 — but the only translations in the tree were GraffitiXR's and have been
+ * removed, so the picker is gone and with it the reason to carry an AppCompat delegate. The XML
+ * theme stays an AppCompat descendant: something in the view stack still requires it (see
+ * `themes.xml`), and that predates the locale work.
  */
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedImage = incomingImageUri(intent)

@@ -8,6 +8,7 @@ import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -171,6 +172,78 @@ class SelectionMaskRenderTest {
         val sel = Selection(listOf(ring(Offset(1f, 1f), Offset(7f, 7f))), IntSize(8, 8))
         val path = SelectionMask.bitmapPath(sel, 8, 8)
         assertEquals(painted, SelectionMask.feather(base, painted, path, 0f))
+    }
+
+    // ── Ownership of the intermediate ──────────────────────────────────────────────────────────
+    //
+    // Every call site allocates `painted` a few lines above the call and returns the result, so the
+    // superseded buffer has nowhere to be freed except here. It used to be dropped instead: on a
+    // feathered selection, every stroke, fill, clear and flood left a full-resolution layer copy
+    // behind, on a heap that already holds two bitmaps per layer.
+
+    @Test
+    fun `feather recycles the painted intermediate it supersedes`() {
+        val sel = Selection(listOf(ring(Offset(10f, 10f), Offset(30f, 30f))), canvas, featherPx = 6f)
+        val path = SelectionMask.bitmapPath(sel, 40, 40)!!
+        val radius = SelectionMask.featherRadius(sel, 40, 40)
+
+        val base = RenderTestBase.filled(40, 40, Color.TRANSPARENT)
+        val painted = RenderTestBase.filled(40, 40, Color.RED)
+        val out = SelectionMask.feather(base, painted, path, radius)
+
+        assertNotEquals(out, painted)
+        assertTrue("the superseded intermediate must not be left for the collector", painted.isRecycled)
+        assertFalse("the caller still owns base", base.isRecycled)
+        assertFalse(out.isRecycled)
+    }
+
+    @Test
+    fun `feather keeps the painted bitmap alive when it is what it returns`() {
+        val painted = RenderTestBase.filled(8, 8, Color.RED)
+        val base = RenderTestBase.filled(8, 8, Color.TRANSPARENT)
+        val sel = Selection(listOf(ring(Offset(1f, 1f), Offset(7f, 7f))), IntSize(8, 8))
+        val path = SelectionMask.bitmapPath(sel, 8, 8)
+
+        assertEquals(painted, SelectionMask.feather(base, painted, path, 0f))
+        assertFalse("the hard-edged path returns this bitmap, so it must survive", painted.isRecycled)
+    }
+
+    @Test
+    fun `feather never recycles the base, even when handed it as the paint`() {
+        // What an empty stroke, or an allocation that failed upstream, hands us: the "painted"
+        // bitmap IS the base. Recycling it would destroy the layer the caller still owns.
+        val sel = Selection(listOf(ring(Offset(10f, 10f), Offset(30f, 30f))), canvas, featherPx = 6f)
+        val path = SelectionMask.bitmapPath(sel, 40, 40)!!
+        val radius = SelectionMask.featherRadius(sel, 40, 40)
+        val base = RenderTestBase.filled(40, 40, Color.RED)
+
+        val out = SelectionMask.feather(base, base, path, radius)
+
+        assertFalse(base.isRecycled)
+        assertFalse(out.isRecycled)
+    }
+
+    @Test
+    fun `confine recycles the produced bitmap it supersedes`() {
+        val sel = Selection(listOf(ring(Offset(10f, 10f), Offset(30f, 30f))), canvas)
+        val path = SelectionMask.bitmapPath(sel, 40, 40)!!
+        val base = RenderTestBase.filled(40, 40, Color.TRANSPARENT)
+        val produced = RenderTestBase.filled(40, 40, Color.RED)
+
+        val out = SelectionMask.confine(base, produced, path, radiusPx = 0f)
+
+        assertNotEquals(out, produced)
+        assertTrue(produced.isRecycled)
+        assertFalse(base.isRecycled)
+    }
+
+    @Test
+    fun `confine with no clip hands the produced bitmap straight back`() {
+        val base = RenderTestBase.filled(8, 8, Color.TRANSPARENT)
+        val produced = RenderTestBase.filled(8, 8, Color.RED)
+
+        assertEquals(produced, SelectionMask.confine(base, produced, clipPath = null, radiusPx = 0f))
+        assertFalse(produced.isRecycled)
     }
 
     @Test

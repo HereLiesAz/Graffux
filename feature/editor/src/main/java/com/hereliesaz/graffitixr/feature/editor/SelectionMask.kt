@@ -141,6 +141,14 @@ internal object SelectionMask {
      *
      * Returns [painted] untouched when there is no feathering, so every caller can route through
      * this unconditionally and the hard-edged path stays exactly as cheap as it was.
+     *
+     * **Takes ownership of [painted].** When a distinct bitmap is returned, [painted] has been
+     * superseded and is recycled here — it is an intermediate nobody can still be looking at, and
+     * every call site is `return feather(...)` on a buffer it allocated a few lines earlier. Left to
+     * the callers it was simply dropped: each feathered stroke, fill, clear and flood leaked a
+     * full-resolution layer copy for the collector to find, on a heap that already holds two bitmaps
+     * per layer. [base] is never recycled — the caller owns that — and neither is [painted] when it
+     * *is* [base], which is what an empty stroke or a failed allocation upstream hands us.
      */
     fun feather(
         base: android.graphics.Bitmap,
@@ -159,6 +167,7 @@ internal object SelectionMask {
         Canvas(out).drawBitmap(soft, 0f, 0f, null)
         mask.recycle()
         soft.recycle()
+        if (painted !== base) painted.recycle()
         return out
     }
 
@@ -175,6 +184,9 @@ internal object SelectionMask {
      * is the case: its warp happens in the native pass, which owns the entire bitmap, so by the time
      * there is anything to mask the paint has already landed everywhere. Handing that to [feather]
      * with a hard-edged selection returned it untouched, and the warp escaped the lasso.
+     *
+     * **Takes ownership of [produced]**, on the same terms as [feather]: superseded, so recycled,
+     * unless it is [base] itself or it is what comes back.
      */
     fun confine(
         base: android.graphics.Bitmap,
@@ -195,6 +207,7 @@ internal object SelectionMask {
             xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
         })
         canvas.restore()
+        if (produced !== base) produced.recycle()
         return out
     }
 

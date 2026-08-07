@@ -237,9 +237,16 @@ class ExportManager @Inject constructor() {
                 }
 
                 val layerMatrix = getLayerScreenMatrix(layer, screenWidth, screenHeight)
-                val relativeMatrix = Matrix(anchorMatrixInv)
-                relativeMatrix.postConcat(layerMatrix)
-                
+                // layer pixels → screen → anchor-local, in that order. `postConcat(n)` makes the
+                // receiver `n × this`, i.e. n is applied AFTER — so the receiver has to be the
+                // layer's own matrix and the argument the anchor's inverse. It was written the other
+                // way round, which composed `layerMatrix × anchorInv`: the anchor's inverse applied
+                // first, to coordinates that were still in the layer's own pixel space. Every linked
+                // layer landed somewhere unrelated to the anchor it was supposed to be composited
+                // into, off by the anchor's whole scale/rotation/offset.
+                val relativeMatrix = Matrix(layerMatrix)
+                relativeMatrix.postConcat(anchorMatrixInv)
+
                 // Adjust for capped canvas size
                 relativeMatrix.postScale(canvasScale, canvasScale)
 

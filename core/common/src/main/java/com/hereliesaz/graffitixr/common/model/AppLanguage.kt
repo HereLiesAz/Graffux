@@ -11,9 +11,15 @@ package com.hereliesaz.graffitixr.common.model
  * as a region, so it degraded to bare `zh`, which matches neither `values-zh-rCN` nor
  * `values-zh-rHK` — picking either Chinese silently left the UI in English.
  *
- * Every entry here must have a matching `values-*` directory in `:core:design` (or be [SYSTEM] /
- * [ENGLISH], which use the default resources). An entry without one is a menu item that does
- * nothing, and a translation without an entry is work that ships and can never be selected.
+ * **Nothing in Graffux reads this.** The `values-*` directories that used to back it lived in
+ * `:core:design` but were GraffitiXR's translations — its own `app_name`, its AR/Overlay/Mockup
+ * copy — and have been removed from this repository along with the Settings picker that offered
+ * them. The enum stays because `SettingsRepository.language` is part of the shared core surface
+ * GraffitiXR consumes, and that is where the translations belong.
+ *
+ * Whichever host does read it: every entry must have a matching `values-*` directory (or be
+ * [SYSTEM] / [ENGLISH], which use the default resources). An entry without one is a menu item that
+ * does nothing, and a translation without an entry is work that ships and can never be selected.
  */
 enum class AppLanguage(val code: String, val displayName: String) {
     SYSTEM("", "System Default"),

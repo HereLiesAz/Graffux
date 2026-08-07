@@ -2496,11 +2496,6 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onFeedbackShown() = dispatch(EditorIntent.FeedbackShown)
-    override fun onDoubleTapHintDismissed() {}
-    override fun onOnboardingComplete(mode: Any) {}
-
-    // Kept for interface compliance; no longer called (DrawingCanvas now uses the three-phase API).
-    override fun onDrawingPathFinished(path: List<Offset>, canvasSize: IntSize) {}
 
     /** Called when the user first touches the canvas. Prepares a mutable working bitmap for
      *  incremental real-time rendering (all tools except Liquify). */
