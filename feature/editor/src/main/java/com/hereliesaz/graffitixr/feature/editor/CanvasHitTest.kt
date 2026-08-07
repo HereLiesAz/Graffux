@@ -266,6 +266,57 @@ internal object CanvasHitTest {
         (corners[0] + corners[1] + corners[2] + corners[3]) / 4f
 
     /**
+     * A screen-space drag delta expressed in **world (container) space**, which is where a layer's
+     * `offset` lives.
+     *
+     * `screen = viewportOffset + zoom · R(rot) · world`, so a *difference* of two screen points is
+     * `zoom · R(rot) · worldDelta` — the camera's translation cancels and only the zoom and the
+     * rotation have to be undone. Without this a drag at 2× zoom moved the layer twice as far as the
+     * finger, and under a rotated camera it moved off at an angle to it.
+     */
+    fun screenDeltaToWorld(delta: Offset, viewportZoom: Float, viewportRotation: Float): Offset {
+        val z = if (viewportZoom > 1e-4f) viewportZoom else 1f
+        val d = delta / z
+        val rad = Math.toRadians(-viewportRotation.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        return Offset(
+            (d.x * c - d.y * s).toFloat(),
+            (d.x * s + d.y * c).toFloat(),
+        )
+    }
+
+    /**
+     * The perpendicular distance from [p] to the line **segment** [a]–[b] (not the infinite line, so
+     * a point beyond an end is measured to that end).
+     */
+    fun distanceToSegment(p: Offset, a: Offset, b: Offset): Float {
+        val abx = b.x - a.x
+        val aby = b.y - a.y
+        val lenSq = abx * abx + aby * aby
+        // A degenerate edge is a point; measuring to either end is the same answer.
+        if (lenSq <= 1e-6f) return (p - a).getDistance()
+        val t = (((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq).coerceIn(0f, 1f)
+        return (p - Offset(a.x + t * abx, a.y + t * aby)).getDistance()
+    }
+
+    /**
+     * True when [p] lands within [tolerancePx] of any edge of the closed polygon [corners] — the
+     * grab test for "I took hold of the bounding box itself".
+     *
+     * Edges, not the filled box: a drag that starts well inside the artwork is a different gesture
+     * (it belongs to whatever tool is in hand), and only the outline is the frame you pick the layer
+     * up by.
+     */
+    fun nearBoxEdge(corners: List<Offset>, p: Offset, tolerancePx: Float): Boolean {
+        if (corners.size < 2 || tolerancePx <= 0f) return false
+        for (i in corners.indices) {
+            if (distanceToSegment(p, corners[i], corners[(i + 1) % corners.size]) <= tolerancePx) return true
+        }
+        return false
+    }
+
+    /**
      * The layer's content half-extents in its own local (pre-transform) pixel space, centred on the
      * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
      * of the bitmap in the canvas. Returns null when the layer has no measurable content.

@@ -276,7 +276,16 @@ fun EditorScreen(
                                 }
                                 if (startOnActiveLayer) {
                                     if (!movingObject) { vm.onGestureStart(); movingObject = true }
-                                    vm.onTransformGesture(event.calculatePan(), 1f, 0f, w, h)
+                                    // The pan arrives in screen pixels; a layer's offset is world
+                                    // space. Handing the raw screen pan straight through meant that
+                                    // at 2× zoom the layer travelled twice as far as the finger, and
+                                    // under a rotated camera it slid off at an angle to the drag.
+                                    vm.onTransformGesture(
+                                        CanvasHitTest.screenDeltaToWorld(
+                                            event.calculatePan(), st.viewportZoom, st.viewportRotation,
+                                        ),
+                                        1f, 0f, w, h,
+                                    )
                                     event.changes.forEach { it.consume() }
                                 }
                             }
@@ -298,8 +307,9 @@ fun EditorScreen(
             )
         }
 
-        // 2c. Resize and Rotate handles — dragging the top-right corner rotates the active layer on Z axis,
-        // and dragging the bottom-right corner scales it. Sits above the canvas so handle drags are claimed here.
+        // 2c. Transform frame — dragging the top-right corner rotates the active layer on the Z axis,
+        // the bottom-right corner scales it, and the rest of the frame (the other two corners and the
+        // four edges) moves it. Sits above the canvas so frame drags are claimed here.
         if (activeLayer != null && !activeLayerLocked) {
             SelectionHandles(
                 activeLayer = activeLayer,
@@ -309,6 +319,20 @@ fun EditorScreen(
                 onGestureStart = { vm.onGestureStart() },
                 onResize = { zoom -> vm.onTransformGesture(Offset.Zero, zoom, 0f) },
                 onRotate = { deg -> vm.onRotateLayerHandle(deg) },
+                // A layer's offset is world space; the drag arrives in screen space, so the camera
+                // has to come out of it or the layer outruns the finger at any zoom but 1.
+                // The canvas size is passed through so a frame drag snaps to the artboard and the
+                // other layers exactly as a drag through the artwork does — onTransformGesture only
+                // runs applyMoveSnap when it knows how big the canvas is.
+                onMove = { delta ->
+                    vm.onTransformGesture(
+                        CanvasHitTest.screenDeltaToWorld(
+                            delta, uiState.viewportZoom, uiState.viewportRotation,
+                        ),
+                        1f, 0f,
+                        uiState.canvasSize.width.toFloat(), uiState.canvasSize.height.toFloat(),
+                    )
+                },
                 onGestureEnd = { vm.onGestureEnd() },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -752,19 +776,26 @@ private fun SelectionOverlay(
 }
 
 /**
- * Interactive transform handles on the selected layer's bounding box. Two corner handles, following
- * the box as it (and the camera) rotate:
+ * Interactive transform handles on the selected layer's bounding box, following the box as it (and
+ * the camera) rotate:
  *  • **resize** — the bottom-right corner (`corners[2]`), drawn as a filled square. Dragging it scales
  *    the layer about its centre (distance-from-pivot ratio) via the [onResize] "zoom" path.
  *  • **rotate** — the adjacent top-right corner (`corners[1]`), drawn as a ring. Dragging it spins the
  *    layer about its centre (swept angle) via [onRotate].
+ *  • **move** — everywhere else on the frame: the two corners that carry no handle (`corners[0]`
+ *    top-left and `corners[3]` bottom-left) and the four edges between them, which drag the layer
+ *    around via [onMove]. The box is the thing you pick the layer up by, and until now two of its
+ *    corners and all four of its sides were inert: a drag that began on them did nothing at all, so
+ *    the frame looked grabbable everywhere and answered in only two places.
  *
- * Both reuse the proven [EditorViewModel.onTransformGesture] lifecycle ([onGestureStart]/[onGestureEnd]
- * bracket history + persistence). A drag that starts on neither handle is left unconsumed, so the
- * pan-gesture layer below still handles it. The box outline itself is drawn by [SelectionOverlay].
+ * All three reuse the proven [EditorViewModel.onTransformGesture] lifecycle
+ * ([onGestureStart]/[onGestureEnd] bracket history + persistence). A drag that starts on none of
+ * them is left unconsumed, so the pan-gesture layer below still handles it — which is what keeps a
+ * drag that begins *inside* the artwork the responsibility of that layer rather than this one. The
+ * box outline itself is drawn by [SelectionOverlay].
  *
- * Device-tuning note: the handle touch radius and the render-transform pivot basis (shared with
- * [CanvasHitTest]) are derived, not yet verified on a device.
+ * Device-tuning note: the handle touch radius, the edge grab width and the render-transform pivot
+ * basis (shared with [CanvasHitTest]) are derived, not yet verified on a device.
  */
 @Composable
 private fun SelectionHandles(
@@ -775,11 +806,16 @@ private fun SelectionHandles(
     onGestureStart: () -> Unit,
     onResize: (zoom: Float) -> Unit,
     onRotate: (degrees: Float) -> Unit,
+    onMove: (delta: Offset) -> Unit,
     onGestureEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val handleRadiusPx = with(density) { 24.dp.toPx() }
+    // Narrower than a corner handle on purpose: the edges run the whole length of the box, so a
+    // 24dp band around all four of them would reach a long way into the artwork and claim drags
+    // meant for the layer's interior.
+    val edgeGrabPx = with(density) { 14.dp.toPx() }
     Canvas(
         modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom, viewportRotation) {
             awaitEachGesture {
@@ -796,7 +832,15 @@ private fun SelectionHandles(
                 // Resize only if not already on the rotate handle (they can crowd on a tiny box).
                 val onResizeHandle = !onRotateHandle &&
                     (down.position - resizeHandle).getDistance() <= handleRadiusPx
-                if (!onRotateHandle && !onResizeHandle) return@awaitEachGesture
+                // The rest of the frame moves the layer: the two corners with no handle on them, and
+                // the edges. Checked last so a handle always wins where the two overlap — every
+                // corner is also a point on two edges.
+                val onMoveGrip = !onRotateHandle && !onResizeHandle && (
+                    (down.position - corners[0]).getDistance() <= handleRadiusPx ||
+                        (down.position - corners[3]).getDistance() <= handleRadiusPx ||
+                        CanvasHitTest.nearBoxEdge(corners, down.position, edgeGrabPx)
+                    )
+                if (!onRotateHandle && !onResizeHandle && !onMoveGrip) return@awaitEachGesture
 
                 down.consume()
                 onGestureStart()
@@ -810,12 +854,15 @@ private fun SelectionHandles(
                     if (event.changes.count { it.pressed } > 1) break
                     val change = event.changes.firstOrNull() ?: break
                     if (!change.pressed) break
-                    if (onRotateHandle) {
-                        onRotate(CanvasHitTest.angleDeltaDegrees(pivot, prevPos, change.position))
-                    } else {
-                        val curDist = (change.position - pivot).getDistance().coerceAtLeast(1f)
-                        onResize(curDist / prevDist)
-                        prevDist = curDist
+                    when {
+                        onRotateHandle ->
+                            onRotate(CanvasHitTest.angleDeltaDegrees(pivot, prevPos, change.position))
+                        onMoveGrip -> onMove(change.position - prevPos)
+                        else -> {
+                            val curDist = (change.position - pivot).getDistance().coerceAtLeast(1f)
+                            onResize(curDist / prevDist)
+                            prevDist = curDist
+                        }
                     }
                     prevPos = change.position
                     change.consume()
