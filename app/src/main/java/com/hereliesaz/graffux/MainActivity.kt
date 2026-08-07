@@ -445,6 +445,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
             azAdvanced(
                 helpList = RAIL_HELP,
                 onDismissHelp = { },
+                onTitleClick = { _ ->
+                    val shapes = SelectionShape.entries
+                    val next = shapes[(shapes.indexOf(uiState.selectionShape) + 1) % shapes.size]
+                    vm.onSetSelectionShape(next)
+                },
             )
             azConfig(
                 // What the rail should render as active. Without this only a transient last-tap
