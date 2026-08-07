@@ -280,7 +280,16 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     ) { uri ->
         uri?.let {
             val type = context.contentResolver.getType(it)
-            if (type?.startsWith("image/") == true) vm.onAddLayer(it) else vm.onImportDocument(it)
+            val isImage = when {
+                type?.startsWith("image/") == true -> true
+                type == null || type == "application/octet-stream" -> {
+                    val seg = it.lastPathSegment?.lowercase(java.util.Locale.ROOT) ?: ""
+                    seg.endsWith(".png") || seg.endsWith(".jpg") || seg.endsWith(".jpeg") ||
+                        seg.endsWith(".webp") || seg.endsWith(".gif") || seg.endsWith(".bmp")
+                }
+                else -> false
+            }
+            if (isImage) vm.onAddLayer(it) else vm.onImportDocument(it)
         }
     }
 
