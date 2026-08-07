@@ -1821,11 +1821,45 @@ class EditorViewModel @Inject constructor(
         // first disk I/O, low storage) the poll's timeout could elapse before the layer ever
         // landed — leaving the tool stuck on NONE and every touch falling through to canvas
         // pan/zoom instead of painting, exactly as if the tool had never been picked at all.
+        // Counted here rather than off the rail's onInteraction: a tool is the thing the user chose,
+        // and it is the same choice however they reached it — the strip, a nested rail, the quick
+        // menu, or the shortcuts sheet that these counts feed. Counting rail taps would miss three
+        // of those four and file the same tool under different names.
+        recordToolUse(tool)
         if (tool != Tool.NONE && tool != Tool.PEN && _uiState.value.layers.isEmpty()) {
             onAddBlankLayer(activeToolOverride = tool)
             return
         }
         dispatch(EditorIntent.SetActiveTool(tool))
+    }
+
+    /**
+     * How often and how recently each tool has been picked, and which ones the user pinned — the
+     * three strips the shortcuts sheet offers.
+     *
+     * Recent and Frequent exist so the sheet is useful before anyone has pinned anything: a
+     * shortcuts strip that is empty until you configure it is a shortcuts strip nobody configures.
+     */
+    val toolUsage: StateFlow<com.hereliesaz.graffitixr.common.model.ToolUsage> =
+        settingsRepository.toolUsage.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5_000),
+            com.hereliesaz.graffitixr.common.model.ToolUsage.EMPTY,
+        )
+
+    val favoriteTools: StateFlow<List<String>> =
+        settingsRepository.favoriteTools.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+        )
+
+    /** Pins or unpins [tool] in the sheet's Favourites strip. */
+    fun onToggleFavoriteTool(tool: Tool) = viewModelScope.launch(dispatchers.io) {
+        settingsRepository.toggleFavoriteTool(tool)
+    }
+
+    private fun recordToolUse(tool: Tool) {
+        if (tool == Tool.NONE) return
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(dispatchers.io) { settingsRepository.recordToolUse(tool, now) }
     }
 
     /** Sets the artboard / document size and persists it to the current project. */

@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.AzPopupKind
+import com.hereliesaz.aznavrail.bottomsheet.rememberAzSheetController
 import com.hereliesaz.aznavrail.rememberAzPopupController
 import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
@@ -182,6 +183,13 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // failed a moment after they pressed it. A Toast is gone in two seconds and says nothing about
     // which control it belonged to.
     val alerts = rememberAzPopupController()
+
+    // The shortcuts sheet. HIDDEN parks it as a swipe strip along the bottom edge — a touch target
+    // and nothing else, so the canvas keeps the screen — and a swipe or a tap brings it to PEEK,
+    // which is the whole strip of tools. See ShortcutsSheet for why there are three of them.
+    val shortcutsSheet = rememberAzSheetController(initial = AzSheetDetent.HIDDEN)
+    val toolUsage by vm.toolUsage.collectAsState()
+    val favoriteTools by vm.favoriteTools.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -465,6 +473,30 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 onToolOptionsClicked = { showToolOptions = !showToolOptions },
                 toolOptionsOpen = showToolOptions,
             )
+
+            // The tools you actually reach for, one swipe from the bottom edge. The rail holds every
+            // tool this app has, which is what makes it complete and also what makes it somewhere
+            // you have to navigate; this is the flat row of the ones that matter to you.
+            //
+            // Hidden while the UI is hidden for a clean look at the artwork, like every other piece
+            // of chrome — a four-finger tap should leave nothing on screen but the painting.
+            if (!uiState.hideUiForCapture) {
+                azBottomSheet(controller = shortcutsSheet) {
+                    ShortcutsSheet(
+                        activeTool = uiState.activeTool,
+                        usage = toolUsage,
+                        favorites = favoriteTools,
+                        onPickTool = { tool ->
+                            // Same rule as the rail's own tool items: tapping the tool already in
+                            // hand puts it down. Two surfaces disagreeing about what a second tap
+                            // means would be worse than either behaviour on its own.
+                            vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
+                        },
+                        onToggleFavorite = { tool -> vm.onToggleFavoriteTool(tool) },
+                        modifier = Modifier.navigationBarsPadding().padding(vertical = 8.dp),
+                    )
+                }
+            }
 
             // Registered on the host so a popup raised from anywhere — a menu action, a coroutine,
             // a callback off the main flow — can bind itself to the rail item that caused it. No
@@ -1019,31 +1051,9 @@ private fun BrushSizePad(vm: EditorViewModel) {
  * drop-down, Procreate's Actions menu — see the `AzDropdownMenu` block in [GraffuxApp].
  */
 
-/**
- * The rail item id for each [Tool].
- *
- * The single statement of that mapping. `ConfigureRailItems` builds its tool items from it and
- * [activeRailClassifiers] derives the lit id from it, so the two cannot disagree about which item a
- * tool belongs to — they used to be two hand-written lists, and one of the names differs from its
- * enum ([Tool.COLOR] is "Colorize"), which is exactly the kind of pair that drifts. [Tool.NONE] is
- * absent on purpose: it is the absence of a tool, so nothing lights up.
- */
-private val TOOL_IDS: Map<Tool, String> = mapOf(
-    Tool.BRUSH to "tool.brush",
-    Tool.BLUR to "tool.blur",
-    Tool.SHARPEN to "tool.sharpen",
-    Tool.SMUDGE to "tool.smudge",
-    Tool.ERASER to "tool.eraser",
-    Tool.PEN to "tool.pen",
-    Tool.LIQUIFY to "tool.liquify",
-    Tool.HEAL to "tool.heal",
-    Tool.BURN to "tool.burn",
-    Tool.DODGE to "tool.dodge",
-    Tool.COLOR to "tool.colorize",
-    Tool.FILL to "tool.fill",
-    Tool.SELECT to "tool.select",
-    Tool.CLONE to "tool.clone",
-)
+// The Tool -> (id, label, glyph) catalogue moved to ToolCatalog.kt, where the shortcuts sheet can
+// read the same one the rail does. TOOL_IDS is derived from it there.
+
 
 /**
  * The tool groups that live inside a nested rail of their own rather than the top-level strip.
