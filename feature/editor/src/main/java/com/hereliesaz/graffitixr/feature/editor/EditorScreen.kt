@@ -615,9 +615,15 @@ private fun LayerStackNode(
                 // Offscreen compositing is only needed to isolate a non-default blend mode (or a
                 // clip); for a normal (SrcOver, unclipped) layer, Auto avoids the extra full-screen
                 // pass per frame. Clip-to-below (Procreate's Clipping Mask) masks against whatever
-                // this Box has already drawn beneath it via BlendMode.SrcIn — see ExportManager's
-                // matching PorterDuff.Mode.SRC_IN for why it takes priority over a custom blend mode
-                // rather than combining both.
+                // this Box has already drawn beneath it via BlendMode.SrcAtop — see ExportManager's
+                // matching PorterDuff.Mode.SRC_ATOP for why it takes priority over a custom blend
+                // mode rather than combining both.
+                //
+                // SrcAtop, NOT SrcIn. SrcIn keeps the destination only where the source covers it,
+                // so turning Clip to Below on erased the layer underneath everywhere the clipped
+                // layer happened not to paint — the exact inverse of a clipping mask, which shows
+                // the upper layer only inside the lower one's alpha and leaves the lower one alone
+                // everywhere else. That is SrcAtop.
                 val needsOffscreen = layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow
                 Image(
                     bitmap = imageBitmap,
@@ -635,7 +641,7 @@ private fun LayerStackNode(
                             rotationZ = layer.rotationZ
                             alpha = layer.opacity * frameAlpha
                             transformOrigin = TransformOrigin.Center
-                            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
+                            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
                             compositingStrategy = if (needsOffscreen)
                                 CompositingStrategy.Offscreen
                             else
@@ -1166,7 +1172,9 @@ private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier, fram
             rotationZ = layer.rotationZ
             alpha = layer.opacity * frameAlpha
             transformOrigin = TransformOrigin.Center
-            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcIn else layer.blendMode
+            // SrcAtop, not SrcIn — see the raster path's note above: SrcIn erases the layer below
+            // wherever the clipped layer is transparent, which inverts what a clipping mask means.
+            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
             if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
         }
     ) {

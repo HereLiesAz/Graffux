@@ -128,11 +128,16 @@ class ExportManager @Inject constructor() {
             alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
             colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
             // Clip-to-below masks against whatever's already painted beneath it in this same canvas
-            // (SRC_IN keeps only the overlap) — Procreate's Clipping Mask. This takes priority over
-            // the layer's own blend mode rather than combining both, since doing both correctly needs
-            // its own two-pass offscreen composite; a clipped layer with a custom blend is the rare
-            // case, and clip-wins is the honest v1 rather than silently dropping the clip instead.
-            xfermode = if (layer.clipToLayerBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_IN) else null
+            // — Procreate's Clipping Mask. This takes priority over the layer's own blend mode rather
+            // than combining both, since doing both correctly needs its own two-pass offscreen
+            // composite; a clipped layer with a custom blend is the rare case, and clip-wins is the
+            // honest v1 rather than silently dropping the clip instead.
+            //
+            // SRC_ATOP, NOT SRC_IN. SRC_IN keeps the destination only where the source covers it, so
+            // it wiped the layer below everywhere the clipped layer was transparent — the inverse of
+            // a clipping mask, which shows the upper layer only inside the lower one's alpha and
+            // leaves the lower one untouched everywhere else.
+            xfermode = if (layer.clipToLayerBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) else null
             if (!layer.clipToLayerBelow) blendMode = layer.blendMode.toNativeBlendMode()
         }
         val matrix = getLayerScreenMatrix(layer, w, h)
@@ -272,8 +277,9 @@ class ExportManager @Inject constructor() {
         val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
             colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
-            // See drawNode's identical raster-layer comment: clip wins over a custom blend mode.
-            xfermode = if (clipToBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_IN) else null
+            // See drawNode's identical raster-layer comment: clip wins over a custom blend mode, and
+            // SRC_ATOP is what a clipping mask actually is.
+            xfermode = if (clipToBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) else null
             if (!clipToBelow) blendMode = layer.blendMode.toNativeBlendMode()
         }
         val saveCount = canvas.saveLayer(null, layerPaint)

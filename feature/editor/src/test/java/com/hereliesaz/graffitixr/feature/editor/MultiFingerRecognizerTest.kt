@@ -126,11 +126,49 @@ class MultiFingerRecognizerTest {
         val r = recognizerStartedAt()
         r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 30L, suppressed = false)
 
-        assertNull(r.onIdleTick(nowMs = 200L, suppressed = false))
-        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 290L, suppressed = false))
-        assertEquals(GestureSlot.TWO_FINGER_TAP, r.onIdleTick(nowMs = 380L, suppressed = false))
+        // Written against the constants, not against numbers copied out of them. This test used to
+        // hard-code 200/290/380 ms, which were the right side of a 250 ms REPEAT_START_MS; the
+        // threshold was later retuned to 450 ms and the test started failing for the thresholds
+        // having MOVED rather than for the behaviour being wrong. Phrased this way, a retune can
+        // change the feel of the gesture without inventing a failure.
+        assertNull(r.onIdleTick(nowMs = REPEAT_START_MS - 1L, suppressed = false))
+        assertEquals(
+            GestureSlot.TWO_FINGER_TAP,
+            r.onIdleTick(nowMs = REPEAT_START_MS, suppressed = false),
+        )
+        assertEquals(
+            GestureSlot.TWO_FINGER_TAP,
+            r.onIdleTick(nowMs = REPEAT_START_MS + REPEAT_TICK_MS, suppressed = false),
+        )
 
-        assertNull(r.onEvent(emptyList(), uptimeMs = 500L, suppressed = false))
+        assertNull(
+            r.onEvent(emptyList(), uptimeMs = REPEAT_START_MS + 2 * REPEAT_TICK_MS, suppressed = false),
+        )
+    }
+
+    @Test
+    fun `there is no dead zone between the longest tap and the shortest hold`() {
+        // The gap these two constants used to leave (350 ms and 450 ms) was a window in which a
+        // deliberate two-finger tap did nothing at all: too slow to be a tap on lift, too quick to
+        // have started the hold repeat. They have to stay equal, so every duration is one or the
+        // other. Asserted rather than left to the comment that describes it.
+        assertEquals(TAP_MAX_DURATION_MS, REPEAT_START_MS)
+
+        val r = recognizerStartedAt()
+        r.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 10L, suppressed = false)
+        // A lift at exactly the boundary is still a tap…
+        assertEquals(
+            GestureSlot.TWO_FINGER_TAP,
+            r.onEvent(emptyList(), uptimeMs = TAP_MAX_DURATION_MS, suppressed = false),
+        )
+
+        // …and a hold that reaches the same instant has already begun repeating.
+        val held = recognizerStartedAt()
+        held.onEvent(listOf(p(0, 100f), p(1, 200f)), uptimeMs = 10L, suppressed = false)
+        assertEquals(
+            GestureSlot.TWO_FINGER_TAP,
+            held.onIdleTick(nowMs = REPEAT_START_MS, suppressed = false),
+        )
     }
 
     @Test

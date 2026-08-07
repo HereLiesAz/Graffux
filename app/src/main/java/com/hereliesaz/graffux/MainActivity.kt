@@ -3,11 +3,11 @@ package com.hereliesaz.graffux
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -113,8 +113,18 @@ import kotlin.math.roundToInt
  * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
  * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.[span_3](start_span)[span_3](end_span)
  */
+/**
+ * [AppCompatActivity], not a bare `ComponentActivity`, and the Settings language picker is the
+ * reason. `AppCompatDelegate.setApplicationLocales` (see [SettingsViewModel]) hands off to the
+ * platform `LocaleManager` on API 33+, but below that it is a pure AppCompat backport: it records
+ * the locales and then recreates the activities AppCompat knows about — which is only ever its own
+ * delegates. Under `ComponentActivity` there were none, so on Android 8 through 12 picking a
+ * language wrote the preference, reported success, and changed nothing on screen for the entire
+ * life of the install. `Theme.Graffux` already descends from `Theme.AppCompat`, so this costs
+ * nothing else.
+ */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedImage = incomingImageUri(intent)
@@ -788,7 +798,15 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 // drawn, playback still going) and nothing on screen saying so.
                 if (uiState.isAnimationMode) {
                     AnimationWindow(
-                        frameCount = uiState.layers.count { it.parentId == null },
+                        // vm.animationFrameCount(), not `layers.count { it.parentId == null }`.
+                        // Every other part of Animation Assist counts frames through
+                        // AnimationFrames.topLevelFrames, which is the layer TREE's roots — and the
+                        // tree also promotes layers whose parent id names nothing (and, now, members
+                        // of a parent cycle) to roots. Counting the flat list instead undercounted
+                        // exactly those, so the window's frame total, its step-through range and the
+                        // onion-skin neighbours disagreed with each other on any document with a
+                        // dangling parent id.
+                        frameCount = vm.animationFrameCount(),
                         activeFrameIndex = uiState.activeFrameIndex,
                         isPlaying = uiState.isAnimationPlaying,
                         onionSkinEnabled = uiState.onionSkinEnabled,
