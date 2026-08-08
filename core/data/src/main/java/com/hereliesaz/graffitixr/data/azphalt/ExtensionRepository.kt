@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.AzpSignatures
 import com.hereliesaz.graffitixr.common.azphalt.CubeLut
+import com.hereliesaz.graffitixr.common.azphalt.ExtensionKind
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionState
 import com.hereliesaz.graffitixr.common.azphalt.LutInputTransfer
 import com.hereliesaz.graffitixr.common.azphalt.TrustStore
@@ -128,6 +129,13 @@ class ExtensionRepository @Inject constructor(
             tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
             val installed = synchronized(lock) {
                 val result = tempFile.inputStream().use { installer.install(it, nowMs) }
+                val kind = result.manifest.kind
+                if (kind == ExtensionKind.APP || kind == ExtensionKind.MCP || kind == ExtensionKind.PACK) {
+                    File(result.dir).deleteRecursively()
+                    throw AzpInstaller.InstallException(
+                        "'${result.manifest.name}' is a ${kind.wire} extension, which this app cannot run"
+                    )
+                }
                 _installed.value = scanInstalled()
                 result
             }

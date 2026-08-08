@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedImage = incomingImageUri(intent)
+        val azpInstallUrl = azphaltInstallUrl(intent)
         setContent {
             // The app's own theme, not a bare `MaterialTheme`. Graffux is a dark app, but a bare
             // MaterialTheme() takes Material 3's default **light** scheme, whose `onSurface` is a
@@ -136,7 +137,7 @@ class MainActivity : ComponentActivity() {
             // the worst of it: unreadable. GraffitiXRTheme supplies the dark scheme this UI was drawn
             // against plus the brand palette.
             GraffitiXRTheme {
-                GraffuxApp(sharedImageUri = sharedImage)
+                GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
             }
         }
     }
@@ -156,6 +157,18 @@ private fun incomingImageUri(intent: Intent?): Uri? {
     }
 }
 
+/**
+ * Extracts an azphalt package download URL from an `azphalt://install` deep link, or null if this
+ * launch isn't one. The web storefront redirects here after a purchase; the URI's `url` query
+ * parameter carries the HTTPS download URL for the `.azp` package.
+ */
+private fun azphaltInstallUrl(intent: Intent?): String? {
+    if (intent?.action != Intent.ACTION_VIEW) return null
+    val data = intent.data ?: return null
+    if (data.scheme != "azphalt" || data.host != "install") return null
+    return data.getQueryParameter("url")
+}
+
 /** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
 private const val MIN_BRUSH_SIZE = 1f
 private const val MAX_BRUSH_SIZE = 200f
@@ -164,7 +177,7 @@ private const val MAX_BRUSH_SIZE = 200f
 private const val MIN_BRUSH_ALPHA = 0.05f
 
 @Composable
-private fun GraffuxApp(sharedImageUri: Uri?) {
+private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
@@ -251,6 +264,10 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
 
     LaunchedEffect(sharedImageUri) {
         sharedImageUri?.let { vm.onAddLayer(it) }
+    }
+
+    LaunchedEffect(azphaltInstallUrl) {
+        azphaltInstallUrl?.let { vm.installExtensionFromUrl(it) }
     }
 
     // Autosave is debounced so a flurry of strokes doesn't re-encode a full-screen PNG on each one.
@@ -418,6 +435,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
         AzHostActivityLayout(navController = navController, initiallyExpanded = false) {
             azTheme(
                 activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
+                focusColor = Color.White,
                 // The third highlight (11.9). `active` answers "where am I", `secondary` answers
                 // "what is true of this". They have to be different colours or the rail says the
                 // same thing about a layer you are editing and a layer that merely comes along when
@@ -432,6 +450,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 headerIconShape = AzHeaderIconShape.CIRCLE,
                 translucentBackground = Color.Black.copy(alpha = 0.85f)
             )
+            azAbout(dedupeAbout = true)
             // The help overlay: a card per rail item, its label plus whatever RAIL_HELP says about
             // it. This is the app explaining itself without a scripted tutorial — every conditional
             // item, every piece of Procreate vocabulary, and the multi-finger gestures that have no
@@ -574,7 +593,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         }
                     })
                     azDivider()
-                    menuItem(text = "Store", onClick = openAzphaltStore)
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
                     menuItem(text = "Settings", onClick = { showSettings = true })
                 }
