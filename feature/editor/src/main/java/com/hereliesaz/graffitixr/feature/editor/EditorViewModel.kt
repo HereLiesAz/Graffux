@@ -4846,6 +4846,33 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    fun installExtensionFromUrl(url: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val now = System.currentTimeMillis()
+            try {
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15_000
+                connection.readTimeout = 30_000
+                connection.connect()
+                if (connection.responseCode !in 200..299) {
+                    error("Download failed: HTTP ${connection.responseCode}")
+                }
+                val installed = connection.inputStream.use {
+                    extensionRepository.installFromStream(it, now)
+                }
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     /**
      * What landed, and where the user will find it.
      *

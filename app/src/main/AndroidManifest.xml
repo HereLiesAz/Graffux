@@ -89,6 +89,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+
+            <!-- azphalt deep link: the web storefront redirects here to install a package the user
+                 chose in the browser (spec/store-app.md § Web acquisition). The URI carries the
+                 package download URL; MainActivity reads it and feeds the stream to
+                 ExtensionRepository.installFromStream the same way the Android store handoff does. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="azphalt" android:host="install" />
+            </intent-filter>
         </activity>
 
         <!-- Interop (share-out): exposes the edited PNG in cacheDir/shared as a content:// Uri so it

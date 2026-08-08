@@ -16,12 +16,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -73,6 +75,8 @@ private fun InstalledExtensionCard(
     extension: InstalledExtension,
     onUninstall: () -> Unit,
 ) {
+    val capabilities = rememberExtensionCapabilities(extension)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -87,6 +91,14 @@ private fun InstalledExtensionCard(
                 }
             }
         }
+        if (capabilities.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                capabilities.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(6.dp))
         AzButton(
             text = "Uninstall",
@@ -94,5 +106,29 @@ private fun InstalledExtensionCard(
             shape = AzButtonShape.RECTANGLE,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+private val SUPPORTED_ASSET_TYPES = setOf(AssetType.BRUSH, AssetType.LUT)
+
+@Composable
+private fun rememberExtensionCapabilities(extension: InstalledExtension): List<String> {
+    val m = extension.manifest
+    return remember(extension.id) {
+        buildList {
+            val assetTypes = m.assets.map { it.type }.distinct()
+            for (type in assetTypes) {
+                if (type in SUPPORTED_ASSET_TYPES) add(type.wire.replaceFirstChar { it.uppercase() })
+            }
+            m.contributes?.let { c ->
+                if (c.filters.isNotEmpty()) add("Filter")
+                if (c.tools.isNotEmpty()) add("Tool")
+                if (c.commands.isNotEmpty()) add("Command")
+            }
+            val unsupported = assetTypes.filter { it !in SUPPORTED_ASSET_TYPES && it != AssetType.UNKNOWN }
+            if (unsupported.isNotEmpty()) {
+                add("(${unsupported.joinToString { it.wire }} not supported)")
+            }
+        }
     }
 }
