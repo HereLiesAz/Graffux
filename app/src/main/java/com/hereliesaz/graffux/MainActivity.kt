@@ -543,9 +543,11 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
+                    menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
                     menuItem(text = "Reference", onClick = { showReferenceWindow = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
+                    menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     menuItem(text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
@@ -577,8 +579,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                     azDivider()
                     menuItem(text = "Store", onClick = openAzphaltStore)
                     menuItem(text = "Extensions", onClick = { showStoreDialog = true })
-                    menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
-                    menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     menuItem(text = "Settings", onClick = { showSettings = true })
                 }
             }
@@ -1858,6 +1858,9 @@ private fun AzNavHostScope.renderLayerRailItem(
         renderLayerStyleMenu(layer, uiState, vm, ::on)
         renderLayerLayoutMenu(layer, uiState, vm, ::on)
         renderLayerComponentMenu(layer, uiState, vm, ::on)
+    }
+    if (layer.alphaLock) {
+        azItemState(id = "layer.${layer.id}", badge = "🔒", persistentBadge = true)
     }
 }
 
