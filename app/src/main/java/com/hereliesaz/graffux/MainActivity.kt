@@ -1314,7 +1314,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         val id = TOOL_IDS.getValue(tool)
         azRailItem(
             id = id, classifiers = setOf(id), text = label, content = icon,
-            color = railColor(id),
+            color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
             onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
         )
     }
@@ -1333,7 +1333,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
         color = railColor(SELECT_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true, reflectSelectionInParent = true,
+        reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
         SelectionShape.entries.forEach { mode ->
@@ -1347,6 +1347,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                     SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
                 },
                 color = railColor("selectShape.${mode.name}"),
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onSetSelectionShape(mode) },
             )
         }
@@ -1360,37 +1361,42 @@ private fun AzNavHostScope.ConfigureRailItems(
                     SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
                 },
                 color = railColor("selectOp.${mode.name}"),
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onSetSelectionOp(mode) },
             )
         }
         azRailItem(
             id = "tool.quick", classifiers = setOf("tool.quick"), text = "Quick",
             content = GraffuxIcons.SelectQuick, color = railColor("tool.quick"),
+            shape = AzButtonShape.NONE_SQUARE,
             onClick = { vm.onOpenQuickMenu(screenCenter) },
         )
         azRailItem(
             id = "tool.selectInvert", classifiers = setOf("tool.selectInvert"), text = "Invert",
             content = GraffuxIcons.SelectInvert, color = railColor("tool.selectInvert"),
+            shape = AzButtonShape.NONE_SQUARE,
             onClick = { vm.onInvertSelection() },
         )
         azRailItem(
             id = "tool.deselect", text = "Deselect",
             content = GraffuxIcons.SelectNone, color = navItemColor,
+            shape = AzButtonShape.NONE_SQUARE,
             onClick = { vm.onClearSelection() },
         )
         if (uiState.selection != null) {
-            azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, onClick = { vm.onColorFillSelection() })
-            azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, onClick = { vm.onCopySelection() })
-            azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, onClick = { vm.onCutSelection() })
-            azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })
+            azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onColorFillSelection() })
+            azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCopySelection() })
+            azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCutSelection() })
+            azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })
         }
         if (uiState.hasClipboard) {
-            azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, onClick = { vm.onPasteSelection() })
+            azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onPasteSelection() })
         }
         uiState.savedSelections.forEach { saved ->
             azRailItem(
                 id = "sel.load.${saved.name}", text = saved.name,
                 content = GraffuxIcons.SelectReselect, color = navItemColor,
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onLoadSelection(saved.name) },
             )
         }
@@ -1398,12 +1404,13 @@ private fun AzNavHostScope.ConfigureRailItems(
             azNestedRail(
                 id = "sel.manage", text = "Forget a Selection",
                 content = GraffuxIcons.LayerDelete, color = navItemColor,
-                shape = AzButtonShape.CIRCLE,
+                shape = AzButtonShape.NONE_SQUARE,
             ) {
                 uiState.savedSelections.forEach { saved ->
                     azRailItem(
                         id = "sel.forget.${saved.name}", text = saved.name,
                         content = GraffuxIcons.SelectNone, color = navItemColor,
+                        shape = AzButtonShape.NONE_SQUARE,
                         onClick = { vm.onDeleteSavedSelection(saved.name) },
                     )
                 }
@@ -1501,7 +1508,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true, reflectSelectionInParent = true,
+        reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
 
@@ -1513,6 +1520,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             azRailItem(
                 id = "tool.nodeEdit", classifiers = setOf("tool.nodeEdit"), text = "Edit Nodes",
                 content = GraffuxIcons.PathSelectDirect, color = railColor("tool.nodeEdit"),
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onToggleActivePathEdit() },
             )
         }
@@ -1520,12 +1528,14 @@ private fun AzNavHostScope.ConfigureRailItems(
             azRailItem(
                 id = "tool.nodeClose", text = "Close Path",
                 content = GraffuxIcons.PathClose, color = navItemColor,
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onTogglePathClosed() },
             )
             uiState.selectedNodeIndex?.let { index ->
                 azRailItem(
                     id = "tool.nodeDelete", text = "Delete Node",
                     content = GraffuxIcons.PenRemove, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE,
                     onClick = { vm.onDeletePathNode(index) },
                 )
             }
@@ -1538,7 +1548,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
         color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true, reflectSelectionInParent = true,
+        reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
         nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
@@ -1550,6 +1560,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                 id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
                 text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
                 content = GraffuxIcons.FilterCloneSource, color = railColor("tool.cloneSource"),
+                shape = AzButtonShape.NONE_SQUARE,
                 onClick = { vm.onResetCloneSource() },
             )
         }
@@ -1571,7 +1582,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
         color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true, reflectSelectionInParent = true,
+        reflectSelectionInParent = true,
     ) {
         // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
         // while `ImageProcessor` ran an actual box blur under the stroke — the one name in the rail
