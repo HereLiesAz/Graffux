@@ -8,14 +8,19 @@ import com.hereliesaz.graffitixr.common.azphalt.CubeLut
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionKind
 import com.hereliesaz.graffitixr.common.azphalt.ExtensionState
 import com.hereliesaz.graffitixr.common.azphalt.LutInputTransfer
+import com.hereliesaz.graffitixr.common.azphalt.TrustedKey
 import com.hereliesaz.graffitixr.common.azphalt.TrustStore
 import com.hereliesaz.graffitixr.common.azphalt.parseCubeLut
 import com.hereliesaz.graffitixr.common.azphalt.parseManifest
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +30,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -88,11 +95,18 @@ class ExtensionRepository @Inject constructor(
         return recorded + derived
     }
 
-    // The keys this host trusts. Empty for now — signed packages install as SIGNED_UNTRUSTED (valid
-    // signature, no established identity) until a trust store is seeded (e.g. a registry's key from
-    // .well-known). Wiring that source in is a follow-up; the verification path is already live.
-    private val trustStore = TrustStore.EMPTY
-    private val installer = AzpInstaller(extensionsRoot, trustStore)
+    /**
+     * The keys this host trusts (spec/package-format.md § Signing). Bootstrapped from the registry's
+     * `.well-known/azphalt-repository.json` `signingKeys` on first contact, cached locally so it
+     * survives offline launches, and refreshed in the background. A non-empty store transitively
+     * trusts every author the registry counter-signs, so installed extensions' [SignatureStatus]
+     * upgrades from SIGNED_UNTRUSTED to SIGNED_TRUSTED the moment the registry key arrives.
+     */
+    @Volatile
+    private var trustStore: TrustStore = TrustStore.EMPTY
+
+    @Volatile
+    private var installer = AzpInstaller(extensionsRoot, trustStore)
 
     /** Serializes filesystem-mutating operations so concurrent install/uninstall can't interleave. */
     private val lock = Any()
@@ -106,7 +120,12 @@ class ExtensionRepository @Inject constructor(
     val installed: StateFlow<List<InstalledExtension>> = _installed.asStateFlow()
 
     init {
-        ioScope.launch { _installed.value = scanInstalled() }
+        ioScope.launch {
+            trustStore = loadCachedTrustStore()
+            installer = AzpInstaller(extensionsRoot, trustStore)
+            _installed.value = scanInstalled()
+            refreshTrustStore()
+        }
     }
 
     fun isInstalled(id: String): Boolean = _installed.value.any { it.id == id }
@@ -379,5 +398,51 @@ class ExtensionRepository @Inject constructor(
                 )
             }.getOrNull()
         }.sortedBy { it.manifest.name }
+    }
+
+    // ── Trust store bootstrap (spec/repository-api.md § Trust bootstrap) ─────────────────────────
+
+    private fun loadCachedTrustStore(): TrustStore {
+        val file = File(context.filesDir, TRUST_CACHE_FILE)
+        if (!file.exists()) return TrustStore.EMPTY
+        val keys = runCatching { parseSigningKeys(file.readText()) }.getOrDefault(emptyList())
+        return if (keys.isEmpty()) TrustStore.EMPTY else TrustStore(keys)
+    }
+
+    private fun refreshTrustStore() {
+        try {
+            val connection = URL(WELL_KNOWN_URL).openConnection() as HttpURLConnection
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connect()
+            if (connection.responseCode !in 200..299) return
+            val body = connection.inputStream.use { it.bufferedReader().readText() }
+            val keys = parseSigningKeys(body)
+            if (keys.isEmpty()) return
+            val store = TrustStore(keys)
+            if (store == trustStore) return
+            File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
+            trustStore = store
+            installer = AzpInstaller(extensionsRoot, store)
+            _installed.value = scanInstalled()
+        } catch (_: Exception) {
+            // Network unavailable — cached keys (if any) are already in use.
+        }
+    }
+
+    private fun parseSigningKeys(json: String): List<TrustedKey> = runCatching {
+        val root = Json.parseToJsonElement(json).jsonObject
+        val arr = root["signingKeys"]?.jsonArray ?: return emptyList()
+        arr.mapNotNull { el ->
+            val obj = el.jsonObject
+            val pk = obj["publicKey"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            TrustedKey(pk, obj["keyId"]?.jsonPrimitive?.contentOrNull, obj["label"]?.jsonPrimitive?.contentOrNull)
+        }
+    }.getOrDefault(emptyList())
+
+    companion object {
+        private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"
+        private const val WELL_KNOWN_URL = "https://azphalt.store/.well-known/azphalt-repository.json"
     }
 }
