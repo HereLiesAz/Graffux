@@ -21,6 +21,7 @@ enum class Tool {
     SHARPEN,
     SMUDGE,
     CLONE,
+    TEXT,
 }
 
 enum class ArScanMode {

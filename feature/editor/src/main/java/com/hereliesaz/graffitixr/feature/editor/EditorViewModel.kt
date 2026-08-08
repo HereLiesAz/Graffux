@@ -382,7 +382,7 @@ class EditorViewModel @Inject constructor(
             if (projectRepository.currentProject.value == null) {
                 val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
                 if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
-                else projectRepository.createProject("Untitled")
+                else createProjectWithScreenSize("Untitled")
             }
         }
 
@@ -1278,10 +1278,19 @@ class EditorViewModel @Inject constructor(
      * [EditorUiState.projectId] and `?: return` when it was null, which silently discarded whatever the
      * user was making; go through this instead so the work always lands somewhere.
      */
+    private suspend fun createProjectWithScreenSize(name: String): GraffitiProject {
+        val metrics = context.resources.displayMetrics
+        val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
+        val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+        val project = GraffitiProject(name = name, documentWidth = w, documentHeight = h)
+        projectRepository.createProject(project)
+        return project
+    }
+
     private suspend fun ensureProjectId(): String {
         _uiState.value.projectId?.let { return it }
         if (projectRepository.currentProject.value == null) {
-            projectRepository.createProject("Untitled")
+            createProjectWithScreenSize("Untitled")
         }
         // Return only once the currentProject collector has published it into uiState, so a caller that
         // adds a layer next isn't clobbered by LoadedProject landing behind it.
@@ -1810,6 +1819,11 @@ class EditorViewModel @Inject constructor(
     fun toggleHandedness() = dispatch(EditorIntent.ToggleHandedness)
     fun toggleDiagOverlay() = dispatch(EditorIntent.ToggleDiagOverlay)
     fun setActiveTool(tool: Tool) {
+        if (tool == Tool.TEXT) {
+            recordToolUse(tool)
+            onAddTextLayer()
+            return
+        }
         // A raster tool needs something to paint on: with no layers EditorScreen doesn't even mount the
         // touch layer, so the brush silently does nothing. Give it a canvas instead of a dead tool.
         // PEN is exempt — it makes its own vector layer per stroke.
@@ -4538,7 +4552,7 @@ class EditorViewModel @Inject constructor(
     fun createNewProject() {
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
-            val project = projectRepository.createProject("Untitled $n")
+            val project = createProjectWithScreenSize("Untitled $n")
             val projectId = project.id
 
             val (width, height) = newLayerSize()
@@ -4596,7 +4610,7 @@ class EditorViewModel @Inject constructor(
             if (_uiState.value.projectId == id) {
                 val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
                 if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
-                else projectRepository.createProject("Untitled")
+                else createProjectWithScreenSize("Untitled")
             }
         }
     }

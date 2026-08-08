@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -54,6 +55,8 @@ fun SettingsScreen(
     vm: SettingsViewModel,
     appVersion: String,
     onClose: () -> Unit,
+    onDocumentSize: () -> Unit,
+    onBackground: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onClose)
@@ -82,12 +85,16 @@ fun SettingsScreen(
                     Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close settings")
                 }
             }
-            // No "Canvas Dimensions" or "Background" entries here. Both were rows of title-and-
-            // subtitle text with no control and no click handler behind them — they described
-            // settings this screen does not host and could not be operated at all. Both live in the
-            // Actions dropdown beside the artwork they change (the "W×H" entry opens
-            // DocumentSizeDialog, "Background" opens BackgroundColorDialog), which is where a
-            // per-document property belongs rather than in app-wide preferences.
+            Text(
+                "Document",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+            ActionRow(title = "Canvas Size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
+            HorizontalDivider()
+            ActionRow(title = "Background", subtitle = "Choose the canvas background colour.", onClick = onBackground)
+            HorizontalDivider()
             Text(
                 "Interface",
                 style = MaterialTheme.typography.titleSmall,
@@ -280,6 +287,23 @@ private fun SwitchRow(
         }
         Spacer(Modifier.width(16.dp))
         Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
