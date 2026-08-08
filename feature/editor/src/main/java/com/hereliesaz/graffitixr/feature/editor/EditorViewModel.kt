@@ -2034,14 +2034,7 @@ class EditorViewModel @Inject constructor(
             focus.x + panDelta.x - k * rx,
             focus.y + panDelta.y - k * ry,
         )
-        // Procreate's rotation snap: within ~4° of square, the canvas clicks to exactly 0°, so a
-        // two-finger twist that's meant to straighten the page actually lands straight. The pull
-        // stays sticky until the twist accumulates past the window again.
-        var newRotation = st.viewportRotation + rotationDelta
-        if (rotationDelta != 0f) {
-            val norm = ((newRotation % 360f) + 540f) % 360f - 180f
-            if (kotlin.math.abs(norm) < 4f) newRotation -= norm
-        }
+        val newRotation = st.viewportRotation + rotationDelta
         dispatch(EditorIntent.SetViewport(newOffset, newZoom, newRotation))
     }
 
