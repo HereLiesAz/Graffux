@@ -66,6 +66,7 @@ fun TextEditDialog(
     onKerningCommit: () -> Unit,
     onColorChange: (Int) -> Unit,
     onStyleChange: (bold: Boolean, italic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean) -> Unit,
+    onAlign: (AlignMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var text by remember { mutableStateOf(initialText) }
@@ -170,6 +171,18 @@ fun TextEditDialog(
                         onClick = { hasDropShadow = !hasDropShadow; onStyleChange(bold, italic, hasOutline, hasDropShadow) },
                         shape = AzButtonShape.RECTANGLE,
                     )
+                }
+
+                // Layer alignment on the artboard.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AzButton(text = "Left", onClick = { onAlign(AlignMode.LEFT) }, shape = AzButtonShape.RECTANGLE)
+                    AzButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = AzButtonShape.RECTANGLE)
+                    AzButton(text = "Right", onClick = { onAlign(AlignMode.RIGHT) }, shape = AzButtonShape.RECTANGLE)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AzButton(text = "Top", onClick = { onAlign(AlignMode.TOP) }, shape = AzButtonShape.RECTANGLE)
+                    AzButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = AzButtonShape.RECTANGLE)
+                    AzButton(text = "Bottom", onClick = { onAlign(AlignMode.BOTTOM) }, shape = AzButtonShape.RECTANGLE)
                 }
 
                 AzButton(text = "Done", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)

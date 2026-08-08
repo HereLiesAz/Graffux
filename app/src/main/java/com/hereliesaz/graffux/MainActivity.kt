@@ -77,7 +77,6 @@ import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
-import com.hereliesaz.graffitixr.feature.editor.AlignDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.AnimationWindow
 import com.hereliesaz.graffitixr.feature.editor.ToolOptionsWindow
@@ -206,7 +205,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
     // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
     // live behind a single rail item that opens one of these instead.
     var showAddDialog by remember { mutableStateOf(false) }
-    var showAlignDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showStoreChooser by remember { mutableStateOf(false) }
@@ -481,7 +479,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                 screenCenter = screenCenter,
                 onBlendMode = { showBlendDialog = true },
                 onAddClicked = { showAddDialog = true },
-                onAlignClicked = { showAlignDialog = true },
                 onEditClicked = { showLayerOptionsDialog = true },
                 onModelClicked = { showModelDialog = true },
                 modelWindowOpen = showModelDialog,
@@ -729,6 +726,7 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                                 onStyleChange = { b, i, o, s ->
                                     vm.onTextStyleChanged(editTextId, b, i, o, s)
                                 },
+                                onAlign = { mode -> vm.alignActiveLayer(mode) },
                                 onDismiss = {
                                     vm.consumeAutoEditTextLayer()
                                     manualEditTextId = null
@@ -756,13 +754,6 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         onAddPentagon = { vm.onAddPolygonLayer(5) },
                         onAddHexagon = { vm.onAddPolygonLayer(6) },
                         onDismiss = { showAddDialog = false },
-                    )
-                }
-
-                if (showAlignDialog) {
-                    AlignDialog(
-                        onAlign = { mode -> vm.alignActiveLayer(mode) },
-                        onDismiss = { showAlignDialog = false },
                     )
                 }
 
@@ -929,6 +920,8 @@ private fun GraffuxApp(sharedImageUri: Uri?) {
                         vm = settingsVm,
                         appVersion = BuildConfig.VERSION_NAME,
                         onClose = { showSettings = false },
+                        onDocumentSize = { showSettings = false; showDocDialog = true },
+                        onBackground = { showSettings = false; showBgDialog = true },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -1204,7 +1197,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     screenCenter: Offset,
     onBlendMode: () -> Unit,
     onAddClicked: () -> Unit,
-    onAlignClicked: () -> Unit,
     onEditClicked: () -> Unit,
     onModelClicked: () -> Unit,
     modelWindowOpen: Boolean,
@@ -1468,6 +1460,8 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
     toolItem(Tool.FILL, "Fill", GraffuxIcons.Colordrop)
+
+    toolItem(Tool.TEXT, "Text", GraffuxIcons.Type)
 
     // ── The three tool groups ─────────────────────────────────────────────────────────────────────
     // Everything below the four constants above is Photoshop's inheritance rather than Procreate's,
