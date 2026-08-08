@@ -1059,13 +1059,15 @@ private fun BrushSizePad(vm: EditorViewModel) {
  * A tool appears in at most one group; nothing checks that, but the rail would draw it twice and
  * two hosts would light up at once, which is loud enough to notice immediately.
  */
+private val SELECT_TOOLS: List<Tool> = listOf(Tool.SELECT)
 private val VECTOR_TOOLS: List<Tool> = listOf(Tool.PEN)
 private val RETOUCH_TOOLS: List<Tool> = listOf(Tool.HEAL, Tool.CLONE)
 private val FOCUS_TOOLS: List<Tool> = listOf(
     Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE, Tool.LIQUIFY, Tool.DODGE, Tool.BURN, Tool.COLOR,
 )
 
-/** Each group's host id, which is also its classifier. */
+/** Each group's nested-rail id, which is also its classifier. */
+private const val SELECT_ID = "grp.select"
 private const val VECTOR_ID = "grp.vector"
 private const val RETOUCH_ID = "grp.retouch"
 private const val FOCUS_ID = "grp.focus"
@@ -1109,11 +1111,9 @@ internal fun activeRailClassifiers(
     if (uiState.activeTool in VECTOR_TOOLS) add(VECTOR_ID)
     if (uiState.activeTool in RETOUCH_TOOLS) add(RETOUCH_ID)
     if (uiState.activeTool in FOCUS_TOOLS) add(FOCUS_ID)
+    if (uiState.activeTool in SELECT_TOOLS) add(SELECT_ID)
     // Node editing is a vector mode rather than a Tool, so it lights its host separately.
     if (uiState.pathEditLayerId != null) add(VECTOR_ID)
-    // The lasso lives under a host too, and for the same reason its host has to carry the light: a
-    // sub-item is out of sight whenever its group is closed.
-    if (uiState.activeTool == Tool.SELECT) add("grp.select")
     if (uiState.symmetryMode != SymmetryMode.NONE) add("grp.symmetryMode")
     // Clone's second step. It lights once the tool is aimed, which is the state that decides whether
     // the next stroke copies anything — the item had declared this classifier since it was written
@@ -1186,7 +1186,7 @@ internal fun activeRailClassifiers(
  */
 internal fun secondaryRailClassifiers(uiState: EditorUiState): Set<String> = buildSet {
     LinkOps.linkedPeers(uiState.layers, uiState.activeLayerId).forEach { add("layer.$it") }
-    if (uiState.selection != null) add("grp.select")
+    if (uiState.selection != null) add(SELECT_ID)
 }
 
 private fun AzNavHostScope.ConfigureRailItems(
@@ -1299,6 +1299,16 @@ private fun AzNavHostScope.ConfigureRailItems(
     // comment beside them described a list the user cannot open. The tick is carried by the item's
     // own active state, which is the thing that is actually on screen.
 
+    /** One tool item, built against whichever rail scope is the current receiver. */
+    fun AzNavRailScope.nestedTool(tool: Tool, label: String, icon: Int) {
+        val id = TOOL_IDS.getValue(tool)
+        azRailItem(
+            id = id, classifiers = setOf(id), text = label, content = icon,
+            color = railColor(id),
+            onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
+        )
+    }
+
     // ── Procreate's top-left group: Adjustments · Selection · Transform ────────────────────────────
     // Adjustments is `grp.adjust`, declared further down as a floating host — Procreate gives it a
     // panel, not a strip slot. Selection and Transform lead the strip.
@@ -1310,79 +1320,83 @@ private fun AzNavHostScope.ConfigureRailItems(
     // SelectAll for the group, not SelectLasso. The lasso glyph appeared three times inside this one
     // group — on the host, on the Select tool, and on the Freehand shape — so opening it showed three
     // identical pictures. The lasso now means exactly one thing: the freehand shape, further down.
-    hostItem(id = "grp.select", text = "Selection", content = GraffuxIcons.SelectAll)
-    // Selecting: pick up the tool, then pick how a drag is read. Procreate's modes sit inside its
-    // Selection control the same way, and for the same reason — they are not four tools, they are
-    // one tool that makes a region four ways. A region confines every raster tool until it's
-    // cleared; dragging inside the marquee moves the selected pixels.
-    toolSubItem(Tool.SELECT, hostId = "grp.select", text = "Select", content = GraffuxIcons.SelectSubject)
-    SelectionShape.entries.forEach { mode ->
-        stateSubItem(
-            id = "selectShape.${mode.name}", hostId = "grp.select", text = mode.label,
-            content = when (mode) {
-                SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
-                SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
-                SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
-                SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
-            },
-        ) { vm.onSetSelectionShape(mode) }
-    }
-    // What the next drag *does*, which is a separate question from what shape it draws — two
-    // pickers of three rather than one picker of nine. Subtracting a lasso from a rectangle is a
-    // region neither shape could draw on its own, and that only exists because they compose.
-    SelectionOp.entries.forEach { mode ->
-        stateSubItem(
-            id = "selectOp.${mode.name}", hostId = "grp.select", text = mode.label,
-            content = when (mode) {
-                SelectionOp.NEW -> GraffuxIcons.SelectAll
-                SelectionOp.ADD -> GraffuxIcons.SelectAdd
-                SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
-            },
-        ) { vm.onSetSelectionOp(mode) }
-    }
-    // QuickMenu, for discovery: the gesture is a four-finger hold (and opens where the fingers
-    // landed), but a gesture nobody knows about is a feature nobody has. From here it opens at the
-    // middle of the screen — the canvas is full-bleed, so that is the middle of the artwork too.
-    stateSubItem("tool.quick", "grp.select", "Quick", GraffuxIcons.SelectQuick) {
-        vm.onOpenQuickMenu(screenCenter)
-    }
-    stateSubItem("tool.selectInvert", "grp.select", "Invert", GraffuxIcons.SelectInvert) {
-        vm.onInvertSelection()
-    }
-    subItem("tool.deselect", "grp.select", "Deselect", GraffuxIcons.SelectNone) { vm.onClearSelection() }
-    // Actions on the region that exists. Hidden without one — Colour Fill would silently mean
-    // "flood the whole layer", which is a much larger thing than the button appears to offer.
-    if (uiState.selection != null) {
-        subItem("sel.fill", "grp.select", "Colour Fill", GraffuxIcons.LayerFill) { vm.onColorFillSelection() }
-        subItem("sel.copy", "grp.select", "Copy", GraffuxIcons.LayerDuplicate) { vm.onCopySelection() }
-        subItem("sel.cut", "grp.select", "Cut", GraffuxIcons.PathKnife) { vm.onCutSelection() }
-        subItem("sel.save", "grp.select", "Save Selection", GraffuxIcons.DocumentSave) {
-            vm.onSaveSelection(vm.nextSelectionName())
+    azNestedRail(
+        id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
+        color = railColor(SELECT_ID), shape = AzButtonShape.CIRCLE,
+        keepNestedRailOpen = true,
+    ) {
+        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
+        SelectionShape.entries.forEach { mode ->
+            azRailItem(
+                id = "selectShape.${mode.name}", classifiers = setOf("selectShape.${mode.name}"),
+                text = mode.label,
+                content = when (mode) {
+                    SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
+                    SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
+                    SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
+                    SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
+                },
+                color = railColor("selectShape.${mode.name}"),
+                onClick = { vm.onSetSelectionShape(mode) },
+            )
         }
-    }
-    // Paste needs a clipboard, not a selection — it makes a new layer, so it is useful precisely
-    // when nothing is selected any more.
-    if (uiState.hasClipboard) {
-        subItem("sel.paste", "grp.select", "Paste", GraffuxIcons.LayerAdd) { vm.onPasteSelection() }
-    }
-    // Recalling a saved region. Each is its own entry rather than a picker, because the list is
-    // short by nature and one tap beats two.
-    uiState.savedSelections.forEach { saved ->
-        subItem("sel.load.${saved.name}", "grp.select", saved.name, GraffuxIcons.SelectReselect) {
-            vm.onLoadSelection(saved.name)
+        SelectionOp.entries.forEach { mode ->
+            azRailItem(
+                id = "selectOp.${mode.name}", classifiers = setOf("selectOp.${mode.name}"),
+                text = mode.label,
+                content = when (mode) {
+                    SelectionOp.NEW -> GraffuxIcons.SelectAll
+                    SelectionOp.ADD -> GraffuxIcons.SelectAdd
+                    SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
+                },
+                color = railColor("selectOp.${mode.name}"),
+                onClick = { vm.onSetSelectionOp(mode) },
+            )
         }
-    }
-    // Deleting one lives a level down rather than beside its Load entry: recalling is the common
-    // act and stays one tap, while forgetting is rare and destructive and can afford to be two.
-    // Without it, Save is a one-way door — the list only ever grows, and the rail with it.
-    if (uiState.savedSelections.isNotEmpty()) {
-        azRailSubHostItem(
-            id = "sel.manage", hostId = "grp.select", text = "Forget a Selection",
-            content = GraffuxIcons.LayerDelete, color = navItemColor, shape = AzButtonShape.CIRCLE,
+        azRailItem(
+            id = "tool.quick", classifiers = setOf("tool.quick"), text = "Quick",
+            content = GraffuxIcons.SelectQuick, color = railColor("tool.quick"),
+            onClick = { vm.onOpenQuickMenu(screenCenter) },
         )
+        azRailItem(
+            id = "tool.selectInvert", classifiers = setOf("tool.selectInvert"), text = "Invert",
+            content = GraffuxIcons.SelectInvert, color = railColor("tool.selectInvert"),
+            onClick = { vm.onInvertSelection() },
+        )
+        azRailItem(
+            id = "tool.deselect", text = "Deselect",
+            content = GraffuxIcons.SelectNone, color = navItemColor,
+            onClick = { vm.onClearSelection() },
+        )
+        if (uiState.selection != null) {
+            azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, onClick = { vm.onColorFillSelection() })
+            azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, onClick = { vm.onCopySelection() })
+            azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, onClick = { vm.onCutSelection() })
+            azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })
+        }
+        if (uiState.hasClipboard) {
+            azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, onClick = { vm.onPasteSelection() })
+        }
         uiState.savedSelections.forEach { saved ->
-            subItem("sel.forget.${saved.name}", "sel.manage", saved.name, GraffuxIcons.SelectNone) {
-                vm.onDeleteSavedSelection(saved.name)
+            azRailItem(
+                id = "sel.load.${saved.name}", text = saved.name,
+                content = GraffuxIcons.SelectReselect, color = navItemColor,
+                onClick = { vm.onLoadSelection(saved.name) },
+            )
+        }
+        if (uiState.savedSelections.isNotEmpty()) {
+            azNestedRail(
+                id = "sel.manage", text = "Forget a Selection",
+                content = GraffuxIcons.LayerDelete, color = navItemColor,
+                shape = AzButtonShape.CIRCLE,
+            ) {
+                uiState.savedSelections.forEach { saved ->
+                    azRailItem(
+                        id = "sel.forget.${saved.name}", text = saved.name,
+                        content = GraffuxIcons.SelectNone, color = navItemColor,
+                        onClick = { vm.onDeleteSavedSelection(saved.name) },
+                    )
+                }
             }
         }
     }
@@ -1469,20 +1483,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Every tool keeps its id, its classifier and its behaviour — only where you reach it moves, so
     // nothing about a recorded stroke, a co-op peer or a saved project changes.
     //
-    // The bodies below use the DSL directly rather than the `toolItem` helper above: that helper is
-    // a local function closed over the OUTER rail's receiver, so calling it in here would compile
-    // and then silently add the tool back to the strip these blocks exist to take it out of.
-
-    /** One tool item, built against whichever rail scope is the current receiver. */
-    fun AzNavRailScope.nestedTool(tool: Tool, label: String, icon: Int) {
-        val id = TOOL_IDS.getValue(tool)
-        azRailItem(
-            id = id, classifiers = setOf(id), text = label, content = icon,
-            color = railColor(id),
-            onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
-        )
-    }
-
     // Vector. Pen draws a real PATH shape rather than pixels, and node editing operates on the shape
     // it drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
@@ -1680,21 +1680,21 @@ private fun AzNavHostScope.ConfigureRailItems(
     // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
     // indented stand-in — so reordering stays scoped to siblings at each level.
     if (uiState.layers.isNotEmpty()) {
-        // Unattached and floating, not a group in the rail strip. Layers is the one host you keep
-        // reaching for *while* painting — Procreate gives it a panel of its own for that reason — and
-        // as a rail group it sat behind the same expand-collapse as every tool, so getting to a layer
-        // meant opening the rail and pushing everything else aside. FLOATING parks it wherever the
-        // user drags it and remembers that across launches, which is the nearest thing the rail has
-        // to a panel. The host and its whole subtree leave the rail strip and the drawer menu.
+        // Unattached and pinned to the opposite side of the screen from the main rail, not a group
+        // in the rail strip. Layers is the one host you keep reaching for *while* painting —
+        // Procreate gives it a panel of its own for that reason — and as a rail group it sat behind
+        // the same expand-collapse as every tool, so getting to a layer meant opening the rail and
+        // pushing everything else aside. OPPOSITE locks it to the far edge of the screen, level with
+        // the rail's own items, so it stays put and never drifts under a stray drag.
         //
-        // Square, not the circle every rail group wears: a floating panel is not a rail group, and
-        // the shape is what says so before the user reads a label. It also matches what the host
-        // contains — layer thumbnails are rectangular images, and a circular clip crops the corners
-        // off every one of them.
+        // Square, not the circle every rail group wears: a panel on the opposite edge is not a rail
+        // group, and the shape is what says so before the user reads a label. It also matches what
+        // the host contains — layer thumbnails are rectangular images, and a circular clip crops the
+        // corners off every one of them.
         azUnattachedHostItem(
             id = "grp.layers",
             text = strings.editor.layers,
-            anchor = AzUnattachedAnchor.FLOATING,
+            anchor = AzUnattachedAnchor.OPPOSITE,
             content = GraffuxIcons.Layers,
             color = navItemColor,
             shape = AzButtonShape.SQUARE,
@@ -1755,7 +1755,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         id = "tool.animation",
         badge = vm.animationFrameCount().takeIf { uiState.isAnimationMode }?.toString(),
     )
-    azItemState(id = "grp.select", badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
+    azItemState(id = SELECT_ID, badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
     azItemState(id = "sel.manage", badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
 }
 
