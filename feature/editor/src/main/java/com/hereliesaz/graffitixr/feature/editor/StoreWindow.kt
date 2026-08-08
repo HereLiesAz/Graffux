@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
+import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -85,7 +86,13 @@ private fun InstalledExtensionCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(extension.manifest.name, style = MaterialTheme.typography.titleSmall)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(extension.manifest.name, style = MaterialTheme.typography.titleSmall)
+                    SignatureBadge(extension.signature)
+                }
                 extension.manifest.description?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
@@ -107,6 +114,24 @@ private fun InstalledExtensionCard(
             modifier = Modifier.fillMaxWidth(),
         )
     }
+}
+
+@Composable
+private fun SignatureBadge(status: SignatureStatus) {
+    val (text, color) = when (status) {
+        SignatureStatus.SIGNED_TRUSTED -> "Verified" to Color(0xFF4CAF50)
+        SignatureStatus.SIGNED_UNTRUSTED -> "Signed" to Color(0xFFFFA726)
+        SignatureStatus.UNSIGNED -> "Unsigned" to Color.Gray
+        SignatureStatus.INVALID -> "Invalid" to Color(0xFFE53935)
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
 private val SUPPORTED_ASSET_TYPES = setOf(AssetType.BRUSH, AssetType.LUT)
