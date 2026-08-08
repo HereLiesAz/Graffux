@@ -55,8 +55,8 @@ val verMinor = versionProps.getProperty("versionMinor", "0")
 val lastMinor = versionProps.getProperty("versionMinorLast", verMinor)
 val isMinorBumped = verMinor != lastMinor
 
-var currentVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
-var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt()
+var currentVersionCode = versionProps.getProperty("versionBuild", "1").toInt() + 1
+var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt() + 1
 
 tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
     doFirst {
