@@ -4538,7 +4538,31 @@ class EditorViewModel @Inject constructor(
     fun createNewProject() {
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
-            projectRepository.createProject("Untitled $n")
+            val project = projectRepository.createProject("Untitled $n")
+            val projectId = project.id
+
+            val (width, height) = newLayerSize()
+            val blankBitmap = createBitmap(width, height)
+            val filename = "layer_${UUID.randomUUID()}.png"
+            val localUri = try {
+                val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
+                "file://$path".toUri()
+            } catch (_: Exception) { null }
+
+            val bgLayer = Layer(
+                id = UUID.randomUUID().toString(),
+                name = "Background",
+                isSketch = true,
+                bitmap = blankBitmap,
+                uri = localUri,
+            )
+
+            withContext(dispatchers.main) {
+                putLayerBase(bgLayer.id, blankBitmap)
+                layerStore.initStrokes(bgLayer.id)
+                dispatch(EditorIntent.AddLayer(bgLayer))
+                saveProject()
+            }
         }
     }
 
