@@ -1333,7 +1333,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
         color = railColor(SELECT_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true,
+        keepNestedRailOpen = true, reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
         SelectionShape.entries.forEach { mode ->
@@ -1501,8 +1501,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
-        // Stays open while you work: node editing is several taps in a row, not one.
-        keepNestedRailOpen = true,
+        keepNestedRailOpen = true, reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
 
@@ -1539,7 +1538,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
         color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true,
+        keepNestedRailOpen = true, reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
         nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
@@ -1572,7 +1571,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
         color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
-        keepNestedRailOpen = true,
+        keepNestedRailOpen = true, reflectSelectionInParent = true,
     ) {
         // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
         // while `ImageProcessor` ran an actual box blur under the stroke — the one name in the rail
