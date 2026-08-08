@@ -1315,6 +1315,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailItem(
             id = id, classifiers = setOf(id), text = label, content = icon,
             color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
+            fillColor = railColor(id),
             onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
         )
     }
@@ -1337,8 +1338,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     ) {
         nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
         SelectionShape.entries.forEach { mode ->
+            val id = "selectShape.${mode.name}"
             azRailItem(
-                id = "selectShape.${mode.name}", classifiers = setOf("selectShape.${mode.name}"),
+                id = id, classifiers = setOf(id),
                 text = mode.label,
                 content = when (mode) {
                     SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
@@ -1346,35 +1348,38 @@ private fun AzNavHostScope.ConfigureRailItems(
                     SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
                     SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
                 },
-                color = railColor("selectShape.${mode.name}"),
+                color = railColor(id),
                 shape = AzButtonShape.NONE_SQUARE,
+                fillColor = railColor(id),
                 onClick = { vm.onSetSelectionShape(mode) },
             )
         }
         SelectionOp.entries.forEach { mode ->
+            val id = "selectOp.${mode.name}"
             azRailItem(
-                id = "selectOp.${mode.name}", classifiers = setOf("selectOp.${mode.name}"),
+                id = id, classifiers = setOf(id),
                 text = mode.label,
                 content = when (mode) {
                     SelectionOp.NEW -> GraffuxIcons.SelectAll
                     SelectionOp.ADD -> GraffuxIcons.SelectAdd
                     SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
                 },
-                color = railColor("selectOp.${mode.name}"),
+                color = railColor(id),
                 shape = AzButtonShape.NONE_SQUARE,
+                fillColor = railColor(id),
                 onClick = { vm.onSetSelectionOp(mode) },
             )
         }
         azRailItem(
             id = "tool.quick", classifiers = setOf("tool.quick"), text = "Quick",
             content = GraffuxIcons.SelectQuick, color = railColor("tool.quick"),
-            shape = AzButtonShape.NONE_SQUARE,
+            shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.quick"),
             onClick = { vm.onOpenQuickMenu(screenCenter) },
         )
         azRailItem(
             id = "tool.selectInvert", classifiers = setOf("tool.selectInvert"), text = "Invert",
             content = GraffuxIcons.SelectInvert, color = railColor("tool.selectInvert"),
-            shape = AzButtonShape.NONE_SQUARE,
+            shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.selectInvert"),
             onClick = { vm.onInvertSelection() },
         )
         azRailItem(
@@ -1520,7 +1525,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             azRailItem(
                 id = "tool.nodeEdit", classifiers = setOf("tool.nodeEdit"), text = "Edit Nodes",
                 content = GraffuxIcons.PathSelectDirect, color = railColor("tool.nodeEdit"),
-                shape = AzButtonShape.NONE_SQUARE,
+                shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.nodeEdit"),
                 onClick = { vm.onToggleActivePathEdit() },
             )
         }
@@ -1560,7 +1565,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                 id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
                 text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
                 content = GraffuxIcons.FilterCloneSource, color = railColor("tool.cloneSource"),
-                shape = AzButtonShape.NONE_SQUARE,
+                shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.cloneSource"),
                 onClick = { vm.onResetCloneSource() },
             )
         }
