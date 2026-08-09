@@ -351,6 +351,8 @@ private fun ColorWheel(
         onHueSaturationChanged(snapped ?: rawHue, newSat)
     }
 
+    val currentHue by rememberUpdatedState(hue)
+    val currentSaturation by rememberUpdatedState(saturation)
     Canvas(
         modifier = modifier
             .onSizeChanged { wheelSize = it }
@@ -361,9 +363,9 @@ private fun ColorWheel(
                 detectDragGestures { _, dragAmount ->
                     val radius = wheelSize.width / 2f
                     if (radius <= 0f) return@detectDragGestures
-                    val angle = Math.toRadians(hue.toDouble())
-                    val curX = radius + cos(angle) * saturation * radius
-                    val curY = radius + sin(angle) * saturation * radius
+                    val angle = Math.toRadians(currentHue.toDouble())
+                    val curX = radius + cos(angle) * currentSaturation * radius
+                    val curY = radius + sin(angle) * currentSaturation * radius
                     pickFromOffset(Offset((curX + dragAmount.x).toFloat(), (curY + dragAmount.y).toFloat()))
                 }
             }
