@@ -28,6 +28,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -816,12 +817,16 @@ private fun SelectionHandles(
     // 24dp band around all four of them would reach a long way into the artwork and claim drags
     // meant for the layer's interior.
     val edgeGrabPx = with(density) { 14.dp.toPx() }
+    val currentLayer by rememberUpdatedState(activeLayer)
+    val currentVpOffset by rememberUpdatedState(viewportOffset)
+    val currentVpZoom by rememberUpdatedState(viewportZoom)
+    val currentVpRotation by rememberUpdatedState(viewportRotation)
     Canvas(
-        modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom, viewportRotation) {
+        modifier = modifier.pointerInput(activeLayer.id) {
             awaitEachGesture {
                 val corners = CanvasHitTest.layerScreenCorners(
-                    activeLayer, size.width.toFloat(), size.height.toFloat(),
-                    viewportOffset, viewportZoom, viewportRotation,
+                    currentLayer, size.width.toFloat(), size.height.toFloat(),
+                    currentVpOffset, currentVpZoom, currentVpRotation,
                 ) ?: return@awaitEachGesture
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val pivot = CanvasHitTest.boxCenter(corners)
