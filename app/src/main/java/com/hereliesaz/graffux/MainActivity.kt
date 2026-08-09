@@ -435,19 +435,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         AzHostActivityLayout(navController = navController, initiallyExpanded = false) {
             azTheme(
                 activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
-                focusColor = Color.White,
+                focusColor = activeRailColor,
                 // The third highlight (11.9). `active` answers "where am I", `secondary` answers
                 // "what is true of this". They have to be different colours or the rail says the
                 // same thing about a layer you are editing and a layer that merely comes along when
                 // you drag it. Amber because it reads as a condition rather than a place.
                 secondaryColor = Color(0xFFFFB300),
                 // The border is what distinguishes "this opens something" from "this does something".
-                // The rail's default is therefore borderless (AzNavRail's NONE_CIRCLE keeps the
-                // CIRCLE footprint, so a borderless item still lines up with a bordered one) and the
-                // only items that opt back into CIRCLE are hosts and the items that open a tool
-                // window. Every leaf tool, toggle and picker inherits this.
-                defaultShape = AzButtonShape.NONE_CIRCLE,
-                headerIconShape = AzHeaderIconShape.CIRCLE,
+                // The rail's default is therefore borderless (NONE_SQUARE keeps the SQUARE footprint,
+                // so a borderless item still lines up with a bordered one) and the only items that
+                // opt back into SQUARE are hosts and the items that open a tool window. Every leaf
+                // tool, toggle and picker inherits this.
+                defaultShape = AzButtonShape.NONE_SQUARE,
+                headerIconShape = AzHeaderIconShape.SQUARE,
                 translucentBackground = Color.Black.copy(alpha = 0.85f)
             )
             azAbout(dedupeAbout = true)
@@ -1270,7 +1270,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = setOf(id)) =
         azRailHostItem(
             id = id, text = text, content = content, classifiers = classifiers,
-            color = railColor(id), shape = AzButtonShape.CIRCLE,
+            color = railColor(id), shape = AzButtonShape.SQUARE,
         )
 
     /**
@@ -1333,7 +1333,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // identical pictures. The lasso now means exactly one thing: the freehand shape, further down.
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
-        color = railColor(SELECT_ID), shape = AzButtonShape.CIRCLE,
+        color = railColor(SELECT_ID), shape = AzButtonShape.SQUARE,
         reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
@@ -1485,7 +1485,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     stateItem(
         id = "tool.color", text = navStrings.color, content = uiState.activeColor,
         // Bordered: it opens the colour picker rather than selecting a tool.
-        shape = AzButtonShape.CIRCLE,
+        shape = AzButtonShape.SQUARE,
     ) { vm.onColorClicked() }
 
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
@@ -1512,7 +1512,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
-        color = railColor(VECTOR_ID), shape = AzButtonShape.CIRCLE,
+        color = railColor(VECTOR_ID), shape = AzButtonShape.SQUARE,
         reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
@@ -1552,7 +1552,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // exactly the distinction the group makes visible by putting them next to each other.
     azNestedRail(
         id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
-        color = railColor(RETOUCH_ID), shape = AzButtonShape.CIRCLE,
+        color = railColor(RETOUCH_ID), shape = AzButtonShape.SQUARE,
         reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
@@ -1586,7 +1586,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // radius, and a user who wants one is choosing between the two.
     azNestedRail(
         id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
-        color = railColor(FOCUS_ID), shape = AzButtonShape.CIRCLE,
+        color = railColor(FOCUS_ID), shape = AzButtonShape.SQUARE,
         reflectSelectionInParent = true,
     ) {
         // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
@@ -1692,7 +1692,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // selected and "make a new one" when it isn't — Procreate's own behaviour.
     stateSubItem(
         id = "brush.studio", hostId = "grp.brushes", text = "Brush Studio",
-        content = GraffuxIcons.BrushSettings, shape = AzButtonShape.CIRCLE,
+        content = GraffuxIcons.BrushSettings, shape = AzButtonShape.SQUARE,
     ) {
         val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
         vm.onOpenBrushStudio(editing)
@@ -1741,7 +1741,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
     // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
     // windows under one name is how a user ends up in the wrong one.
-    stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.CIRCLE) {
+    stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.SQUARE) {
         vm.onExtensionsClicked()
     }
 
@@ -1754,7 +1754,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // strip: it is the item you reach for when the others have not explained themselves.
     azHelpRailItem(
         id = "help", text = "Help", content = GraffuxIcons.Help,
-        color = navItemColor, shape = AzButtonShape.CIRCLE,
+        color = navItemColor, shape = AzButtonShape.SQUARE,
     )
 
     // ── Badges ───────────────────────────────────────────────────────────────────────────────────
