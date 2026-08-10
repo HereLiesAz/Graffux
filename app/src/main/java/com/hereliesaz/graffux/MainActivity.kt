@@ -559,11 +559,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
-                    menuItem(text = "Import from Figma…", onClick = { showFigmaDialog = true })
-                    menuItem(text = "Reference", onClick = { showReferenceWindow = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
-                    menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     menuItem(text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
@@ -1768,7 +1765,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // many frames the animation has. Items whose content already IS their state get none — the
     // colour swatch, every tool glyph, the mode pickers. A badge repeating what the button already
     // draws is noise in a strip this dense.
-    azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString())
+    azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
     azItemState(id = "grp.layers", badge = uiState.layers.size.takeIf { it > 0 }?.toString())
     azItemState(
         id = "grp.brushes",
