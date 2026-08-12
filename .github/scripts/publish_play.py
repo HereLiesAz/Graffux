@@ -42,8 +42,6 @@ from googleapiclient.http import MediaFileUpload
 TARGETS = [
     ("internal",   "completed"),
     ("alpha",      "draft"),   # closed testing
-    ("beta",       "draft"),   # open testing
-    ("production", "draft"),
 ]
 
 # The one track that has to work. Everything else is staging for a human to

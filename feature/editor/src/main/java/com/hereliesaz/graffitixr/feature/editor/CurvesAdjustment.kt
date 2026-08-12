@@ -21,14 +21,16 @@ fun CurvesAdjustment(
     modifier: Modifier = Modifier
 ) {
     var selectedPointIndex by remember { mutableStateOf<Int?>(null) }
+    val currentPoints by rememberUpdatedState(points)
 
     Box(modifier = modifier.fillMaxSize()) {
         Canvas(modifier = Modifier
             .fillMaxSize()
-            .pointerInput(points) {
+            .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { startOffset ->
-                        val scaledPoints = points.map { Offset(it.x * size.width, it.y * size.height) }
+                        val snap = currentPoints
+                        val scaledPoints = snap.map { Offset(it.x * size.width, it.y * size.height) }
                         val closestPoint = scaledPoints.minByOrNull { (it - startOffset).getDistance() }
                         val closestPointIndex = scaledPoints.indexOf(closestPoint)
                         if (closestPoint != null && (closestPoint - startOffset).getDistance() < 20.dp.toPx()) {
@@ -37,16 +39,11 @@ fun CurvesAdjustment(
                     },
                     onDrag = { _, dragAmount ->
                         selectedPointIndex?.let { index ->
-                            val newPoints = points.toMutableList()
-                            val newPoint = points[index] + Offset(dragAmount.x / size.width, dragAmount.y / size.height)
-                            // Clamp x against the immediate neighbors, not just the global [0,1] range:
-                            // without this a point can be dragged past its neighbor, producing a
-                            // non-ascending x array. CurvesUtil.calculateAdjustmentCurve assumes
-                            // ascending x for both its segment-length math and Kotlin's
-                            // List.binarySearch (unspecified behavior on unsorted input) — a crossed
-                            // pair turned into a visibly glitchy tone curve instead of a clean stop.
-                            val lowerX = if (index > 0) points[index - 1].x else 0f
-                            val upperX = if (index < points.lastIndex) points[index + 1].x else 1f
+                            val snap = currentPoints
+                            val newPoints = snap.toMutableList()
+                            val newPoint = snap[index] + Offset(dragAmount.x / size.width, dragAmount.y / size.height)
+                            val lowerX = if (index > 0) snap[index - 1].x else 0f
+                            val upperX = if (index < snap.lastIndex) snap[index + 1].x else 1f
                             newPoints[index] = newPoint.copy(
                                 x = newPoint.x.coerceIn(lowerX, upperX),
                                 y = newPoint.y.coerceIn(0f, 1f)

@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -49,18 +51,20 @@ fun PathEditOverlay(
     val shape = layer.shapes.singleOrNull()?.takeIf { it.kind == ShapeKind.PATH } ?: return
     val density = LocalDensity.current
     val touchRadiusPx = with(density) { TOUCH_RADIUS.toPx() }
+    val currentLayer by rememberUpdatedState(layer)
+    val currentUiState by rememberUpdatedState(uiState)
+    val currentShape by rememberUpdatedState(shape)
 
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(layer.id, shape) {
+            .pointerInput(layer.id) {
                 detectTapGestures(
                     onTap = { screen ->
-                        val local = toLocal(layer, screen, size.width, size.height, uiState) ?: return@detectTapGestures
-                        // Hit radius is in local units: a zoomed-in canvas must not need a
-                        // proportionally larger finger.
-                        val r = touchRadiusPx / localScale(layer, uiState)
-                        when (val hit = PathEditing.hitTest(shape, local.x, local.y, r)) {
+                        val l = currentLayer; val s = currentUiState; val sh = currentShape
+                        val local = toLocal(l, screen, size.width, size.height, s) ?: return@detectTapGestures
+                        val r = touchRadiusPx / localScale(l, s)
+                        when (val hit = PathEditing.hitTest(sh, local.x, local.y, r)) {
                             is PathEditing.Hit.NodeHit -> onSelectNode(hit.index)
                             is PathEditing.Hit.SegmentHit -> onInsertNode(hit.segmentIndex, hit.t)
                             is PathEditing.Hit.HandleHit -> onSelectNode(hit.index)
@@ -68,23 +72,23 @@ fun PathEditOverlay(
                         }
                     },
                     onDoubleTap = { screen ->
-                        val local = toLocal(layer, screen, size.width, size.height, uiState) ?: return@detectTapGestures
-                        val r = touchRadiusPx / localScale(layer, uiState)
-                        (PathEditing.hitTest(shape, local.x, local.y, r) as? PathEditing.Hit.NodeHit)
+                        val l = currentLayer; val s = currentUiState; val sh = currentShape
+                        val local = toLocal(l, screen, size.width, size.height, s) ?: return@detectTapGestures
+                        val r = touchRadiusPx / localScale(l, s)
+                        (PathEditing.hitTest(sh, local.x, local.y, r) as? PathEditing.Hit.NodeHit)
                             ?.let { onToggleCornerSmooth(it.index) }
                     },
                 )
             }
-            .pointerInput(layer.id, shape) {
+            .pointerInput(layer.id) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = true)
                     val w = size.width
                     val h = size.height
-                    val startLocal = toLocal(layer, down.position, w, h, uiState) ?: return@awaitEachGesture
-                    val r = touchRadiusPx / localScale(layer, uiState)
-                    // Only an anchor or a handle starts a drag. Anything else falls through so the
-                    // tap detector above (insert / deselect) still gets it.
-                    val hit = PathEditing.hitTest(shape, startLocal.x, startLocal.y, r)
+                    val l = currentLayer; val s = currentUiState; val sh = currentShape
+                    val startLocal = toLocal(l, down.position, w, h, s) ?: return@awaitEachGesture
+                    val r = touchRadiusPx / localScale(l, s)
+                    val hit = PathEditing.hitTest(sh, startLocal.x, startLocal.y, r)
                     val target = when (hit) {
                         is PathEditing.Hit.NodeHit, is PathEditing.Hit.HandleHit -> hit
                         else -> return@awaitEachGesture
@@ -94,23 +98,17 @@ fun PathEditOverlay(
                     var started = false
                     while (true) {
                         val event = awaitPointerEvent()
-                        // A second finger is canvas navigation, never node editing. Let go of the
-                        // node: holding on would keep consuming one of the two pointers, and a pinch
-                        // computed from a single unconsumed finger is not a pinch.
                         if (event.changes.count { it.pressed } > 1) break
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
-                        val local = toLocal(layer, change.position, w, h, uiState) ?: continue
+                        val local = toLocal(currentLayer, change.position, w, h, currentUiState) ?: continue
                         if (!started) {
-                            // Bracket the whole drag as one undo step, not one per frame.
                             started = true
                             onEditStart()
                         }
                         when (target) {
                             is PathEditing.Hit.NodeHit ->
                                 onMoveNode(target.index, local.x - previous.x, local.y - previous.y)
-                            // A handle is positioned absolutely, so it tracks the finger exactly
-                            // instead of accumulating drift over a long drag.
                             is PathEditing.Hit.HandleHit ->
                                 onMoveHandle(target.index, target.outgoing, local.x, local.y)
                             else -> Unit

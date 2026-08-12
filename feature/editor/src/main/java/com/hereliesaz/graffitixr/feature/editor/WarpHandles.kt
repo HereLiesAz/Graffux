@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -35,19 +37,16 @@ fun WarpHandles(
 ) {
     if (handles.size < 4 || gridSize < 2) return
 
+    val currentHandles by rememberUpdatedState(handles)
     Canvas(
         modifier = modifier
-            // Keyed on the handles so the loop below always tests against where they actually are;
-            // a stale capture would grab whichever handle was nearest one drag ago.
-            .pointerInput(handles, gridSize) {
+            .pointerInput(gridSize) {
                 val grab = GRAB_RADIUS.toPx()
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    // Nearest handle within reach. Nothing in reach means the touch is not for us —
-                    // it is consumed anyway, because a stray drag across the canvas mid-transform
-                    // should not also paint.
-                    val index = handles.indices.minByOrNull { (handles[it] - down.position).getDistance() }
-                        ?.takeIf { (handles[it] - down.position).getDistance() <= grab }
+                    val snap = currentHandles
+                    val index = snap.indices.minByOrNull { (snap[it] - down.position).getDistance() }
+                        ?.takeIf { (snap[it] - down.position).getDistance() <= grab }
                         ?: return@awaitEachGesture
                     down.consume()
                     var moved = false

@@ -41,7 +41,7 @@ val Typography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
         lineHeight = 16.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     labelSmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
@@ -76,35 +76,35 @@ val Typography = Typography(
         fontWeight = FontWeight.Normal,
         fontSize = 20.sp,
         lineHeight = 22.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     displaySmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 19.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     headlineLarge = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 20.sp,
         lineHeight = 18.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     headlineMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 13.sp,
         lineHeight = 16.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     headlineSmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
         lineHeight = 14.sp,
-        letterSpacing = 9.sp
+        letterSpacing = 0.9.sp
     ),
     titleMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,

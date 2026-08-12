@@ -28,6 +28,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -472,11 +474,24 @@ fun EditorScreen(
 
         // 3d. Brush-size HUD — while the size slider moves, the ACTUAL brush diameter previews as
         // a circle at canvas centre, the way Procreate shows what you're about to paint with.
+        // The radial gradient maps brushFeathering so the user sees the soft edge, not just size.
         if (uiState.brushHudVisible) {
             Canvas(Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val r = uiState.brushSize / 2f
-                drawCircle(uiState.activeColor, radius = r, center = center)
+                val r = (uiState.brushSize / 2f).coerceAtLeast(1.5f)
+                val core = (1f - uiState.brushFeathering).coerceIn(0f, 1f)
+                val c = uiState.activeColor
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to c,
+                        core to c,
+                        1f to c.copy(alpha = 0f),
+                        center = center,
+                        radius = r,
+                    ),
+                    radius = r,
+                    center = center,
+                )
                 drawCircle(Color.White.copy(alpha = 0.9f), radius = r, center = center, style = Stroke(width = 1.5.dp.toPx()))
             }
         }
@@ -816,12 +831,16 @@ private fun SelectionHandles(
     // 24dp band around all four of them would reach a long way into the artwork and claim drags
     // meant for the layer's interior.
     val edgeGrabPx = with(density) { 14.dp.toPx() }
+    val currentLayer by rememberUpdatedState(activeLayer)
+    val currentVpOffset by rememberUpdatedState(viewportOffset)
+    val currentVpZoom by rememberUpdatedState(viewportZoom)
+    val currentVpRotation by rememberUpdatedState(viewportRotation)
     Canvas(
-        modifier = modifier.pointerInput(activeLayer.id, viewportOffset, viewportZoom, viewportRotation) {
+        modifier = modifier.pointerInput(activeLayer.id) {
             awaitEachGesture {
                 val corners = CanvasHitTest.layerScreenCorners(
-                    activeLayer, size.width.toFloat(), size.height.toFloat(),
-                    viewportOffset, viewportZoom, viewportRotation,
+                    currentLayer, size.width.toFloat(), size.height.toFloat(),
+                    currentVpOffset, currentVpZoom, currentVpRotation,
                 ) ?: return@awaitEachGesture
                 val down = awaitFirstDown(requireUnconsumed = true)
                 val pivot = CanvasHitTest.boxCenter(corners)
