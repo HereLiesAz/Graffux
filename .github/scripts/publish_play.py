@@ -240,6 +240,15 @@ def explain_403(sa_email: str, sa_project: str, package: str, err: HttpError) ->
         )
         return
 
+    if "already been used" in body:
+        print(
+            "::error::The AAB's versionCode was already uploaded to this app. "
+            "This usually means a previous CI run already published this build. "
+            "Bump versionCode (rebuild on a fresh commit) and re-run.",
+            file=sys.stderr,
+        )
+        return
+
     # A `::error::` annotation is one line - a newline inside it ends the annotation and the
     # rest is swallowed. So: one-line annotation for the summary, plain lines for the list.
     print(
