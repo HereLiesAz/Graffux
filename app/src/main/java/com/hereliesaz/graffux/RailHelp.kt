@@ -73,9 +73,6 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "Copies pixels verbatim from somewhere else on the same layer. Aim it first: set the " +
         "source, then paint. The button turns on once it is aimed.",
     "tool.fill" to "Tap to flood the area under your finger with the current colour.",
-    "tool.symmetry" to
-        "Mirrors every stroke across an axis as you draw. The mode picker chooses which axis, or " +
-        "how many.",
     "tool.wraparound" to
         "The canvas tiles past its own edges: a stroke that leaves one side comes back on the " +
         "other. For seamless patterns.",
