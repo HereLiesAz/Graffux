@@ -7,7 +7,6 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionRing
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -44,8 +43,8 @@ class RailClassifiersTest {
     fun `a tool inside a nested rail also lights the host that holds it`() {
         // The member's own item is out of sight whenever its group is closed, so without the host
         // carrying the light too, arming a tool and closing the rail shows nothing armed at all.
-        assertTrue("grp.focus" in classifiers(EditorUiState(activeTool = Tool.LIQUIFY)))
-        assertTrue("grp.retouch" in classifiers(EditorUiState(activeTool = Tool.CLONE)))
+        assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.LIQUIFY)))
+        assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.CLONE)))
         assertTrue("grp.vector" in classifiers(EditorUiState(activeTool = Tool.PEN)))
         assertTrue("grp.select" in classifiers(EditorUiState(activeTool = Tool.SELECT)))
     }
@@ -68,19 +67,6 @@ class RailClassifiersTest {
         val armed = EditorUiState(activeTool = Tool.CLONE)
         assertFalse("tool.cloneSource" in classifiers(armed))
         assertTrue("tool.cloneSource" in classifiers(armed.copy(cloneSource = Offset(4f, 4f))))
-    }
-
-    @Test
-    fun `symmetry lights the toggle and the picker's current member, and the picker always names one`() {
-        val off = classifiers(EditorUiState(symmetryMode = SymmetryMode.NONE))
-        assertFalse("tool.symmetry" in off)
-        // The picker is a choice among all options including "off", so it always lights exactly one.
-        assertTrue("symmetryMode.NONE" in off)
-
-        val on = classifiers(EditorUiState(symmetryMode = SymmetryMode.RADIAL_6))
-        assertTrue("tool.symmetry" in on)
-        assertTrue("symmetryMode.RADIAL_6" in on)
-        assertFalse("symmetryMode.NONE" in on)
     }
 
     @Test
@@ -145,7 +131,6 @@ class RailClassifiersTest {
     @Test
     fun `every mode picker lights exactly one of its members`() {
         val lit = classifiers(EditorUiState())
-        assertTrue(lit.count { it.startsWith("symmetryMode.") } == 1)
         assertTrue(lit.count { it.startsWith("selectShape.") } == 1)
         assertTrue(lit.count { it.startsWith("selectOp.") } == 1)
         assertTrue(lit.count { it.startsWith("transform.") } == 1)

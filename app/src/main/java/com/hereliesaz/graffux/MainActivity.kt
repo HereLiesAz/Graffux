@@ -68,7 +68,6 @@ import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -1068,17 +1067,14 @@ private fun BrushSizePad(vm: EditorViewModel) {
  * two hosts would light up at once, which is loud enough to notice immediately.
  */
 private val SELECT_TOOLS: List<Tool> = listOf(Tool.SELECT)
-private val VECTOR_TOOLS: List<Tool> = listOf(Tool.PEN)
-private val RETOUCH_TOOLS: List<Tool> = listOf(Tool.HEAL, Tool.CLONE)
-private val FOCUS_TOOLS: List<Tool> = listOf(
+private val VECTOR_TOOLS: List<Tool> = listOf(
+    Tool.PEN, Tool.HEAL, Tool.CLONE,
     Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE, Tool.LIQUIFY, Tool.DODGE, Tool.BURN, Tool.COLOR,
 )
 
 /** Each group's nested-rail id, which is also its classifier. */
 private const val SELECT_ID = "grp.select"
 private const val VECTOR_ID = "grp.vector"
-private const val RETOUCH_ID = "grp.retouch"
-private const val FOCUS_ID = "grp.focus"
 
 /**
  * Every rail item that is currently *active*, by item id.
@@ -1117,18 +1113,14 @@ internal fun activeRailClassifiers(
     // member's own item is out of sight whenever that rail is closed, so without this the rail would
     // show no armed tool at all while one is armed.
     if (uiState.activeTool in VECTOR_TOOLS) add(VECTOR_ID)
-    if (uiState.activeTool in RETOUCH_TOOLS) add(RETOUCH_ID)
-    if (uiState.activeTool in FOCUS_TOOLS) add(FOCUS_ID)
     if (uiState.activeTool in SELECT_TOOLS) add(SELECT_ID)
     // Node editing is a vector mode rather than a Tool, so it lights its host separately.
     if (uiState.pathEditLayerId != null) add(VECTOR_ID)
-    if (uiState.symmetryMode != SymmetryMode.NONE) add("grp.symmetryMode")
     // Clone's second step. It lights once the tool is aimed, which is the state that decides whether
     // the next stroke copies anything — the item had declared this classifier since it was written
     // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
-    if (uiState.symmetryMode != SymmetryMode.NONE) add("tool.symmetry")
     if (uiState.wrapAroundMode) add("tool.wraparound")
     // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
     // window's own item — otherwise a recording in progress would show nowhere in the rail.
@@ -1167,7 +1159,6 @@ internal fun activeRailClassifiers(
     // The layer being edited, and the two mode pickers — each always lights exactly one member,
     // because each is a choice among all of its options rather than an on/off.
     uiState.activeLayerId?.let { add("layer.$it") }
-    add("symmetryMode.${uiState.symmetryMode.name}")
     add("selectShape.${uiState.selectionShape.name}")
     add("selectOp.${uiState.selectionOp.name}")
     add("transform.${uiState.transformMode.name}")
@@ -1317,17 +1308,33 @@ private fun AzNavHostScope.ConfigureRailItems(
         )
     }
 
-    // ── Procreate's top-left group: Adjustments · Selection · Transform ────────────────────────────
-    // Adjustments is `grp.adjust`, declared further down as a floating host — Procreate gives it a
-    // panel, not a strip slot. Selection and Transform lead the strip.
+    // ── Transform · Selection ──────────────────────────────────────────────────────────────────────
+    // Transform leads the strip; the Selection nested rail sits below it.
 
-    // Selection (the "S"): one control holding the selection *modes* and then the actions you perform
-    // on a selection. These were four flat rail entries — Select, Quick, Invert, Deselect — sitting
-    // among the paint tools, which is neither where Procreate puts them nor what they are: three of
-    // the four do nothing at all until a selection exists.
-    // SelectAll for the group, not SelectLasso. The lasso glyph appeared three times inside this one
-    // group — on the host, on the Select tool, and on the Freehand shape — so opening it showed three
-    // identical pictures. The lasso now means exactly one thing: the freehand shape, further down.
+    stateItem("adj.transform", "Transform", GraffuxIcons.Move) { vm.onTransformClicked() }
+    TransformMode.entries.forEach { mode ->
+        stateItem(
+            id = "transform.${mode.name}", text = mode.label,
+            content = when (mode) {
+                TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
+                TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
+                TransformMode.WARP -> GraffuxIcons.PuppetWarp
+            },
+        ) { vm.onSetTransformMode(mode) }
+    }
+    if (uiState.transformMode != TransformMode.FREEFORM) {
+        azRailItem(
+            id = "transform.apply", text = "Apply",
+            content = GraffuxIcons.Success, color = activeColor,
+            onClick = { vm.onApplyWarp() },
+        )
+        azRailItem(
+            id = "transform.cancel", text = "Cancel",
+            content = GraffuxIcons.Close, color = navItemColor,
+            onClick = { vm.onCancelWarp() },
+        )
+    }
+
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
         color = railColor(SELECT_ID), shape = AzButtonShape.SQUARE,
@@ -1420,38 +1427,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    // Transform is its own control in Procreate's top bar, beside Adjustments and Selection — not an
-    // item inside Adjustments, which is where it was. It keeps `adj.transform` as its id, so the
-    // classifier set and the panel it opens are unchanged.
-    // Move, not SelectTransform: this item sat directly above the Freeform mode carrying the very
-    // same glyph, so the group header and its first member were indistinguishable.
-    stateItem("adj.transform", "Transform", GraffuxIcons.Move) { vm.onTransformClicked() }
-    // Procreate's three transform modes. Freeform moves the layer; Distort and Warp bend it, and
-    // are the same grid at two resolutions — four corners for a perspective, sixteen for a mesh.
-    TransformMode.entries.forEach { mode ->
-        stateItem(
-            id = "transform.${mode.name}", text = mode.label,
-            content = when (mode) {
-                TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
-                TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
-                TransformMode.WARP -> GraffuxIcons.PuppetWarp
-            },
-        ) { vm.onSetTransformMode(mode) }
-    }
-    // Only while a bend is in progress: they are the two ways out of it, and mean nothing otherwise.
-    if (uiState.transformMode != TransformMode.FREEFORM) {
-        azRailItem(
-            id = "transform.apply", text = "Apply",
-            content = GraffuxIcons.Success, color = activeColor,
-            onClick = { vm.onApplyWarp() },
-        )
-        azRailItem(
-            id = "transform.cancel", text = "Cancel",
-            content = GraffuxIcons.Close, color = navItemColor,
-            onClick = { vm.onCancelWarp() },
-        )
-    }
-
     // Procreate's tool strip: a flat row of the tools you paint with, not an accordion you have to
     // open first, drawn from the Graffux set (`GraffuxIcons`, generated by branding/icons/build.py)
     // rather than a general-purpose library — a broom stood in for the eraser and a squiggle for
@@ -1514,8 +1489,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
 
-        // Node editing is offered only for a layer that actually has an editable path, so it isn't a
-        // permanently dead item on a raster document.
         val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
         val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
         if (editable || uiState.pathEditLayerId != null) {
@@ -1542,21 +1515,8 @@ private fun AzNavHostScope.ConfigureRailItems(
                 )
             }
         }
-    }
-
-    // Retouching. Both of these repair by sampling pixels from somewhere else on the same layer —
-    // Heal blends what it samples into the surrounding tone, Clone copies it verbatim — which is
-    // exactly the distinction the group makes visible by putting them next to each other.
-    azNestedRail(
-        id = RETOUCH_ID, classifiers = setOf(RETOUCH_ID), text = "Retouch", content = GraffuxIcons.Heal,
-        color = railColor(RETOUCH_ID), shape = AzButtonShape.SQUARE,
-        reflectSelectionInParent = true,
-    ) {
         nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
         nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
-        // Clone is aimed by tapping the canvas once before painting, which is why it has a second
-        // step no other tool here has. Shown only while it's the active tool: aiming a tool you
-        // aren't holding means nothing.
         if (uiState.activeTool == Tool.CLONE) {
             azRailItem(
                 id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
@@ -1566,30 +1526,6 @@ private fun AzNavHostScope.ConfigureRailItems(
                 onClick = { vm.onResetCloneSource() },
             )
         }
-    }
-
-    // Focus and tone. Everything here reworks pixels that are already on the layer rather than
-    // adding new marks, which is the line the group is drawn along — and inside it the members pair
-    // off, which is the reason for putting them in this order rather than alphabetically:
-    //
-    //   Blur / Sharpen    remove local contrast, and add it back
-    //   Smudge / Liquify  carry pixels along a drag, at brush scale and at layer scale
-    //   Dodge / Burn      lighten, and darken
-    //   Colorize          replaces hue while leaving luminance alone
-    //
-    // Liquify used to sit in the floating Adjust palette on the reasoning that Procreate files it
-    // under Adjustments. That is true of Procreate and wrong here: this Liquify is driven by
-    // dragging a brush across the canvas, so it is the same gesture as Smudge with a much larger
-    // radius, and a user who wants one is choosing between the two.
-    azNestedRail(
-        id = FOCUS_ID, classifiers = setOf(FOCUS_ID), text = "Focus & Tone", content = GraffuxIcons.Dodge,
-        color = railColor(FOCUS_ID), shape = AzButtonShape.SQUARE,
-        reflectSelectionInParent = true,
-    ) {
-        // Called "Blur", because that is what it does. It was labelled "Smudge" with a smudge glyph
-        // while `ImageProcessor` ran an actual box blur under the stroke — the one name in the rail
-        // that promised a tool the app didn't have. It does now, two items down, and the two are not
-        // substitutes: a blur averages in place, a smudge carries colour and leaves a tail.
         nestedTool(Tool.BLUR, "Blur", GraffuxIcons.Blur)
         nestedTool(Tool.SHARPEN, "Sharpen", GraffuxIcons.Sharpen)
         nestedTool(Tool.SMUDGE, "Smudge", GraffuxIcons.Smudge)
@@ -1597,35 +1533,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         nestedTool(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
         nestedTool(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
         nestedTool(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
-    }
-
-    // Symmetry guide: strokes mirror across one or more axes while it's on. This is the quick
-    // on/off; the picker below reaches every mode, including turning it off from there too.
-    modeItem("tool.symmetry", "Symmetry", GraffuxIcons.Symmetry) { vm.onToggleSymmetry() }
-    // No Layout, Styles or Components hosts in the rail. All three acted on "the active layer,
-    // wherever it is" — three more places you had to select a layer first and then go looking, and
-    // three more groups in a strip that is meant to hold the tools you reach for mid-stroke. They
-    // are rows in each layer's own hidden menu now, on the layer whose menu you opened, gated on
-    // that layer actually having children to arrange, a parent to be constrained within, or a shape
-    // or text to lift a token from. See renderLayerLayoutMenu / renderLayerStyleMenu /
-    // renderLayerComponentMenu.
-
-    // (Vector node editing lives in the "Vector" nested rail above, next to the Pen that produces
-    // the paths it edits.)
-    hostItem(id = "grp.symmetryMode", text = "Symmetry Mode", content = GraffuxIcons.Symmetry)
-    SymmetryMode.entries.forEach { mode ->
-        stateSubItem(
-            id = "symmetryMode.${mode.name}", hostId = "grp.symmetryMode", text = mode.label,
-            // Each mode draws its own axes. Every entry shared one glyph before, so the open
-            // group was five identical buttons distinguishable only by their labels.
-            content = when (mode) {
-                SymmetryMode.NONE -> GraffuxIcons.SelectNone
-                SymmetryMode.VERTICAL -> GraffuxIcons.SymmetryVertical
-                SymmetryMode.HORIZONTAL -> GraffuxIcons.SymmetryHorizontal
-                SymmetryMode.QUADRANT -> GraffuxIcons.SymmetryQuadrant
-                SymmetryMode.RADIAL_6 -> GraffuxIcons.SymmetryRadial
-            },
-        ) { vm.onSetSymmetryMode(mode) }
     }
     // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
     // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
