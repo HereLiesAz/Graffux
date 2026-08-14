@@ -56,6 +56,35 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `pushProperty clears the redo stack even when the push is deduplicated`() {
+        // Regression: a dedup-skipped push used to leave the redo stack untouched, so a stale
+        // redoable entry queued before it could survive an edit that never cleared it — Redo would
+        // then reapply that stale entry on top of newer, unrelated work instead of doing nothing.
+        val h = EditHistory()
+        h.pushProperty(listOf(layer("a")))
+        h.pushProperty(listOf(layer("b")))
+        h.popUndo { it }                          // undo=[a], redo=[b]
+        assertEquals(1, h.redoCount)
+
+        val pushed = h.pushProperty(listOf(layer("a"))) // matches undo-stack top -> dedup-skipped
+        assertEquals(false, pushed)
+        assertEquals(0, h.redoCount)
+    }
+
+    @Test
+    fun `dropTopRedo discards the entry popUndo speculatively queued`() {
+        val h = EditHistory()
+        h.pushDraw("layer-1", stroke())
+        h.popUndo { it }                          // redo now has 1
+        assertEquals(1, h.redoCount)
+
+        val dropped = h.dropTopRedo()
+        assertTrue(dropped is EditCommand.Draw)
+        assertEquals(0, h.redoCount)
+        assertEquals(0, h.undoCount)               // dropped outright, not moved back to undo
+    }
+
+    @Test
     fun `popUndo on empty history returns null and records nothing`() {
         val h = EditHistory()
         assertNull(h.popUndo { it })

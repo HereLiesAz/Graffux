@@ -487,6 +487,10 @@ class EditorViewModel @Inject constructor(
                     slamManager.clearMap()
                     layerStore.clear()
                     history.clear()
+                    // Every other history.clear()/mutation in this file is paired with this call —
+                    // without it, undoCount/redoCount keep whatever they were before the project
+                    // closed, leaving an enabled Undo control wired to a stack that is now empty.
+                    updateHistoryCounts()
                 }
             }
         }
@@ -547,7 +551,16 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
-                if (!layerStore.removeLastStroke(command.layerId)) return
+                if (!layerStore.removeLastStroke(command.layerId)) {
+                    // popUndo already moved this entry's counterpart onto the redo stack on the
+                    // assumption the undo would succeed. It didn't — the layer has no cached stroke
+                    // list to remove from — so drop that speculative entry rather than leave a Draw
+                    // command redoable against a layer LayerStore no longer has anything for, and
+                    // make sure undoCount/redoCount reflect the stacks as they actually are now.
+                    history.dropTopRedo()
+                    updateHistoryCounts()
+                    return
+                }
                 rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
@@ -1906,7 +1919,12 @@ class EditorViewModel @Inject constructor(
     override fun onLayerRemoved(id: String) {
         pushHistory()
         dispatch(EditorIntent.RemoveLayer(id))
-        layerStore.remove(id)
+        // Deliberately NOT layerStore.remove(id): pushHistory() above recorded a PropertyChange
+        // snapshot that includes this layer (bitmap stripped, per currentLayerSnapshot), so undoing
+        // this removal has nothing to rebuild its pixels from except LayerStore's still-cached
+        // base+strokes. Explicitly dropping the cache here used to restore a permanently blank layer
+        // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
+        // ages out of undo/redo history — the same mechanism the flatten path already relies on.
         opEmitter.emit(Op.LayerRemove(id))
         saveProject()
     }
