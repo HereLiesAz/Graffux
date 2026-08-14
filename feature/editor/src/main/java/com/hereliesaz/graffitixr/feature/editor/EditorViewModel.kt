@@ -711,9 +711,11 @@ class EditorViewModel @Inject constructor(
             try {
                 val currentBitmap = drawingEngine.composite(base, strokes)
 
-                if (emitOp) {
-                    // Used by undo/redo: the layer's pixels changed in a way the guest can't replay,
-                    // so push the whole baked bitmap.
+                // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
+                // push the whole baked bitmap — but only if something is actually listening. This
+                // fires on every undo/redo of a stroke, and bitmapToByteArray is a full-resolution
+                // PNG encode; building it for NoOpOpEmitter to drop is real CPU for nothing.
+                if (emitOp && opEmitter.isActive) {
                     opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(currentBitmap)))
                 }
 
@@ -3076,7 +3078,9 @@ class EditorViewModel @Inject constructor(
                     }
                     scheduleDiskSave(layerId, cloned, layer.uri)
                 }
-                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(cloned)))
+                if (opEmitter.isActive) {
+                    opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(cloned)))
+                }
             }
             clearTransientStrokeState()
             return
@@ -3347,7 +3351,7 @@ class EditorViewModel @Inject constructor(
             }
         } else {
             val baked = _uiState.value.layers.find { it.id == layerId }?.bitmap
-            if (baked != null) {
+            if (baked != null && opEmitter.isActive) {
                 opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(baked)))
             }
         }
@@ -3556,7 +3560,9 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, target, layer.uri)
             }
             // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -3619,7 +3625,9 @@ class EditorViewModel @Inject constructor(
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
             }
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -3666,7 +3674,9 @@ class EditorViewModel @Inject constructor(
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
             }
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -4066,8 +4076,10 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         scheduleDiskSave(layerId, bitmap, layer.uri)
-        viewModelScope.launch(dispatchers.default) {
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+        if (opEmitter.isActive) {
+            viewModelScope.launch(dispatchers.default) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+            }
         }
         showHud("Applied")
     }
@@ -4334,7 +4346,9 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
+            }
         }
     }
 

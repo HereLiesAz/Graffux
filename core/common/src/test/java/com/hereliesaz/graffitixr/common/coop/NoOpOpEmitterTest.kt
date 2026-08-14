@@ -11,4 +11,10 @@ class NoOpOpEmitterTest {
         val emitter: OpEmitter = NoOpOpEmitter()
         emitter.emit(Op.LayerAdd(Layer(id = "L1", name = "one")))
     }
+
+    @Test
+    fun `isActive is false, so callers can skip building an op nobody will read`() {
+        val emitter: OpEmitter = NoOpOpEmitter()
+        org.junit.Assert.assertFalse(emitter.isActive)
+    }
 }
