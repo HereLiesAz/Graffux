@@ -551,7 +551,11 @@ fun EditorScreen(
         if (uiState.layers.isEmpty() && !uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "Tap the icon, then File → New or Open\nto start your first layer.",
+                    // There is no "File" menu — the top-right dropdown is a flat Open/New/Import
+                    // list — and it isn't the mechanism anyway: picking a raster tool creates a
+                    // layer on demand (EditorViewModel.setActiveTool). That's the fastest path for
+                    // a genuinely new document; the menu still covers bringing in an existing one.
+                    text = "Pick a tool from the rail to start a layer,\nor use the menu to open or import one.",
                     color = Color.White.copy(alpha = 0.55f),
                     textAlign = TextAlign.Center,
                 )
