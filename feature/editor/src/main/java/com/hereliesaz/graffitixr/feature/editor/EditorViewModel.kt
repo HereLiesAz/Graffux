@@ -3004,16 +3004,31 @@ class EditorViewModel @Inject constructor(
                 // with a soft one — the layer changed the first time it was undone. Everything the
                 // composite needs is already on the command, so there is nothing here that
                 // DrawingEngine does not do, and doing it there is the only way the two agree.
-                val resampled = drawingEngine.applySingleStroke(base, command)
-                withContext(dispatchers.main) {
-                    _uiState.update { s ->
-                        s.copy(
-                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
-                            liveStrokeLayerId = null,
-                            liveStrokeBitmap = null,
-                        )
+                //
+                // Guarded the same way rebuildLayerBitmap/maybeBakeOldStrokes are: a failure here
+                // logs instead of taking the app down. The stroke is already committed to history
+                // above regardless, so the worst case is this one commit's visual result not
+                // landing — the layer is left exactly as it was, which the next edit re-renders
+                // cleanly from.
+                try {
+                    val resampled = drawingEngine.applySingleStroke(base, command)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s ->
+                            s.copy(
+                                layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
+                                liveStrokeLayerId = null,
+                                liveStrokeBitmap = null,
+                            )
+                        }
+                        scheduleDiskSave(layerId, resampled, layer.uri)
                     }
-                    scheduleDiskSave(layerId, resampled, layer.uri)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke", e)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s -> s.copy(liveStrokeLayerId = null, liveStrokeBitmap = null) }
+                    }
                 }
             }
             // Co-op: peers replay the same op from the stroke command. The ordinal comes from the
