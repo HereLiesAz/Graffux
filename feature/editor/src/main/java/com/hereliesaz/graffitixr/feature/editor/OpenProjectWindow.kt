@@ -23,7 +23,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +39,7 @@ import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.data.DiscoveredProjectFile
+import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -94,6 +98,20 @@ fun OpenProjectWindow(
     val items = state.inApp.map { OpenItem.InApp(it, it.id == currentProjectId) } +
         state.files.map { OpenItem.OnDevice(it) }
 
+    // A project is gone for good the moment this fires — deleteRecursively() on disk, no trash,
+    // no undo. One accidental tap next to "open" must not be enough to do that.
+    var pendingDelete by remember { mutableStateOf<OpenItem.InApp?>(null) }
+    pendingDelete?.let { target ->
+        ConfirmDialog(
+            title = "Delete project?",
+            message = "\"${target.name}\" and everything in it will be deleted permanently. " +
+                "This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = { onDelete(target.project.id); pendingDelete = null },
+            onDismiss = { pendingDelete = null },
+        )
+    }
+
     FloatingWindow(title = "Open", onDismiss = onDismiss) {
         if (state.isEmpty) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -146,7 +164,7 @@ fun OpenProjectWindow(
                             item.project.thumbnailUri?.path?.let { BitmapFactory.decodeFile(it) }
                         },
                         onOpen = { onOpenProject(item.project.id); onDismiss() },
-                        onDelete = { onDelete(item.project.id) },
+                        onDelete = { pendingDelete = item },
                     )
                     is OpenItem.OnDevice -> OpenCard(
                         name = item.name,
@@ -259,7 +277,7 @@ private fun OpenCard(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .clickable { onDelete() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
                 )
             }
         }

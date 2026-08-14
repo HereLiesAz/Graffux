@@ -9,6 +9,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.aznavrail.AzButton
+import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
@@ -47,6 +50,13 @@ fun ToolOptionsWindow(
      */
     brushFlow: Float?,
     onSetBrushFlow: (Float) -> Unit,
+    /**
+     * Which axis the symmetry guide mirrors across, or [SymmetryMode.NONE] when the guide is off.
+     * The mode picker below only appears once the guide is actually on — picking a mode while it's
+     * off would be a control with nothing to preview.
+     */
+    symmetryMode: SymmetryMode,
+    onSetSymmetryMode: (SymmetryMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     FloatingWindow(title = "Tool Options", onDismiss = onDismiss) {
@@ -102,6 +112,22 @@ fun ToolOptionsWindow(
                     onValueChange = onSetSelectionFeather,
                     valueRange = 0f..64f,
                 )
+            }
+
+            if (symmetryMode != SymmetryMode.NONE) {
+                Text("Symmetry", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Which axis strokes mirror across while the guide is on.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                SymmetryMode.entries.filter { it != SymmetryMode.NONE }.forEach { mode ->
+                    AzButton(
+                        text = if (mode == symmetryMode) "${mode.label} ✓" else mode.label,
+                        onClick = { onSetSymmetryMode(mode) },
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

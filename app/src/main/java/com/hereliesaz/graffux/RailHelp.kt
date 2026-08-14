@@ -92,8 +92,9 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     // ── Windows and the rest ─────────────────────────────────────────────────────────────────────
     "tool.options" to
         "The dials that belong to whatever tool is in your hand, and only those — stroke " +
-        "stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. " +
-        "A dial that is missing is one the current tool does not have.",
+        "stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow, " +
+        "and which axis the symmetry guide mirrors across while it's on. A dial that is missing is " +
+        "one the current tool does not have.",
     "tool.animation" to
         "Animation Assist. Each top-level layer becomes one frame; the window plays them, steps " +
         "through them, and draws onion skins of the neighbouring frames. Closing the window turns " +
@@ -107,8 +108,9 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     "tool.color" to
         "The current colour — the button *is* the colour. Tap it to change it.",
     "grp.vector" to
-        "The pen, and the node editing that goes with it. Draw a path with the Pen; then Edit " +
-        "Nodes to move its points and their handles, add points, or close the shape.",
+        "The pen and everything else that isn't a flat-strip tool: node editing, Heal, Clone, " +
+        "Blur, Sharpen, Smudge, Liquify, Dodge, Burn and Colorize. Draw a path with the Pen; then " +
+        "Edit Nodes to move its points and their handles, add points, or close the shape.",
     "tool.nodeEdit" to
         "Turns the path's points into draggable handles. Only offered on a layer that holds a " +
         "single path.",

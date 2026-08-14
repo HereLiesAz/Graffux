@@ -912,6 +912,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
                         brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null },
                         onSetBrushFlow = { vm.setBrushFlow(it) },
+                        symmetryMode = uiState.symmetryMode,
+                        onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },
                     )
                 }
@@ -1053,10 +1055,11 @@ private fun BrushSizePad(vm: EditorViewModel) {
 /**
  * The tool groups that live inside a nested rail of their own rather than the top-level strip.
  *
- * Photoshop's palette, grouped the way Photoshop groups it — vector, retouching, and focus/tone —
- * rather than Procreate's flat strip of five. The two arrangements were being run at once: a strip
- * that copied Procreate's shape while carrying Photoshop's whole tool count, so it was thirteen
- * items long and none of the relationships between them were visible.
+ * Selection is its own group; every other non-flat-strip tool — the pen, node editing, and what
+ * used to be separate retouching (Heal, Clone, Smudge) and focus/tone (Blur, Sharpen, Liquify,
+ * Dodge, Burn, Colorize) accordions — now lives in one Vector group. Splitting them into three
+ * mirrored Photoshop's own palette, but it meant three nested rails to open instead of one for
+ * tools a user reaches for in the same breath.
  *
  * Declared here rather than inline in the rail because each host has to light up when one of *its*
  * members is the active tool — otherwise picking a tool and closing the rail leaves nothing on
@@ -1465,22 +1468,24 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     toolItem(Tool.TEXT, "Text", GraffuxIcons.Type)
 
-    // ── The three tool groups ─────────────────────────────────────────────────────────────────────
-    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's,
-    // and it is grouped the way Photoshop groups it: vector, retouching, focus and tone.
+    // ── The Vector group ──────────────────────────────────────────────────────────────────────────
+    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's.
+    // It used to be grouped the way Photoshop groups it — vector, retouching, focus and tone, three
+    // separate nested rails — but that meant three accordions to open for tools reached for in the
+    // same breath, so they're one Vector group now.
     //
-    // Two arrangements were being run at once before this. The strip copied Procreate's *shape* — a
-    // flat row you don't have to open — while carrying Photoshop's whole tool count, so it ran to
-    // thirteen items when the thing it was imitating shows five, and none of the relationships
-    // between them were visible: Dodge and Burn are one idea in two directions, Blur and Sharpen
-    // another, Heal and Clone both sample from elsewhere on the layer. Flat, they read as thirteen
-    // unrelated buttons. Grouped, the strip is short and each group is a sentence.
+    // The flat top-level strip copied Procreate's *shape* — a row you don't have to open — while
+    // carrying Photoshop's whole tool count, so it ran to thirteen items when the thing it was
+    // imitating shows five, and none of the relationships between them were visible: Dodge and Burn
+    // are one idea in two directions, Blur and Sharpen another, Heal and Clone both sample from
+    // elsewhere on the layer. Flat, they read as thirteen unrelated buttons. Grouped, the strip is
+    // short and each group is a sentence.
     //
     // Every tool keeps its id, its classifier and its behaviour — only where you reach it moves, so
     // nothing about a recorded stroke, a co-op peer or a saved project changes.
     //
-    // Vector. Pen draws a real PATH shape rather than pixels, and node editing operates on the shape
-    // it drew — the tool and the way you correct its output, which is why they sit together rather
+    // Pen draws a real PATH shape rather than pixels, and node editing operates on the shape it
+    // drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,

@@ -11,6 +11,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -19,6 +23,7 @@ import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -43,6 +48,17 @@ fun BrushStudioWindow(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmingDelete by remember { mutableStateOf(false) }
+    if (confirmingDelete) {
+        ConfirmDialog(
+            title = "Delete brush?",
+            message = "\"${draft.name}\" will be deleted permanently. This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = { confirmingDelete = false; onDelete(); onDismiss() },
+            onDismiss = { confirmingDelete = false },
+        )
+    }
+
     FloatingWindow(title = "Brush Studio", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -67,7 +83,7 @@ fun BrushStudioWindow(
 
             AzButton(text = "Save Brush", onClick = onSave, shape = AzButtonShape.RECTANGLE)
             if (isSaved) {
-                AzButton(text = "Delete Brush", onClick = { onDelete(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                AzButton(text = "Delete Brush", onClick = { confirmingDelete = true }, shape = AzButtonShape.RECTANGLE)
             }
         }
     }

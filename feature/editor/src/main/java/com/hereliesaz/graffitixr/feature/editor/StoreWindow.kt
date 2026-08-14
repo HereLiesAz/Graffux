@@ -16,7 +16,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,6 +29,7 @@ import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
+import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
@@ -42,6 +46,18 @@ fun StoreWindow(
     onUninstall: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var pendingUninstall by remember { mutableStateOf<InstalledExtension?>(null) }
+    pendingUninstall?.let { target ->
+        ConfirmDialog(
+            title = "Uninstall extension?",
+            message = "\"${target.manifest.name}\" and everything it added — its brushes, LUTs, " +
+                "filters — will be removed. This can't be undone.",
+            confirmLabel = "Uninstall",
+            onConfirm = { onUninstall(target.id); pendingUninstall = null },
+            onDismiss = { pendingUninstall = null },
+        )
+    }
+
     FloatingWindow(title = "Extensions", onDismiss = onDismiss) {
         AzButton(
             text = "Browse the Azphalt Store",
@@ -64,7 +80,7 @@ fun StoreWindow(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(installed, key = { it.id }) { extension ->
-                    InstalledExtensionCard(extension = extension, onUninstall = { onUninstall(extension.id) })
+                    InstalledExtensionCard(extension = extension, onUninstall = { pendingUninstall = extension })
                 }
             }
         }
