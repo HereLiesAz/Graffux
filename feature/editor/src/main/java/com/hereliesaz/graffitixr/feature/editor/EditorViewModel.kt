@@ -1507,10 +1507,14 @@ class EditorViewModel @Inject constructor(
                 val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bitmap))
                 val localUri = "file://$path".toUri()
 
-                val project = projectRepository.currentProject.value
-                if (project != null) {
-                    projectRepository.updateProject(project.copy(backgroundImageUri = localUri))
-                }
+                // The transform overload, not updateProject(project.copy(...)): loadBitmapAsync and
+                // saveArtifact above are real suspending IO, and a project snapshot taken before them
+                // is stale by the time this runs. The plain overload writes that stale snapshot
+                // unconditionally, silently reverting anything else that changed in the gap — e.g. the
+                // debounced autosave that lands after every stroke. The transform overload applies
+                // against whatever the live project actually is at write time and is mutex-protected
+                // against a concurrent delete, the same guarantee the editor's own layer save relies on.
+                projectRepository.updateProject { current -> current.copy(backgroundImageUri = localUri) }
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetBackgroundBitmap(bitmap)); dispatch(EditorIntent.SetLoading(false))
