@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -598,7 +599,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
             // landing on top of their fields.
             onscreen(alignment = Alignment.BottomCenter) {
-                if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
+                if (uiState.hideUiForCapture) {
+                    // The only way into this mode is a four-finger tap, and the only place that
+                    // gesture is documented — the rail's Help item — is itself hidden by this same
+                    // flag. A user who triggers it by accident (resting a hand during a multi-touch
+                    // smudge, say) would otherwise have no on-screen way back short of re-guessing
+                    // the gesture that got them here. One small, low-opacity tap target is enough to
+                    // make this a mode rather than a dead end, without undoing the clean look the
+                    // gesture exists for.
+                    FloatingActionButton(
+                        onClick = { vm.toggleHideUi() },
+                        containerColor = surfaceVariantColor.copy(alpha = 0.35f),
+                        modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp).size(40.dp),
+                    ) {
+                        Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
+                    }
+                } else if (uiState.activePanel == EditorPanel.NONE) Row(
                     modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
