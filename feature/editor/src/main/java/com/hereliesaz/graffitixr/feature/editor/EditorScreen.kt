@@ -519,7 +519,7 @@ fun EditorScreen(
                 onDismiss = { vm.onDismissQuickMenu() },
                 modifier = Modifier.fillMaxSize(),
                 actions = listOf(
-                    QuickAction("Undo", enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
+                    QuickAction(strings.adj.undo, enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
                     QuickAction("Layer") { vm.onAddBlankLayer() },
                     // Enabled on the same terms as everywhere else. It used to ask only whether a
                     // layer was active, so on a group or a vector layer this wedge took the tap and
@@ -532,7 +532,7 @@ fun EditorScreen(
                     },
                     QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
                     QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
-                    QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
+                    QuickAction(strings.adj.redo, enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
                 ),
             )
         }

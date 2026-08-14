@@ -624,12 +624,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     }
                     if (uiState.undoCount > 0) {
                         FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = "Undo")
+                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
                         }
                     }
                     if (uiState.redoCount > 0) {
                         FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = "Redo")
+                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
                         }
                     }
                 }
