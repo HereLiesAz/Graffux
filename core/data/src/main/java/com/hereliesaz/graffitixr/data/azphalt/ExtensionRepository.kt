@@ -256,7 +256,8 @@ class ExtensionRepository @Inject constructor(
     fun loadLut(id: String): CubeLut? {
         val ext = _installed.value.find { it.id == id } ?: return null
         val lutAsset = ext.manifest.assets.firstOrNull(::isUsableLut) ?: return null
-        val file = File(ext.filePath(lutAsset.path))
+        val path = ext.filePath(lutAsset.path) ?: return null
+        val file = File(path)
         if (!file.exists()) return null
         val lut = runCatching { parseCubeLut(file.readText()) }.getOrNull() ?: return null
         val params = lutAsset.params
@@ -325,7 +326,8 @@ class ExtensionRepository @Inject constructor(
     fun assetFilePath(id: String, relative: String): String? {
         if (relative.isBlank()) return null
         val ext = _installed.value.find { it.id == id } ?: return null
-        val file = File(ext.filePath(relative))
+        val path = ext.filePath(relative) ?: return null
+        val file = File(path)
         return if (file.exists()) file.absolutePath else null
     }
 
@@ -337,7 +339,8 @@ class ExtensionRepository @Inject constructor(
         if (ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE && ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED) return
         
         val entryPath = ext.manifest.entry ?: return
-        val file = File(ext.filePath(entryPath))
+        val resolvedPath = ext.filePath(entryPath) ?: return
+        val file = File(resolvedPath)
         if (!file.exists()) return
         
         val caps = ext.manifest.capabilities?.map { it.wire }?.toSet() ?: emptySet()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -86,7 +87,6 @@ import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
-import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
@@ -97,7 +97,6 @@ import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
-import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
@@ -181,7 +180,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
-    val figmaState by vm.figmaState.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
@@ -220,7 +218,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showStoreChooser by remember { mutableStateOf(false) }
-    var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -228,11 +225,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
-    // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
-    // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
-    // undo-tracked, and shouldn't survive into a save file the way a layer does.
-    var showReferenceWindow by remember { mutableStateOf(false) }
-    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     // The rail's active/selected colour, and it has to differ from the colour items already are.
@@ -306,10 +298,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             if (isImage) vm.onAddLayer(it) else vm.onImportDocument(it)
         }
     }
-
-    val referencePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { referenceImageUri = it } }
 
     // The azphalt acquisition handoff (spec/store-app.md): a separate store app does the browsing and
     // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
@@ -558,6 +546,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
+                    // Opens AddContentDialog (shapes + text as a new layer). Had a menu entry here
+                    // until a dropdown cleanup consolidated three adjacent "Add.../Import.../Import
+                    // File..." entries into the single Import item above and dropped this one with
+                    // them — collateral damage, not an intentional cut: onAddClicked kept being
+                    // threaded all the way down into ConfigureRailItems with no caller left to
+                    // invoke it, so a rectangle/ellipse/line/polygon layer became uncreatable from
+                    // the UI at all. AddContentDialog, ShapeKind and onAddShapeLayer/
+                    // onAddPolygonLayer never stopped working — nothing pointed at them any more.
+                    menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     menuItem(text = strings.nav.share, onClick = {
@@ -598,7 +595,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
             // landing on top of their fields.
             onscreen(alignment = Alignment.BottomCenter) {
-                if (uiState.activePanel == EditorPanel.NONE && !uiState.hideUiForCapture) Row(
+                if (uiState.hideUiForCapture) {
+                    // The only way into this mode is a four-finger tap, and the only place that
+                    // gesture is documented — the rail's Help item — is itself hidden by this same
+                    // flag. A user who triggers it by accident (resting a hand during a multi-touch
+                    // smudge, say) would otherwise have no on-screen way back short of re-guessing
+                    // the gesture that got them here. One small, low-opacity tap target is enough to
+                    // make this a mode rather than a dead end, without undoing the clean look the
+                    // gesture exists for.
+                    FloatingActionButton(
+                        onClick = { vm.toggleHideUi() },
+                        containerColor = surfaceVariantColor.copy(alpha = 0.35f),
+                        modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp).size(40.dp),
+                    ) {
+                        Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
+                    }
+                } else if (uiState.activePanel == EditorPanel.NONE) Row(
                     modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -612,12 +624,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     }
                     if (uiState.undoCount > 0) {
                         FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = "Undo")
+                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
                         }
                     }
                     if (uiState.redoCount > 0) {
                         FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = "Redo")
+                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
                         }
                     }
                 }
@@ -912,20 +924,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
                         brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null },
                         onSetBrushFlow = { vm.setBrushFlow(it) },
+                        symmetryMode = uiState.symmetryMode,
+                        onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },
-                    )
-                }
-
-                if (showFigmaDialog) {
-                    FigmaWindow(
-                        state = figmaState,
-                        onTokenSubmit = { vm.connectFigma(it) },
-                        onDisconnect = { vm.disconnectFigma() },
-                        onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
-                        onLoadFile = { vm.loadFigmaFile() },
-                        onToggleFrame = { vm.toggleFigmaFrame(it) },
-                        onImport = { vm.importFigmaFrames() },
-                        onDismiss = { showFigmaDialog = false },
                     )
                 }
 
@@ -937,14 +938,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onDocumentSize = { showSettings = false; showDocDialog = true },
                         onBackground = { showSettings = false; showBgDialog = true },
                         modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                if (showReferenceWindow) {
-                    ReferenceWindow(
-                        imageUri = referenceImageUri,
-                        onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        onDismiss = { showReferenceWindow = false },
                     )
                 }
 
@@ -1053,10 +1046,11 @@ private fun BrushSizePad(vm: EditorViewModel) {
 /**
  * The tool groups that live inside a nested rail of their own rather than the top-level strip.
  *
- * Photoshop's palette, grouped the way Photoshop groups it — vector, retouching, and focus/tone —
- * rather than Procreate's flat strip of five. The two arrangements were being run at once: a strip
- * that copied Procreate's shape while carrying Photoshop's whole tool count, so it was thirteen
- * items long and none of the relationships between them were visible.
+ * Selection is its own group; every other non-flat-strip tool — the pen, node editing, and what
+ * used to be separate retouching (Heal, Clone, Smudge) and focus/tone (Blur, Sharpen, Liquify,
+ * Dodge, Burn, Colorize) accordions — now lives in one Vector group. Splitting them into three
+ * mirrored Photoshop's own palette, but it meant three nested rails to open instead of one for
+ * tools a user reaches for in the same breath.
  *
  * Declared here rather than inline in the rail because each host has to light up when one of *its*
  * members is the active tool — otherwise picking a tool and closing the rail leaves nothing on
@@ -1465,22 +1459,24 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     toolItem(Tool.TEXT, "Text", GraffuxIcons.Type)
 
-    // ── The three tool groups ─────────────────────────────────────────────────────────────────────
-    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's,
-    // and it is grouped the way Photoshop groups it: vector, retouching, focus and tone.
+    // ── The Vector group ──────────────────────────────────────────────────────────────────────────
+    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's.
+    // It used to be grouped the way Photoshop groups it — vector, retouching, focus and tone, three
+    // separate nested rails — but that meant three accordions to open for tools reached for in the
+    // same breath, so they're one Vector group now.
     //
-    // Two arrangements were being run at once before this. The strip copied Procreate's *shape* — a
-    // flat row you don't have to open — while carrying Photoshop's whole tool count, so it ran to
-    // thirteen items when the thing it was imitating shows five, and none of the relationships
-    // between them were visible: Dodge and Burn are one idea in two directions, Blur and Sharpen
-    // another, Heal and Clone both sample from elsewhere on the layer. Flat, they read as thirteen
-    // unrelated buttons. Grouped, the strip is short and each group is a sentence.
+    // The flat top-level strip copied Procreate's *shape* — a row you don't have to open — while
+    // carrying Photoshop's whole tool count, so it ran to thirteen items when the thing it was
+    // imitating shows five, and none of the relationships between them were visible: Dodge and Burn
+    // are one idea in two directions, Blur and Sharpen another, Heal and Clone both sample from
+    // elsewhere on the layer. Flat, they read as thirteen unrelated buttons. Grouped, the strip is
+    // short and each group is a sentence.
     //
     // Every tool keeps its id, its classifier and its behaviour — only where you reach it moves, so
     // nothing about a recorded stroke, a co-op peer or a saved project changes.
     //
-    // Vector. Pen draws a real PATH shape rather than pixels, and node editing operates on the shape
-    // it drew — the tool and the way you correct its output, which is why they sit together rather
+    // Pen draws a real PATH shape rather than pixels, and node editing operates on the shape it
+    // drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,

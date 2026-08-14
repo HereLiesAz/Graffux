@@ -519,7 +519,7 @@ fun EditorScreen(
                 onDismiss = { vm.onDismissQuickMenu() },
                 modifier = Modifier.fillMaxSize(),
                 actions = listOf(
-                    QuickAction("Undo", enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
+                    QuickAction(strings.adj.undo, enabled = uiState.undoCount > 0) { vm.onUndoClicked() },
                     QuickAction("Layer") { vm.onAddBlankLayer() },
                     // Enabled on the same terms as everywhere else. It used to ask only whether a
                     // layer was active, so on a group or a vector layer this wedge took the tap and
@@ -532,7 +532,7 @@ fun EditorScreen(
                     },
                     QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
                     QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
-                    QuickAction("Redo", enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
+                    QuickAction(strings.adj.redo, enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
                 ),
             )
         }
@@ -551,7 +551,11 @@ fun EditorScreen(
         if (uiState.layers.isEmpty() && !uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "Tap the icon, then File → New or Open\nto start your first layer.",
+                    // There is no "File" menu — the top-right dropdown is a flat Open/New/Import
+                    // list — and it isn't the mechanism anyway: picking a raster tool creates a
+                    // layer on demand (EditorViewModel.setActiveTool). That's the fastest path for
+                    // a genuinely new document; the menu still covers bringing in an existing one.
+                    text = "Pick a tool from the rail to start a layer,\nor use the menu to open or import one.",
                     color = Color.White.copy(alpha = 0.55f),
                     textAlign = TextAlign.Center,
                 )

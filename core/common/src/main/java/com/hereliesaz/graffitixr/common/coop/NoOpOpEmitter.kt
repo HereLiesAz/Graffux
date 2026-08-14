@@ -7,4 +7,5 @@ import javax.inject.Singleton
 @Singleton
 class NoOpOpEmitter @Inject constructor() : OpEmitter {
     override fun emit(op: Op) { /* drop */ }
+    override val isActive: Boolean = false
 }

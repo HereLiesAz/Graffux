@@ -38,9 +38,18 @@ class JsSandbox(
             .withLogger(logger)
             .withOptions(wasiOpts)
             .build()
-        
+
         val importsList = mutableListOf<HostFunction>()
-        importsList.addAll(wasi.toHostFunctions().toList())
+        // AzphaltSandboxHost's contract is deny-by-default: a capability an extension didn't
+        // request isn't mapped into the environment at all. WasmSandbox holds to that because it
+        // binds nothing but its own capability-gated functions — but wasi.toHostFunctions() bundles
+        // real wall-clock time and real system randomness in with the filesystem/proc-exit plumbing
+        // QuickJS needs just to run, and every JS extension was getting the clock and RNG whether or
+        // not its manifest ever declared Capability.TIME. Hold those three out unless it did.
+        val timeGranted = "time" in grantedCapabilities
+        importsList.addAll(
+            wasi.toHostFunctions().filter { timeGranted || it.name() !in TIME_SENSITIVE_WASI_FUNCTIONS }
+        )
         importsList.addAll(hostFunctions)
 
         val imports = ImportValues.builder()
@@ -143,6 +152,11 @@ class JsSandbox(
         )
     }
     
+    companion object {
+        /** WASI preview1 function names that read the wall clock or the system RNG. */
+        private val TIME_SENSITIVE_WASI_FUNCTIONS = setOf("clock_time_get", "clock_res_get", "random_get")
+    }
+
     private fun bindStubs() {
         hostFunctions.add(
             HostFunction(

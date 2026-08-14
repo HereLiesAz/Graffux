@@ -136,13 +136,19 @@ class ProjectRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateTargetFingerprint(projectId: String, path: String) {
-        val project = getProject(projectId) ?: return
-        updateProject(project.copy(targetFingerprintPath = path))
+        // The transform overload, not getProject(id).copy(...): getProject used to read straight
+        // from disk, independent of _currentProject, so it could miss an in-memory-only change (e.g.
+        // a layer edit whose disk write is still in flight) that exists at the moment this runs —
+        // and the plain updateProject(project) overload writes its stale copy unconditionally,
+        // discarding that change everywhere it applies. Same hazard, same fix, as
+        // EditorViewModel.setBackgroundImage. Guarded on id rather than assuming [projectId] is
+        // always the live project: a mismatch is a genuine no-op rather than silently mutating
+        // whatever else happens to be loaded.
+        updateProject { current -> if (current.id == projectId) current.copy(targetFingerprintPath = path) else current }
     }
 
     override suspend fun updateMapPath(projectId: String, path: String) {
-        val project = getProject(projectId) ?: return
-        updateProject(project.copy(mapPath = path))
+        updateProject { current -> if (current.id == projectId) current.copy(mapPath = path) else current }
     }
 
     override suspend fun importProject(uri: android.net.Uri): Result<GraffitiProject> {

@@ -249,6 +249,45 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `undoing a removed layer restores its bitmap, not a permanently blank layer`() = runTest {
+        // Regression: onLayerRemoved used to call layerStore.remove(id) immediately, discarding the
+        // exact base+strokes cache the undo path needs to rebuild pixels from. The layer came back
+        // in the panel, at the right z-order, rendering nothing, for the rest of the session.
+        val uri = Uri.parse("content://test/image.png")
+        viewModel.onAddLayer(uri)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val layerId = viewModel.uiState.value.layers.first().id
+        viewModel.onLayerRemoved(layerId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.isEmpty())
+
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val restored = viewModel.uiState.value.layers.find { it.id == layerId }
+        assertNotNull("removed layer should reappear on undo", restored)
+        assertNotNull("restored layer must have its pixels back, not a blank bitmap", restored!!.bitmap)
+    }
+
+    @Test
+    fun `closing the open project resets the undo and redo counts`() = runTest {
+        // Regression: history.clear() on project close wasn't paired with updateHistoryCounts(),
+        // leaving undoCount/redoCount at whatever they were a moment ago — an enabled Undo control
+        // wired to stacks that are now empty, which flashes "Undo" and changes nothing forever.
+        val uri = Uri.parse("content://test/image.png")
+        viewModel.onAddLayer(uri)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.undoCount > 0)
+
+        currentProjectFlow.value = null
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0, viewModel.uiState.value.undoCount)
+        assertEquals(0, viewModel.uiState.value.redoCount)
+    }
+
+    @Test
     fun `saveProject calls updateProject when project exists`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)

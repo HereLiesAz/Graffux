@@ -487,6 +487,10 @@ class EditorViewModel @Inject constructor(
                     slamManager.clearMap()
                     layerStore.clear()
                     history.clear()
+                    // Every other history.clear()/mutation in this file is paired with this call —
+                    // without it, undoCount/redoCount keep whatever they were before the project
+                    // closed, leaving an enabled Undo control wired to a stack that is now empty.
+                    updateHistoryCounts()
                 }
             }
         }
@@ -547,7 +551,16 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
-                if (!layerStore.removeLastStroke(command.layerId)) return
+                if (!layerStore.removeLastStroke(command.layerId)) {
+                    // popUndo already moved this entry's counterpart onto the redo stack on the
+                    // assumption the undo would succeed. It didn't — the layer has no cached stroke
+                    // list to remove from — so drop that speculative entry rather than leave a Draw
+                    // command redoable against a layer LayerStore no longer has anything for, and
+                    // make sure undoCount/redoCount reflect the stacks as they actually are now.
+                    history.dropTopRedo()
+                    updateHistoryCounts()
+                    return
+                }
                 rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
@@ -698,9 +711,11 @@ class EditorViewModel @Inject constructor(
             try {
                 val currentBitmap = drawingEngine.composite(base, strokes)
 
-                if (emitOp) {
-                    // Used by undo/redo: the layer's pixels changed in a way the guest can't replay,
-                    // so push the whole baked bitmap.
+                // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
+                // push the whole baked bitmap — but only if something is actually listening. This
+                // fires on every undo/redo of a stroke, and bitmapToByteArray is a full-resolution
+                // PNG encode; building it for NoOpOpEmitter to drop is real CPU for nothing.
+                if (emitOp && opEmitter.isActive) {
                     opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(currentBitmap)))
                 }
 
@@ -1492,10 +1507,14 @@ class EditorViewModel @Inject constructor(
                 val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bitmap))
                 val localUri = "file://$path".toUri()
 
-                val project = projectRepository.currentProject.value
-                if (project != null) {
-                    projectRepository.updateProject(project.copy(backgroundImageUri = localUri))
-                }
+                // The transform overload, not updateProject(project.copy(...)): loadBitmapAsync and
+                // saveArtifact above are real suspending IO, and a project snapshot taken before them
+                // is stale by the time this runs. The plain overload writes that stale snapshot
+                // unconditionally, silently reverting anything else that changed in the gap — e.g. the
+                // debounced autosave that lands after every stroke. The transform overload applies
+                // against whatever the live project actually is at write time and is mutex-protected
+                // against a concurrent delete, the same guarantee the editor's own layer save relies on.
+                projectRepository.updateProject { current -> current.copy(backgroundImageUri = localUri) }
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetBackgroundBitmap(bitmap)); dispatch(EditorIntent.SetLoading(false))
@@ -1906,7 +1925,12 @@ class EditorViewModel @Inject constructor(
     override fun onLayerRemoved(id: String) {
         pushHistory()
         dispatch(EditorIntent.RemoveLayer(id))
-        layerStore.remove(id)
+        // Deliberately NOT layerStore.remove(id): pushHistory() above recorded a PropertyChange
+        // snapshot that includes this layer (bitmap stripped, per currentLayerSnapshot), so undoing
+        // this removal has nothing to rebuild its pixels from except LayerStore's still-cached
+        // base+strokes. Explicitly dropping the cache here used to restore a permanently blank layer
+        // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
+        // ages out of undo/redo history — the same mechanism the flatten path already relies on.
         opEmitter.emit(Op.LayerRemove(id))
         saveProject()
     }
@@ -2984,16 +3008,31 @@ class EditorViewModel @Inject constructor(
                 // with a soft one — the layer changed the first time it was undone. Everything the
                 // composite needs is already on the command, so there is nothing here that
                 // DrawingEngine does not do, and doing it there is the only way the two agree.
-                val resampled = drawingEngine.applySingleStroke(base, command)
-                withContext(dispatchers.main) {
-                    _uiState.update { s ->
-                        s.copy(
-                            layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
-                            liveStrokeLayerId = null,
-                            liveStrokeBitmap = null,
-                        )
+                //
+                // Guarded the same way rebuildLayerBitmap/maybeBakeOldStrokes are: a failure here
+                // logs instead of taking the app down. The stroke is already committed to history
+                // above regardless, so the worst case is this one commit's visual result not
+                // landing — the layer is left exactly as it was, which the next edit re-renders
+                // cleanly from.
+                try {
+                    val resampled = drawingEngine.applySingleStroke(base, command)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s ->
+                            s.copy(
+                                layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
+                                liveStrokeLayerId = null,
+                                liveStrokeBitmap = null,
+                            )
+                        }
+                        scheduleDiskSave(layerId, resampled, layer.uri)
                     }
-                    scheduleDiskSave(layerId, resampled, layer.uri)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke", e)
+                    withContext(dispatchers.main) {
+                        _uiState.update { s -> s.copy(liveStrokeLayerId = null, liveStrokeBitmap = null) }
+                    }
                 }
             }
             // Co-op: peers replay the same op from the stroke command. The ordinal comes from the
@@ -3058,7 +3097,9 @@ class EditorViewModel @Inject constructor(
                     }
                     scheduleDiskSave(layerId, cloned, layer.uri)
                 }
-                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(cloned)))
+                if (opEmitter.isActive) {
+                    opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(cloned)))
+                }
             }
             clearTransientStrokeState()
             return
@@ -3329,7 +3370,7 @@ class EditorViewModel @Inject constructor(
             }
         } else {
             val baked = _uiState.value.layers.find { it.id == layerId }?.bitmap
-            if (baked != null) {
+            if (baked != null && opEmitter.isActive) {
                 opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(baked)))
             }
         }
@@ -3538,7 +3579,9 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, target, layer.uri)
             }
             // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -3601,7 +3644,9 @@ class EditorViewModel @Inject constructor(
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
             }
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -3648,7 +3693,9 @@ class EditorViewModel @Inject constructor(
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
             }
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
         }
     }
 
@@ -4048,8 +4095,10 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         scheduleDiskSave(layerId, bitmap, layer.uri)
-        viewModelScope.launch(dispatchers.default) {
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+        if (opEmitter.isActive) {
+            viewModelScope.launch(dispatchers.default) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bitmap)))
+            }
         }
         showHud("Applied")
     }
@@ -4316,7 +4365,9 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.
-            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(moved)))
+            }
         }
     }
 

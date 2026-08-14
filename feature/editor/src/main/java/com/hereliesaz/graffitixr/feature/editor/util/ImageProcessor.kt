@@ -264,24 +264,33 @@ object ImageProcessor {
                 // and stamp it back only where the stroke draws (the stroke is used as an alpha
                 // mask). The old code set no Paint color, so Paint's default (black) was painted
                 // as a translucent line — smearing black instead of blurring.
+                //
+                // Both allocations here are full-canvas ARGB_8888 buffers — exactly what
+                // SafeBitmap exists for — so a failure degrades to "this stroke did nothing"
+                // instead of an uncaught OutOfMemoryError taking the whole app down.
                 val factor = (2 + (intensity.coerceIn(0f, 1f) * 12f)).toInt().coerceIn(2, 16)
                 val blurred = cheapBlur(resultBitmap, factor)
-                val maskBmp = Bitmap.createBitmap(resultBitmap.width, resultBitmap.height, Bitmap.Config.ARGB_8888)
-                val maskCanvas = Canvas(maskBmp)
-                val maskPaint = Paint().apply {
-                    strokeWidth = brushSize
-                    style = Paint.Style.STROKE
-                    strokeCap = Paint.Cap.ROUND
-                    strokeJoin = Paint.Join.ROUND
-                    isAntiAlias = true
-                    if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                val maskBmp = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
+                if (blurred != null && maskBmp != null) {
+                    val maskCanvas = Canvas(maskBmp)
+                    val maskPaint = Paint().apply {
+                        strokeWidth = brushSize
+                        style = Paint.Style.STROKE
+                        strokeCap = Paint.Cap.ROUND
+                        strokeJoin = Paint.Join.ROUND
+                        isAntiAlias = true
+                        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                    }
+                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetryMode)
+                    // Keep the blurred pixels only where the stroke drew, then composite onto the layer.
+                    maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
+                    canvas.drawBitmap(maskBmp, 0f, 0f, null)
+                    maskBmp.recycle()
+                    blurred.recycle()
+                } else {
+                    blurred?.recycle()
+                    maskBmp?.recycle()
                 }
-                drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetryMode)
-                // Keep the blurred pixels only where the stroke drew, then composite onto the layer.
-                maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
-                canvas.drawBitmap(maskBmp, 0f, 0f, null)
-                maskBmp.recycle()
-                blurred.recycle()
             }
 
             Tool.SHARPEN -> {
@@ -302,7 +311,16 @@ object ImageProcessor {
 
                 // The stroke, rendered as a coverage mask. Same paint as every other tool here,
                 // so the brush edge, the feathering and the symmetry twin all match.
-                val maskBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                //
+                // Every allocation below is a full-canvas ARGB_8888 buffer; routed through
+                // SafeBitmap so a failure skips this stroke instead of throwing an uncaught
+                // OutOfMemoryError.
+                val maskBmp = SafeBitmap.create(w, h)
+                val soft = if (maskBmp != null) cheapBlur(resultBitmap, 2) else null
+                if (maskBmp == null || soft == null) {
+                    maskBmp?.recycle()
+                    soft?.recycle()
+                } else {
                 val maskPaint = Paint().apply {
                     strokeWidth = brushSize
                     style = Paint.Style.STROKE
@@ -313,7 +331,6 @@ object ImageProcessor {
                 }
                 drawStroke(Canvas(maskBmp), stroke, maskPaint, wrapAroundMode, symmetryMode)
 
-                val soft = cheapBlur(resultBitmap, 2)
                 val n = w * h
                 val out = IntArray(n)
                 val blur = IntArray(n)
@@ -360,12 +377,15 @@ object ImageProcessor {
                 // directly would sharpen right through a lasso. PorterDuff.SRC replaces rather
                 // than blends, which is what makes this a plain assignment of the array above —
                 // and outside the stroke that array is byte-identical to what is already there.
-                val composited = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                composited.setPixels(out, 0, w, 0, 0, w, h)
-                canvas.drawBitmap(composited, 0f, 0f, Paint().apply {
-                        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
-                })
-                composited.recycle()
+                val composited = SafeBitmap.create(w, h)
+                if (composited != null) {
+                    composited.setPixels(out, 0, w, 0, 0, w, h)
+                    canvas.drawBitmap(composited, 0f, 0f, Paint().apply {
+                            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+                    })
+                    composited.recycle()
+                }
+                }
             }
 
             Tool.SMUDGE -> {
@@ -405,12 +425,14 @@ object ImageProcessor {
                 // Back through the canvas with SRC, for the same reason as SHARPEN above: the
                 // selection clip lives on the canvas, and writing the array straight onto the
                 // bitmap would smudge right through a lasso.
-                val composited = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                composited.setPixels(px, 0, w, 0, 0, w, h)
-                canvas.drawBitmap(composited, 0f, 0f, Paint().apply {
-                        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
-                })
-                composited.recycle()
+                val composited = SafeBitmap.create(w, h)
+                if (composited != null) {
+                    composited.setPixels(px, 0, w, 0, 0, w, h)
+                    canvas.drawBitmap(composited, 0f, 0f, Paint().apply {
+                            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+                    })
+                    composited.recycle()
+                }
             }
 
             Tool.CLONE -> {
@@ -881,15 +903,29 @@ object ImageProcessor {
 
         /**
          * A cheap separable-ish blur via downscale→upscale with bilinear filtering, scaled by
-         * [factor] (larger = blurrier). Used by the BLUR tool to soften the region under a
-         * stroke without RenderScript (removed in API 31) or a native dependency.
+         * [factor] (larger = blurrier). Used by BLUR and SHARPEN to soften (or, for SHARPEN,
+         * difference against) the region under a stroke, without RenderScript (removed in API
+         * 31) or a native dependency.
+         *
+         * Null on allocation failure rather than letting Bitmap.createScaledBitmap's
+         * OutOfMemoryError propagate — both intermediate bitmaps are full-canvas ARGB_8888
+         * buffers, the same allocation SafeBitmap exists to guard everywhere else.
          */
-        private fun cheapBlur(src: Bitmap, factor: Int): Bitmap {
+        private fun cheapBlur(src: Bitmap, factor: Int): Bitmap? {
             val w = (src.width / factor).coerceAtLeast(1)
             val h = (src.height / factor).coerceAtLeast(1)
-            val small = Bitmap.createScaledBitmap(src, w, h, true)
-            val up = Bitmap.createScaledBitmap(small, src.width, src.height, true)
-            if (small !== up) small.recycle()
-            return up
+            val small = try {
+                Bitmap.createScaledBitmap(src, w, h, true)
+            } catch (e: OutOfMemoryError) {
+                return null
+            }
+            return try {
+                val up = Bitmap.createScaledBitmap(small, src.width, src.height, true)
+                if (small !== up) small.recycle()
+                up
+            } catch (e: OutOfMemoryError) {
+                small.recycle()
+                null
+            }
         }
     }

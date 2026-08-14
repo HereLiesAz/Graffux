@@ -22,14 +22,18 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
 
     /**
      * Records a layer-property snapshot. Deduplicated: a snapshot identical to the most recent
-     * one is ignored (returns false). Pushing clears the redo stack.
+     * one is ignored, and no new entry is added (returns false) — but the redo stack is still
+     * cleared, because the caller (pushHistory) is about to apply a new edit either way. Without
+     * this, a redo queued between two calls that happen to dedup survives past an edit that never
+     * cleared it — undo, edit something whose "before" snapshot happens to match, then Redo re-
+     * applies the stale entry on top of the newer edit instead of doing nothing.
      */
     fun pushProperty(layersWithoutBitmaps: List<Layer>): Boolean {
+        redoStack.clear()
         val last = undoStack.lastOrNull()
         if (last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps) return false
         undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps))
         trim()
-        redoStack.clear()
         return true
     }
 
@@ -56,6 +60,15 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
         undoStack.addLast(counterEntry(command))
         return command
     }
+
+    /**
+     * Discards the counter-entry [popUndo] just speculatively pushed onto the redo stack, for a
+     * caller that finds — only after popping — that the command it undid can't actually be applied
+     * (e.g. the layer it targets has no cached pixels to restore). Leaves the undo stack untouched:
+     * the command is dropped outright rather than kept redoable, since there is nothing left to
+     * redo it onto.
+     */
+    fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()
 
     fun clear() {
         undoStack.clear()

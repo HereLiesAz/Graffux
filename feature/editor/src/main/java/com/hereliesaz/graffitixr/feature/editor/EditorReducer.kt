@@ -355,7 +355,23 @@ internal object EditorReducer {
                 intent.layers.firstOrNull()?.id
             },
         )
-        EditorIntent.ClearProject -> state.copy(projectId = null, layers = emptyList(), backgroundBitmap = null, activeTool = Tool.NONE)
+        // Empties layers the same way every other branch above reconciles activeLayerId against a
+        // changed layer list — except here the list is always empty, so there's nothing to look up
+        // and the id must simply go. Every other id/selection that only makes sense against the
+        // layer set being cleared goes with it, or the next project opened inherits the previous
+        // one's dangling marquee, path-edit target, or warp handles.
+        EditorIntent.ClearProject -> state.copy(
+            projectId = null,
+            layers = emptyList(),
+            backgroundBitmap = null,
+            activeTool = Tool.NONE,
+            activeLayerId = null,
+            selection = null,
+            pathEditLayerId = null,
+            selectedNodeIndex = null,
+            warpHandles = emptyList(),
+            savedSelections = emptyList(),
+        )
     }
 
     /** Applies [transform] to the active layer (no-op when there is no active layer). */

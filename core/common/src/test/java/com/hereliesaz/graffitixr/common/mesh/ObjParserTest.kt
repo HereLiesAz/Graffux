@@ -237,4 +237,26 @@ class ObjParserTest {
         assertEquals(1f, empty.radius(), 0f)
         assertNotNull(empty.center())
     }
+
+    @Test
+    fun `corners that used to collide under the old packed key stay distinct`() {
+        // Regression: corner de-dup used to key on (vi+1)*0xFFFFFF + (ti+1)*0xFFFF + (ni+1), which
+        // is not injective — gcd(0xFFFFFF, 0xFFFF) = 255, so (vi=257, ti=0) and (vi=0, ti=65793)
+        // packed to the identical Long. A large enough mesh could silently snap a corner to an
+        // unrelated vertex position elsewhere in the mesh: no exception, no log, just corrupted
+        // geometry. 258 positions and 65794 UVs are the minimum needed for indices 257 and 65793
+        // to be valid at all — this is the actual collision, not a scaled-down stand-in for it.
+        val obj = buildString {
+            repeat(258) { append("v 0 0 0\n") }
+            repeat(65794) { append("vt 0 0\n") }
+            append("f 258/1 1/1 1/1\n")   // corners (vi=257,ti=0) and (vi=0,ti=0)
+            append("f 1/65794 1/1 1/1\n") // corners (vi=0,ti=65793) and (vi=0,ti=0) [dup of above]
+        }
+
+        val mesh = ObjParser.parse(obj)
+
+        // Three distinct corners were referenced — (257,0), (0,0), (0,65793) — so three vertices
+        // must be emitted. The old key collapsed the first and third into one, emitting two.
+        assertEquals(3, mesh.vertexCount)
+    }
 }

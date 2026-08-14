@@ -27,6 +27,34 @@ object PsdReader {
     private const val SIGNATURE_8BIM = 0x3842494DL // "8BIM"
     private const val MAX_DIMENSION = 30000 // Photoshop's own canvas cap; guards against junk sizes.
 
+    /**
+     * [ByteArray]/[IntArray] wrappers that turn an [OutOfMemoryError] into [PsdFormatException].
+     *
+     * MAX_DIMENSION bounds each side of a layer independently, but a layer sized right at that cap
+     * is still a ~900MB single allocation per channel — reachable from a small file, since RLE
+     * compression means the declared width/height cost none of the file's actual bytes. A layer
+     * declaring many channels multiplies that further. [OutOfMemoryError] extends [Error], not
+     * [Exception], so it passed straight through this class's own IndexOutOfBoundsException catch
+     * in [read] and every caller's `catch (e: Exception)`, crashing the app outright on the mere act
+     * of opening a malformed or oversized PSD. Every allocation sized off a file-declared width/
+     * height goes through here instead, so the same failure surfaces as the typed exception this
+     * reader already documents and every caller already handles.
+     */
+    // internal, not private: exercised directly in PsdReaderTest with a deliberately-unallocatable
+    // size, rather than through the parser with a multi-hundred-megabyte layer — deterministic and
+    // fast on any JVM, where actually exhausting the test heap would be neither.
+    internal fun newByteArray(size: Int): ByteArray = try {
+        ByteArray(size)
+    } catch (e: OutOfMemoryError) {
+        throw PsdFormatException("Layer too large to decode ($size bytes)")
+    }
+
+    internal fun newIntArray(size: Int): IntArray = try {
+        IntArray(size)
+    } catch (e: OutOfMemoryError) {
+        throw PsdFormatException("Layer too large to decode ($size pixels)")
+    }
+
     /** Cheap sniff: does [bytes] start with the PSD magic + version 1? */
     fun isPsd(bytes: ByteArray): Boolean =
         bytes.size >= 6 &&
@@ -224,7 +252,7 @@ object PsdReader {
         val green = planes[1]
         val blue = planes[2]
         val alpha = planes[-1]
-        val argb = IntArray(w * h)
+        val argb = newIntArray(w * h)
         for (i in argb.indices) {
             val r = red?.get(i)?.toInt()?.and(0xFF) ?: 0
             val g = green?.get(i)?.toInt()?.and(0xFF) ?: 0
@@ -244,7 +272,7 @@ object PsdReader {
 
     /** Reads a single `w*h` channel plane (compression flag + data) into a byte array. */
     private fun readChannelPlane(c: Cursor, w: Int, h: Int): ByteArray {
-        val plane = ByteArray(w * h)
+        val plane = newByteArray(w * h)
         when (val compression = c.u16()) {
             0 -> c.readInto(plane, 0, w * h) // raw
             1 -> decodeRleChannel(c, plane, w, h)
@@ -268,7 +296,7 @@ object PsdReader {
 
     private fun readMergedImage(c: Cursor, w: Int, h: Int, channels: Int): ImportedLayer {
         val n = channels.coerceIn(1, 4)
-        val planes = Array(n) { ByteArray(w * h) }
+        val planes = Array(n) { newByteArray(w * h) }
         when (val compression = c.u16()) {
             0 -> for (p in planes) c.readInto(p, 0, w * h)
             1 -> {
@@ -284,7 +312,7 @@ object PsdReader {
             }
             else -> throw PsdFormatException("Unsupported merged compression $compression")
         }
-        val argb = IntArray(w * h)
+        val argb = newIntArray(w * h)
         for (i in argb.indices) {
             val r = planes.getOrNull(0)?.get(i)?.toInt()?.and(0xFF) ?: 0
             val g = planes.getOrNull(1)?.get(i)?.toInt()?.and(0xFF) ?: r

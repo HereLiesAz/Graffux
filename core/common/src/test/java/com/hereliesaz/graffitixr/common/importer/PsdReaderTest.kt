@@ -186,6 +186,26 @@ class PsdReaderTest {
     }
 
     @Test
+    fun newByteArray_convertsOutOfMemoryToPsdFormatException() {
+        // Regression: readChannelPlane/readMergedImage used to allocate ByteArray(w*h) directly,
+        // and OutOfMemoryError extends Error rather than Exception — it passed straight through
+        // this class's own IndexOutOfBoundsException catch and every caller's catch(Exception),
+        // crashing the app outright on the mere act of opening a hostile or oversized PSD.
+        try {
+            PsdReader.newByteArray(Int.MAX_VALUE)
+            throw AssertionError("expected PsdFormatException")
+        } catch (e: PsdFormatException) { /* expected */ }
+    }
+
+    @Test
+    fun newIntArray_convertsOutOfMemoryToPsdFormatException() {
+        try {
+            PsdReader.newIntArray(Int.MAX_VALUE)
+            throw AssertionError("expected PsdFormatException")
+        } catch (e: PsdFormatException) { /* expected */ }
+    }
+
+    @Test
     fun blendKeyMapping_coversCommonModes() {
         assertEquals(BlendMode.SrcOver, PsdReader.blendKeyToMode("norm"))
         assertEquals(BlendMode.Multiply, PsdReader.blendKeyToMode("mul "))

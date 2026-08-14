@@ -31,10 +31,17 @@ import com.hereliesaz.aznavrail.AzWindowState
  *
  * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
  * they get for free: the clamp, a fold control that matches every other AzNavRail surface, and an
- * accent that follows the rail's rather than being independently themed here.
+ * accent that follows the rail's rather than being independently themed here — plus, now, a place
+ * in the stack: every call site shares [FloatingWindowStacking] through the same un-keyed defaults,
+ * so a window opened after another always lands on top of it and doesn't start at the exact same
+ * point on screen. Before this, all two dozen call sites defaulted to the identical fixed position
+ * and z-index, so a just-opened window could render invisibly underneath an older one with no hint
+ * it had opened at all — Compose breaks a tie between equal z-indices by composition order, which
+ * has nothing to do with which window the user actually asked for most recently.
  *
  * [initialOffset] seeds the position once. Hoist an [AzWindowState] via [rememberFloatingWindowState]
- * and pass it as [state] when a window's placement or folded state has to outlive the window itself.
+ * and pass it as [state] when a window's placement or folded state has to outlive the window itself
+ * — a hoisted state's position is the caller's to own, so it is used exactly as given, un-cascaded.
  */
 @Composable
 fun FloatingWindow(
@@ -45,9 +52,13 @@ fun FloatingWindow(
     state: AzWindowState? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val windowState = state ?: rememberFloatingWindowState(initialOffset)
+    // Claimed once per window instance: remember with no keys re-runs only when this call site
+    // re-enters composition, i.e. exactly when the window is (re)opened — not on every recomposition
+    // while it stays open, and not shared with any other window's instance of this same call site.
+    val stackSlot = remember { FloatingWindowStacking.claim() }
+    val windowState = state ?: rememberFloatingWindowState(initialOffset + stackSlot.cascadeOffset)
     AzWindow(
-        modifier = modifier.zIndex(10f).widthIn(min = 220.dp, max = 320.dp),
+        modifier = modifier.zIndex(stackSlot.zIndex).widthIn(min = 220.dp, max = 320.dp),
         title = title,
         state = windowState,
         // Not the rail's accent by default here: these panels sit over the artwork, and the rail's
@@ -68,3 +79,28 @@ fun FloatingWindow(
 @Composable
 fun rememberFloatingWindowState(initialOffset: Offset = Offset(60f, 160f)): AzWindowState =
     remember(initialOffset) { AzWindowState(initialOffset.x, initialOffset.y, false) }
+
+/**
+ * Assigns each [FloatingWindow] a place in the open-order stack: a z-index higher than every window
+ * currently open, and a small cascade offset so consecutively-opened windows step diagonally rather
+ * than landing exactly on top of one another. Not Compose state — read once per window instance via
+ * `remember {}`, so claiming a slot never itself triggers recomposition.
+ */
+private object FloatingWindowStacking {
+    class Slot(val zIndex: Float, val cascadeOffset: Offset)
+
+    private const val BASE_Z = 10f
+    private const val CASCADE_STEPS = 6
+    private const val CASCADE_STEP_PX = 28f
+
+    private var windowsOpened = 0
+
+    fun claim(): Slot {
+        val ordinal = windowsOpened++
+        val step = ordinal % CASCADE_STEPS
+        return Slot(
+            zIndex = BASE_Z + ordinal + 1,
+            cascadeOffset = Offset(step * CASCADE_STEP_PX, step * CASCADE_STEP_PX),
+        )
+    }
+}
