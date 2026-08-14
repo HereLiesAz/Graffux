@@ -87,7 +87,6 @@ import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
-import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
@@ -98,7 +97,6 @@ import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
-import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
@@ -182,7 +180,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
-    val figmaState by vm.figmaState.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
@@ -221,7 +218,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showStoreChooser by remember { mutableStateOf(false) }
-    var showFigmaDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -229,11 +225,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
-    // Reference tool (Procreate's floating image-to-draw-from): purely a viewing aid, so it lives
-    // as local UI state rather than in EditorUiState/the project — it isn't artwork, isn't
-    // undo-tracked, and shouldn't survive into a save file the way a layer does.
-    var showReferenceWindow by remember { mutableStateOf(false) }
-    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     // The rail's active/selected colour, and it has to differ from the colour items already are.
@@ -307,10 +298,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             if (isImage) vm.onAddLayer(it) else vm.onImportDocument(it)
         }
     }
-
-    val referencePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { referenceImageUri = it } }
 
     // The azphalt acquisition handoff (spec/store-app.md): a separate store app does the browsing and
     // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
@@ -559,6 +546,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
+                    // Opens AddContentDialog (shapes + text as a new layer). Had a menu entry here
+                    // until a dropdown cleanup consolidated three adjacent "Add.../Import.../Import
+                    // File..." entries into the single Import item above and dropped this one with
+                    // them — collateral damage, not an intentional cut: onAddClicked kept being
+                    // threaded all the way down into ConfigureRailItems with no caller left to
+                    // invoke it, so a rectangle/ellipse/line/polygon layer became uncreatable from
+                    // the UI at all. AddContentDialog, ShapeKind and onAddShapeLayer/
+                    // onAddPolygonLayer never stopped working — nothing pointed at them any more.
+                    menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     menuItem(text = strings.nav.share, onClick = {
@@ -934,19 +930,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
 
-                if (showFigmaDialog) {
-                    FigmaWindow(
-                        state = figmaState,
-                        onTokenSubmit = { vm.connectFigma(it) },
-                        onDisconnect = { vm.disconnectFigma() },
-                        onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
-                        onLoadFile = { vm.loadFigmaFile() },
-                        onToggleFrame = { vm.toggleFigmaFrame(it) },
-                        onImport = { vm.importFigmaFrames() },
-                        onDismiss = { showFigmaDialog = false },
-                    )
-                }
-
                 if (showSettings) {
                     SettingsScreen(
                         vm = settingsVm,
@@ -955,14 +938,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onDocumentSize = { showSettings = false; showDocDialog = true },
                         onBackground = { showSettings = false; showBgDialog = true },
                         modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                if (showReferenceWindow) {
-                    ReferenceWindow(
-                        imageUri = referenceImageUri,
-                        onPickImage = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        onDismiss = { showReferenceWindow = false },
                     )
                 }
 
