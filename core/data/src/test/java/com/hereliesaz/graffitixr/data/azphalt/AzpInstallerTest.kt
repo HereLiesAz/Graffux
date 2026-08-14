@@ -89,9 +89,9 @@ class AzpInstallerTest {
 
         assertEquals("com.test.grade", installed.id)
         assertEquals(123L, installed.installedAt)
-        assertTrue(java.io.File(installed.filePath("assets/grade.cube")).exists())
-        assertTrue(java.io.File(installed.filePath("manifest.json")).exists())
-        assertTrue(java.io.File(installed.filePath("LICENSE")).exists())
+        assertTrue(java.io.File(installed.filePath("assets/grade.cube")!!).exists())
+        assertTrue(java.io.File(installed.filePath("manifest.json")!!).exists())
+        assertTrue(java.io.File(installed.filePath("LICENSE")!!).exists())
     }
 
     @Test
@@ -290,7 +290,7 @@ class AzpInstallerTest {
 
         assertEquals(SignatureStatus.SIGNED_UNTRUSTED, installed.signature)
         // signature.json is preserved so provenance survives a rescan.
-        assertTrue(java.io.File(installed.filePath("signature.json")).exists())
+        assertTrue(java.io.File(installed.filePath("signature.json")!!).exists())
     }
 
     @Test
