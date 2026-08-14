@@ -1452,7 +1452,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
     void* pixels = 0;
     if (AndroidBitmap_getInfo(env, outBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
     if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
-    gImageWarper->bakeToBitmap(static_cast<uint8_t*>(pixels));
+    if (!gImageWarper->bakeToBitmap(static_cast<uint8_t*>(pixels), (int)info.width, (int)info.height)) {
+        LOGE("nativeBakeLiquify: bakeToBitmap declined (buffer/source size mismatch or no source set)");
+    }
     AndroidBitmap_unlockPixels(env, outBitmap);
 }
 

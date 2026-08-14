@@ -224,9 +224,20 @@ void ImageWarper::drawLocked(int viewportWidth, int viewportHeight) {
     glDisableVertexAttribArray(1);
 }
 
-void ImageWarper::bakeToBitmap(uint8_t* outData) {
+bool ImageWarper::bakeToBitmap(uint8_t* outData, int outWidth, int outHeight) {
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mFbo || !mOffscreenTexture) return;
+    if (!mFbo || !mOffscreenTexture) return false;
+
+    // glReadPixels below is sized off mWidth/mHeight, which is this (single, shared) instance's
+    // *current* source image — not necessarily the one whose dimensions the caller's outData buffer
+    // was allocated for. A caller that started a bake, then had another thread call
+    // setSourceImage() with a larger image before this ran, would otherwise have glReadPixels write
+    // past the end of outData. Refuse rather than trust the caller's buffer matches.
+    if (outWidth != mWidth || outHeight != mHeight) {
+        LOGE("bakeToBitmap: output buffer is %dx%d but the source image is %dx%d; refusing",
+             outWidth, outHeight, mWidth, mHeight);
+        return false;
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
     // drawLocked, not draw(): mMutex is already held and is non-recursive —
@@ -236,4 +247,5 @@ void ImageWarper::bakeToBitmap(uint8_t* outData) {
     glReadPixels(0, 0, mWidth, mHeight, GL_RGBA, GL_UNSIGNED_BYTE, outData);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return true;
 }

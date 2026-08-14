@@ -36,7 +36,7 @@ object ObjParser {
         val normals = ArrayList<Float>()
 
         // Corner key ("v/vt/vn" resolved to absolute 0-based indices) -> emitted vertex index.
-        val emitted = HashMap<Long, Int>()
+        val emitted = HashMap<Triple<Int, Int, Int>, Int>()
         val outVertices = ArrayList<Float>()
         val outIndices = ArrayList<Int>()
         var sawNormals = false
@@ -99,7 +99,7 @@ object ObjParser {
         positions: List<Float>,
         uvs: List<Float>,
         normals: List<Float>,
-        emitted: HashMap<Long, Int>,
+        emitted: HashMap<Triple<Int, Int, Int>, Int>,
         out: ArrayList<Float>,
     ): Int {
         val bits = corner.split('/')
@@ -108,8 +108,14 @@ object ObjParser {
         val ni = resolve(bits.getOrNull(2), normals.size / 3)
         if (vi < 0) throw ObjParseException("Face references an undefined vertex: '$corner'")
 
-        // Pack the triple into one key; +1 keeps "absent" (-1) distinct from index 0.
-        val key = (vi + 1).toLong() * 0xFFFFFFL + (ti + 1).toLong() * 0xFFFFL + (ni + 1).toLong()
+        // The (vi, ti, ni) triple itself, not a packed bit-encoding: the previous key —
+        // (vi+1)*0xFFFFFF + (ti+1)*0xFFFF + (ni+1) — was not collision-free (gcd(0xFFFFFF, 0xFFFF)
+        // = 255), so on a large enough mesh two geometrically distinct corners could hash to the
+        // same key and the second would silently snap to the first's position/UV/normal — a
+        // triangle corner teleported elsewhere in the mesh with no error. Triple's generated
+        // equals/hashCode compares all three fields, which a HashMap key always needs anyway; the
+        // hash value colliding is fine; the key being *equal* to a different corner is not.
+        val key = Triple(vi, ti, ni)
         emitted[key]?.let { return it }
 
         out.add(positions[vi * 3]); out.add(positions[vi * 3 + 1]); out.add(positions[vi * 3 + 2])
