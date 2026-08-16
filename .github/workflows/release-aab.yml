@@ -39,9 +39,14 @@ name: Release AAB to Play
 # Implemented in `.github/scripts/publish_play.py` because Play rejects re-uploading the same
 # versionCode, so a single Edit is the only way to hand one bundle to multiple tracks.
 #
-# versionCode is derived from `git rev-list --count HEAD` inside `app/build.gradle.kts` — every commit
-# advances it automatically, nothing is written back to the repo during a build. That means CI needs a
-# full-depth checkout (see `fetch-depth: 0` below) to see the whole commit history.
+# versionCode is `version.properties`' committed `versionBuild` + 1 (see `app/build.gradle.kts`).
+# `assemble*`/`bundle*` also increment `versionBuild` on disk as a build step, but this job only has
+# `contents: read` and never commits that back — so versionCode does NOT advance on its own between
+# runs. It only moves when a commit in the repo actually raises the committed `versionBuild` (a local
+# build's own bump, checked in like any other change — see version.properties's own comment and
+# CLAUDE.md). Merge a run without that and every following CI build recomputes the SAME versionCode
+# and Play rejects it as already used ("Version code N has already been used") until some commit
+# bumps `versionBuild` past it.
 
 on:
   # Publish ONLY from main (plus manual dispatch). Publishing on every branch push staged whichever
@@ -213,8 +218,12 @@ jobs:
           fi
 
       # Turn the job red on partial success so real Play failures stay visible.
-      # (versionCode advances with every commit via git-count, so a red X here does
-      # not strand the counter — the next push naturally reads a fresh number.)
+      # (This DOES strand the versionCode: it's tied to the committed version.properties, not to
+      # this run, so a red X here — or any other run that never gets to publish — leaves the same
+      # number for the next run to retry. That's fine for THIS failure mode, since Play already has
+      # `internal` at this versionCode and a retry would collide on it anyway; but if the run instead
+      # failed before publishing at all, nothing advances until some commit bumps version.properties'
+      # versionBuild. See the versionCode note near the top of this file.)
       - name: Fail the job if any track was not staged
         if: steps.publish.outputs.exit_code == '2'
         run: |
