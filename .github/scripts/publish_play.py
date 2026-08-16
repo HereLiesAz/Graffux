@@ -10,7 +10,13 @@ versionCode, so a single edit is the only way to hand one bundle to several
 tracks at all.
 
 Usage (see .github/workflows/release-aab.yml):
-    publish_play.py --package com.example.app --aab path/to.aab --sa-json creds.json
+    publish_play.py --package com.example.app --aab path/to.aab --sa-json creds.json \
+        --version-code 476
+
+--version-code is optional but recommended: given, it's checked against the required track's
+current versionCodes before the AAB is uploaded, so a stranded versionCode (version.properties'
+versionBuild not bumped since the last successful publish) fails fast with an actionable message
+instead of a raw Play 403 after the whole upload.
 
 Exit codes are a contract with the workflow:
     0  every track staged
@@ -73,6 +79,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--package", required=True, help="applicationId, e.g. com.hereliesaz.graffux")
     parser.add_argument("--aab", required=True, help="path to the signed .aab to upload")
     parser.add_argument("--sa-json", required=True, help="path to the service-account JSON key file")
+    parser.add_argument(
+        "--version-code", type=int, default=None,
+        help="versionCode baked into --aab. When given, checked against the versionCodes already "
+        f"on '{REQUIRED_TRACK}' before uploading, so a stale version.properties (see CLAUDE.md's "
+        "\"versionCode and Play publishing\") fails fast with a clear message instead of "
+        "uploading the whole AAB just to get a raw Play 403.",
+    )
     return parser.parse_args()
 
 
@@ -140,6 +153,21 @@ def main() -> int:
         edit = svc.edits().insert(packageName=args.package, body={}).execute()
         edit_id = edit["id"]
         print(f"::notice::Opened Play edit {edit_id}")
+
+        if args.version_code is not None:
+            stale = already_used(svc, args.package, edit_id, args.version_code)
+            if stale is not None:
+                print(
+                    f"::error::versionCode {args.version_code} is not newer than the versionCode "
+                    f"already on '{REQUIRED_TRACK}' ({stale}) — version.properties' versionBuild "
+                    "was not bumped since the last successful publish. See \"versionCode and Play "
+                    "publishing\" in CLAUDE.md: bump versionBuild, commit it, and re-run. (Not "
+                    "attempting the upload — Play would reject it the same way, just after "
+                    "spending several minutes moving the AAB.)",
+                    file=sys.stderr,
+                )
+                discard(svc, args.package, edit_id)
+                return EXIT_NOTHING_PUBLISHED
 
         media = MediaFileUpload(
             args.aab,
@@ -269,6 +297,28 @@ def explain_403(sa_email: str, sa_project: str, package: str, err: HttpError) ->
         "  Permission changes can take a few minutes to propagate.",
     ):
         print(line, file=sys.stderr)
+
+
+def already_used(svc, package: str, edit_id: str, version_code: int) -> int | None:
+    """None if version_code is newer than everything already on REQUIRED_TRACK, otherwise the
+    highest versionCode found there (what made it stale).
+
+    Only checks REQUIRED_TRACK, not Play's full history for the app — a versionCode retired from
+    every current track (rolled back, or once staged only as a draft that got replaced) would slip
+    past this and still get the same 403 from Play itself. That's fine: this is a fast pre-check
+    for the one failure mode that has actually recurred here (a merge landing without a
+    version.properties bump), not a substitute for Play's own authoritative check.
+    """
+    track = svc.edits().tracks().get(
+        packageName=package, editId=edit_id, track=REQUIRED_TRACK,
+    ).execute()
+    used = [
+        int(code)
+        for release in track.get("releases", [])
+        for code in release.get("versionCodes", [])
+    ]
+    highest = max(used, default=0)
+    return highest if version_code <= highest else None
 
 
 def discard(svc, package: str, edit_id: str) -> None:

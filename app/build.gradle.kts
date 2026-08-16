@@ -58,6 +58,16 @@ val isMinorBumped = verMinor != lastMinor
 var currentVersionCode = versionProps.getProperty("versionBuild", "1").toInt() + 1
 var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt() + 1
 
+// Printed at configuration time (every invocation, regardless of which tasks run), so CI can grep
+// it straight out of the build log for the exact versionCode THIS invocation is building — see
+// release-aab.yml's "Build signed AAB" step. Deliberately not re-derived from version.properties
+// after the build: the doFirst hook below can fire more than once per invocation (any task whose
+// name starts with "assemble"/"bundle" matches, not just the one requested), so the file's
+// versionBuild after the build is not reliably this same number. NOTE: relies on configuration
+// actually running every invocation — this project doesn't enable Gradle's configuration cache
+// today, but a cache hit would skip this println (and CI's grep for it) without rerunning it.
+println("GRAFFUX_VERSION_CODE=$currentVersionCode")
+
 tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
     doFirst {
         var execVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
