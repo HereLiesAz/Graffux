@@ -71,7 +71,7 @@ dependencies {
     // (spec/package-format.md § Signing). Android's built-in Ed25519 (java.security) is only API 33+,
     // but this app's minSdk is 26, so Bouncy Castle provides it everywhere. Version pinned to match
     // the root build's forced 1.85 (already on the app classpath transitively).
-    implementation("org.bouncycastle:bcprov-jdk18on:1.85")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 
     // Networking (Crash Reporting)
     implementation(libs.retrofit)
