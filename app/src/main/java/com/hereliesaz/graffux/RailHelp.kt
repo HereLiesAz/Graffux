@@ -83,6 +83,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "one to open its own menu, which is where everything that belongs to a single layer lives " +
         "— adjust, blend mode, transform, alpha lock, clipping, styles, and so on. A layer marked " +
         "amber is linked to the one you are on and will move with it.",
+    "layer.add" to "No layers yet. Tap to add a blank one and start painting.",
     "grp.brushes" to
         "Installed brushes, plus Brush Studio for making your own. The plain round brush is the " +
         "one selected when none of the others are.",

@@ -1637,26 +1637,41 @@ private fun AzNavHostScope.ConfigureRailItems(
     // convention and Photoshop/Procreate's own. A group layer's children render inside its own
     // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
     // indented stand-in — so reordering stays scoped to siblings at each level.
-    if (uiState.layers.isNotEmpty()) {
-        // Unattached and pinned to the opposite side of the screen from the main rail, not a group
-        // in the rail strip. Layers is the one host you keep reaching for *while* painting —
-        // Procreate gives it a panel of its own for that reason — and as a rail group it sat behind
-        // the same expand-collapse as every tool, so getting to a layer meant opening the rail and
-        // pushing everything else aside. OPPOSITE locks it to the far edge of the screen, level with
-        // the rail's own items, so it stays put and never drifts under a stray drag.
-        //
-        // Square, not the circle every rail group wears: a panel on the opposite edge is not a rail
-        // group, and the shape is what says so before the user reads a label. It also matches what
-        // the host contains — layer thumbnails are rectangular images, and a circular clip crops the
-        // corners off every one of them.
-        azUnattachedHostItem(
-            id = "grp.layers",
-            text = strings.editor.layers,
-            anchor = AzUnattachedAnchor.OPPOSITE,
-            content = GraffuxIcons.Layers,
+    //
+    // Unattached and pinned to the opposite side of the screen from the main rail, not a group
+    // in the rail strip. Layers is the one host you keep reaching for *while* painting —
+    // Procreate gives it a panel of its own for that reason — and as a rail group it sat behind
+    // the same expand-collapse as every tool, so getting to a layer meant opening the rail and
+    // pushing everything else aside. OPPOSITE locks it to the far edge of the screen, level with
+    // the rail's own items, so it stays put and never drifts under a stray drag.
+    //
+    // Square, not the circle every rail group wears: a panel on the opposite edge is not a rail
+    // group, and the shape is what says so before the user reads a label. It also matches what
+    // the host contains — layer thumbnails are rectangular images, and a circular clip crops the
+    // corners off every one of them.
+    //
+    // Declared unconditionally: this used to be wrapped in `if (uiState.layers.isNotEmpty())`,
+    // which hid the whole host — button and all — the moment the document had zero layers (a
+    // fresh project, or the last layer just deleted). With no button left to tap, there was no
+    // way back to it short of guessing to pick a drawing tool; it read as the layers feature
+    // having vanished, not as an empty panel. The host itself always shows now; only its
+    // contents change.
+    azUnattachedHostItem(
+        id = "grp.layers",
+        text = strings.editor.layers,
+        anchor = AzUnattachedAnchor.OPPOSITE,
+        content = GraffuxIcons.Layers,
+        color = navItemColor,
+        shape = AzButtonShape.SQUARE,
+    )
+    if (uiState.layers.isEmpty()) {
+        azRailSubItem(
+            id = "layer.add", hostId = "grp.layers", text = "Add Layer",
+            content = GraffuxIcons.LayerAdd,
             color = navItemColor,
-            shape = AzButtonShape.SQUARE,
+            onClick = { vm.onAddBlankLayer() },
         )
+    } else {
         uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
             renderLayerRailItem(
                 layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
