@@ -105,11 +105,13 @@ fun validatePackManifest(m: AzphaltManifest): String? {
 }
 
 /**
- * A package's `kind` (spec/extension-manifest.md § kind). `0.1` names five: `asset`/`code`/`mixed`
- * carry data and/or sandboxed code; `app` is a companion application and `mcp` an MCP server — the two
- * host-integration kinds GraffitiXR (an asset host) does not run. Like [AssetType]/[Capability], a kind
- * newer than this build deserializes to [UNKNOWN] rather than throwing: the manifest still parses, and
- * the installer's asset-only policy refuses anything that isn't `asset`/`mixed` with a clear message.
+ * A package's `kind` (spec/extension-manifest.md § kind). `0.1` names six: `asset`/`code`/`mixed`
+ * carry data and/or sandboxed code; `app` is a companion application and `mcp` an MCP server; `pack`
+ * is a header-only curated set referencing other packages by id. `AzpInstaller` installs all six —
+ * GraffitiXR runs extension code in a WASM sandbox rather than refusing non-asset kinds, so there is
+ * no asset-only policy to enforce here. Like [AssetType]/[Capability], a kind newer than this build
+ * deserializes to [UNKNOWN] rather than throwing: the manifest still parses, and [UNKNOWN] is the one
+ * kind the installer refuses, with a clear message.
  */
 @Serializable(with = ExtensionKind.Serializer::class)
 enum class ExtensionKind(val wire: String) {

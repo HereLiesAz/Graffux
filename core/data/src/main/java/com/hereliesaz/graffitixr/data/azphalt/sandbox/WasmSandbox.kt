@@ -5,13 +5,21 @@ import com.dylibso.chicory.runtime.ImportValues
 import com.dylibso.chicory.runtime.Instance
 import com.dylibso.chicory.wasm.types.ValType
 import com.dylibso.chicory.wasm.types.FunctionType
+import com.dylibso.chicory.wasm.types.MemoryLimits
 import com.dylibso.chicory.wasm.Parser
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 
+/** WASM pages are 64 KiB each (fixed by the spec) — this caps a guest module's own linear memory
+ *  at 256 MiB regardless of what the module itself declares as its maximum. */
+private const val MAX_GUEST_MEMORY_PAGES = 4096
+
 /**
  * Executes a WASM module within an isolated Chicory sandbox.
- * Provides a highly secure environment with no ambient authority, per the azphalt capability model.
+ * No ambient authority — the guest gets nothing beyond the capability-gated host functions bound
+ * in [bindCapabilities], never filesystem/network/process access. [run] also bounds how long a
+ * single invocation may run (see [runSandboxBounded]) and memory is capped at
+ * [MAX_GUEST_MEMORY_PAGES] regardless of what the module itself declares as its own maximum.
  */
 class WasmSandbox(
     wasmBytes: InputStream,
@@ -19,20 +27,29 @@ class WasmSandbox(
     grantedCapabilities: Set<String> = emptySet()
 ) {
     private val instance: Instance
-    
+
     // Extracted host functions mapped to capabilities
     private val hostFunctions = mutableListOf<HostFunction>()
 
     init {
         bindCapabilities(grantedCapabilities)
-        
+
         val imports = ImportValues.builder()
             .withFunctions(hostFunctions.map { it })
             .build()
         val wasmModule = Parser.parse(wasmBytes)
-        instance = Instance.builder(wasmModule)
+        val builder = Instance.builder(wasmModule)
             .withImportValues(imports)
-            .build()
+        // Instance.Builder.withMemoryLimits() overrides the module's own declared memory-0
+        // limits entirely (both initial AND maximum) when set — so the guest's own declared
+        // *initial* size has to be read and preserved here, or a module that starts with more
+        // than one page would fail to instantiate at all. Only the maximum is actually being
+        // capped; a module with no memory section at all just has nothing to cap.
+        wasmModule.memorySection().ifPresent { section ->
+            val declaredInitialPages = section.getMemory(0).limits().initialPages()
+            builder.withMemoryLimits(MemoryLimits(declaredInitialPages, MAX_GUEST_MEMORY_PAGES))
+        }
+        instance = builder.build()
     }
 
     /**
@@ -48,7 +65,10 @@ class WasmSandbox(
         } catch (_: Exception) {
             null
         } ?: return
-        entry.apply()
+        // Bounded: see SandboxExecution.kt. Without this, a guest `run` export that never
+        // returns (an infinite loop is one WASM instruction) pins a thread forever with no way
+        // to cancel it — this class had no execution-time bound of any kind before.
+        runSandboxBounded { entry.apply() }
     }
 
     private fun bindCapabilities(grantedCapabilities: Set<String>) {

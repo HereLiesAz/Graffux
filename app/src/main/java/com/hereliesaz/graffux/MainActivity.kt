@@ -76,6 +76,7 @@ import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
+import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
@@ -261,8 +262,26 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         sharedImageUri?.let { vm.onAddLayer(it) }
     }
 
+    // azphalt://install is exported and BROWSABLE (see AndroidManifest.xml) so any web page or
+    // installed app can launch Graffux with an arbitrary --url pointing at an unsigned package.
+    // Installing it unconditionally the moment the deep link lands was a drive-by-install
+    // primitive: the only signal the user ever got was a Toast *after* the extension was already
+    // on disk. Route it through a real confirmation instead, naming the URL so there's something
+    // to actually evaluate before it downloads and installs anything.
+    var pendingAzphaltInstallUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(azphaltInstallUrl) {
-        azphaltInstallUrl?.let { vm.installExtensionFromUrl(it) }
+        pendingAzphaltInstallUrl = azphaltInstallUrl
+    }
+    pendingAzphaltInstallUrl?.let { url ->
+        ConfirmDialog(
+            title = "Install extension?",
+            message = "Something wants Graffux to download and install an extension from:\n\n" +
+                "$url\n\nExtensions can add code that runs inside Graffux. Only install one " +
+                "if you trust where this came from.",
+            confirmLabel = "Install",
+            onConfirm = { vm.installExtensionFromUrl(url); pendingAzphaltInstallUrl = null },
+            onDismiss = { pendingAzphaltInstallUrl = null },
+        )
     }
 
     // Autosave is debounced so a flurry of strokes doesn't re-encode a full-screen PNG on each one.

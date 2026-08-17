@@ -94,6 +94,19 @@ class AzpInstaller(
             throw InstallException("Invalid manifest.json: ${t.message}")
         }
 
+        // safeId() keeps '.', so an id starting with one (e.g. ".hidden") would install into a
+        // dot-prefixed directory — exactly the naming convention the staging/backup dirs above use,
+        // and exactly what ExtensionRepository's rescan filter (`!f.name.startsWith(".")`) is meant
+        // to skip. Such an install would "succeed", get recorded ACTIVE, and then be permanently
+        // invisible to every scan and unreachable by uninstall(id) — stranded on disk with no UI
+        // path back to it. Refuse it here, before anything is written.
+        if (manifest.id.startsWith(".")) {
+            throw InstallException(
+                "Package id '${manifest.id}' starts with '.', which this host reserves for its own " +
+                    "staging/backup directories and never scans as an installed extension."
+            )
+        }
+
         // Host policy (spec/ADOPTION.md). GraffitiXR runs extension code in a WASM sandbox.
         // It installs all known kinds (`asset`, `mixed`, `code`, `app`, `mcp`, `pack`).
         //  - `unknown` is refused.
