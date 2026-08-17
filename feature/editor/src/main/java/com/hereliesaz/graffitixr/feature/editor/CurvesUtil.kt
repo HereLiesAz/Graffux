@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/CurvesUtil.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import android.graphics.PointF
 
 object CurvesUtil {
@@ -71,4 +72,30 @@ object CurvesUtil {
 
         return lut
     }
+}
+
+/**
+ * Applies a 256-entry [lut] (as produced by [CurvesUtil.calculateAdjustmentCurve]) identically to
+ * each of R, G and B, leaving alpha untouched — a value/luminosity curve, not a per-channel one, since
+ * [CurvesDialog] only ever produces a single curve. Row-buffered like `Bitmap.applyCubeLut` so the
+ * working set is `width` ints rather than the whole image.
+ */
+fun Bitmap.applyCurveLut(lut: IntArray): Bitmap {
+    val out = copy(Bitmap.Config.ARGB_8888, true)
+    val width = out.width
+    val height = out.height
+    val row = IntArray(width)
+    for (y in 0 until height) {
+        out.getPixels(row, 0, width, 0, y, width, 1)
+        for (i in row.indices) {
+            val px = row[i]
+            val a = (px ushr 24) and 0xFF
+            val r = lut[(px ushr 16) and 0xFF]
+            val g = lut[(px ushr 8) and 0xFF]
+            val b = lut[px and 0xFF]
+            row[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        out.setPixels(row, 0, width, 0, y, width, 1)
+    }
+    return out
 }
