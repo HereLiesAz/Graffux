@@ -230,6 +230,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
+    // "Forget a Selection" is the one delete in the app with no undo (savedSelections isn't part
+    // of the layers-only history) and, before this, no confirmation either — every other delete
+    // in the app is one or the other. Held here rather than dispatched straight from the rail
+    // item's onClick because ConfigureRailItems isn't @Composable and can't own a ConfirmDialog.
+    var pendingForgetSelectionName by remember { mutableStateOf<String?>(null) }
 
     // Pre-calculate `@Composable` colors outside the non-composable DSL block
     // The rail's active/selected colour, and it has to differ from the colour items already are.
@@ -513,6 +518,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 modelWindowOpen = showModelDialog,
                 onToolOptionsClicked = { showToolOptions = !showToolOptions },
                 toolOptionsOpen = showToolOptions,
+                onForgetSelectionRequested = { pendingForgetSelectionName = it },
             )
 
             // The tools you actually reach for, one swipe from the bottom edge. The rail holds every
@@ -668,6 +674,16 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             showDocDialog = false
                         },
                         onDismiss = { showDocDialog = false },
+                    )
+                }
+
+                pendingForgetSelectionName?.let { name ->
+                    ConfirmDialog(
+                        title = "Forget \"$name\"?",
+                        message = "This selection can't be recovered afterward — forgetting it isn't undoable.",
+                        confirmLabel = "Forget",
+                        onConfirm = { vm.onDeleteSavedSelection(name); pendingForgetSelectionName = null },
+                        onDismiss = { pendingForgetSelectionName = null },
                     )
                 }
 
@@ -1251,6 +1267,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     modelWindowOpen: Boolean,
     onToolOptionsClicked: () -> Unit,
     toolOptionsOpen: Boolean,
+    onForgetSelectionRequested: (String) -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     val activeIds = activeRailClassifiers(
@@ -1484,7 +1501,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                         id = "sel.forget.${saved.name}", text = saved.name,
                         content = GraffuxIcons.SelectNone, color = navItemColor,
                         shape = AzButtonShape.NONE_SQUARE,
-                        onClick = { vm.onDeleteSavedSelection(saved.name) },
+                        onClick = { onForgetSelectionRequested(saved.name) },
                     )
                 }
             }
@@ -1736,7 +1753,14 @@ private fun AzNavHostScope.ConfigureRailItems(
     // colour swatch, every tool glyph, the mode pickers. A badge repeating what the button already
     // draws is noise in a strip this dense.
     azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
-    azItemState(id = "grp.layers", badge = uiState.layers.size.takeIf { it > 0 }?.toString())
+    // Top-level count, matching what the host actually renders (the `parentId == null` filter
+    // above) — not uiState.layers.size, which is the flat list and includes every group's
+    // children. With one group of two children plus a loose layer, the flat count is 3 but the
+    // host shows 2 rows; a badge that disagrees with what tapping it reveals is worse than none.
+    azItemState(
+        id = "grp.layers",
+        badge = uiState.layers.count { it.parentId == null }.takeIf { it > 0 }?.toString(),
+    )
     azItemState(
         id = "grp.brushes",
         // +1 for the built-in round brush, which is a real choice in the list and not a placeholder.
@@ -1886,6 +1910,10 @@ private fun HiddenMenuScope.renderLayerStyleMenu(
     uiState.colorStyles.forEach { style ->
         val fillLinked = layer.shapes.any { it.fillStyleId == style.id }
         val strokeLinked = layer.shapes.any { it.strokeStyleId == style.id }
+        // Update/Delete moved inside this gate with the rows above: they used to sit outside it
+        // and ran for every layer regardless of shape != null, so a plain raster layer's menu
+        // listed "Update"/"Delete" for every colour style anyone had ever made in the document —
+        // exactly what this function's own doc comment says a raster layer's menu carries none of.
         if (shape != null) {
             listItem(if (fillLinked) "Fill: ${style.name} ✓" else "Fill: ${style.name}", on {
                 vm.onApplyColorStyle(if (fillLinked) null else style.id)
@@ -1894,11 +1922,12 @@ private fun HiddenMenuScope.renderLayerStyleMenu(
             listItem(if (strokeLinked) "Stroke: ${style.name} ✓" else "Stroke: ${style.name}", on {
                 vm.onApplyStrokeStyle(if (strokeLinked) null else style.id)
             })
+            listItem("Update ${style.name} to Colour", on { vm.onUpdateColorStyleToActiveColor(style.id) })
+            listItem("Delete ${style.name}") { vm.onDeleteColorStyle(style.id) }
         }
-        listItem("Update ${style.name} to Colour", on { vm.onUpdateColorStyleToActiveColor(style.id) })
-        listItem("Delete ${style.name}") { vm.onDeleteColorStyle(style.id) }
     }
     uiState.textStyles.forEach { style ->
+        // Same fix as the colour loop above: Delete used to run unconditionally.
         if (params != null) {
             val linked = params.styleId == style.id
             listItem(if (linked) "Text: ${style.name} ✓" else "Text: ${style.name}", on {
@@ -1907,8 +1936,8 @@ private fun HiddenMenuScope.renderLayerStyleMenu(
             // The text equivalent of "Update … to Colour", which until now did not exist: a text
             // token could be made and deleted but never edited.
             listItem("Update ${style.name} from Layer", on { vm.onUpdateTextStyleToActive(style.id) })
+            listItem("Delete ${style.name}") { vm.onDeleteTextStyle(style.id) }
         }
-        listItem("Delete ${style.name}") { vm.onDeleteTextStyle(style.id) }
     }
 }
 

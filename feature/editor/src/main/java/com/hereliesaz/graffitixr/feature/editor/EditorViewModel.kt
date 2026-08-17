@@ -4019,7 +4019,15 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetTransformMode(mode))
         warpOriginalBitmap = null
         if (mode == TransformMode.FREEFORM) return
-        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        // Same reset the bitmap==null branch just below already does — this branch used to just
+        // `return`, leaving TransformMode set to a non-FREEFORM mode with no active layer behind
+        // it. The rail then shows a stranded Apply/Cancel pair: Apply reads activeLayerId first
+        // and returns before ever resetting the mode, so only Cancel could dismiss it.
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: run {
+            Toast.makeText(context, "${mode.label} needs a layer to work on", Toast.LENGTH_SHORT).show()
+            dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+            return
+        }
         val bitmap = layer.bitmap ?: run {
             Toast.makeText(context, "${mode.label} needs a paint layer", Toast.LENGTH_SHORT).show()
             dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
