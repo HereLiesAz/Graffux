@@ -163,6 +163,7 @@ fun EditorUi(
                 onColorBalanceBChange = actions::onColorBalanceBChanged,
                 onAdjustmentStart = actions::onAdjustmentStart,
                 onAdjustmentEnd = actions::onAdjustmentEnd,
+                onDismiss = { actions.onDismissPanel() },
                 strings = strings,
             )
         }

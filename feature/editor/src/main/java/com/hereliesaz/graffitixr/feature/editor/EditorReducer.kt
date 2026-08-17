@@ -61,7 +61,13 @@ internal object EditorReducer {
         is EditorIntent.ToggleClipToLayerBelow -> state.copy(
             layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(clipToLayerBelow = !it.clipToLayerBelow) },
         )
-        is EditorIntent.ActivateLayer -> state.copy(activeLayerId = intent.id, activeTool = Tool.NONE)
+        // Deliberately leaves activeTool alone — same reasoning as SetActiveFrameIndex below:
+        // switching which layer you're pointed at while a tool is in hand must not put the tool
+        // down. It used to reset to NONE, so tapping another layer's thumbnail while painting
+        // silently dropped the brush; the next stroke then landed as a single-finger drag on the
+        // new active layer (Tool.NONE's transform gesture) instead of a paint stroke, with no
+        // feedback that the tool had changed underneath the user.
+        is EditorIntent.ActivateLayer -> state.copy(activeLayerId = intent.id)
         is EditorIntent.AddLayer -> state.copy(
             layers = state.layers + intent.layer,
             activeLayerId = intent.layer.id,

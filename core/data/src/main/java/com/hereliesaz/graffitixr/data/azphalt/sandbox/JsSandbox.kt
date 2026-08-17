@@ -64,14 +64,12 @@ class JsSandbox(
         // still runs". Deny by REPLACING them with fixed, non-real answers instead: the import
         // is satisfied either way, but only a 'time'-granted extension gets the real clock/RNG.
         val timeGranted = "time" in grantedCapabilities
-        importsList.addAll(
-            if (timeGranted) {
-                wasi.toHostFunctions()
-            } else {
-                wasi.toHostFunctions().filter { it.name() !in TIME_SENSITIVE_WASI_FUNCTIONS } +
-                    timeDenyHostFunctions()
-            }
-        )
+        if (timeGranted) {
+            importsList.addAll(wasi.toHostFunctions())
+        } else {
+            importsList.addAll(wasi.toHostFunctions().filter { it.name() !in TIME_SENSITIVE_WASI_FUNCTIONS })
+            importsList.addAll(timeDenyHostFunctions())
+        }
         importsList.addAll(hostFunctions)
 
         val imports = ImportValues.builder()

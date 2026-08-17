@@ -65,6 +65,7 @@ fun AdjustmentsPanel(
     onColorBalanceBChange: (Float) -> Unit,
     onAdjustmentStart: () -> Unit,
     onAdjustmentEnd: () -> Unit,
+    onDismiss: () -> Unit,
     strings: AppStrings,
     // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of
     // the active layer's values.
@@ -107,6 +108,16 @@ fun AdjustmentsPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // The one way to leave this panel that doesn't depend on tapping the canvas — which, for
+        // the (very common) case of a blank or full-screen active layer, hits the layer instead
+        // of missing it, so DismissPanel's tap-outside path never fires and the panel was
+        // otherwise stuck open until a rail tool selection happened to close it as a side effect.
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = onDismiss) {
+                Icon(imageVector = Icons.Filled.Close, contentDescription = strings.common.close)
+            }
+        }
+
         // Image-specific adjustment knobs
         // These are only shown if an image is actually present to adjust.
         if (hasImage) {
