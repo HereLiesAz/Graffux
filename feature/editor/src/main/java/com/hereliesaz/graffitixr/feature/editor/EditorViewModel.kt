@@ -131,6 +131,37 @@ internal const val HISTORY_DEPTH = 20
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
+/** Cap on a whole imported document (PSD/PDF/Procreate/etc) read fully into memory by
+ *  [EditorViewModel.onImportDocument] — matches ProjectManager's own MAX_IMPORT_BYTES precedent
+ *  for "how big a single user-picked file is allowed to be before we refuse it outright". */
+private const val MAX_IMPORT_DOCUMENT_BYTES = 512 * 1024 * 1024
+
+/** Cap on the QuickLook/Thumbnail.png entry [EditorViewModel.extractProcreateComposite] pulls out
+ *  of a `.procreate` archive. It's a preview PNG, not full artwork — generous but far below
+ *  memory-exhaustion territory, so a crafted entry that claims to decompress far past this can't
+ *  OOM the app the way an unbounded `ZipInputStream.readBytes()` would let it. */
+private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
+
+/**
+ * Reads [input] fully, but bails out and returns null the moment more than [maxBytes] have been
+ * read — the bounded-read pattern used everywhere in this app that decodes an untrusted archive
+ * (see ProjectManager.streamEntryBounded, AzpInstaller's MAX_PACKAGE_BYTES), applied here for the
+ * two `readBytes()` calls in the document-import path that weren't bounded like their siblings.
+ */
+private fun readBytesBounded(input: java.io.InputStream, maxBytes: Int): ByteArray? {
+    val buffer = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(64 * 1024)
+    var total = 0
+    while (true) {
+        val n = input.read(chunk)
+        if (n < 0) break
+        total += n
+        if (total > maxBytes) return null
+        buffer.write(chunk, 0, n)
+    }
+    return buffer.toByteArray()
+}
+
 // The 3D model and its paint, inside the project folder. Fixed names rather than generated ones:
 // a project holds at most one model, so a uuid would only accumulate orphans every time a new
 // model replaced the old.
@@ -1071,12 +1102,12 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val name = queryDisplayName(uri)
             val bytes = try {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                context.contentResolver.openInputStream(uri)?.use { readBytesBounded(it, MAX_IMPORT_DOCUMENT_BYTES) }
             } catch (e: Exception) {
                 null
             }
             if (bytes == null) {
-                withContext(dispatchers.main) { toast("Couldn't read that file.") }
+                withContext(dispatchers.main) { toast("Couldn't read that file — it may be too large, or unreadable.") }
                 return@launch
             }
             val format = DocumentImporter.detect(name, bytes)
@@ -1142,8 +1173,11 @@ class EditorViewModel @Inject constructor(
                 if (!entry.isDirectory &&
                     entry.name.substringAfterLast('/').equals("Thumbnail.png", ignoreCase = true)
                 ) {
-                    val data = zip.readBytes()
-                    found = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.size)
+                    // Bounded, not zip.readBytes(): a compressed entry's declared size can't be
+                    // trusted (a crafted small entry can decompress far past it), and this is the
+                    // one place in the import path that was reading a zip entry unbounded.
+                    val data = readBytesBounded(zip, MAX_PROCREATE_THUMBNAIL_BYTES)
+                    found = data?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
                     break
                 }
                 entry = zip.nextEntry
@@ -3985,7 +4019,15 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetTransformMode(mode))
         warpOriginalBitmap = null
         if (mode == TransformMode.FREEFORM) return
-        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
+        // Same reset the bitmap==null branch just below already does — this branch used to just
+        // `return`, leaving TransformMode set to a non-FREEFORM mode with no active layer behind
+        // it. The rail then shows a stranded Apply/Cancel pair: Apply reads activeLayerId first
+        // and returns before ever resetting the mode, so only Cancel could dismiss it.
+        val layer = state.layers.find { it.id == state.activeLayerId } ?: run {
+            Toast.makeText(context, "${mode.label} needs a layer to work on", Toast.LENGTH_SHORT).show()
+            dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
+            return
+        }
         val bitmap = layer.bitmap ?: run {
             Toast.makeText(context, "${mode.label} needs a paint layer", Toast.LENGTH_SHORT).show()
             dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))

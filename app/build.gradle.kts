@@ -61,11 +61,16 @@ var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPa
 // Printed at configuration time (every invocation, regardless of which tasks run), so CI can grep
 // it straight out of the build log for the exact versionCode THIS invocation is building — see
 // release-aab.yml's "Build signed AAB" step. Deliberately not re-derived from version.properties
-// after the build: the doFirst hook below can fire more than once per invocation (any task whose
-// name starts with "assemble"/"bundle" matches, not just the one requested), so the file's
-// versionBuild after the build is not reliably this same number. NOTE: relies on configuration
-// actually running every invocation — this project doesn't enable Gradle's configuration cache
-// today, but a cache hit would skip this println (and CI's grep for it) without rerunning it.
+// after the build: `currentVersionCode` here is computed exactly once per invocation and is
+// unambiguously what AGP assigns as the variant's versionCode (see `versionCode =
+// currentVersionCode` below). The doFirst hook below mutates the same in-memory `versionProps`
+// object on every task it actually runs on — if that ever turns out to fire more than once in a
+// single invocation (e.g. an intermediate task also named assemble*/bundle* actually executes,
+// not just gets registered against by `tasks.matching`), the FILE's versionBuild after the build
+// would drift from this printed value; this println is intentionally immune to that regardless of
+// whether it happens. NOTE: relies on configuration actually running every invocation — this
+// project doesn't enable Gradle's configuration cache today, but a cache hit would skip this
+// println (and CI's grep for it) without rerunning it.
 println("GRAFFUX_VERSION_CODE=$currentVersionCode")
 
 tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
@@ -129,10 +134,12 @@ android {
             }
         }
 
+        val envKeystoreFile = System.getenv("KEYSTORE_FILE")
         val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
         val envKeyAlias = System.getenv("KEY_ALIAS")
         val envKeyPassword = System.getenv("KEY_PASSWORD")
-        val releaseKeystore = (System.getenv("KEYSTORE_FILE")?.let { rootProject.file(it) } ?: file("keystore.jks"))
+        val releaseKeystoreFile = envKeystoreFile?.let { rootProject.file(it) } ?: file("keystore.jks")
+        val releaseKeystore = releaseKeystoreFile
             .takeIf {
                 it.exists() &&
                         !envKeystorePassword.isNullOrEmpty() &&
@@ -147,6 +154,38 @@ android {
                     storePassword = envKeystorePassword
                     keyAlias = envKeyAlias
                     keyPassword = envKeyPassword
+                }
+            }
+        }
+
+        // Fail loudly instead of silently shipping an unsigned release build. Without this, a
+        // misconfigured signing secret (empty KEY_PASSWORD/KEY_ALIAS, or a keystore that failed
+        // to generate) makes `signingConfigs.findByName("release")` null, `release.signingConfig`
+        // null, and `bundleRelease`/`assembleRelease` still "succeed" — producing an unsigned AAB
+        // that release-aab.yml's `if-no-files-found: error` check is satisfied by (a file exists)
+        // and that only fails, if it fails at all, much later at the Play upload with a confusing
+        // Play-side error. Scoped to CI specifically via KEYSTORE_FILE — that env var is only ever
+        // set by the release workflows (see release-aab.yml / release-apk.yml / merged-build.yml),
+        // so a local `./gradlew bundleRelease` with no signing secrets configured still produces
+        // an unsigned build for local testing, same as before.
+        if (!envKeystoreFile.isNullOrEmpty()) {
+            gradle.taskGraph.whenReady {
+                val buildingSignedRelease = allTasks.any {
+                    it.project == project &&
+                            (it.name.startsWith("assembleRelease") || it.name.startsWith("bundleRelease"))
+                }
+                if (buildingSignedRelease && releaseKeystore == null) {
+                    val reason = when {
+                        !releaseKeystoreFile.exists() -> "the keystore file '$releaseKeystoreFile' does not exist"
+                        envKeystorePassword.isNullOrEmpty() -> "KEYSTORE_PASSWORD is empty or unset"
+                        envKeyAlias.isNullOrEmpty() -> "KEY_ALIAS is empty or unset"
+                        else -> "KEY_PASSWORD is empty or unset"
+                    }
+                    throw GradleException(
+                        "Refusing to build an unsigned release variant: KEYSTORE_FILE is set (this " +
+                                "looks like a CI release build) but $reason. Fix the signing secrets " +
+                                "rather than letting this build 'succeed' unsigned."
+                    )
                 }
             }
         }

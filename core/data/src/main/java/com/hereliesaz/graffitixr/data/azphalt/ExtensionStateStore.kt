@@ -33,6 +33,22 @@ class ExtensionStateStore(private val file: File) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
     /**
+     * Strips anything that looks like a URI or absolute file path out of a failure [reason] before
+     * it's persisted. [ExtensionStateProvider] exposes this store's entries through an exported
+     * `ContentProvider` gated only by a `normal`-level permission — any app can declare it and read
+     * with no user prompt — and its own KDoc promises "nothing in a row identifies a device, a
+     * user, or an install". [reason] comes from a caught exception's raw `.message` at every call
+     * site, though, and a revoked read grant on a user-picked document surfaces as a
+     * FileNotFoundException/SecurityException naming its `content://` URI — exactly the kind of
+     * thing that promise says never happens. Scrub it here, once, at the one place every reason
+     * actually gets written, rather than trusting every future caller to remember to.
+     */
+    private fun sanitizeReason(raw: String?): String? {
+        if (raw == null) return null
+        return URI_OR_PATH.replace(raw, "[redacted]").take(MAX_REASON_LENGTH)
+    }
+
+    /**
      * The lock is per *file*, not per instance.
      *
      * Two instances exist over the same path in one process: the repository builds one, and
@@ -73,7 +89,7 @@ class ExtensionStateStore(private val file: File) {
                 version = version,
                 state = state.wire,
                 at = stamp(atMs),
-                reason = if (state == ExtensionState.FAILED) reason else null,
+                reason = if (state == ExtensionState.FAILED) sanitizeReason(reason) else null,
             )
             write(listOf(entry) + read().filterNot { it.id == id })
         }
@@ -131,6 +147,13 @@ class ExtensionStateStore(private val file: File) {
         const val FILE_NAME: String = "azphalt-state.json"
 
         private const val TAG = "AzphaltState"
+
+        /** Matches a URI (`scheme://...`) or an absolute Unix path — see [sanitizeReason]. */
+        private val URI_OR_PATH = Regex("""[a-zA-Z][a-zA-Z0-9+.-]*://\S+|/[\w.\-/]{3,}""")
+
+        /** A failure reason is a short diagnostic string, not a place for an exception's full
+         *  stack-trace-adjacent detail to accumulate. */
+        private const val MAX_REASON_LENGTH = 200
 
         private val locks = HashMap<String, Any>()
 

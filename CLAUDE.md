@@ -19,8 +19,13 @@ bump, committed like any other change — see the section above).
 
 If a run merges to `main` without that bump, every following release build recomputes
 the same `versionCode` and Google Play rejects it with `"Version code N has already
-been used"`, because the previous run already published it. This has happened before
-(five merges in a row failed this way after 2026-08-15 until `versionBuild` was bumped
-by hand) — `release-aab.yml` now fails fast with a clear message before attempting the
-upload when it detects this, but the underlying fix is still: make sure `version.properties`
-gets bumped and committed as part of any change that should ship a new release.
+been used"`, because the previous run already published it. This has happened
+repeatedly: several merges in a row after 2026-08-15 all recomputed the versionCode
+the prior merge had already published, until `versionBuild` was bumped by hand — and
+it recurred again even after the fail-fast guard below was added, because that same
+commit didn't bump `versionBuild` either. `release-aab.yml` now fails fast with a
+clear message before attempting the upload when it detects this (confirmed working:
+it caught the second recurrence in seconds instead of a wasted multi-minute upload),
+but the guard only makes the failure cheap — it doesn't fix it. The actual fix is
+still: make sure `version.properties` gets bumped and committed as part of any change
+that should ship a new release, including changes to the release pipeline itself.

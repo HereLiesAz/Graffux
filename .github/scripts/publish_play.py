@@ -56,9 +56,11 @@ REQUIRED_TRACK = "internal"
 
 SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
 
-# httplib2's default socket timeout is None (system default, often ~2 min), which trips the
-# TimeoutError we hit on release 14148 while Play digested a ~155MB AAB upload chunk. 10 min
-# is plenty for any single chunk read.
+# httplib2.Http(timeout=None) falls back to socket.getdefaulttimeout(), which on CPython is
+# None unless something else in the process sets it — i.e. block forever, not time out quickly.
+# Whatever produced the TimeoutError on release 14148 while Play digested a ~155MB AAB upload
+# chunk wasn't this default, but an explicit bound is still the right fix either way: 10 min is
+# plenty for any single chunk read, and it turns a silent hang into a real, visible failure.
 HTTP_TIMEOUT_S = 600
 
 # Chunk-level retry count on transient upload failures (5xx, connection errors, timeouts).
@@ -90,7 +92,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    args = parse_args()
+    try:
+        args = parse_args()
+    except SystemExit as exc:
+        # argparse's own parser.error() path (missing/invalid --package, --aab, --version-code,
+        # etc.) calls sys.exit(2) — the same code this script uses for "internal published, some
+        # drafts failed". Left alone, a bad invocation reads to the workflow as a partial publish
+        # that never happened at all. Remap: 0 stays 0 (e.g. --help), anything else is "nothing
+        # published", never "partial".
+        return EXIT_OK if exc.code == 0 else EXIT_NOTHING_PUBLISHED
 
     if not os.path.isfile(args.aab):
         print(f"::error::No AAB at {args.aab}", file=sys.stderr)
@@ -155,7 +165,20 @@ def main() -> int:
         print(f"::notice::Opened Play edit {edit_id}")
 
         if args.version_code is not None:
-            stale = already_used(svc, args.package, edit_id, args.version_code)
+            try:
+                stale = already_used(svc, args.package, edit_id, args.version_code)
+            except HttpError as err:
+                # This pre-check is a fast heuristic, not the authoritative check — Play's own
+                # upload rejection still runs after it either way. A never-released internal
+                # track (a genuinely valid state — see SETUP note 3 in release-aab.yml) or any
+                # other transient error here must not block a publish that would otherwise have
+                # gone through, so degrade to "couldn't tell" rather than aborting.
+                print(
+                    f"::warning::Could not pre-check versionCode against '{REQUIRED_TRACK}' "
+                    f"({err}) — proceeding to upload; Play's own check still applies.",
+                    file=sys.stderr,
+                )
+                stale = None
             if stale is not None:
                 print(
                     f"::error::versionCode {args.version_code} is not newer than the versionCode "

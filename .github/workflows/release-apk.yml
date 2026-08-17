@@ -68,8 +68,10 @@ jobs:
 
       - name: Build Release APK
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # No GITHUB_TOKEN/GH_TOKEN here — nothing in the Gradle build reads either, and this
+          # process tree resolves and executes every Gradle plugin and third-party dependency in
+          # gradle/libs.versions.toml, which is not a place to hand a credential that doesn't
+          # need to be there.
           # Consumed by the signingConfigs.release block in app/build.gradle.kts.
           KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

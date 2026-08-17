@@ -23,7 +23,8 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     "grp.select" to
         "Everything to do with selecting a region. A selection confines every raster tool to it " +
         "until you clear it — if a brush suddenly paints nothing, check whether a selection is " +
-        "still active. The Selection button turns amber whenever one is.",
+        "still active. The Selection button turns amber whenever one is, unless the Select tool " +
+        "itself is the one currently in hand — then it shows the ordinary active-tool colour instead.",
     "tool.select" to
         "Drag to trace a region. Drag again *inside* an existing selection to move the pixels it " +
         "holds. What a drag draws is set by the shape below; what it does to the region you " +
@@ -73,6 +74,11 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "Copies pixels verbatim from somewhere else on the same layer. Aim it first: set the " +
         "source, then paint. The button turns on once it is aimed.",
     "tool.fill" to "Tap to flood the area under your finger with the current colour.",
+    // Every other item in this section is a mode you pick up and put down. This one isn't: it's an
+    // action that fires the moment you tap it, so it never lights up the way the others do — a
+    // second tap adds another text layer rather than putting the first one down.
+    "tool.text" to "Tap to add a new text layer immediately. It's an action, not a mode — it never " +
+        "shows as the active tool the way the other buttons here do.",
     "tool.wraparound" to
         "The canvas tiles past its own edges: a stroke that leaves one side comes back on the " +
         "other. For seamless patterns.",
@@ -83,7 +89,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "one to open its own menu, which is where everything that belongs to a single layer lives " +
         "— adjust, blend mode, transform, alpha lock, clipping, styles, and so on. A layer marked " +
         "amber is linked to the one you are on and will move with it.",
-    "layer.add" to "No layers yet. Tap to add a blank one and start painting.",
+    "layer.add" to "Add a new blank layer on top of the stack.",
     "grp.brushes" to
         "Installed brushes, plus Brush Studio for making your own. The plain round brush is the " +
         "one selected when none of the others are.",

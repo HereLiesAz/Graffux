@@ -113,13 +113,13 @@ fun EditorUi(
                 }
             }
 
-            // No floating Layers panel. The layers live in their own floating rail now (an
-            // AzNavRail unattached host pinned OPPOSITE the main rail — see MainActivity's
-            // `grp.layers`), each with a hidden menu carrying that layer's own tools.
-            // `EditorPanel.LAYERS` was still rendered
-            // here, and the `LayersPanel` composable behind it was complete and correct, but nothing
-            // in the app ever dispatched `ToggleLayersPanel`: there was no way to open it and no way
-            // to reach the code. Two layer lists, one of them unreachable, is worse than one.
+            // No floating Layers panel. The layers live in their own rail now (an AzNavRail
+            // unattached host pinned OPPOSITE the main rail — see MainActivity's `grp.layers`),
+            // each with a hidden menu carrying that layer's own tools. `EditorPanel.LAYERS` was
+            // still rendered here, and the `LayersPanel` composable behind it was complete and
+            // correct, but nothing in the app ever dispatched `ToggleLayersPanel`: there was no
+            // way to open it and no way to reach the code. Two layer lists, one of them
+            // unreachable, is worse than one.
 
             // 2. Integrated Adjustments Panel (Knobs + Undo/Redo/Magic)
             val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
@@ -163,6 +163,7 @@ fun EditorUi(
                 onColorBalanceBChange = actions::onColorBalanceBChanged,
                 onAdjustmentStart = actions::onAdjustmentStart,
                 onAdjustmentEnd = actions::onAdjustmentEnd,
+                onDismiss = { actions.onDismissPanel() },
                 strings = strings,
             )
         }

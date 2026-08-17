@@ -19,7 +19,11 @@ jobs:
 
       - name: Delete all caches
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # The built-in, scoped, run-lifetime token — not secrets.GH_TOKEN (a broad, long-lived
+          # PAT). `gh cache` uses the Actions cache API, which the built-in token can drive with
+          # just the `actions: write` this job already declares above; that grant was previously
+          # dead weight because the PAT authenticated everything regardless of what was declared.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Fetching list of cache keys..."
           cacheIds=$(gh cache list --limit 100 --json id --jq '.[].id')
