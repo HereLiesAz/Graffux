@@ -86,11 +86,11 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `ActivateLayer sets the active id and resets the tool`() {
+    fun `ActivateLayer sets the active id and preserves the tool`() {
         val s = state(lyr("a"), lyr("b")).copy(activeTool = Tool.LIQUIFY)
         val out = reduce(s, EditorIntent.ActivateLayer("b"))
         assertEquals("b", out.activeLayerId)
-        assertEquals(Tool.NONE, out.activeTool)
+        assertEquals(Tool.LIQUIFY, out.activeTool)
     }
 
     @Test

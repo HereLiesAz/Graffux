@@ -446,21 +446,34 @@ class EditorViewModel @Inject constructor(
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
                             viewModelScope.launch(dispatchers.io) {
-                                val loadedLayers = layers.map { layer ->
-                                    val layerUri = layer.uri
-                                    if (layer.bitmap == null && layerUri != null) {
-                                        val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri)
-                                        if (loadedBmp != null) {
-                                            putLayerBase(layer.id, loadedBmp)
-                                            layerStore.initStrokes(layer.id)
-                                        }
-                                        layer.copy(bitmap = loadedBmp)
-                                    } else {
-                                        layer
-                                    }
+                                // Decoding several full-screen bitmaps can take a while, and this
+                                // reads from the `layers` snapshot captured above (before decoding
+                                // started) but only to know WHICH layers need a bitmap and WHAT
+                                // uri to load — never to build the dispatched result. Building the
+                                // result from that snapshot (the old code's `layers.map { ... }`)
+                                // and dispatching it as a wholesale SetLayers replace silently
+                                // discarded any layer the user added, removed, or edited while
+                                // decoding was in flight — the user's own concurrent work, gone
+                                // with no error. Instead, collect just the decoded bitmaps here...
+                                val decoded = mutableMapOf<String, Bitmap>()
+                                layersToLoad.forEach { layer ->
+                                    val layerUri = layer.uri ?: return@forEach
+                                    val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
+                                    putLayerBase(layer.id, loadedBmp)
+                                    layerStore.initStrokes(layer.id)
+                                    decoded[layer.id] = loadedBmp
                                 }
+                                if (decoded.isEmpty()) return@launch
                                 withContext(dispatchers.main) {
-                                    dispatch(EditorIntent.SetLayers(loadedLayers))
+                                    // ...and merge them into whatever the LIVE layer list is now,
+                                    // touching only the bitmap field of the layers that actually
+                                    // decoded. Anything added/removed/edited in the meantime is
+                                    // read fresh here and preserved untouched.
+                                    val current = _uiState.value.layers
+                                    val merged = current.map { layer ->
+                                        decoded[layer.id]?.let { layer.copy(bitmap = it) } ?: layer
+                                    }
+                                    dispatch(EditorIntent.SetLayers(merged))
                                 }
                             }
                         }
@@ -1970,6 +1983,14 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onLayerReordered(newOrder: List<String>) {
+        val layers = _uiState.value.layers
+        // Pre-check against reorderSubset's own refuse conditions (a duplicate id, an unknown id,
+        // a dropped slot) before pushing history — a refused reorder used to push a snapshot
+        // identical to the current state anyway, consuming a real undo slot with a no-op entry
+        // that EditHistory's dedup (which only compares against the immediately preceding entry,
+        // not live state) doesn't catch, so the user had to hit Undo twice to reach their last
+        // real edit.
+        if (LayerListOps.reorderSubset(layers, newOrder) === layers) return
         pushHistory()
         dispatch(EditorIntent.ReorderLayers(newOrder))
         opEmitter.emit(Op.LayerReorder(newOrder))
@@ -2242,6 +2263,32 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Applies a curves adjustment (see [CurvesDialog]) to the active layer's bitmap. [points] are the
+     * dialog's normalized (0..1) control points; converted to a 256-entry LUT and applied identically
+     * to R/G/B, mirroring [applyInstalledLut]'s pushHistory/SetLoading/rebuild shape.
+     */
+    fun onCurvesApplied(points: List<Offset>) {
+        val layerId = _uiState.value.activeLayerId
+        val layer = layerId?.let { id -> _uiState.value.layers.find { it.id == id } }
+        val bitmap = layer?.bitmap
+        if (layerId == null || bitmap == null) {
+            Toast.makeText(context, "Select a layer with an image before applying curves", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pushHistory()
+        dispatch(EditorIntent.SetLoading(true))
+        viewModelScope.launch(dispatchers.default) {
+            val lut = CurvesUtil.calculateAdjustmentCurve(points.map { android.graphics.PointF(it.x, it.y) })
+            val adjusted = bitmap.applyCurveLut(lut)
+            putLayerBase(layerId, adjusted)
+            adjusted.recycle()
+            layerStore.initStrokes(layerId)
+            rebuildLayerBitmap(layerId, emitOp = true)
+            dispatch(EditorIntent.SetLoading(false))
+        }
+    }
+
+    /**
      * First-run doodle demo: on the scribble->artwork swap, pre-set the adjustment knobs to values
      * that read well against the wall. Combines [wall] (from the doodle capture) with the active
      * layer's own colour/contrast and applies through the existing setters (which route the
@@ -2486,6 +2533,7 @@ class EditorViewModel @Inject constructor(
         val layer = _uiState.value.layers.find { it.id == id } ?: return
         val projectId = _uiState.value.projectId ?: return
         pushHistory()
+        dispatch(EditorIntent.SetLoading(true))
 
         viewModelScope.launch(dispatchers.io) {
             val currentBitmap = layer.bitmap
@@ -2512,6 +2560,7 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
                 opEmitter.emit(Op.LayerAdd(duplicated))
                 saveProject()
+                dispatch(EditorIntent.SetLoading(false))
             }
         }
     }
@@ -3746,15 +3795,23 @@ class EditorViewModel @Inject constructor(
     fun onMergeDown(layerId: String) {
         val projectId = _uiState.value.projectId ?: return
         val layers = _uiState.value.layers
-        val index = layers.indexOfFirst { it.id == layerId }
-        // Index 0 paints first (bottom), so there is nothing beneath it to merge into.
-        if (index <= 0) {
+        val upper = layers.find { it.id == layerId } ?: return
+        // Siblings only — never reach across a group boundary by flat-list index. `layers` is a
+        // flat list where a group's children sit contiguously, so `layers[index - 1]` used to
+        // silently grab whatever was physically adjacent: the group CONTAINER itself (when upper
+        // was a group's bottom child — deleting it along with upper orphaned the rest of that
+        // group's children out of the rail entirely, still painting but unreachable), a layer
+        // inside a *different* group, or a layer one level up the tree. A group container also
+        // can't be merged into — it has no bitmap of its own.
+        val siblings = layers.filter { it.parentId == upper.parentId }
+        val siblingIndex = siblings.indexOfFirst { it.id == upper.id }
+        val lower = siblings.getOrNull(siblingIndex - 1)
+        if (lower == null || lower.type == LayerType.GROUP) {
             Toast.makeText(context, "Nothing below this layer to merge into", Toast.LENGTH_SHORT).show()
             return
         }
-        val upper = layers[index]
-        val lower = layers[index - 1]
         pushHistory()
+        dispatch(EditorIntent.SetLoading(true))
 
         viewModelScope.launch(dispatchers.default) {
             val metrics = context.resources.displayMetrics
@@ -3769,6 +3826,9 @@ class EditorViewModel @Inject constructor(
             val mergedLayer = Layer(
                 id = UUID.randomUUID().toString(),
                 name = lower.name,
+                // Inherits lower's parentId (== upper's, they're siblings) so the merge result
+                // stays in the same group instead of dropping to the root level.
+                parentId = lower.parentId,
                 uri = "file://$path".toUri(),
                 bitmap = merged,
             )
@@ -3777,7 +3837,10 @@ class EditorViewModel @Inject constructor(
                 val current = _uiState.value.layers
                 // Re-resolve positions: the list can have changed while the composite was running.
                 val stillThere = current.any { it.id == upper.id } && current.any { it.id == lower.id }
-                if (!stillThere) return@withContext
+                if (!stillThere) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    return@withContext
+                }
                 val at = current.indexOfFirst { it.id == lower.id }
                 putLayerBase(mergedLayer.id, merged)
                 layerStore.initStrokes(mergedLayer.id)
@@ -3790,6 +3853,7 @@ class EditorViewModel @Inject constructor(
                 opEmitter.emit(Op.LayerAdd(mergedLayer))
                 saveProject()
                 showHud("Merged down")
+                dispatch(EditorIntent.SetLoading(false))
             }
         }
     }
@@ -3801,14 +3865,29 @@ class EditorViewModel @Inject constructor(
      */
     fun onGroupWithLayerAbove(layerId: String) {
         val layers = _uiState.value.layers
-        val index = layers.indexOfFirst { it.id == layerId }
-        if (index < 0 || index >= layers.lastIndex) {
+        val current = layers.find { it.id == layerId } ?: return
+        // Siblings only — same reasoning as onMergeDown above. layers[index + 1] used to grab
+        // whatever was physically next in the flat list regardless of parentId, which could pull
+        // an unrelated top-level layer into an existing group (inheriting that group's opacity,
+        // blend mode and visibility along the way) or create a group nested inside another group
+        // that the rail then has no way to open (a nested group's own hidden menu never mounts).
+        val siblings = layers.filter { it.parentId == current.parentId }
+        val siblingIndex = siblings.indexOfFirst { it.id == current.id }
+        val above = siblings.getOrNull(siblingIndex + 1)
+        if (above == null) {
             Toast.makeText(context, "Nothing above this layer to group with", Toast.LENGTH_SHORT).show()
             return
         }
-        val above = layers[index + 1]
+        val newGroupId = UUID.randomUUID().toString()
+        // Pre-check against LayerListOps.group's own refuse conditions (an id collision, or —
+        // reachable even with the sibling-only lookup above, since siblings can already share a
+        // parent — the two layers already being grouped together) before pushing history. A
+        // refused group used to push a snapshot identical to the current state anyway, consuming
+        // a real undo slot with a no-op entry that EditHistory's dedup (which only compares
+        // against the immediately preceding entry, not live state) doesn't catch.
+        if (LayerListOps.group(layers, layerId, above.id, newGroupId, "Group") === layers) return
         pushHistory()
-        dispatch(EditorIntent.GroupLayers(layerId, above.id, UUID.randomUUID().toString(), "Group"))
+        dispatch(EditorIntent.GroupLayers(layerId, above.id, newGroupId, "Group"))
         saveProject()
     }
 
@@ -5796,6 +5875,7 @@ class EditorViewModel @Inject constructor(
     override fun onFlattenAllLayers() {
         val projectId = _uiState.value.projectId ?: return
         pushHistory()
+        dispatch(EditorIntent.SetLoading(true))
         viewModelScope.launch(dispatchers.default) {
             val metrics = context.resources.displayMetrics
             val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
@@ -5829,11 +5909,22 @@ class EditorViewModel @Inject constructor(
                 oldLayerIds.forEach { opEmitter.emit(Op.LayerRemove(it)) }
                 opEmitter.emit(Op.LayerAdd(flatLayer))
                 saveProject()
+                dispatch(EditorIntent.SetLoading(false))
             }
         }
     }
 
     override fun onToggleLinkLayer(layerId: String) {
+        // "Linked to below" is meaningless for the very bottom layer — nothing is below it to
+        // link to. Without this guard, isLinked could be set true on it anyway, but
+        // LinkOps.linkedGroupIds() never reads that flag for the bottom layer (its down-walk
+        // requires index > 0 before ever checking), so it was write-only: never consulted, and
+        // because linkedGroupIds() therefore always reported a lone group of size 1 for it, this
+        // handler always re-set it to true on every tap — it could never be toggled back off.
+        if (_uiState.value.layers.indexOfFirst { it.id == layerId } <= 0) {
+            Toast.makeText(context, "Nothing below this layer to link to", Toast.LENGTH_SHORT).show()
+            return
+        }
         pushHistory()
         val groupIds = getLinkedGroupIds(layerId)
         val isPartToUnlink = groupIds.size > 1

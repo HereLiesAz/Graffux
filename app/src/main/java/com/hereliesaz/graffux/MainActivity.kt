@@ -90,6 +90,7 @@ import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
+import com.hereliesaz.graffitixr.feature.editor.CurvesDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.EditorScreen
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
@@ -211,6 +212,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
     var showDocDialog by remember { mutableStateOf(false) }
     var showBlendDialog by remember { mutableStateOf(false) }
+    var showCurvesDialog by remember { mutableStateOf(false) }
     var showStrokeDialog by remember { mutableStateOf(false) }
     var showCornerDialog by remember { mutableStateOf(false) }
     var showShapeSizeDialog by remember { mutableStateOf(false) }
@@ -512,6 +514,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 activeColor = activeRailColor, // Pass down to DSL builder
                 screenCenter = screenCenter,
                 onBlendMode = { showBlendDialog = true },
+                onCurves = { showCurvesDialog = true },
                 onAddClicked = { showAddDialog = true },
                 onEditClicked = { showLayerOptionsDialog = true },
                 onModelClicked = { showModelDialog = true },
@@ -696,6 +699,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             showBlendDialog = false
                         },
                         onDismiss = { showBlendDialog = false },
+                    )
+                }
+
+                if (showCurvesDialog) {
+                    CurvesDialog(
+                        onDismissRequest = { showCurvesDialog = false },
+                        onCurvesApplied = { points -> vm.onCurvesApplied(points) },
                     )
                 }
 
@@ -1261,6 +1271,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in).
     screenCenter: Offset,
     onBlendMode: () -> Unit,
+    onCurves: () -> Unit,
     onAddClicked: () -> Unit,
     onEditClicked: () -> Unit,
     onModelClicked: () -> Unit,
@@ -1714,7 +1725,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
         renderLayerRailItem(
             layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
-            onBlendMode = onBlendMode, onEditClicked = onEditClicked,
+            onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
         )
     }
 
@@ -1796,6 +1807,7 @@ private fun AzNavHostScope.renderLayerRailItem(
     strings: AppStrings,
     onBlendMode: () -> Unit,
     onEditClicked: () -> Unit,
+    onCurves: () -> Unit,
 ) {
     val isGroup = layer.type == LayerType.GROUP
     val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
@@ -1815,12 +1827,23 @@ private fun AzNavHostScope.renderLayerRailItem(
             vm.onLayerReordered(ids.reversed())
         },
         keepNestedRailOpen = isGroup,
+        // KNOWN LIBRARY LIMITATION (AzNavRail, not fixable from this repo): a child rendered here
+        // ends up in the parent's `nestedRailItems`, drawn by NestedRail.kt's `NestedItemWrapper`
+        // rather than the top-level `RailContent`. Only `RailContent` wires the long-press gesture
+        // that opens a hidden menu (see RailItems.kt's `dragModifier`, gated on `item.isRelocItem`);
+        // `NestedItemWrapper` wires nothing but a plain `onClick`. So every listItem/inputItem below
+        // — Adjust, Rename, Merge Down, Delete, and the rest — is unreachable on a layer that is
+        // currently inside a group; tapping it only activates it. The one way back to those actions
+        // today is "Ungroup" on the group's own menu (reachable — the group container is a top-level
+        // item, not a nested one). Filed upstream against HereLiesAz/aznavrail; fixing it here would
+        // mean bypassing the rail DSL this whole screen is built on, which is a bigger change than
+        // this limitation warrants.
         nestedContent = if (isGroup) {
             {
                 children.reversed().forEach { child ->
                     renderLayerRailItem(
                         child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings,
-                        onBlendMode = onBlendMode, onEditClicked = onEditClicked,
+                        onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
                     )
                 }
             }
@@ -1852,6 +1875,7 @@ private fun AzNavHostScope.renderLayerRailItem(
                 listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
             }
             listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
+            listItem("Curves", on(onCurves))
             listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
             listItem("Merge Down") { vm.onMergeDown(layer.id) }
             listItem("Flatten All") { vm.onFlattenAllLayers() }

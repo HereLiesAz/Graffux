@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.model.ComponentOps
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.LayoutOps
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.StyleOps
@@ -21,6 +22,15 @@ import com.hereliesaz.graffitixr.common.model.Tool
  * of here is precisely what lets this be pure.
  */
 internal object EditorReducer {
+
+    /**
+     * The id to fall back to when the active layer is gone and something has to be picked from
+     * what's left — prefers a paintable layer over a [LayerType.GROUP] container. A group has no
+     * bitmap of its own, so landing on one silently breaks the brush (strokes go nowhere, with no
+     * highlighted row anywhere to explain why) until the user happens to tap something else.
+     */
+    private fun List<Layer>.firstDrawableId(): String? =
+        (firstOrNull { it.type != LayerType.GROUP } ?: firstOrNull())?.id
 
     fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState = when (intent) {
         is EditorIntent.SetOpacity -> state.mapActive { it.copy(opacity = intent.value) }
@@ -79,7 +89,7 @@ internal object EditorReducer {
             val remaining = ungrouped.filter { it.id != intent.id }
             state.copy(
                 layers = remaining,
-                activeLayerId = if (state.activeLayerId == intent.id) remaining.firstOrNull()?.id else state.activeLayerId,
+                activeLayerId = if (state.activeLayerId == intent.id) remaining.firstDrawableId() else state.activeLayerId,
                 activeTool = Tool.NONE,
             )
         }
@@ -286,7 +296,7 @@ internal object EditorReducer {
             val remaining = ungrouped.filterNot { it.id == intent.id }
             state.copy(
                 layers = remaining,
-                activeLayerId = if (state.activeLayerId == intent.id) remaining.firstOrNull()?.id else state.activeLayerId,
+                activeLayerId = if (state.activeLayerId == intent.id) remaining.firstDrawableId() else state.activeLayerId,
             )
         }
         is EditorIntent.SetLayerTransformById -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
@@ -324,7 +334,7 @@ internal object EditorReducer {
             activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
                 state.activeLayerId
             } else {
-                intent.layers.firstOrNull()?.id
+                intent.layers.firstDrawableId()
             },
         )
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
@@ -358,7 +368,7 @@ internal object EditorReducer {
             activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
                 state.activeLayerId
             } else {
-                intent.layers.firstOrNull()?.id
+                intent.layers.firstDrawableId()
             },
         )
         // Empties layers the same way every other branch above reconciles activeLayerId against a
