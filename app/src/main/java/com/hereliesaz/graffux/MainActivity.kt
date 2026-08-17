@@ -10,6 +10,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -103,7 +104,10 @@ import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
+import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
+import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
+import com.hereliesaz.graffitixr.feature.editor.SizePickerDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
@@ -229,6 +233,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
+    var showReferenceWindow by remember { mutableStateOf(false) }
+    // A viewing aid, not project state (see ReferenceWindow's own doc comment) — held here, not
+    // in the ViewModel, for the same reason.
+    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
+    var showFigmaWindow by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -306,6 +315,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { vm.onAddLayer(it) } }
+
+    val referencePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let { referenceImageUri = it } }
 
     val documentPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -587,6 +600,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // the UI at all. AddContentDialog, ShapeKind and onAddShapeLayer/
                     // onAddPolygonLayer never stopped working — nothing pointed at them any more.
                     menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
+                    menuItem(text = "Reference Image…", onClick = { showReferenceWindow = true })
+                    menuItem(text = "Import from Figma…", onClick = { showFigmaWindow = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     menuItem(text = strings.nav.share, onClick = {
@@ -875,6 +890,33 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
 
+                if (showReferenceWindow) {
+                    ReferenceWindow(
+                        imageUri = referenceImageUri,
+                        onPickImage = {
+                            referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        onDismiss = { showReferenceWindow = false },
+                    )
+                }
+
+                if (showFigmaWindow) {
+                    val figmaState by vm.figmaState.collectAsState()
+                    FigmaWindow(
+                        state = figmaState,
+                        onTokenSubmit = { vm.connectFigma(it) },
+                        onDisconnect = { vm.disconnectFigma() },
+                        onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
+                        onLoadFile = { vm.loadFigmaFile() },
+                        onToggleFrame = { vm.toggleFigmaFrame(it) },
+                        // Left open rather than dismissed here: importFigmaFrames() runs
+                        // asynchronously and FigmaWindow is what shows its loading state and any
+                        // per-import error — closing on click would hide both.
+                        onImport = { vm.importFigmaFrames() },
+                        onDismiss = { showFigmaWindow = false },
+                    )
+                }
+
                 if (showSaveDialog) {
                     SaveProjectDialog(
                         currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
@@ -1007,14 +1049,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 }
 
 @Composable
-private fun BrushSizePad(vm: EditorViewModel) {
+private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
     val state by vm.uiState.collectAsState()
     val density = LocalDensity.current
     var itemPx by remember { mutableFloatStateOf(120f) }
+    // The pad is otherwise drag-only — a two-axis pointer gesture with no click, no keyboard
+    // path, and nothing for TalkBack to announce beyond "brush size pad". A tap opens the same
+    // value through an accessible slider (SizePickerDialog) instead, without touching the drag
+    // gesture setters below it depends on.
+    var showSizePicker by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { itemPx = it.width.toFloat() }
+            .clickable(onClickLabel = "Set brush size") { showSizePicker = true }
             .pointerInput(Unit) {
                 detectDragGestures { change, drag ->
                     change.consume()
@@ -1075,6 +1123,14 @@ private fun BrushSizePad(vm: EditorViewModel) {
                 center = center,
             )
         }
+    }
+    if (showSizePicker) {
+        SizePickerDialog(
+            currentSize = state.brushSize,
+            onSizeChange = { vm.setBrushSize(it) },
+            onDismiss = { showSizePicker = false },
+            strings = strings,
+        )
     }
 }
 
@@ -1397,7 +1453,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // than it is tall, and the shape is carrying layout rather than affordance.
     azRailItem(
         id = "adj.brush", text = navStrings.brush, shape = AzButtonShape.NONE,
-        color = navItemColor, content = AzComposableContent { BrushSizePad(vm) },
+        color = navItemColor, content = AzComposableContent { BrushSizePad(vm, strings) },
     )
 
     // ── Transform · Selection ──────────────────────────────────────────────────────────────────────

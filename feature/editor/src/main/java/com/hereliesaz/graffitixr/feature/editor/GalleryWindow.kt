@@ -42,6 +42,15 @@ import kotlinx.coroutines.withContext
  * The Gallery — Procreate's home surface, as a floating window: every project as a thumbnail card;
  * tap to open, plus New and per-card Delete. Thumbnails are the small previews the editor already
  * maintains per project (see scheduleThumbnailUpdate), decoded off the main thread.
+ *
+ * NOT WIRED IN (deliberately, not an oversight): `OpenProjectWindow` already covers this exact job
+ * — open/new/delete a project — and additionally exposes `onOpenFile`/`onChooseLocation` (opening a
+ * project from an arbitrary on-disk file via the system picker) that this composable has no
+ * parameters for at all. Giving the app two different "open a project" surfaces would be confusing,
+ * and swapping `OpenProjectWindow` out for this one would silently drop the file-picker path. Making
+ * this the sole surface would mean adding that capability here first — a real feature change, not an
+ * audit-driven bug fix. Left as a nicer-looking (thumbnail grid vs. list) alternative implementation
+ * that was built but never swapped in.
  */
 @Composable
 fun GalleryWindow(
