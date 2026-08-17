@@ -38,24 +38,40 @@ jobs:
       - name: Download GLM
         env:
           GLM_VERSION: 1.0.1
+          # Pinned via `git ls-remote --tags https://github.com/g-truc/glm refs/tags/$GLM_VERSION`.
+          # Verifying the resolved commit SHA, not a zip checksum: a git tag can be force-moved by
+          # upstream, so this doesn't guard against that — but it IS a stronger integrity check
+          # than hashing GitHub's tag-archive .zip, which GitHub does not guarantee is byte-stable
+          # over time (regenerated archives can compress differently). A commit SHA is
+          # cryptographically derived from its tree content, so a mismatch here means the tag
+          # moved or the fetch was tampered with, either way worth stopping for.
+          GLM_COMMIT: 0af55ccecd98d4e5a8d1fad7de25ba429d60e863
         run: |
-          echo "Downloading GLM ${GLM_VERSION}..."
-          rm -rf libs/glm
-          wget -q https://github.com/g-truc/glm/archive/refs/tags/${GLM_VERSION}.zip -O glm.zip
-          unzip -q glm.zip
+          echo "Fetching GLM ${GLM_VERSION}..."
+          rm -rf libs/glm glm-src
+          git clone --quiet --depth 1 --branch "$GLM_VERSION" https://github.com/g-truc/glm glm-src
+          ACTUAL_COMMIT="$(git -C glm-src rev-parse HEAD)"
+          if [ "$ACTUAL_COMMIT" != "$GLM_COMMIT" ]; then
+            echo "::error::GLM tag $GLM_VERSION resolved to $ACTUAL_COMMIT, expected $GLM_COMMIT — the tag moved since this was pinned. Refusing to vendor unverified source; update GLM_COMMIT above only after reviewing what changed."
+            exit 1
+          fi
           mkdir -p libs/glm
-          mv glm-${GLM_VERSION}/glm libs/glm/glm
-          rm -rf glm-${GLM_VERSION} glm.zip
+          mv glm-src/glm libs/glm/glm
+          rm -rf glm-src
 
-      - name: Download LiteRT
+      # This step does NOT download LiteRT — there's no pinned URL for it yet. It only leaves a
+      # placeholder so `libs/litert` exists and says why. Keep it that way in both the step name
+      # and the commit message below: a past version of this step wrote the same placeholder but
+      # committed it under "Update dependencies: GLM, LiteRT", which reads as a real update and
+      # isn't one.
+      - name: Create LiteRT placeholder (not actually downloaded)
         env:
           LITERT_VERSION: 2.1.0
         run: |
-          echo "Downloading LiteRT ${LITERT_VERSION}..."
           rm -rf libs/litert
           mkdir -p libs/litert
           echo "LiteRT version ${LITERT_VERSION}" > libs/litert/README.md
-          echo "Please manually populate this directory or update the workflow with a valid URL." >> libs/litert/README.md
+          echo "Not downloaded by this workflow — no pinned URL is configured yet. Populate this directory by hand or add a real fetch step with a checksum/commit pin, matching the GLM step above." >> libs/litert/README.md
 
       - name: Commit and Push
         run: |
@@ -64,7 +80,7 @@ jobs:
           git add libs
           # Only commit if there are changes
           if ! git diff --cached --quiet; then
-            git commit -m "Update dependencies: GLM, LiteRT"
+            git commit -m "Update GLM dependency (LiteRT placeholder unchanged — see libs/litert/README.md)"
             git push origin dependencies
           else
             echo "No changes to commit."

@@ -9,6 +9,13 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# Reads the repo and runs tests/build only — no pushes, no releases, no issue writes. Without
+# this block every other workflow in the repo declares one explicitly, this job silently
+# inherits the repository/org default token permissions, which can be far broader than it needs
+# (historically write-all on repos configured for "Read and write permissions").
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

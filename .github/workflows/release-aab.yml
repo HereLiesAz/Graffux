@@ -31,11 +31,15 @@ name: Release AAB to Play
 #      a 403, so the run log names the identity that was rejected.
 #   3. FIRST UPLOAD MUST BE MANUAL: Google's API cannot create the very first release for a new app.
 #      Upload one AAB by hand in the Play Console once; after that this workflow can publish.
-#   4. Create at least one release in each of the alpha (closed testing), beta (open testing), and
-#      production tracks by hand — the Play API can only add releases to tracks that already exist.
+#   4. Create at least one release in the alpha (closed testing) track by hand — the Play API can
+#      only add releases to tracks that already exist. (beta/production are not part of this
+#      workflow's rollout today — see the note below.)
 #
-# Publishing rollout: one AAB, one Play Edit, four tracks. `internal` goes live (status=completed);
-# `alpha`/`beta`/`production` are staged as drafts, ready to promote by hand in the Play Console.
+# Publishing rollout: one AAB, one Play Edit, two tracks — TARGETS in publish_play.py is the only
+# authority on which; keep this comment in sync with it, not the other way around. `internal` goes
+# live (status=completed); `alpha` is staged as a draft, ready to promote by hand in the Play
+# Console. beta/production were dropped from TARGETS in a past commit that didn't update this
+# comment — if you want them back, add the tuples in publish_play.py first.
 # Implemented in `.github/scripts/publish_play.py` because Play rejects re-uploading the same
 # versionCode, so a single Edit is the only way to hand one bundle to multiple tracks.
 #
@@ -51,18 +55,27 @@ on:
   # always the latest merged build, and there are few enough commits that the quota holds.
   push:
     branches: [main]
-    paths-ignore:
-      - version.properties
   workflow_dispatch:
     inputs:
+      # Deliberately untyped (string), not `type: boolean`: every `if: … inputs.publish != 'false'`
+      # below only excludes the exact string "false", so anything else (including a boolean `false`
+      # coerced through `type: boolean`, which GitHub Actions expressions compare LOOSELY against a
+      # quoted 'false' and do NOT treat as equal) publishes. Switching to `type: boolean` without
+      # also rewriting every comparison to `!= false` (unquoted) would silently invert this input
+      # for `false` and publish anyway — verify against a real dispatch run before making that
+      # change, not just by reading it.
       publish:
         default: true
-        description: "Push the AAB to Play (false = build only)"
+        description: 'Push the AAB to Play. Type exactly false (lowercase, no quotes) to build only.'
 
 # Serialize Play publishes across ALL refs: the Play API allows only one open Edit per app, so two
 # release-aab runs publishing at once (e.g. a merge to main overlapping a branch push) collide with
-# "A change was made to the application outside of this Edit". Queue them (don't cancel a publish
-# mid-flight) so each completes before the next starts.
+# "A change was made to the application outside of this Edit". `cancel-in-progress: false` only
+# protects a run that's already publishing — it does NOT mean queued runs each get their turn.
+# GitHub cancels a *pending* run in the same group the moment a newer one arrives, so three merges
+# in quick succession publish the first and the third; the middle one is silently cancelled, not
+# queued, and produces no publish and no red X. If that's a problem, merge one at a time or watch
+# the Actions tab for cancelled runs.
 concurrency:
   group: google-play-publish
   cancel-in-progress: false
@@ -80,7 +93,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        # SHA-pinned, not @v7: this job holds the signing key and the Play service-account
+        # credential for its whole lifetime, so a compromised/re-tagged third-party action here
+        # is a direct path to both. A major-version tag is a moving pointer; a commit SHA isn't.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -93,32 +109,46 @@ jobs:
           fi
 
       - name: Generate keystore from secrets
+        shell: bash
         env:
           KEYSTORE_PRIVATE: ${{ secrets.KEYSTORE_PRIVATE }}
           KEYSTORE_CHAIN: ${{ secrets.KEYSTORE_CHAIN }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          # Cleanup runs on ANY exit, not just the happy path — without a trap, a failure in
+          # openssl/keytool below (mismatched chain/key, bad password) aborts the step under
+          # bash's `-e` before the old plain `rm` line, leaving the private key on disk for
+          # whatever post-job steps run afterward.
+          trap 'rm -f private_key.pem certificate_chain.crt keystore.p12' EXIT
           echo "$KEYSTORE_PRIVATE" > private_key.pem
           echo "$KEYSTORE_CHAIN" > certificate_chain.crt
           openssl pkcs12 -export -in certificate_chain.crt -inkey private_key.pem \
             -name "$KEY_ALIAS" -out keystore.p12 \
             -password pass:"$KEYSTORE_PASSWORD"
+          # -destkeypass is load-bearing, not cosmetic: without it, keytool defaults the
+          # imported key's password to -deststorepass (KEYSTORE_PASSWORD), NOT KEY_PASSWORD —
+          # so the build step below, which opens the key with KEY_PASSWORD, only ever worked
+          # because that secret happened to hold the same value as KEYSTORE_PASSWORD. Rotate
+          # either one alone and every release build would die at signing with
+          # UnrecoverableKeyException. Setting it explicitly here makes the two secrets
+          # actually independent, matching what SETUP above documents them as.
           keytool -importkeystore -srckeystore keystore.p12 -srcstoretype PKCS12 \
             -destkeystore app/keystore.jks -deststoretype JKS \
             -srcstorepass "$KEYSTORE_PASSWORD" \
             -deststorepass "$KEYSTORE_PASSWORD" \
+            -destkeypass "$KEY_PASSWORD" \
             -alias "$KEY_ALIAS" -noprompt
-          rm private_key.pem certificate_chain.crt keystore.p12
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
         with:
           cache-read-only: false
           dependency-graph: disabled
@@ -128,9 +158,12 @@ jobs:
 
       - name: Build signed AAB
         id: build
+        # Explicit, not incidental: GitHub's DEFAULT shell for `run:` steps is `bash -e {0}`
+        # with no `-o pipefail` — only `shell: bash` adds it. This step pipes through `tee`,
+        # so without this a Gradle failure would leave the pipeline's exit status as tee's
+        # (0), and the step would report success on a build that actually failed.
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -147,7 +180,7 @@ jobs:
           echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Upload AAB artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-aab
           path: app/build/outputs/bundle/release/*.aab
@@ -156,27 +189,28 @@ jobs:
       # Publish runs by default (including on push) so a build that doesn't actually push FAILS the job —
       # a green check means it reached Play. Skip only by explicitly dispatching with publish: false.
       #
-      # One AAB, four tracks, one Edit: internal goes live (status=completed) so testers see it
-      # immediately; alpha (closed testing), beta (open testing), and production are staged as
-      # drafts, ready to promote by hand in the Play Console. `.github/scripts/publish_play.py`
-      # opens a single Edit, uploads once, releases to all four tracks, and commits — because
-      # Play rejects re-uploading the same versionCode, this is the only way to hand one bundle
-      # to multiple tracks in one shot.
+      # One AAB, one Edit, whatever tracks TARGETS in publish_play.py names (internal + alpha
+      # today — see the note near the top of this file). internal goes live (status=completed)
+      # so testers see it immediately; alpha is staged as a draft, ready to promote by hand in
+      # the Play Console. `.github/scripts/publish_play.py` opens a single Edit, uploads once,
+      # releases to every track in TARGETS, and commits — because Play rejects re-uploading the
+      # same versionCode, this is the only way to hand one bundle to more than one track.
       - name: Set up Python
         if: ${{ inputs.publish != 'false' }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
       # publish_play.py exits 0 = every track ok, 2 = internal published but ≥1
       # other track failed (versionCode still consumed by Play), 1 = nothing published.
-      # GitHub Actions runs bash with `-eo pipefail`, so we have to disable errexit
-      # around the python call to actually reach `$?` — otherwise `-e` kills the step
-      # on exit 2 before we can capture the code for the "Fail if any track was not
-      # staged" step below.
-      - name: Publish to Google Play (internal + alpha/beta/production drafts; roll out in console)
+      # This step has no explicit `shell:`, so it runs under GitHub's default `bash -e {0}` —
+      # `-e` alone (no pipe here, so pipefail is moot) would still kill the step on the
+      # python call's exit 2 before `$?` can be read below. Disable errexit around the call to
+      # actually reach it.
+      - name: Publish to Google Play (internal + alpha draft; roll out in console)
         id: publish
         if: ${{ inputs.publish != 'false' }}
+        shell: bash
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
