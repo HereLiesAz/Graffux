@@ -1767,23 +1767,26 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = navItemColor,
         shape = AzButtonShape.SQUARE,
     )
-    // Always present, not just when the document has zero layers: with one layer already in
-    // place, the only other way to add a blank one was a four-finger-hold radial menu whose
-    // "Layer" entry says nothing about layers, and nothing in the layers host itself, the rail
-    // strip, or the dropdown ever added a plain paint layer. A fixed position at the top of the
-    // stack, rather than sorted in with the layers, so it's always where the last visit left it.
-    azRailSubItem(
-        id = "layer.add", hostId = "grp.layers", text = "Add Layer",
-        content = GraffuxIcons.LayerAdd,
-        color = navItemColor,
-        onClick = { vm.onAddBlankLayer() },
-    )
     uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
         renderLayerRailItem(
             layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
             onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
         )
     }
+    // Always present, not just when the document has zero layers: with one layer already in
+    // place, the only other way to add a blank one was a four-finger-hold radial menu whose
+    // "Layer" entry says nothing about layers, and nothing in the layers host itself, the rail
+    // strip, or the dropdown ever added a plain paint layer. A fixed position at the bottom of
+    // the stack (declared after every layer, since the host renders topmost-first), rather than
+    // sorted in with the layers, so it's always where the last visit left it — and at the
+    // bottom rather than the top so it doesn't shove every layer down a slot each time the list
+    // is scanned top-to-bottom.
+    azRailSubItem(
+        id = "layer.add", hostId = "grp.layers", text = "Add Layer",
+        content = GraffuxIcons.LayerAdd,
+        color = navItemColor,
+        onClick = { vm.onAddBlankLayer() },
+    )
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
