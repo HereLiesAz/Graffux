@@ -604,6 +604,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     menuItem(text = "Import from Figma…", onClick = { showFigmaWindow = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
+                    // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
+                    // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
+                    // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
+                    // never stopped working, it just had no menu item pointing at it any more.
+                    menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     menuItem(text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
