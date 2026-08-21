@@ -8,12 +8,15 @@ Read before proposing structural changes. Never recalled — opened.
 
 ## Current version
 
-- App version: `1.38.277` (`versionMajor.versionMinor.versionPatch` in `version.properties`,
-  `versionBuild=478`). See "version.properties and versionCode" below before touching this file.
+- App version: `versionMajor.versionMinor.versionPatch`, computed from `version.properties`
+  and auto-incremented on every `assembleDebug`/`bundleRelease` — do not hardcode a snapshot
+  of it here, it drifts on the next local build. See `CLAUDE.md`'s "versionCode and Play
+  publishing" section before touching that file or this one.
 - Kotlin `2.4.10`, AGP `9.3.1`.
-- `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`) `11.17` — see the AzNavRail
-  reloc-item invariant below; this pin is currently working around a confirmed upstream bug,
-  not just tracking latest.
+- `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`) `11.18`+ required — `11.15`
+  through `11.17` have the reloc-item-under-`azUnattachedHostItem` bug described below;
+  `11.18` is the first version confirmed (via upstream's own `AzUnattachedRelocItemClickTest`)
+  to fix it. Do not downgrade below `11.18`.
 
 ---
 
@@ -25,7 +28,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:feature:editor` | The editor: `EditorReducer`, `EditorViewModel`, canvas, panels, brush/stroke engine, export, dialogs/windows (Curves, Figma, Reference, Gallery, Store, etc.). |
 | `:core:common` | Models (`Layer`, `EditorUiState`, `GraffitiProject`), pure ops (`LayerListOps`, `LinkOps`), serialization, the `azphalt` extension format's Android-free types (`AzphaltManifest`, `CubeLut`, `TrustStore`). |
 | `:core:domain` | Repository interfaces. |
-| `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore` (exported `ContentProvider`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
+| `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
 | `:core:nativebridge` | JNI bridge to the native (OpenCV) world used by Liquify and drawing. |
 
@@ -66,15 +69,15 @@ file is a change to GraffitiXR too, whether or not this repo's CI can see that.
    the WASM import list (that breaks module linking outright, since `quickjs.wasm` declares
    `clock_time_get`/`random_get` as mandatory imports), but replaced with a fixed, non-real
    answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`.
-7. **AzNavRail `azRailRelocItem` items are unclickable under `azUnattachedHostItem`.**
-   Confirmed bug in the library (`RailContent.kt` nulls `onClick` for any `isRelocItem`,
-   relying entirely on an externally-supplied `dragModifier` that `AzUnattachedRail.kt`'s
-   `UnattachedNode` never provides). Every layer row in the `"grp.layers"` panel is exactly
-   such an item, so layer selection and any per-layer hidden-menu action are currently
-   non-functional in the shipped app regardless of `azNavRail` version. This needs an
-   upstream fix in `HereLiesAz/aznavrail`; it cannot be worked around from this repo, since
-   `dragModifier` isn't exposed through `azRailRelocItem`'s public API. Do not "fix" this by
-   downgrading the version pin — it predates every version tried so far.
+7. **`azNavRail` must stay pinned to `11.18` or newer.** `azRailRelocItem` items (every layer
+   row in the `"grp.layers"` panel is one) were completely unclickable under an
+   `azUnattachedHostItem` in `11.15` through `11.17` — `RailContent.kt` nulls `onClick` for
+   any `isRelocItem`, relying entirely on an externally-supplied `dragModifier` that
+   `AzUnattachedRail.kt`'s `UnattachedNode` never provided. Confirmed fixed in `11.18`
+   (`UnattachedNode` now wires its own tap/long-press gesture; see upstream's
+   `AzUnattachedRelocItemClickTest.kt`). This was never fixable from this repo —
+   `dragModifier` isn't exposed through `azRailRelocItem`'s public API — so don't reintroduce
+   the bug by downgrading the version pin below `11.18` for an unrelated reason.
 8. **A layer nested inside a `GROUP` loses its hidden menu.** Separate, also-confirmed
    AzNavRail limitation: `NestedItemWrapper` (`NestedRail.kt`) never wires the long-press
    gesture that opens a hidden menu, so Adjust/Rename/Delete/etc. are unreachable on a layer
@@ -85,20 +88,22 @@ file is a change to GraffitiXR too, whether or not this repo's CI can see that.
 
 ## Known documentation gaps
 
-`spec/package-format.md` and `spec/store-app.md` exist now (reverse-engineered from the code
-that implements them), but they themselves reference seven more normative documents that are
-cited throughout the `azphalt` code and still don't exist anywhere in this repo:
-`spec/extension-manifest.md`, `spec/pack.md`, `spec/companion-app.md`, `spec/mcp-server.md`,
-`spec/ui-schema.md`, `spec/repository-api.md`, `spec/state-reporting.md`. Each is a genuine
-gap, not a broken link — the code paths they'd document are real and working. Write them the
-same way: read every referencing file first, ground every claim in code, mark anything
-unconfirmable as a TODO rather than inventing it.
+`spec/package-format.md`, `spec/store-app.md`, and `spec/state-reporting.md` exist now
+(reverse-engineered from the code that implements them), but the first two still reference six
+more normative documents that are cited throughout the `azphalt` code and still don't exist
+anywhere in this repo: `spec/extension-manifest.md`, `spec/pack.md`, `spec/companion-app.md`,
+`spec/mcp-server.md`, `spec/ui-schema.md`, `spec/repository-api.md`. Each is a genuine gap, not a
+broken link — the code paths they'd document are real and working. Write them the same way: read
+every referencing file first, ground every claim in code, mark anything unconfirmable as a TODO
+rather than inventing it.
 
-`spec/package-format.md` also flags two open questions worth resolving with someone who has
-product context, not just code-reading: whether the `bitmap`/`audio` `Capability` wire values
-(declared but with no sandbox host-function bridge) are an intentional future reservation or a
-gap, and whether `JsSandbox.eval()` discarding the QuickJS exception's actual message (in favor
-of a generic `RuntimeException`) is acceptable or should propagate more detail.
+`spec/package-format.md` and `spec/state-reporting.md` also flag three open questions worth
+resolving with someone who has product context, not just code-reading: whether the `bitmap`/`audio`
+`Capability` wire values (declared but with no sandbox host-function bridge) are an intentional
+future reservation or a gap; whether `JsSandbox.eval()` discarding the QuickJS exception's actual
+message (in favor of a generic `RuntimeException`) is acceptable or should propagate more detail;
+and whether `EXTRA_REPORT_TOKEN` (`spec/state-reporting.md` § 6) not being spent anywhere in this
+codebase is deferred scope or a real gap in the install-report flow.
 
 ## Decisions
 

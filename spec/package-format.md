@@ -9,12 +9,13 @@ model, the `.cube` LUT format extensions ship, and the sandbox capability model 
 `core/common` and `core/data`'s `azphalt` packages actually implement and enforce. It does not invent
 fields, constraints, or defaults beyond what the code demonstrates.
 
-Related normative documents this codebase references but which are out of scope here (also missing
-from the repo, and not reconstructed by this pass): `spec/extension-manifest.md` (the manifest schema
-in full detail), `spec/pack.md` (`kind: "pack"`), `spec/companion-app.md` (`kind: "app"`),
-`spec/mcp-server.md` (`kind: "mcp"`), `spec/ui-schema.md` (native UI panel schemas), `spec/repository-api.md`
-(the `.well-known/azphalt-repository.json` registry format), and `spec/state-reporting.md` (the
-install/uninstall state-reporting channel — summarized here only where `store-app.md` needs it).
+Related normative documents this codebase references but which are out of scope here: `spec/extension-manifest.md`
+(the manifest schema in full detail), `spec/pack.md` (`kind: "pack"`), `spec/companion-app.md`
+(`kind: "app"`), `spec/mcp-server.md` (`kind: "mcp"`), `spec/ui-schema.md` (native UI panel
+schemas), and `spec/repository-api.md` (the `.well-known/azphalt-repository.json` registry format)
+— all still missing from the repo and not reconstructed by this pass. `spec/state-reporting.md`
+(the install/uninstall state-reporting channel, summarized here only where `store-app.md` needs it)
+now exists as its own document.
 
 ---
 

@@ -9,10 +9,9 @@ install/uninstall contract every acquisition path funnels through), `ExtensionSt
 `app/src/main/AndroidManifest.xml` (package-visibility `<queries>`, the exported provider, and the
 `azphalt://install` intent filter).
 
-Related normative document referenced throughout this code but out of scope here (and also missing
-from this repo): `spec/state-reporting.md`, which fully specifies the inventory-document and
-`ContentProvider` state-reporting channel this document summarizes only as far as the store handoff
-needs it.
+Related normative document referenced throughout this code but out of scope here: `spec/state-reporting.md`,
+which fully specifies the inventory-document and `ContentProvider` state-reporting channel this
+document summarizes only as far as the store handoff needs it.
 
 ---
 
@@ -359,8 +358,8 @@ has even been parsed (when the bytes themselves can't yet say what they are), an
 with the package because the store *downloaded* and the host *installs*: the token authorises exactly
 one install report, and only the host knows whether an install actually happened. Left unspent, the
 repository's count simply stays honest." (Consuming `reportToken` — actually spending it against a
-repository endpoint — is part of `spec/state-reporting.md` § 4.2, not evidenced further in this
-codebase.)
+repository endpoint — is part of `spec/state-reporting.md` § 6; nothing in this codebase spends it,
+per that document's own "Open item" note.)
 
 `EXTRA_SIGNED` is read as a genuine tri-state, not a boolean defaulting to `false`: absence of the
 extra means `signed = null` ("the store did not say"), distinct from the store explicitly asserting
@@ -443,10 +442,11 @@ be lost: "its brushes, LUTs, filters."
 
 ## Open items (TODO: unconfirmed)
 
-- **`spec/state-reporting.md`** itself (the full inventory-document/`ContentProvider` spec, and in
-  particular how `EXTRA_REPORT_TOKEN` is actually *spent* against a repository endpoint per its
-  § 4.2) is referenced repeatedly but does not exist in this repository; this document only reproduces
-  what the store-handoff code demonstrates about that channel, not the full state-reporting contract.
+- **`spec/state-reporting.md`** now exists — see it for the full inventory-document/`ContentProvider`
+  contract this document only reproduces the store-handoff-relevant parts of. It still doesn't
+  resolve how `EXTRA_REPORT_TOKEN` is actually *spent* against a repository endpoint (§ 6 of that
+  document): nothing in this codebase spends it, and whether that's deferred scope or a real gap is
+  an open product question, not a code-reading answer.
 - **`spec/repository-api.md`** (referenced for "Media domains" and the registry's
   `.well-known/azphalt-repository.json` trust-bootstrap format) is likewise missing; only the
   `signingKeys` array consumed by `ExtensionRepository.refreshTrustStore` is evidenced here (see
