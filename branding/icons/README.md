@@ -34,7 +34,7 @@ the dense ones — `eraser`, `smudge`, `document-save` — on real hardware befo
 
 ## Where the drawings come from
 
-313 are Graffux's own. 88 are Phosphor Icons drawings used as delivered; Phosphor's licence
+316 are Graffux's own. 88 are Phosphor Icons drawings used as delivered; Phosphor's licence
 is MIT and requires its notice to travel with the geometry, so `NOTICE` is generated from the
 manifest and a copy is written to `app/src/main/res/raw/` and shown in the app under
 Settings. Add or drop a borrowed icon and both update on the next build.
