@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,6 +79,8 @@ import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
+import com.hereliesaz.graffitixr.design.components.LocalRailInset
+import com.hereliesaz.graffitixr.design.components.RailInset
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
@@ -183,6 +186,13 @@ private const val MAX_BRUSH_SIZE = 200f
 
 /** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */
 private const val MIN_BRUSH_ALPHA = 0.05f
+
+/**
+ * Width of each rail button, and so of the rail strip itself — shared between azConfig's own
+ * `railItemWidth` and [RailInset] (see FloatingWindow.kt), so the two can never drift apart and
+ * leave a floating window able to spawn or settle under the rail.
+ */
+private val RAIL_ITEM_WIDTH = 44.dp
 
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
@@ -455,6 +465,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
     // nothing, so every control underneath still behaves exactly as before.
     val strokeGate = remember { StrokeGate() }
+    // Shared with azConfig's own `dockingSide`/`railItemWidth` below, so FloatingWindow's
+    // rail-avoidance (see LocalRailInset) can never drift out of sync with where the rail actually
+    // docks.
+    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = RAIL_ITEM_WIDTH)
+    CompositionLocalProvider(LocalRailInset provides railInset) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -509,7 +524,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 noMenu = true,
                 packButtons = true,
                 dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
-                railItemWidth = 44.dp
+                railItemWidth = RAIL_ITEM_WIDTH
             )
             // Four-finger tap (see the multiFingerTaps observer above): full-screen art. Folding the
             // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
@@ -1050,6 +1065,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
         }
+    }
     }
 }
 
@@ -1882,9 +1898,15 @@ private fun AzNavHostScope.renderLayerRailItem(
         content = if (isGroup) GraffuxIcons.LayerGroup else (layer.bitmap ?: GraffuxIcons.LayerThumbnail),
         // Square, like the floating host these live in — and unlike a circular clip, it shows the
         // layer's thumbnail whole instead of cropping its corners. A group layer hosts its children's
-        // nested rail, so it keeps a border; a leaf layer is just a selection and stays borderless.
-        shape = if (isGroup) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
-        color = if (!isGroup && layer.id == uiState.activeLayerId) activeColor else navItemColor,
+        // nested rail, so it always keeps a border; a leaf layer only grows one — AzNavRailButton's
+        // own active-state border, tinted with the rail's activeColor — while it's the active layer.
+        // That border is the *only* highlight channel this button actually shows: with a full-bleed
+        // bitmap/icon as content, AzNavRailButton skips the tint, text-color, and container-fill
+        // channels entirely (see its itemContent path), so the highlight has to come from flipping
+        // `shape` here, not from the `color` param below.
+        shape = if (isGroup || layer.id == uiState.activeLayerId) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
+        // This item's own *unselected* tint — moot for the active highlight above (see shape).
+        color = navItemColor,
         onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
         onRelocate = { _, _, newOrder ->
             val ids = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
