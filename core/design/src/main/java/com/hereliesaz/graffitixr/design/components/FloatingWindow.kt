@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -30,9 +31,8 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
 import com.hereliesaz.aznavrail.AzWindow
 import com.hereliesaz.aznavrail.AzWindowState
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 
 /**
  * The horizontal strip of the screen the AzNavRail rail currently occupies. Every [FloatingWindow]
@@ -41,7 +41,9 @@ import kotlinx.coroutines.flow.mapNotNull
  * always draws on top.
  *
  * Provide the real value once near the editor's root, alongside the same `azConfig(dockingSide =
- * ..., railItemWidth = ...)` call that docks the rail itself. The default assumes no rail is
+ * ...)` call that docks the rail itself — see `MainActivity`'s `measuredRailWidth`, read back from
+ * `AzNavHostScope.railWidth` rather than guessed, since the rail's actual on-screen width is a
+ * separate config knob (`collapsedWidth`) from its per-button width. The default assumes no rail is
  * docked, so a host that never provides one still gets ordinary onscreen clamping.
  */
 data class RailInset(val dockedOnLeft: Boolean, val width: Dp)
@@ -52,13 +54,9 @@ private val MaxWindowWidth = 320.dp
 private val MaxWindowHeight = 480.dp
 
 // A window more than this fraction offscreen is being thrown away, not just moved — closing it
-// beats leaving a barely-there sliver nobody can find their way back to.
+// beats leaving a barely-there sliver nobody can find their way back to. AzWindow itself has no
+// notion of this; it only ever guarantees a minimal sliver stays reachable.
 private const val CLOSE_OFFSCREEN_FRACTION = 0.9f
-
-// How long a position has to hold still before it's treated as "where the user left it" rather
-// than "mid-drag" — long enough that an active drag is never fought, short enough that the correct
-// onscreen position, or a close, follows quickly once the user lets go.
-private const val SETTLE_DEBOUNCE_MS = 300L
 
 /**
  * A floating, draggable, collapsible panel for tool options — Procreate-style, in place of a modal
@@ -66,42 +64,35 @@ private const val SETTLE_DEBOUNCE_MS = 300L
  * never dims or blocks the canvas, so several can be open over the artwork at once, each positioned
  * and collapsed independently.
  *
- * **This is now a thin wrapper over AzNavRail's [AzWindow]** (11.9), not a hand-rolled panel. The
- * ninety lines it replaced were a re-implementation of the same thing, and one of them was a bug:
- * the drag handler was `offset += dragAmount` with no bounds of any kind, so any of the two dozen
- * windows in this app could be dragged clean off the screen and was then unreachable — no way to
- * grab a title bar that isn't on screen, and no way to get the panel back short of closing and
- * reopening it, losing whatever was in it. [AzWindow] clamps the drag so a title bar's worth always
- * stays visible, which is the whole reason to use the library's version rather than keep our own.
+ * **This is a thin wrapper over AzNavRail's [AzWindow]** (11.19+). Three things it adds on top:
  *
- * [AzWindow]'s own clamp only guarantees a sliver of the title bar stays reachable — it happily
- * leaves most of a window hanging off an edge indefinitely, and knows nothing about the rail's
- * footprint at all. Since the library exposes no hook to change that (its drag handling is
- * internal), this wrapper watches the window's own reported position instead: once it settles
- * (see [SETTLE_DEBOUNCE_MS], so a live drag is never fought), a window left mostly [dismissed][onDismiss]
- * beyond [CLOSE_OFFSCREEN_FRACTION] is closed outright; anything short of that is pulled back
- * fully onscreen and clear of [LocalRailInset] by handing [AzWindow] a freshly-seeded
- * [AzWindowState] at the corrected position — the library has no API to move an existing instance,
- * only to construct one at a starting offset, so a correction is a new instance, not a mutation.
- * This only applies to the window's own default state (`state` left null below); a caller-hoisted
- * [AzWindowState] is never replaced out from under it.
+ *  - **Rail avoidance and full-onscreen settling**, via [AzWindow]'s own `obstruction` and
+ *    `snapFullyOnscreen` params — built from [LocalRailInset] here, so a window can never be
+ *    dragged (or settle) under the rail, and always ends up fully back onscreen once a drag ends,
+ *    not just leaving a minimal sliver reachable.
+ *  - **A newly-(re)opened window is corrected too**, not just a dragged one: [AzWindow]'s own
+ *    mount-time clamp only guarantees that same minimal sliver, so this wrapper additionally pulls
+ *    a freshly-placed window fully onscreen and clear of the rail right after its first layout,
+ *    using the now-public [AzWindowState.moveTo] — no drag required to reach a safe position.
+ *  - **Closing past [CLOSE_OFFSCREEN_FRACTION] offscreen** — a "drag it away to dismiss" gesture
+ *    AzWindow doesn't offer on its own — by watching the window's own reported bounds live and
+ *    dismissing the moment they cross the threshold, mid-drag.
  *
  * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
  * they get for free: the clamp, a fold control that matches every other AzNavRail surface, and an
- * accent that follows the rail's rather than being independently themed here — plus, now, a place
- * in the stack: every call site shares [FloatingWindowStacking] through the same un-keyed defaults,
- * so a window opened after another always lands on top of it and doesn't start at the exact same
- * point on screen. Before this, all two dozen call sites defaulted to the identical fixed position
- * and z-index, so a just-opened window could render invisibly underneath an older one with no hint
- * it had opened at all — Compose breaks a tie between equal z-indices by composition order, which
- * has nothing to do with which window the user actually asked for most recently.
+ * accent that follows the rail's rather than being independently themed here — plus a place in the
+ * stack: every call site shares [FloatingWindowStacking] through the same un-keyed defaults, so a
+ * window opened after another always lands on top of it and doesn't start at the exact same point
+ * on screen. Before this, all two dozen call sites defaulted to the identical fixed position and
+ * z-index, so a just-opened window could render invisibly underneath an older one with no hint it
+ * had opened at all — Compose breaks a tie between equal z-indices by composition order, which has
+ * nothing to do with which window the user actually asked for most recently.
  *
  * [initialOffset] seeds the position once. Hoist an [AzWindowState] via [rememberFloatingWindowState]
  * and pass it as [state] when a window's placement or folded state has to outlive the window itself
- * — a hoisted state's position is the caller's to own, so it is used exactly as given, un-cascaded,
- * and without the onscreen/rail correction described above.
+ * — a hoisted state still gets the same rail-avoidance/onscreen correction, since [AzWindowState]
+ * exposes those operations publicly regardless of who created it.
  */
-@OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun FloatingWindow(
     title: String,
@@ -115,24 +106,19 @@ fun FloatingWindow(
     // re-enters composition, i.e. exactly when the window is (re)opened — not on every recomposition
     // while it stays open, and not shared with any other window's instance of this same call site.
     val stackSlot = remember { FloatingWindowStacking.claim() }
-    var internalState by remember {
+    val internalState = remember {
         val seed = initialOffset + stackSlot.cascadeOffset
-        mutableStateOf(AzWindowState(seed.x, seed.y, false))
+        AzWindowState(seed.x, seed.y, false)
     }
-    // A caller-hoisted state always wins and is never swapped out — see the doc comment above.
     val windowState = state ?: internalState
 
     val railInset = LocalRailInset.current
     val density = LocalDensity.current
     val containerSize = LocalWindowInfo.current.containerSize
+    val obstruction = remember(containerSize, railInset, density) {
+        railInset.asObstruction(containerSize, density)
+    }
 
-    // Two independent position readings of the same window: `anchor` is where AzWindow would sit
-    // with a ZERO offset (captured by sitting earlier than the library's own internal `.offset()`
-    // in the modifier chain, so this reading is taken before that offset applies), and `liveRect`
-    // is its actual final bounds on screen (captured by the outer Box, which has nothing else
-    // inside it). The difference between a desired absolute position and `anchor` is exactly the
-    // offset a fresh [AzWindowState] needs to be seeded with to land there.
-    var anchor by remember { mutableStateOf<Offset?>(null) }
     var liveRect by remember { mutableStateOf<Rect?>(null) }
 
     Box(
@@ -142,7 +128,6 @@ fun FloatingWindow(
     ) {
         AzWindow(
             modifier = modifier
-                .onGloballyPositioned { coordinates -> anchor = coordinates.positionInWindow() }
                 .zIndex(stackSlot.zIndex)
                 .widthIn(min = 220.dp, max = MaxWindowWidth)
                 .heightIn(max = MaxWindowHeight),
@@ -153,39 +138,47 @@ fun FloatingWindow(
             accent = MaterialTheme.colorScheme.outlineVariant,
             surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
             onDismiss = onDismiss,
+            obstruction = obstruction,
+            snapFullyOnscreen = true,
         ) {
             Column(modifier = Modifier.padding(12.dp), content = content)
         }
     }
 
-    if (state == null) {
-        LaunchedEffect(internalState, railInset, containerSize) {
-            val railWidthPx = with(density) { railInset.width.toPx() }
-            snapshotFlow { liveRect to anchor }
-                .mapNotNull { (rect, a) -> if (rect != null && a != null) rect to a else null }
-                .debounce(SETTLE_DEBOUNCE_MS)
-                .collectLatest { (rect, a) ->
-                    if (visibleFraction(rect, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) {
-                        onDismiss()
-                        return@collectLatest
-                    }
-                    val safeTopLeft = clampFullyOnscreen(
-                        topLeft = rect.topLeft,
-                        size = Offset(rect.width, rect.height),
-                        containerSize = containerSize,
-                        railInset = railInset,
-                        railWidthPx = railWidthPx,
-                    )
-                    if (safeTopLeft != rect.topLeft) {
-                        internalState = AzWindowState(
-                            initialOffsetX = safeTopLeft.x - a.x,
-                            initialOffsetY = safeTopLeft.y - a.y,
-                            initialMinimized = internalState.minimized,
-                        )
-                    }
-                }
+    // Auto-close a window dragged (almost) entirely off screen — reacts live, mid-drag, so this
+    // isn't waiting for a drag to end before it can act (unlike the onscreen-correction below,
+    // which only matters once a position settles).
+    LaunchedEffect(containerSize) {
+        snapshotFlow { liveRect }
+            .filterNotNull()
+            .collect { rect ->
+                if (visibleFraction(rect, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) onDismiss()
+            }
+    }
+
+    // AzWindow's own mount-time clamp only guarantees the same minimal sliver a live drag does —
+    // not full containment, which only kicks in once a drag actually settles (`snapFullyOnscreen`
+    // above). Apply that same full correction once up front too, so a freshly-(re)opened window
+    // never has to wait for a drag before it's somewhere reachable.
+    LaunchedEffect(containerSize, railInset) {
+        val rect = snapshotFlow { liveRect }.filterNotNull().first()
+        val safe = clampFullyOnscreen(rect.topLeft, Offset(rect.width, rect.height), containerSize, obstruction)
+        if (safe != rect.topLeft) {
+            windowState.moveTo(
+                windowState.offsetX + (safe.x - rect.left),
+                windowState.offsetY + (safe.y - rect.top),
+            )
         }
     }
+}
+
+/** [RailInset] as a container-space [Rect], matching what [AzWindow]'s `obstruction` param expects. */
+private fun RailInset.asObstruction(containerSize: IntSize, density: Density): Rect? {
+    if (width == 0.dp || containerSize.width <= 0 || containerSize.height <= 0) return null
+    val widthPx = with(density) { width.toPx() }
+    val height = containerSize.height.toFloat()
+    return if (dockedOnLeft) Rect(0f, 0f, widthPx, height)
+    else Rect(containerSize.width - widthPx, 0f, containerSize.width.toFloat(), height)
 }
 
 /** Fraction of `rect`'s own area that overlaps the container — 1f fully onscreen, 0f fully off. */
@@ -199,20 +192,26 @@ private fun visibleFraction(rect: Rect, containerSize: IntSize): Float {
     return visibleArea / totalArea
 }
 
-/** Clamps a top-left position so the whole `size` footprint fits inside the container and clear of the rail. */
-private fun clampFullyOnscreen(
-    topLeft: Offset,
-    size: Offset,
-    containerSize: IntSize,
-    railInset: RailInset,
-    railWidthPx: Float,
-): Offset {
+/**
+ * Clamps a top-left position so the whole `size` footprint fits inside the container and clear of
+ * `obstruction` — mirroring [AzWindowState]'s own internal `narrowForObstruction`: only the edge(s)
+ * `obstruction` actually touches are enforced, since there's no side to define "clear of it" from
+ * for a rect that touches none of the container's edges.
+ */
+private fun clampFullyOnscreen(topLeft: Offset, size: Offset, containerSize: IntSize, obstruction: Rect?): Offset {
     if (containerSize.width <= 0 || containerSize.height <= 0) return topLeft
-    val minX = if (railInset.dockedOnLeft) railWidthPx else 0f
-    val maxX = (containerSize.width - size.x - (if (railInset.dockedOnLeft) 0f else railWidthPx))
-        .coerceAtLeast(minX)
-    val minY = 0f
-    val maxY = (containerSize.height - size.y).coerceAtLeast(minY)
+    var minX = 0f
+    var maxX = (containerSize.width - size.x).coerceAtLeast(minX)
+    var minY = 0f
+    var maxY = (containerSize.height - size.y).coerceAtLeast(minY)
+    if (obstruction != null) {
+        if (obstruction.left <= 0f) minX = minX.coerceAtLeast(obstruction.right)
+        if (obstruction.right >= containerSize.width) maxX = maxX.coerceAtMost(obstruction.left - size.x)
+        if (obstruction.top <= 0f) minY = minY.coerceAtLeast(obstruction.bottom)
+        if (obstruction.bottom >= containerSize.height) maxY = maxY.coerceAtMost(obstruction.top - size.y)
+        if (minX > maxX) maxX = minX
+        if (minY > maxY) maxY = minY
+    }
     return Offset(topLeft.x.coerceIn(minX, maxX), topLeft.y.coerceIn(minY, maxY))
 }
 
