@@ -11,8 +11,8 @@ buildscript {
         "org.bitbucket.b_c:jose4j:0.9.6",
         "org.apache.commons:commons-lang3:3.20.0",
         "org.apache.httpcomponents:httpclient:4.5.14",
-        "com.google.guava:guava:33.6.0-jre",
-        "com.google.android.gms:play-services-basement:18.10.0",
+        "com.google.guava:guava:33.7.1-jre",
+        "com.google.android.gms:play-services-basement:18.11.0",
         // Bouncy Castle: 1.79 (transitive, via the build + app classpaths) is vulnerable to
         // a covert timing channel (HIGH), LDAP injection, and a risky-crypto-algo issue in
         // bcpkix — all first patched in 1.84. bcprov got a 1.85.2 patch release; bcpkix and
