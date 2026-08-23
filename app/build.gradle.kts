@@ -55,7 +55,22 @@ val verMinor = versionProps.getProperty("versionMinor", "0")
 val lastMinor = versionProps.getProperty("versionMinorLast", verMinor)
 val isMinorBumped = verMinor != lastMinor
 
-var currentVersionCode = versionProps.getProperty("versionBuild", "1").toInt() + 1
+// -PversionCodeOverride, passed only by .github/workflows/release-aab.yml, is the versionCode
+// Play will actually accept (its highest released code + 1, floored at the value below). It
+// exists because the committed versionBuild does NOT advance between CI runs — the release job
+// is contents:read and never commits its own increment — so every merge that didn't hand-bump
+// version.properties rebuilt an already-published versionCode and Play rejected it. See
+// "versionCode and Play publishing" in CLAUDE.md. Absent (every local build), nothing changes:
+// the committed versionBuild + 1 is still the source of truth.
+val versionCodeOverride = (project.findProperty("versionCodeOverride") as? String)
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?.let {
+        // Loudly, not silently back to the default: a typo'd override that fell through would
+        // rebuild the stale versionCode and resurrect exactly the failure this replaces.
+        it.toIntOrNull() ?: throw GradleException("-PversionCodeOverride=$it is not an integer")
+    }
+var currentVersionCode = versionCodeOverride ?: (versionProps.getProperty("versionBuild", "1").toInt() + 1)
 var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt() + 1
 
 // Printed at configuration time (every invocation, regardless of which tasks run), so CI can grep
