@@ -18,6 +18,17 @@ current versionCodes before the AAB is uploaded, so a stranded versionCode (vers
 versionBuild not bumped since the last successful publish) fails fast with an actionable message
 instead of a raw Play 403 after the whole upload.
 
+Second mode -- ask Play what to build next, instead of guessing from the repo:
+    publish_play.py --package com.example.app --sa-json creds.json \
+        --print-next-version-code --floor 488
+
+It prints a single integer on stdout (nothing else goes there in this mode) and exits 0. That
+integer is `max(floor, highest versionCode on any Play track + 1)`, which the release workflow
+feeds back into Gradle as -PversionCodeOverride so the AAB is built with a versionCode Play will
+accept. This is what stops the "Version code N has already been used" loop at the source: the
+number no longer depends on someone remembering to commit a version.properties bump. --floor
+keeps a deliberate manual jump (a large hand-edited versionBuild) winning over Play's history.
+
 Exit codes are a contract with the workflow:
     0  every track staged
     2  internal published, but at least one draft track failed -- typically
@@ -79,16 +90,33 @@ EXIT_PARTIAL = 2
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Publish one AAB to multiple Play tracks.")
     parser.add_argument("--package", required=True, help="applicationId, e.g. com.hereliesaz.graffux")
-    parser.add_argument("--aab", required=True, help="path to the signed .aab to upload")
+    parser.add_argument(
+        "--aab", default=None,
+        help="path to the signed .aab to upload. Required unless --print-next-version-code, "
+        "which runs before any AAB exists.",
+    )
     parser.add_argument("--sa-json", required=True, help="path to the service-account JSON key file")
     parser.add_argument(
         "--version-code", type=int, default=None,
         help="versionCode baked into --aab. When given, checked against the versionCodes already "
-        f"on '{REQUIRED_TRACK}' before uploading, so a stale version.properties (see CLAUDE.md's "
-        "\"versionCode and Play publishing\") fails fast with a clear message instead of "
-        "uploading the whole AAB just to get a raw Play 403.",
+        f"on '{REQUIRED_TRACK}' before uploading, so a stale versionCode fails fast with a clear "
+        "message instead of uploading the whole AAB just to get a raw Play 403. Second line of "
+        "defence behind --print-next-version-code, which is what normally keeps it fresh.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--print-next-version-code", action="store_true",
+        help="Do not publish. Print the next free versionCode (see module docstring) on stdout "
+        "and exit. Used by the release workflow to pick the versionCode before building.",
+    )
+    parser.add_argument(
+        "--floor", type=int, default=0,
+        help="Lower bound for --print-next-version-code, normally version.properties' "
+        "versionBuild + 1, so a deliberate manual bump still wins over Play's history.",
+    )
+    args = parser.parse_args()
+    if args.aab is None and not args.print_next_version_code:
+        parser.error("--aab is required unless --print-next-version-code is given")
+    return args
 
 
 def main() -> int:
@@ -102,7 +130,7 @@ def main() -> int:
         # published", never "partial".
         return EXIT_OK if exc.code == 0 else EXIT_NOTHING_PUBLISHED
 
-    if not os.path.isfile(args.aab):
+    if args.aab is not None and not os.path.isfile(args.aab):
         print(f"::error::No AAB at {args.aab}", file=sys.stderr)
         return EXIT_NOTHING_PUBLISHED
     if not os.path.isfile(args.sa_json):
@@ -137,7 +165,10 @@ def main() -> int:
     # "the caller does not have permission" without naming the caller.
     sa_email = creds_info["client_email"]
     sa_project = creds_info.get("project_id", "<unknown>")
-    print(f"::notice::Publishing {args.package} as {sa_email} (project {sa_project})")
+    # See --print-next-version-code: stdout is reserved for the integer in that mode.
+    log = sys.stderr if args.print_next_version_code else sys.stdout
+    verb = "Querying" if args.print_next_version_code else "Publishing"
+    print(f"::notice::{verb} {args.package} as {sa_email} (project {sa_project})", file=log)
 
     creds = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     http = httplib2.Http(timeout=HTTP_TIMEOUT_S)
@@ -162,7 +193,31 @@ def main() -> int:
     try:
         edit = svc.edits().insert(packageName=args.package, body={}).execute()
         edit_id = edit["id"]
-        print(f"::notice::Opened Play edit {edit_id}")
+        print(f"::notice::Opened Play edit {edit_id}", file=log)
+
+        if args.print_next_version_code:
+            # Read-only: this edit is never committed, so it costs nothing against Play's
+            # daily save quota (only commits count) and is discarded again a few lines down.
+            try:
+                highest = highest_version_code(svc, args.package, edit_id)
+            except HttpError as err:
+                print(
+                    f"::warning::Could not read Play's current versionCodes ({err}) — falling "
+                    f"back to version.properties' {args.floor}. If that one is already used, the "
+                    "pre-publish check will say so.",
+                    file=sys.stderr,
+                )
+                highest = 0
+            nxt = max(args.floor, highest + 1)
+            print(
+                f"::notice::Highest versionCode on Play is {highest}; floor is {args.floor}; "
+                f"building {nxt}",
+                file=log,
+            )
+            discard(svc, args.package, edit_id)
+            edit_id = None
+            print(nxt)
+            return EXIT_OK
 
         if args.version_code is not None:
             try:
@@ -182,11 +237,14 @@ def main() -> int:
             if stale is not None:
                 print(
                     f"::error::versionCode {args.version_code} is not newer than the versionCode "
-                    f"already on '{REQUIRED_TRACK}' ({stale}) — version.properties' versionBuild "
-                    "was not bumped since the last successful publish. See \"versionCode and Play "
-                    "publishing\" in CLAUDE.md: bump versionBuild, commit it, and re-run. (Not "
-                    "attempting the upload — Play would reject it the same way, just after "
-                    "spending several minutes moving the AAB.)",
+                    f"already on '{REQUIRED_TRACK}' ({stale}). The release workflow normally "
+                    "derives this from Play itself (--print-next-version-code), so reaching here "
+                    "means that query was skipped or fell back — check the \"Determine next "
+                    "versionCode\" step's log for a warning. Building with "
+                    f"-PversionCodeOverride={stale + 1} or bumping version.properties' "
+                    "versionBuild past it will clear it. See \"versionCode and Play publishing\" "
+                    "in CLAUDE.md. (Not attempting the upload — Play would reject it the same "
+                    "way, just after spending several minutes moving the AAB.)",
                     file=sys.stderr,
                 )
                 discard(svc, args.package, edit_id)
@@ -320,6 +378,27 @@ def explain_403(sa_email: str, sa_project: str, package: str, err: HttpError) ->
         "  Permission changes can take a few minutes to propagate.",
     ):
         print(line, file=sys.stderr)
+
+
+def highest_version_code(svc, package: str, edit_id: str) -> int:
+    """Highest versionCode currently released on ANY Play track, or 0 if there are none.
+
+    Deliberately every track, not just REQUIRED_TRACK: a code staged as a draft on alpha is just
+    as used, and Play rejects reusing it. 0 for a brand-new app with nothing on any track, which
+    makes the caller's max(floor, highest + 1) fall back to the repo's own number.
+
+    Same blind spot as already_used(): a code retired from every current track still can't be
+    reused, and won't be seen here. The floor keeps climbing independently, so in practice the
+    number this feeds only ever moves forward.
+    """
+    tracks = svc.edits().tracks().list(packageName=package, editId=edit_id).execute()
+    used = [
+        int(code)
+        for track in tracks.get("tracks", [])
+        for release in track.get("releases", [])
+        for code in release.get("versionCodes", []) or []
+    ]
+    return max(used, default=0)
 
 
 def already_used(svc, package: str, edit_id: str, version_code: int) -> int | None:
