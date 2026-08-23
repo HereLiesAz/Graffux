@@ -188,9 +188,9 @@ private const val MAX_BRUSH_SIZE = 200f
 private const val MIN_BRUSH_ALPHA = 0.05f
 
 /**
- * Width of each rail button, and so of the rail strip itself — shared between azConfig's own
- * `railItemWidth` and [RailInset] (see FloatingWindow.kt), so the two can never drift apart and
- * leave a floating window able to spawn or settle under the rail.
+ * Width of each individual rail button — NOT the rail strip's own on-screen width (that's
+ * `collapsedWidth`, read back into [RailInset] via `AzNavHostScope.railWidth`; see the
+ * `measuredRailWidth` comment where azConfig is called).
  */
 private val RAIL_ITEM_WIDTH = 44.dp
 
@@ -465,10 +465,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
     // nothing, so every control underneath still behaves exactly as before.
     val strokeGate = remember { StrokeGate() }
-    // Shared with azConfig's own `dockingSide`/`railItemWidth` below, so FloatingWindow's
-    // rail-avoidance (see LocalRailInset) can never drift out of sync with where the rail actually
-    // docks.
-    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = RAIL_ITEM_WIDTH)
+    // The rail's actual on-screen width is `collapsedWidth` (a separate knob from `railItemWidth`
+    // below, which only sizes each button, not the strip itself) — read back from AzNavHostScope
+    // (11.19) right after azConfig, rather than duplicating a guessed constant here, so
+    // FloatingWindow's rail-avoidance (see LocalRailInset) can never drift out of sync with what the
+    // rail actually renders. Seeded at the library's own 100.dp default until that first read lands.
+    var measuredRailWidth by remember { mutableStateOf(100.dp) }
+    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = measuredRailWidth)
     CompositionLocalProvider(LocalRailInset provides railInset) {
     Box(
         modifier = Modifier
@@ -526,6 +529,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
                 railItemWidth = RAIL_ITEM_WIDTH
             )
+            // See the `measuredRailWidth` comment above — read back once config is settled for this
+            // pass, straight from the scope rather than a locally-guessed duplicate.
+            measuredRailWidth = railWidth
             // Four-finger tap (see the multiFingerTaps observer above): full-screen art. Folding the
             // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
             // same flag.
@@ -1898,14 +1904,11 @@ private fun AzNavHostScope.renderLayerRailItem(
         content = if (isGroup) GraffuxIcons.LayerGroup else (layer.bitmap ?: GraffuxIcons.LayerThumbnail),
         // Square, like the floating host these live in — and unlike a circular clip, it shows the
         // layer's thumbnail whole instead of cropping its corners. A group layer hosts its children's
-        // nested rail, so it always keeps a border; a leaf layer only grows one — AzNavRailButton's
-        // own active-state border, tinted with the rail's activeColor — while it's the active layer.
-        // That border is the *only* highlight channel this button actually shows: with a full-bleed
-        // bitmap/icon as content, AzNavRailButton skips the tint, text-color, and container-fill
-        // channels entirely (see its itemContent path), so the highlight has to come from flipping
-        // `shape` here, not from the `color` param below.
-        shape = if (isGroup || layer.id == uiState.activeLayerId) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
-        // This item's own *unselected* tint — moot for the active highlight above (see shape).
+        // nested rail, so it keeps a border at rest; a leaf layer stays borderless at rest and grows
+        // AzNavRailButton's active-state ring (11.19+) only while it's the active layer — that ring
+        // draws regardless of a borderless shape once a button is highlighted, so no shape-flipping
+        // hack is needed here the way earlier AzNavRail versions required.
+        shape = if (isGroup) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
         color = navItemColor,
         onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
         onRelocate = { _, _, newOrder ->
