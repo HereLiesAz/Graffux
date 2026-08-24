@@ -142,12 +142,17 @@ data class SelectionRing(
 /**
  * A selection: the region every raster tool is confined to while it is active.
  *
- * [rings] are stored in **screen space**, exactly like stroke paths, together with the [canvasSize]
- * they were drawn against.
+ * [rings] are stored in **world (container) space** — the space left once a touch point has had the
+ * viewport camera's pan, zoom and rotation undone, exactly like stroke paths — together with the
+ * [canvasSize] they were drawn against. This is what lets a selection made at one camera pose still
+ * confine paint to the same region of artwork after the canvas has been panned, zoomed or rotated;
+ * the touch surfaces that capture a selection and the marching-ants overlay that draws it both
+ * convert to and from screen space at their own boundary.
  *
  * When [inverted] is true the selected region is everything *outside* the result instead.
  *
- * [featherPx] softens the boundary by that radius (screen px). Zero — the default — is a hard edge.
+ * [featherPx] softens the boundary by that radius (world px, i.e. before the viewport zoom is
+ * applied). Zero — the default — is a hard edge.
  */
 @Serializable
 data class Selection(

@@ -4018,20 +4018,23 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetSelectionFeather(featherPx))
 
     /**
-     * The editor canvas measured itself. Records the size, and re-expresses anything screen-space
-     * that was authored against a different one.
+     * The editor canvas measured itself. Records the size, and re-expresses anything authored
+     * against a different one.
      *
-     * A selection, a clone source and a warp grid are all stored in screen coordinates. Rotating the
-     * device recreates the Activity but not this ViewModel, so all three would survive into a canvas
-     * where their numbers mean somewhere else — the marching ants and the hit-test would move
-     * (they read the raw coordinates) while the paint would not (it maps through the selection's own
-     * recorded canvasSize), leaving a marquee that marks one region and a clip that confines paint to
-     * another.
+     * A selection, a clone source and a warp grid are all stored in world (container) space —
+     * screen space with the viewport camera undone, same as a stroke path — sized against
+     * [EditorUiState.canvasSize]. Rotating the device recreates the Activity but not this ViewModel,
+     * so all three would survive into a canvas where their numbers mean somewhere else — the
+     * marching ants and the hit-test would move (they read the raw coordinates) while the paint
+     * would not (it maps through the selection's own recorded canvasSize), leaving a marquee that
+     * marks one region and a clip that confines paint to another.
      *
-     * The re-expression is a round trip through the active layer's pixels: the same screen→bitmap
+     * The re-expression is a round trip through the active layer's pixels: the same world→bitmap
      * map the paint uses, then back out against the new canvas. That lands the region on exactly the
      * artwork it was drawn on, which is the thing the user actually chose — unlike a proportional
-     * rescale, which would shear it when the aspect ratio changes.
+     * rescale, which would shear it when the aspect ratio changes. It has nothing to do with the
+     * viewport camera itself (pan/zoom/rotate never call this), only with the canvas's measured
+     * size changing under the same camera pose.
      */
     fun onCanvasSizeChanged(size: IntSize) {
         if (size.width <= 0 || size.height <= 0) return
