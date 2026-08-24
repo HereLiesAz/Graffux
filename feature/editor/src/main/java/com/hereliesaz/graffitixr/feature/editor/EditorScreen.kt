@@ -344,10 +344,22 @@ fun EditorScreen(
         // layer render already applies the transform, and EditorViewModel.onStrokePoint maps screen
         // space back to bitmap pixels). Active only when a RASTER tool is selected on an unlocked
         // layer — the vector PEN has its own capture layer below.
+        //
+        // Every point crossing into the view-model is pushed through `screenToWorld` first. The
+        // view-model's whole paint pipeline — `ImageProcessor.mapScreenToBitmap`, the `StrokeCommand`
+        // a stroke is recorded as, `DrawingEngine`'s replay of it — inverts a layer's own scale,
+        // offset and rotation and nothing about the camera (`onCommitPenPath` and `onEyedropSample`
+        // already do this same conversion; this surface never picked it up). Left raw, a stroke
+        // landed under the finger only at the camera's identity pose: pan, zoom or rotate the
+        // viewport first and the paint appeared at the finger's *pre-camera* position instead —
+        // the "comparative area of the screen" a still frame and a live finger no longer agree on.
         if (activeLayer != null && !activeLayerLocked &&
             uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN &&
             uiState.activeTool != Tool.SELECT
         ) {
+            fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
+                screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+            )
             DrawingCanvas(
                 activeTool = uiState.activeTool,
                 brushSize = uiState.brushSize,
@@ -355,22 +367,30 @@ fun EditorScreen(
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
-                onStrokeStart = { offset, size -> vm.onStrokeStart(offset, size) },
-                onStrokePoint = { offset -> vm.onStrokePoint(offset) },
+                onStrokeStart = { offset, size -> vm.onStrokeStart(toWorld(offset), size) },
+                onStrokePoint = { offset -> vm.onStrokePoint(toWorld(offset)) },
                 onStrokeEnd = { vm.onStrokeEnd() },
                 onStrokeCancel = { vm.onStrokeCancel() },
-                onFillTap = { offset, size -> vm.onFillTap(offset, size) },
+                onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
-                onPickCloneSource = { at -> vm.onSetCloneSource(at) },
+                onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },
                 onEyedropStart = { size -> vm.onEyedropStart(size) },
+                // Eyedrop already does its own screen→world conversion inside the view-model
+                // (`onEyedropSample`'s doc comment says as much) — the raw screen point is also kept
+                // for the loupe drawn below, which is a live, screen-space visual like the pen's own
+                // preview. Converting here too would undo the camera twice.
                 onEyedropSample = { offset -> vm.onEyedropSample(offset) },
                 onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
             )
         }
 
         // 3a-bis. Lasso capture layer — traces a new selection, or moves the pixels of the current
-        // one when the drag starts inside it. Screen space, like the brush layer, so the polygon it
-        // records maps into any layer through the same screen→bitmap transform the paint uses.
+        // one when the drag starts inside it. Raw screen coordinates, like the brush layer above,
+        // and for the same reason converted to world space before the view-model ever sees them:
+        // `SelectionMask.bitmapPath` and `SelectionGeometry.compose` both invert only a layer's own
+        // transform, so a lasso traced under a panned, zoomed or rotated camera clipped paint
+        // somewhere other than where the ants (drawn from the same un-corrected points, see below)
+        // appeared to trace it.
         if (uiState.activeTool == Tool.SELECT) {
             SelectionCanvas(
                 selection = uiState.selection,
@@ -378,9 +398,29 @@ fun EditorScreen(
                 op = uiState.selectionOp,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
-                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts, size) },
-                onSelectionMove = { delta -> vm.onSelectionMove(delta) },
-                onAutoSelect = { at, size -> vm.onAutoSelect(at, size) },
+                onSelectionEnd = { pts, size ->
+                    vm.onSelectionEnd(
+                        pts.map {
+                            CanvasHitTest.screenToWorld(
+                                it, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                            )
+                        },
+                        size,
+                    )
+                },
+                onSelectionMove = { delta ->
+                    vm.onSelectionMove(
+                        CanvasHitTest.screenDeltaToWorld(delta, uiState.viewportZoom, uiState.viewportRotation)
+                    )
+                },
+                onAutoSelect = { at, size ->
+                    vm.onAutoSelect(
+                        CanvasHitTest.screenToWorld(
+                            at, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                        ),
+                        size,
+                    )
+                },
                 onClearSelection = { vm.onClearSelection() },
             )
         }
@@ -388,8 +428,19 @@ fun EditorScreen(
         // 3a-ter. Marching ants for the committed selection. Purely visual, and shown under every
         // tool — the selection keeps clipping the brush after you switch back to it, so hiding the
         // outline would leave strokes mysteriously stopping at an invisible edge.
+        //
+        // The selection itself is recorded in world space (see the capture layer above), so the
+        // camera is threaded through here too — without it the ants stayed pinned to whatever
+        // screen position they were drawn at instead of following the artwork through a pan, zoom
+        // or rotation, and disagreed with the clip they are meant to be illustrating.
         uiState.selection?.let { sel ->
-            SelectionMarquee(selection = sel, modifier = Modifier.fillMaxSize())
+            SelectionMarquee(
+                selection = sel,
+                viewportOffset = uiState.viewportOffset,
+                viewportZoom = uiState.viewportZoom,
+                viewportRotation = uiState.viewportRotation,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // 3a-quater. Clone's source reticle. Shown only while the tool is active, because it marks
@@ -397,8 +448,15 @@ fun EditorScreen(
         // the artwork meaning nothing. Without it the tool is aimed at a point the user has to
         // remember, and a clone brush sampling from somewhere invisible is indistinguishable from
         // one that is broken.
+        //
+        // `cloneSource` is world space, like every other point the brush layer now hands the
+        // view-model, so it is pushed back through the camera for display — the same
+        // world-for-state, screen-for-display split as the warp handles and the marching ants.
         if (uiState.activeTool == Tool.CLONE) {
-            uiState.cloneSource?.let { src ->
+            uiState.cloneSource?.let { source ->
+                val src = CanvasHitTest.worldToScreen(
+                    source, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                )
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val r = 14.dp.toPx()
                     // Black under white, like the marching ants, so it reads on any artwork.

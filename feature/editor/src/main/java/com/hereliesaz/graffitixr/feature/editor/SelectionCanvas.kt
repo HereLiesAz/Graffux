@@ -199,6 +199,9 @@ fun SelectionCanvas(
 @Composable
 fun SelectionMarquee(
     selection: Selection,
+    viewportOffset: Offset = Offset.Zero,
+    viewportZoom: Float = 1f,
+    viewportRotation: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     // Stepped, not a continuous animation. An infiniteRepeatable drives this at the display's
@@ -220,7 +223,7 @@ fun SelectionMarquee(
         // The merged silhouette, not one outline per ring: after an Add the user has one region and
         // expects one boundary, and drawing each ring separately would leave the seam where two
         // added shapes overlap showing as an interior line that clips nothing.
-        val region = selectionOutline(selection) ?: return@Canvas
+        val region = selectionOutline(selection, viewportOffset, viewportZoom, viewportRotation) ?: return@Canvas
         // Black underlay then white ants on top: legible over light and dark artwork alike.
         drawAnts(region, Color.Black.copy(alpha = 0.6f), width, null, 0f)
         drawAnts(region, Color.White, width, dash, phase)
@@ -240,19 +243,34 @@ fun SelectionMarquee(
  * Mirrors [SelectionMask.bitmapPath]'s combination exactly — same ring order, same union/difference
  * — so what the ants outline is what the paint is clipped to. It has to be built separately rather
  * than shared because that one works in a layer's bitmap space and this works on screen.
+ *
+ * [Selection] rings are recorded in world (container) space — the same space `onSelectionEnd` and
+ * `onAutoSelect` convert into before the view-model ever sees a point, for the same reason the
+ * warp handles are: it is the space `SelectionMask.bitmapPath` inverts, and the only space in which
+ * a selection made under one camera pose still means the same region of artwork under another. This
+ * overlay sits outside the viewport's `graphicsLayer` like every other touch surface, so each point
+ * is pushed back through the camera here, on the way to the screen rather than off it.
  */
-private fun selectionOutline(selection: Selection): Path? {
+private fun selectionOutline(
+    selection: Selection,
+    viewportOffset: Offset,
+    viewportZoom: Float,
+    viewportRotation: Float,
+): Path? {
     val region = Path()
     var any = false
     for (ring in selection.rings) {
         if (!ring.isUsable) continue
+        val screenPoints = ring.path.map {
+            CanvasHitTest.worldToScreen(it, viewportOffset, viewportZoom, viewportRotation)
+        }
         val ringPath = Path().apply {
             // Even-odd, matching SelectionMask.bitmapPath and SelectionGeometry — so the ants
             // outline exactly the region the paint is confined to, including where a lasso
             // crossed itself.
             fillType = PathFillType.EvenOdd
-            moveTo(ring.path[0].x, ring.path[0].y)
-            for (i in 1 until ring.path.size) lineTo(ring.path[i].x, ring.path[i].y)
+            moveTo(screenPoints[0].x, screenPoints[0].y)
+            for (i in 1 until screenPoints.size) lineTo(screenPoints[i].x, screenPoints[i].y)
             close()
         }
         if (!any) {
