@@ -4138,7 +4138,14 @@ class EditorViewModel @Inject constructor(
         ))
     }
 
-    /** Moves one handle. Cheap and synchronous — the re-bake waits for the finger to lift. */
+    /**
+     * Moves one handle. Cheap and synchronous — the re-bake waits for the finger to lift.
+     *
+     * [to] is in world (container) space, like the rest of the grid: the overlay that reports the
+     * drag converts the finger's screen position back through the camera first. Storing the raw
+     * screen point put one handle in a different space from its fifteen neighbours, which is what
+     * tore single nodes out of the mesh whenever the canvas had been panned, zoomed or rotated.
+     */
     fun onWarpHandleMoved(index: Int, to: Offset) {
         val handles = _uiState.value.warpHandles
         if (index !in handles.indices) return

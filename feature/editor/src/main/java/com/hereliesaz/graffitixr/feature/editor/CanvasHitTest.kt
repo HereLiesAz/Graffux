@@ -215,6 +215,47 @@ internal object CanvasHitTest {
     }
 
     /**
+     * A **world (container) space** point expressed in screen pixels — the camera's forward map,
+     * `screen = viewportOffset + zoom · R(rot) · world`.
+     *
+     * Overlays that are drawn *outside* the viewport's `graphicsLayer` (the Distort/Warp handle
+     * grid is one) hold geometry the rest of the editor authors in world space, and have to push it
+     * through the camera themselves or they float free of the artwork the moment the canvas is
+     * panned, zoomed or rotated.
+     */
+    fun worldToScreen(
+        world: Offset,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
+    ): Offset {
+        val rad = Math.toRadians(viewportRotation.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        val rx = (world.x * c - world.y * s).toFloat()
+        val ry = (world.x * s + world.y * c).toFloat()
+        return Offset(viewportOffset.x + rx * viewportZoom, viewportOffset.y + ry * viewportZoom)
+    }
+
+    /** The inverse of [worldToScreen]: where a screen point sits in world (container) space. */
+    fun screenToWorld(
+        screen: Offset,
+        viewportOffset: Offset = Offset.Zero,
+        viewportZoom: Float = 1f,
+        viewportRotation: Float = 0f,
+    ): Offset {
+        val z = if (viewportZoom > 1e-4f) viewportZoom else 1f
+        val d = (screen - viewportOffset) / z
+        val rad = Math.toRadians(-viewportRotation.toDouble())
+        val c = cos(rad)
+        val s = sin(rad)
+        return Offset(
+            (d.x * c - d.y * s).toFloat(),
+            (d.x * s + d.y * c).toFloat(),
+        )
+    }
+
+    /**
      * Index of the corner in [corners] nearest to [point] and within [radius] px, or null if none
      * is close enough. Used to decide whether a drag started on a selection resize handle.
      */
