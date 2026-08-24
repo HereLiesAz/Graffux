@@ -415,10 +415,39 @@ fun EditorScreen(
         // that while a bending transform is open the grid owns the touches — dragging a handle must
         // never also lay down a stroke.
         if (uiState.transformMode != TransformMode.FREEFORM && uiState.warpHandles.isNotEmpty()) {
+            // The handles live in world (container) space, like every other piece of canvas
+            // geometry — that is the space `ImageProcessor.mapScreenToBitmap` inverts, and the
+            // space the handles recorded on a StrokeCommand have to be in for a replay under a
+            // different camera to reproduce the same deformation.
+            //
+            // This overlay, though, sits *outside* the viewport's graphicsLayer, so it has to push
+            // them through the camera itself. Drawing them raw left the grid pinned to the screen
+            // while the artwork under it panned, zoomed and rotated away, and a dragged handle —
+            // stored at its raw finger position — landed in a different space from its neighbours,
+            // which is what tore single nodes out of an otherwise regular mesh.
+            val screenHandles = remember(
+                uiState.warpHandles,
+                uiState.viewportOffset,
+                uiState.viewportZoom,
+                uiState.viewportRotation,
+            ) {
+                uiState.warpHandles.map {
+                    CanvasHitTest.worldToScreen(
+                        it, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                    )
+                }
+            }
             WarpHandles(
-                handles = uiState.warpHandles,
+                handles = screenHandles,
                 gridSize = uiState.transformMode.gridSize,
-                onHandleMoved = { i, at -> vm.onWarpHandleMoved(i, at) },
+                onHandleMoved = { i, at ->
+                    vm.onWarpHandleMoved(
+                        i,
+                        CanvasHitTest.screenToWorld(
+                            at, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                        ),
+                    )
+                },
                 onRelease = { vm.onWarpHandleReleased() },
                 modifier = Modifier.fillMaxSize(),
             )

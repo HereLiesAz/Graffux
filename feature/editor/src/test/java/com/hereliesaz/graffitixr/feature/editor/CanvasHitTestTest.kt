@@ -293,4 +293,50 @@ class CanvasHitTestTest {
         // A degenerate zoom must not produce infinities on the drag path.
         assertEquals(d, CanvasHitTest.screenDeltaToWorld(d, viewportZoom = 0f, viewportRotation = 0f))
     }
+
+    // ── The camera map the Distort/Warp handle overlay rides on ──────────────────────────────────
+
+    @Test
+    fun `worldToScreen is the identity under an identity camera`() {
+        val p = Offset(120f, -37f)
+        val there = CanvasHitTest.worldToScreen(p)
+        assertEquals(p.x, there.x, 1e-3f)
+        assertEquals(p.y, there.y, 1e-3f)
+    }
+
+    @Test
+    fun `screenToWorld undoes worldToScreen under pan, zoom and rotation`() {
+        val offset = Offset(-140f, 260f)
+        val zoom = 2.35f
+        val rotation = 37f
+        listOf(Offset.Zero, Offset(10f, 10f), Offset(640f, 1480f), Offset(-90f, 55f)).forEach { world ->
+            val screen = CanvasHitTest.worldToScreen(world, offset, zoom, rotation)
+            val back = CanvasHitTest.screenToWorld(screen, offset, zoom, rotation)
+            assertEquals(world.x, back.x, 1e-2f)
+            assertEquals(world.y, back.y, 1e-2f)
+        }
+    }
+
+    @Test
+    fun `worldToScreen agrees with the corner map the selection outline draws`() {
+        // layerScreenCorners already bakes the camera in; a handle pushed through worldToScreen has
+        // to land in exactly the same place or the grid and the selection box disagree on screen.
+        val layer = vlayer("l", w = 200f, h = 100f)
+        val offset = Offset(64f, -18f)
+        val zoom = 1.7f
+        val rotation = -22f
+        val camCorners = CanvasHitTest.layerScreenCorners(layer, W, H, offset, zoom, rotation)!!
+        val worldCorners = CanvasHitTest.layerScreenCorners(layer, W, H)!!
+        worldCorners.forEachIndexed { i, world ->
+            val viaCamera = CanvasHitTest.worldToScreen(world, offset, zoom, rotation)
+            assertEquals(camCorners[i].x, viaCamera.x, 1e-2f)
+            assertEquals(camCorners[i].y, viaCamera.y, 1e-2f)
+        }
+    }
+
+    @Test
+    fun `screenToWorld survives a degenerate zoom`() {
+        val p = Offset(12f, 34f)
+        assertEquals(p, CanvasHitTest.screenToWorld(p, viewportZoom = 0f))
+    }
 }

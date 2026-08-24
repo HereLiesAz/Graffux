@@ -26,6 +26,11 @@ private val GRAB_RADIUS = 28.dp
  *
  * The grid lines are drawn between grid *neighbours*, not around the outside, so a warped mesh shows
  * how each cell is bending rather than only where its outer edge went.
+ *
+ * [handles] are **screen** points and [onHandleMoved] reports one. The editor holds them in world
+ * (container) space; the call site pushes them through the camera in both directions, because this
+ * overlay is drawn outside the viewport's `graphicsLayer` and so shares no transform with the
+ * artwork it sits on.
  */
 @Composable
 fun WarpHandles(
