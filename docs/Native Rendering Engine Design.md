@@ -311,14 +311,50 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    externalNativeBuildDebug` compiles and links this against the real OpenCV/Prefab dependency
    for both `arm64-v8a` and `armeabi-v7a`, and the four JNI symbols are present in the resulting
    `libgraffitixr.so` (checked with `nm -D`).
-   **Not yet done**, and the reason this remains a "first slice" rather than a finished phase 3:
-   the engine reads/writes a plain pixel buffer today, not an `AHardwareBuffer`-backed image — §2's
-   zero-copy GL/Vulkan interop is still to build; nothing in `StampBrushRenderer`'s or
-   `ImageProcessor`'s actual call path invokes this engine yet, so no stroke drawn in the app runs
-   on it today; and none of this has been exercised on a physical device/GPU driver — compiling
-   and linking real Vulkan code is verifiable in this environment, pixel-correctness and
-   frame-timing on real hardware is not, and remains a manual QA step before this can replace the
-   CPU path for real strokes.
+   **Wired into the live stamp-brush preview.** `EditorViewModel.onStrokeStart`'s azphalt-brush
+   branch now inits a `VulkanStampEngine` at the live-preview bitmap's size and seeds it
+   (`upload()`) with the layer's current pixels, whenever the stroke uses a generated round tip
+   (`activeStampShape == null`; the shader has no textured-tip path). `onStrokePoint` then routes
+   each new batch of dabs through `stampDabs()` + `readback()` into that same bitmap instead of
+   `StampBrushRenderer.paintDabs`'s CPU loop — `flow` is pre-baked into the pushed color's alpha
+   channel since the shader only multiplies `baseAlpha * dab.alpha`. A failure at *any* point
+   (`init`/`upload`/`stampDabs`/`readback`) clears `stampGpuActive` for the rest of that stroke and
+   every subsequent dab falls back to the CPU call on the same, already-correct bitmap — never a
+   partially-composited GPU result left stale. `commitStampStroke` — the authoritative bake
+   `DrawingEngine` replays for undo/redo/co-op — is untouched and always re-renders the whole
+   stroke on the CPU from scratch, so a live preview that fell back partway through a stroke can
+   never affect what's actually saved; only what you see while dragging goes through the GPU.
+   **The round brush is dab-based now too.** `ImageProcessor.drawStrokeDynamic` (authoritative
+   commit/replay) and `EditorViewModel.drawCurveRun` (live preview) no longer stroke a
+   variable-width `Path` — both walk each Catmull-Rom-curved segment with `BrushStamps.place` at
+   `ROUND_BRUSH_DAB_SPACING_FRACTION` of the segment's own dab diameter and stamp solid filled
+   circles, the same rendering primitive azphalt stamp brushes use. This is what actually unified
+   the round brush onto the compute shader's model — a real brush engine stamps, it doesn't stroke
+   a path — but the round brush's *live* path is not yet wired to `VulkanStampEngine` itself (only
+   azphalt stamp-brush strokes are); that's now purely a wiring gap, not a rendering-model gap,
+   since both brushes speak dabs.
+   **`AHardwareBuffer` zero-copy interop exists** (`VulkanStampEngine::initWithHardwareBuffer`,
+   `hardwareBuffer()`, `VulkanStampEngine.kt`'s `initHardwareBufferBacked`/`getHardwareBuffer`) —
+   an alternate to `init()` whose layer image imports a freshly-allocated `AHardwareBuffer` via
+   `VK_ANDROID_external_memory_android_hardware_buffer` instead of engine-private device memory,
+   so a `stampDabs()` write is visible through the same memory a `Bitmap.wrapHardwareBuffer`
+   (API 29+) could wrap with no CPU copy. `vkGetAndroidHardwareBufferPropertiesANDROID` is resolved
+   via `vkGetDeviceProcAddr` rather than linked directly — the app's actual minSdk-26 build target
+   doesn't export that symbol from its loader stub at all, confirmed by an real link failure
+   against the full Gradle/CMake build, not a theoretical concern; direct linkage would have broken
+   the whole app's build. **Not yet used anywhere**: nothing calls `initHardwareBufferBacked`
+   instead of `init` — the live stamp-brush preview wiring above still uses the plain
+   `init`/`upload`/`readback` path, since consuming a hardware-backed layer image (a `Bitmap` that
+   can be displayed but not drawn into with a software `Canvas`) needs its own integration work
+   this pass didn't do. The capability compiles, links, and is exercised nowhere yet.
+   **Also not yet done:** the round brush's live-preview *wiring* to the GPU (as above); the GPU
+   calls run synchronously on whatever thread calls `onStrokePoint` (the main thread, same as the
+   CPU path today), so there is no pipelining/async dispatch yet — §3's front-buffer work is what
+   actually addresses that; and none of this has been exercised on a physical device/GPU driver —
+   compiling and linking real Vulkan code is verifiable in this environment, pixel-correctness and
+   frame-timing on real hardware is not, and remains a manual QA step (Settings → Developer →
+   "Test GPU Engine" gives a quick standalone check; drawing with an azphalt round-tip brush
+   exercises the real live-preview wiring).
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.

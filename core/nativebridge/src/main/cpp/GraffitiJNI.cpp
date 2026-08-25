@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <android/asset_manager_jni.h>
 #include <android/bitmap.h>
+#include <android/hardware_buffer_jni.h>
 #include <opencv2/opencv.hpp>
 #include <GLES3/gl3.h>
 #include <signal.h>
@@ -1466,25 +1467,85 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
 //
 // Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above — this engine has no
 // GLES/window dependency (compute-only Vulkan) and is created/destroyed per drawing session by
-// the Kotlin-side VulkanStampEngine wrapper, not tied to AR session start/stop. Its own mutex
-// mirrors gEngineMutex's purpose (serialize create/destroy against concurrent stamp/readback
-// calls) without coupling the two engines' locks together.
-static graffux::VulkanStampEngine* gVulkanStampEngine = nullptr;
-static std::mutex gVulkanStampMutex;
-
+// the Kotlin-side VulkanStampEngine wrapper, not tied to AR session start/stop.
+//
+// Per-instance, NOT a single global: nativeInit allocates its own graffux::VulkanStampEngine and
+// returns it to Kotlin as an opaque jlong handle, which every other nativeXxx call takes and
+// nativeDestroy frees. A single shared engine (the original design) meant two VulkanStampEngine
+// Kotlin objects silently fought over one native instance — initializing the second destroyed the
+// first's layer out from under it, and destroying either invalidated the other while its Kotlin
+// `initialized` flag stayed true. The Kotlin/C++ classes both already document themselves as not
+// thread-safe (the caller owns serializing its own use of one instance), so no mutex is needed
+// here either — that contract, not a lock, is what makes per-instance handles safe.
 extern "C" {
 
-JNIEXPORT jboolean JNICALL
+JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
     JNIEnv*, jobject, jint width, jint height) {
-    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
-    if (!gVulkanStampEngine) gVulkanStampEngine = new graffux::VulkanStampEngine();
-    if (!gVulkanStampEngine->init(width, height)) {
-        delete gVulkanStampEngine;
-        gVulkanStampEngine = nullptr;
+    auto* engine = new graffux::VulkanStampEngine();
+    if (!engine->init(width, height)) {
+        delete engine;
+        return 0;
+    }
+    return reinterpret_cast<jlong>(engine);
+}
+
+// Same contract as nativeInit, but the layer image's memory is an imported AHardwareBuffer (see
+// VulkanStampEngine::initWithHardwareBuffer) — docs/Native Rendering Engine Design.md §2's
+// zero-copy interop. Falling back to nativeInit on failure is expected and safe.
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInitHardwareBuffer(
+    JNIEnv*, jobject, jint width, jint height) {
+    auto* engine = new graffux::VulkanStampEngine();
+    if (!engine->initWithHardwareBuffer(width, height)) {
+        delete engine;
+        return 0;
+    }
+    return reinterpret_cast<jlong>(engine);
+}
+
+// Returns an android.hardware.HardwareBuffer wrapping the same memory the compute shader writes
+// into, or null if `handle` wasn't created via nativeInitHardwareBuffer (a plain nativeInit engine
+// has no AHardwareBuffer to hand back). AHardwareBuffer_toHardwareBuffer acquires its own
+// reference internally, so the returned Java object stays valid independent of this engine's own
+// lifetime/destroy() — the caller is responsible for eventually letting it go (HardwareBuffer.close()
+// or GC), same as any other AHardwareBuffer-backed Java object.
+JNIEXPORT jobject JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeGetHardwareBuffer(
+    JNIEnv* env, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    if (!engine || !engine->hardwareBuffer()) return nullptr;
+    return AHardwareBuffer_toHardwareBuffer(env, engine->hardwareBuffer());
+}
+
+// Seeds the layer with `inBitmap`'s current pixels — the reverse of nativeReadback below, same
+// requirements (ARGB_8888, non-hardware, exactly width x height, tight stride) and same "no
+// channel reordering needed" reasoning.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUpload(
+    JNIEnv* env, jobject, jlong handle, jobject inBitmap) {
+    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+
+    AndroidBitmapInfo info;
+    void* pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, inBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
+    if (info.stride != info.width * 4) return JNI_FALSE;
+    // The bitmap must match the layer's own dimensions exactly, not just have enough bytes — a
+    // capacity-only check would silently accept e.g. a 200x100 bitmap against a 100x100 layer and
+    // upload it row-major-contiguous, landing every row after the first at the wrong offset.
+    if (static_cast<int32_t>(info.width) != engine->width() ||
+        static_cast<int32_t>(info.height) != engine->height()) {
         return JNI_FALSE;
     }
-    return JNI_TRUE;
+    if (AndroidBitmap_lockPixels(env, inBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
+        return JNI_FALSE;
+    }
+    size_t capacity = static_cast<size_t>(info.stride) * info.height;
+    bool ok = engine->upload(static_cast<const uint8_t*>(pixels), capacity);
+    AndroidBitmap_unlockPixels(env, inBitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 // `dabData` is a flat float array, 5 floats per dab (x, y, radius, alpha, angleDeg) — the same
@@ -1492,9 +1553,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
 // so no per-dab JNI round trip is needed for a whole stroke's dab list.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
-    JNIEnv* env, jobject, jfloatArray dabData, jint colorArgb, jfloat hardness) {
-    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
-    if (!gVulkanStampEngine || !gVulkanStampEngine->isInitialized()) return JNI_FALSE;
+    JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jint colorArgb, jfloat hardness) {
+    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     jsize len = env->GetArrayLength(dabData);
     jsize dabCount = len / 5;
@@ -1510,7 +1571,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
     }
     env->ReleaseFloatArrayElements(dabData, ptr, JNI_ABORT);
 
-    bool ok = gVulkanStampEngine->stampDabs(dabs, static_cast<uint32_t>(colorArgb), hardness);
+    bool ok = engine->stampDabs(dabs, static_cast<uint32_t>(colorArgb), hardness);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -1521,9 +1582,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
 // straight memcpy with no channel reordering.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeReadback(
-    JNIEnv* env, jobject, jobject outBitmap) {
-    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
-    if (!gVulkanStampEngine || !gVulkanStampEngine->isInitialized()) return JNI_FALSE;
+    JNIEnv* env, jobject, jlong handle, jobject outBitmap) {
+    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     AndroidBitmapInfo info;
     void* pixels = nullptr;
@@ -1534,22 +1595,28 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeReadback(
     // require an exact match rather than special-casing a row-by-row copy for a case that never
     // arises from Bitmap.createBitmap()-allocated bitmaps in practice.
     if (info.stride != info.width * 4) return JNI_FALSE;
+    // Same dimension check as nativeUpload above, for the same reason: a bitmap merely BIG ENOUGH
+    // in total bytes but the wrong width/height would still silently misplace every row after the
+    // first instead of failing loudly.
+    if (static_cast<int32_t>(info.width) != engine->width() ||
+        static_cast<int32_t>(info.height) != engine->height()) {
+        return JNI_FALSE;
+    }
     if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
         return JNI_FALSE;
     }
     size_t capacity = static_cast<size_t>(info.stride) * info.height;
-    bool ok = gVulkanStampEngine->readback(static_cast<uint8_t*>(pixels), capacity);
+    bool ok = engine->readback(static_cast<uint8_t*>(pixels), capacity);
     AndroidBitmap_unlockPixels(env, outBitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeDestroy(JNIEnv*, jobject) {
-    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
-    if (gVulkanStampEngine) {
-        gVulkanStampEngine->destroy();
-        delete gVulkanStampEngine;
-        gVulkanStampEngine = nullptr;
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    if (engine) {
+        engine->destroy();
+        delete engine;
     }
 }
 

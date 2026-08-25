@@ -8,13 +8,16 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.BlurMaskFilter
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.feature.editor.ROUND_BRUSH_DAB_SPACING_FRACTION
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -834,12 +837,17 @@ object ImageProcessor {
     }
 
     /**
-     * Variable-width stroke for the dynamic brush: each ORIGINAL segment is drawn as its own
-     * round-capped [CatmullRom]-curved run at the width
-     * [com.hereliesaz.graffitixr.feature.editor.BrushDynamics] computes for it, giving velocity
-     * thinning, a start taper, and (Phase 1 of `docs/Native Rendering Engine Design.md` §5) a
-     * smooth curve through the touch samples instead of a faceted straight-chord polyline. The
-     * round caps make adjacent segments of different widths join seamlessly.
+     * Variable-width stroke for the dynamic (round) brush: each ORIGINAL segment is walked as its
+     * own [CatmullRom]-curved run and stamped as a train of solid filled dabs — the SAME rendering
+     * primitive azphalt stamp brushes use ([BrushStamps.place]'s arc-length walk, spaced by
+     * [ROUND_BRUSH_DAB_SPACING_FRACTION] of the diameter) rather than a stroked variable-width
+     * path — at the radius [com.hereliesaz.graffitixr.feature.editor.BrushDynamics] computes for
+     * that segment, giving velocity thinning, a start taper, and (Phase 1 of
+     * `docs/Native Rendering Engine Design.md` §5) a smooth curve through the touch samples
+     * instead of a faceted straight-chord polyline. Dense, heavily-overlapping dabs read as one
+     * smooth round-capped stroke with no visible bumps — see
+     * [com.hereliesaz.graffitixr.feature.editor.EditorViewModel.drawCurveRun], the live-preview
+     * twin of this function, which stamps dabs the same way so the two always agree.
      *
      * Width is computed from the RAW [stroke]/[pressures] — not the curved geometry below —
      * deliberately: [com.hereliesaz.graffitixr.feature.editor.BrushDynamics]' speed measure is
@@ -864,18 +872,53 @@ object ImageProcessor {
         val flat = ArrayList<Float>(stroke.size * 2)
         stroke.forEach { flat.add(it.x); flat.add(it.y) }
         val curvedSegments = CatmullRom.segments(flat)
+        val originalStyle = paint.style
+        paint.style = Paint.Style.FILL
         for (i in 0 until stroke.size - 1) {
-            paint.strokeWidth = widths[i]
+            val radius = max(widths[i] / 2f, 0.5f)
             val run = curvedSegments[i]
-            val runOffsets = ArrayList<Offset>(run.size / 2)
+            val centres = BrushStamps.place(run.toList(), max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f))
             var j = 0
-            while (j < run.size) {
-                runOffsets.add(Offset(run[j], run[j + 1]))
+            while (j < centres.size) {
+                drawDab(canvas, Offset(centres[j], centres[j + 1]), radius, paint, wrapAroundMode, symmetryMode)
                 j += 2
             }
-            drawStroke(canvas, runOffsets, paint, wrapAroundMode, symmetryMode)
         }
+        paint.style = originalStyle
         paint.strokeWidth = baseWidth
+    }
+
+    /** Draws one filled round dab of [radius] at [center], mirrored per [symmetryMode] and tiled
+     *  per [wrapAroundMode] — the same transform set [drawStroke] applies to a whole poly-line,
+     *  applied here per dab centre instead. `paint.style` must already be `Paint.Style.FILL`. */
+    private fun drawDab(
+        canvas: Canvas,
+        center: Offset,
+        radius: Float,
+        paint: Paint,
+        wrapAroundMode: Boolean,
+        symmetryMode: SymmetryMode,
+    ) {
+        val centres = ArrayList<Offset>(4)
+        centres.add(center)
+        if (symmetryMode != SymmetryMode.NONE) {
+            for (transform in symmetryTransforms(symmetryMode, canvas.width.toFloat(), canvas.height.toFloat())) {
+                centres.add(transform(center))
+            }
+        }
+        if (wrapAroundMode) {
+            val w = canvas.width.toFloat()
+            val h = canvas.height.toFloat()
+            for (c in centres) {
+                for (dx in -1..1) {
+                    for (dy in -1..1) {
+                        canvas.drawCircle(c.x + dx * w, c.y + dy * h, radius, paint)
+                    }
+                }
+            }
+        } else {
+            for (c in centres) canvas.drawCircle(c.x, c.y, radius, paint)
+        }
     }
 
     /**

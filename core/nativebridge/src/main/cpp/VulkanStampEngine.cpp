@@ -1,7 +1,10 @@
 // FILE: core/nativebridge/src/main/cpp/VulkanStampEngine.cpp
 #include "include/VulkanStampEngine.h"
 
+#include <android/hardware_buffer.h>
 #include <android/log.h>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "shaders/StampSpv.h"
@@ -23,6 +26,8 @@ struct PushConstants {
     float colorG;
     float colorB;
     float baseAlpha;
+    int32_t originX;
+    int32_t originY;
 };
 
 bool checkResult(VkResult result, const char* what) {
@@ -44,12 +49,37 @@ bool VulkanStampEngine::init(int width, int height) {
 
     if (!createInstance()) { destroy(); return false; }
     if (!pickPhysicalDeviceAndQueueFamily()) { destroy(); return false; }
-    if (!createLogicalDeviceAndQueue()) { destroy(); return false; }
+    if (!createLogicalDeviceAndQueue({})) { destroy(); return false; }
     if (!createLayerImage(width, height)) { destroy(); return false; }
     if (!createDescriptorAndPipeline()) { destroy(); return false; }
     if (!allocateCommandBuffer()) { destroy(); return false; }
 
     LOGI("VulkanStampEngine initialized: %dx%d layer", width, height);
+    return true;
+}
+
+bool VulkanStampEngine::initWithHardwareBuffer(int width, int height) {
+    if (device_ != VK_NULL_HANDLE) destroy();
+    width_ = width;
+    height_ = height;
+
+    if (!createInstance()) { destroy(); return false; }
+    if (!pickPhysicalDeviceAndQueueFamily()) { destroy(); return false; }
+    // VK_ANDROID_external_memory_android_hardware_buffer's own spec-mandated dependencies. All are
+    // core in Vulkan 1.1 (this engine's apiVersion) EXCEPT VK_KHR_sampler_ycbcr_conversion, which
+    // 1.1 made an optional core FEATURE rather than something automatically enabled — it still has
+    // to be requested as a device extension here regardless of API version.
+    static const std::vector<const char*> kAhbExtensions = {
+        VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+        VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+        VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+    };
+    if (!createLogicalDeviceAndQueue(kAhbExtensions)) { destroy(); return false; }
+    if (!createLayerImageFromHardwareBuffer(width, height)) { destroy(); return false; }
+    if (!createDescriptorAndPipeline()) { destroy(); return false; }
+    if (!allocateCommandBuffer()) { destroy(); return false; }
+
+    LOGI("VulkanStampEngine initialized (AHardwareBuffer-backed): %dx%d layer", width, height);
     return true;
 }
 
@@ -100,7 +130,11 @@ bool VulkanStampEngine::pickPhysicalDeviceAndQueueFamily() {
     return false;
 }
 
-bool VulkanStampEngine::createLogicalDeviceAndQueue() {
+bool VulkanStampEngine::createLogicalDeviceAndQueue(const std::vector<const char*>& requiredExtensions) {
+    if (!requiredExtensions.empty() && !deviceSupportsExtensions(requiredExtensions)) {
+        return false;
+    }
+
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queueCreateInfo{};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -112,12 +146,32 @@ bool VulkanStampEngine::createLogicalDeviceAndQueue() {
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
+    deviceCreateInfo.ppEnabledExtensionNames = requiredExtensions.empty() ? nullptr : requiredExtensions.data();
 
     if (!checkResult(vkCreateDevice(physicalDevice_, &deviceCreateInfo, nullptr, &device_),
                       "vkCreateDevice")) {
         return false;
     }
     vkGetDeviceQueue(device_, queueFamilyIndex_, 0, &queue_);
+    return true;
+}
+
+bool VulkanStampEngine::deviceSupportsExtensions(const std::vector<const char*>& names) const {
+    uint32_t count = 0;
+    vkEnumerateDeviceExtensionProperties(physicalDevice_, nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> available(count);
+    vkEnumerateDeviceExtensionProperties(physicalDevice_, nullptr, &count, available.data());
+    for (const char* name : names) {
+        bool found = false;
+        for (const auto& ext : available) {
+            if (std::strcmp(ext.extensionName, name) == 0) { found = true; break; }
+        }
+        if (!found) {
+            LOGE("Required device extension not supported: %s", name);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -180,13 +234,20 @@ bool VulkanStampEngine::createLayerImage(int width, int height) {
         return false;
     }
 
-    // Staging buffer for readback() — sized once here since it never needs to be larger than the
-    // layer image itself.
+    layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    return createStagingBuffer(width, height);
+}
+
+// Shared by createLayerImage() (engine-private layer memory) and
+// createLayerImageFromHardwareBuffer() (imported AHardwareBuffer memory) — readback()/upload()
+// round-trip through this same host-visible buffer regardless of which one backs layerImage_,
+// so both paths need it created identically.
+bool VulkanStampEngine::createStagingBuffer(int width, int height) {
     VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height * 4;
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = stagingSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &stagingBuffer_),
                       "vkCreateBuffer(staging)")) {
@@ -207,8 +268,159 @@ bool VulkanStampEngine::createLayerImage(int width, int height) {
         return false;
     }
     vkBindBufferMemory(device_, stagingBuffer_, stagingBufferMemory_, 0);
-
     return true;
+}
+
+// docs/Native Rendering Engine Design.md §2's zero-copy interop: imports a freshly-allocated
+// AHardwareBuffer as layerImage_'s backing memory (VK_ANDROID_external_memory_android_hardware_
+// buffer) instead of engine-private device memory. Once bound, layerImage_/layerImageView_ are
+// used identically to the plain init() path — stampDabs()/readback()/upload() need no awareness
+// of which one is in effect — the only difference is hardwareBuffer_ being non-null afterward, so
+// hardwareBuffer() can hand the SAME memory a compositing GPU write lands in to the JVM side for a
+// zero-copy display (e.g. Bitmap.wrapHardwareBuffer), without a CPU round trip through readback().
+bool VulkanStampEngine::createLayerImageFromHardwareBuffer(int width, int height) {
+    layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    AHardwareBuffer_Desc desc{};
+    desc.width = static_cast<uint32_t>(width);
+    desc.height = static_cast<uint32_t>(height);
+    desc.layers = 1;
+    desc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    // GPU_COLOR_OUTPUT: this engine's compute shader writes it via imageStore (Vulkan treats a
+    // storage-image write the same as a color-attachment write for AHB usage-flag purposes).
+    // GPU_SAMPLED_IMAGE: so a future GL/presentation consumer can sample it directly.
+    // CPU_READ_RARELY: upload()/readback() still work through the CPU staging path when needed
+    // (e.g. the very first seed of an existing document's pixels), just not on every frame.
+    desc.usage = AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
+                 AHARDWAREBUFFER_USAGE_CPU_READ_RARELY;
+    desc.stride = 0;
+    desc.rfu0 = 0;
+    desc.rfu1 = 0;
+    if (AHardwareBuffer_allocate(&desc, &hardwareBuffer_) != 0) {
+        LOGE("AHardwareBuffer_allocate failed for %dx%d", width, height);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    // Loaded via vkGetDeviceProcAddr rather than linked directly: this app's minSdk (26) links
+    // against an older platform's libvulkan.so loader stub that doesn't export this symbol at all
+    // (confirmed by an actual link failure against the real build target, not a theoretical
+    // concern) — direct linkage would make the WHOLE app fail to build. Standard Vulkan practice
+    // for any extension function is to resolve it dynamically rather than link it, precisely
+    // because loader stub coverage varies by platform version; a null result here just means this
+    // device/NDK-linkage combination doesn't have it, which is exactly the "fall back to init()"
+    // case initWithHardwareBuffer() already documents.
+    auto pfnGetProps = reinterpret_cast<PFN_vkGetAndroidHardwareBufferPropertiesANDROID>(
+        vkGetDeviceProcAddr(device_, "vkGetAndroidHardwareBufferPropertiesANDROID"));
+    if (!pfnGetProps) {
+        LOGE("vkGetAndroidHardwareBufferPropertiesANDROID not available on this device/loader");
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID formatProps{};
+    formatProps.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID;
+    VkAndroidHardwareBufferPropertiesANDROID bufferProps{};
+    bufferProps.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID;
+    bufferProps.pNext = &formatProps;
+    if (!checkResult(pfnGetProps(device_, hardwareBuffer_, &bufferProps),
+                      "vkGetAndroidHardwareBufferPropertiesANDROID")) {
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    VkExternalMemoryImageCreateInfo extImageInfo{};
+    extImageInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    extImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+
+    // AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM is a standard (non-external-only) format, so the
+    // driver reports a real VkFormat here — VK_FORMAT_R8G8B8A8_UNORM in practice — rather than
+    // requiring the VK_ANDROID_external_format/sampler-Ycbcr-conversion path a YUV camera buffer
+    // would need. Falling back to the same format the plain init() path hard-codes keeps this
+    // engine on one code path if a driver ever reports VK_FORMAT_UNDEFINED here regardless.
+    VkFormat format = formatProps.format != VK_FORMAT_UNDEFINED ? formatProps.format : VK_FORMAT_R8G8B8A8_UNORM;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.pNext = &extImageInfo;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = format;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &layerImage_), "vkCreateImage(AHB)")) {
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    VkImportAndroidHardwareBufferInfoANDROID importInfo{};
+    importInfo.sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
+    importInfo.buffer = hardwareBuffer_;
+
+    VkMemoryDedicatedAllocateInfo dedicatedInfo{};
+    dedicatedInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicatedInfo.pNext = &importInfo;
+    dedicatedInfo.image = layerImage_;
+
+    int32_t memType = findMemoryType(bufferProps.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) memType = findMemoryType(bufferProps.memoryTypeBits, 0);
+    if (memType < 0) {
+        LOGE("No memory type compatible with the imported AHardwareBuffer");
+        vkDestroyImage(device_, layerImage_, nullptr);
+        layerImage_ = VK_NULL_HANDLE;
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.pNext = &dedicatedInfo;
+    allocInfo.allocationSize = bufferProps.allocationSize;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &layerImageMemory_), "vkAllocateMemory(AHB)")) {
+        vkDestroyImage(device_, layerImage_, nullptr);
+        layerImage_ = VK_NULL_HANDLE;
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+    if (!checkResult(vkBindImageMemory(device_, layerImage_, layerImageMemory_, 0), "vkBindImageMemory(AHB)")) {
+        vkFreeMemory(device_, layerImageMemory_, nullptr);
+        layerImageMemory_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, layerImage_, nullptr);
+        layerImage_ = VK_NULL_HANDLE;
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = layerImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = format;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &layerImageView_), "vkCreateImageView(AHB)")) {
+        vkFreeMemory(device_, layerImageMemory_, nullptr);
+        layerImageMemory_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, layerImage_, nullptr);
+        layerImage_ = VK_NULL_HANDLE;
+        AHardwareBuffer_release(hardwareBuffer_);
+        hardwareBuffer_ = nullptr;
+        return false;
+    }
+
+    return createStagingBuffer(width, height);
 }
 
 bool VulkanStampEngine::createDescriptorAndPipeline() {
@@ -320,16 +532,27 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
 bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
     if (dabCount <= dabBufferCapacity_ && dabBuffer_ != VK_NULL_HANDLE) return true;
 
+    // Every handle is nulled out immediately after being freed/failing — createDabBuffer() can be
+    // re-entered on a later call (a bigger stroke) or the whole engine can be destroy()ed after a
+    // failure here, and either path frees these same fields again; a stale non-null handle left
+    // behind after this function already freed or never successfully created it is a double-free.
     if (dabBuffer_ != VK_NULL_HANDLE) {
         vkDestroyBuffer(device_, dabBuffer_, nullptr);
-        vkFreeMemory(device_, dabBufferMemory_, nullptr);
         dabBuffer_ = VK_NULL_HANDLE;
+    }
+    if (dabBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, dabBufferMemory_, nullptr);
+        dabBufferMemory_ = VK_NULL_HANDLE;
     }
     if (dabStagingBuffer_ != VK_NULL_HANDLE) {
         vkDestroyBuffer(device_, dabStagingBuffer_, nullptr);
-        vkFreeMemory(device_, dabStagingBufferMemory_, nullptr);
         dabStagingBuffer_ = VK_NULL_HANDLE;
     }
+    if (dabStagingBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, dabStagingBufferMemory_, nullptr);
+        dabStagingBufferMemory_ = VK_NULL_HANDLE;
+    }
+    dabBufferCapacity_ = 0;
 
     // Grow with headroom so a stroke whose dab count fluctuates near a boundary doesn't
     // reallocate on every single call.
@@ -343,18 +566,27 @@ bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
     deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!checkResult(vkCreateBuffer(device_, &deviceBufferInfo, nullptr, &dabBuffer_),
                       "vkCreateBuffer(dabBuffer)")) {
+        dabBuffer_ = VK_NULL_HANDLE;  // vkCreateBuffer leaves the handle unmodified on failure.
         return false;
     }
     VkMemoryRequirements memReq;
     vkGetBufferMemoryRequirements(device_, dabBuffer_, &memReq);
     int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (memType < 0) { LOGE("No device-local memory type for dab buffer"); return false; }
+    if (memType < 0) {
+        LOGE("No device-local memory type for dab buffer");
+        vkDestroyBuffer(device_, dabBuffer_, nullptr);
+        dabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memReq.size;
     allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
     if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &dabBufferMemory_),
                       "vkAllocateMemory(dabBuffer)")) {
+        dabBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabBuffer_, nullptr);
+        dabBuffer_ = VK_NULL_HANDLE;
         return false;
     }
     vkBindBufferMemory(device_, dabBuffer_, dabBufferMemory_, 0);
@@ -366,6 +598,9 @@ bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
     stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!checkResult(vkCreateBuffer(device_, &stagingBufferInfo, nullptr, &dabStagingBuffer_),
                       "vkCreateBuffer(dabStaging)")) {
+        dabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
         return false;
     }
     VkMemoryRequirements stagingMemReq;
@@ -373,13 +608,23 @@ bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
     int32_t stagingMemType = findMemoryType(
         stagingMemReq.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (stagingMemType < 0) { LOGE("No host-visible memory type for dab staging buffer"); return false; }
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for dab staging buffer");
+        vkDestroyBuffer(device_, dabStagingBuffer_, nullptr); dabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
     VkMemoryAllocateInfo stagingAllocInfo{};
     stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     stagingAllocInfo.allocationSize = stagingMemReq.size;
     stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
     if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &dabStagingBufferMemory_),
                       "vkAllocateMemory(dabStaging)")) {
+        dabStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabStagingBuffer_, nullptr); dabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
         return false;
     }
     vkBindBufferMemory(device_, dabStagingBuffer_, dabStagingBufferMemory_, 0);
@@ -428,6 +673,117 @@ bool VulkanStampEngine::allocateCommandBuffer() {
     return checkResult(vkCreateFence(device_, &fenceInfo, nullptr, &fence_), "vkCreateFence");
 }
 
+void VulkanStampEngine::ensureLayerImageGeneral(VkCommandBuffer cmd) {
+    if (layerImageLayout_ == VK_IMAGE_LAYOUT_GENERAL) return;
+    VkImageMemoryBarrier toGeneral{};
+    toGeneral.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toGeneral.oldLayout = layerImageLayout_;
+    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    // Coming from UNDEFINED (the only other state this ever tracks) there's nothing to flush, so
+    // srcAccessMask 0 is correct — this only ever runs once per init(), the image's first use.
+    toGeneral.srcAccessMask = 0;
+    toGeneral.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;  // the clear below writes via TRANSFER.
+    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.image = layerImage_;
+    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                          0, nullptr, 0, nullptr, 1, &toGeneral);
+
+    // A freshly created VkImage's contents are genuinely undefined, not "transparent" — VK_IMAGE_
+    // LAYOUT_UNDEFINED describes the layout, not the pixel values, and nothing before this point
+    // ever wrote to it. Without this clear, the FIRST stampDabs()/readback() call on an engine
+    // that skipped upload() (VulkanStampEngineSelfTest, or a fresh round-tip stroke over an empty
+    // layer) would composite onto — or read back — driver/GPU-memory garbage instead of the
+    // transparent black every doc comment on this class promises.
+    VkClearColorValue clearColor{};
+    clearColor.float32[0] = clearColor.float32[1] = clearColor.float32[2] = clearColor.float32[3] = 0.0f;
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, layerImage_, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    VkImageMemoryBarrier afterClear{};
+    afterClear.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    afterClear.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    afterClear.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                                VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    afterClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.image = layerImage_;
+    afterClear.subresourceRange = range;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                          0, nullptr, 0, nullptr, 1, &afterClear);
+
+    layerImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+}
+
+bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
+    if (!isInitialized()) return false;
+    size_t requiredBytes = static_cast<size_t>(width_) * height_ * 4;
+    if (inSizeBytes < requiredBytes) {
+        LOGE("upload buffer too small: need %zu, got %zu", requiredBytes, inSizeBytes);
+        return false;
+    }
+
+    void* mapped = nullptr;
+    if (!checkResult(vkMapMemory(device_, stagingBufferMemory_, 0, requiredBytes, 0, &mapped),
+                      "vkMapMemory(upload)")) {
+        return false;
+    }
+    std::memcpy(mapped, inRgba8, requiredBytes);
+    vkUnmapMemory(device_, stagingBufferMemory_);
+
+    vkResetCommandBuffer(commandBuffer_, 0);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(upload)")) {
+        return false;
+    }
+
+    ensureLayerImageGeneral(commandBuffer_);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
+    // GENERAL is a valid layout for a transfer destination too, so no further transition is needed
+    // beyond ensureLayerImageGeneral() above — see stampDabs()'s and readback()'s doc comments for
+    // why this engine keeps the layer permanently in GENERAL rather than juggling per-op layouts.
+    vkCmdCopyBufferToImage(commandBuffer_, stagingBuffer_, layerImage_, VK_IMAGE_LAYOUT_GENERAL, 1,
+                            &region);
+
+    VkImageMemoryBarrier toShaderReadable{};
+    toShaderReadable.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderReadable.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderReadable.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderReadable.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderReadable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    toShaderReadable.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderReadable.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderReadable.image = layerImage_;
+    toShaderReadable.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderReadable);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(upload)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(upload)")) return false;
+    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(upload)");
+}
+
 bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness) {
     if (!isInitialized() || dabs.empty()) return false;
     if (!createDabBuffer(dabs.size())) return false;
@@ -465,43 +821,59 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
                           nullptr);
 
-    // First dispatch ever: the layer image starts VK_IMAGE_LAYOUT_UNDEFINED and must transition
-    // to GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal.
-    // Subsequent stampDabs() calls on the same engine leave it in GENERAL already, so this is a
-    // no-op transition (old==new layout) that vkCmdPipelineBarrier handles cheaply.
-    VkImageMemoryBarrier imgBarrier{};
-    imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    imgBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imgBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imgBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    imgBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    imgBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imgBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imgBarrier.image = layerImage_;
-    imgBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                          &imgBarrier);
+    // The layer image starts VK_IMAGE_LAYOUT_UNDEFINED after init() and must transition to
+    // GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal — a
+    // no-op on every call after the first (by this engine or by upload()), see
+    // ensureLayerImageGeneral()'s doc comment for why GENERAL is kept permanently rather than
+    // transitioned per-op.
+    ensureLayerImageGeneral(commandBuffer_);
 
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
                              &descriptorSet_, 0, nullptr);
 
-    PushConstants pc{};
-    pc.dabCount = static_cast<uint32_t>(dabs.size());
-    pc.hardness = hardness;
-    // ARGB -> normalized RGB; alpha is handled separately as baseAlpha so the shader can combine
-    // it with each dab's own alpha, exactly like StampBrushRenderer.paintDabs's `baseAlpha * d.alpha`.
-    pc.colorR = static_cast<float>((colorArgb >> 16) & 0xFF) / 255.0f;
-    pc.colorG = static_cast<float>((colorArgb >> 8) & 0xFF) / 255.0f;
-    pc.colorB = static_cast<float>(colorArgb & 0xFF) / 255.0f;
-    pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
-    vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                        sizeof(pc), &pc);
+    // Dispatch only the workgroups covering `dabs`' bounding box (padded by each dab's own
+    // radius), not the whole layer — a full-image dispatch on every touch sample of an 8192x8192
+    // document is ~67M shader invocations checking a handful of dabs each time, a real risk of
+    // stalling the (synchronous, main-thread) caller or tripping a GPU driver watchdog on a large
+    // canvas. The shader re-bases gl_GlobalInvocationID by (originX, originY) to recover the real
+    // layer pixel coordinate — see stamp.comp's PushConstants doc comment.
+    float minX = dabs[0].x - dabs[0].radius, maxX = dabs[0].x + dabs[0].radius;
+    float minY = dabs[0].y - dabs[0].radius, maxY = dabs[0].y + dabs[0].radius;
+    for (const GpuDab& d : dabs) {
+        minX = std::min(minX, d.x - d.radius); maxX = std::max(maxX, d.x + d.radius);
+        minY = std::min(minY, d.y - d.radius); maxY = std::max(maxY, d.y + d.radius);
+    }
+    int32_t originX = std::max(0, static_cast<int32_t>(std::floor(minX)));
+    int32_t originY = std::max(0, static_cast<int32_t>(std::floor(minY)));
+    int32_t endX = std::min(width_, static_cast<int32_t>(std::ceil(maxX)) + 1);
+    int32_t endY = std::min(height_, static_cast<int32_t>(std::ceil(maxY)) + 1);
+    int32_t regionW = std::max(0, endX - originX);
+    int32_t regionH = std::max(0, endY - originY);
+    // Every dab's padded bbox can fall entirely outside the layer (e.g. a scattered dab drifted
+    // off-canvas) — dispatch is simply skipped then, but the command buffer built so far (the dab
+    // upload, and possibly ensureLayerImageGeneral's first-use clear) still must be submitted
+    // below rather than dropped, since layerImageLayout_ was already updated to reflect it.
+    if (regionW > 0 && regionH > 0) {
+        PushConstants pc{};
+        pc.dabCount = static_cast<uint32_t>(dabs.size());
+        pc.hardness = hardness;
+        // ARGB -> normalized RGB; alpha is handled separately as baseAlpha so the shader can
+        // combine it with each dab's own alpha, matching StampBrushRenderer.paintDabs's
+        // `baseAlpha * d.alpha`.
+        pc.colorR = static_cast<float>((colorArgb >> 16) & 0xFF) / 255.0f;
+        pc.colorG = static_cast<float>((colorArgb >> 8) & 0xFF) / 255.0f;
+        pc.colorB = static_cast<float>(colorArgb & 0xFF) / 255.0f;
+        pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
+        pc.originX = originX;
+        pc.originY = originY;
+        vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                            sizeof(pc), &pc);
 
-    uint32_t groupsX = (static_cast<uint32_t>(width_) + 15) / 16;
-    uint32_t groupsY = (static_cast<uint32_t>(height_) + 15) / 16;
-    vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
+        uint32_t groupsX = (static_cast<uint32_t>(regionW) + 15) / 16;
+        uint32_t groupsY = (static_cast<uint32_t>(regionH) + 15) / 16;
+        vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
+    }
 
     if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer")) return false;
 
@@ -531,6 +903,12 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(readback)")) {
         return false;
     }
+
+    // Handles both cases: an engine that never had stampDabs()/upload() called on it yet (image
+    // still UNDEFINED — the transition itself, dstAccessMask below doesn't matter since there's no
+    // prior write to flush) and the normal case (already GENERAL — a no-op layout-wise, but the
+    // access-mask barrier below is still needed to order the compute write before this read).
+    ensureLayerImageGeneral(commandBuffer_);
 
     VkImageMemoryBarrier toTransferSrc{};
     toTransferSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -608,6 +986,7 @@ void VulkanStampEngine::destroy() {
     if (layerImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, layerImageView_, nullptr); layerImageView_ = VK_NULL_HANDLE; }
     if (layerImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, layerImage_, nullptr); layerImage_ = VK_NULL_HANDLE; }
     if (layerImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, layerImageMemory_, nullptr); layerImageMemory_ = VK_NULL_HANDLE; }
+    if (hardwareBuffer_ != nullptr) { AHardwareBuffer_release(hardwareBuffer_); hardwareBuffer_ = nullptr; }
 
     if (device_ != VK_NULL_HANDLE) { vkDestroyDevice(device_, nullptr); device_ = VK_NULL_HANDLE; }
     if (instance_ != VK_NULL_HANDLE) { vkDestroyInstance(instance_, nullptr); instance_ = VK_NULL_HANDLE; }
@@ -616,6 +995,7 @@ void VulkanStampEngine::destroy() {
     queue_ = VK_NULL_HANDLE;
     width_ = 0;
     height_ = 0;
+    layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 }  // namespace graffux
