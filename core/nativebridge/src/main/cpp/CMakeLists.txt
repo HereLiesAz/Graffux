@@ -12,7 +12,7 @@ find_package(OpenCV REQUIRED CONFIG)
 # Set GLM include directory (header-only, committed under libs/glm)
 set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
-# Define the native library (Removed VulkanBackend.cpp)
+# Define the native library
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
     MobileGS.cpp
@@ -22,6 +22,7 @@ add_library(graffitixr SHARED
     LowLightEnhancer.cpp
     ImageWarper.cpp
     MlasStub.cpp
+    VulkanStampEngine.cpp
 )
 
 # Include directories. OpenCV's headers arrive via the imported target's INTERFACE_INCLUDE_DIRECTORIES.
@@ -32,8 +33,13 @@ target_include_directories(graffitixr PRIVATE
 
 # Find required Android libraries
 find_library(log-lib log)
+# libvulkan.so ships in the NDK's platform sysroot for API 24+ (Graffux's ABIs both carry it);
+# VulkanStampEngine.cpp is compute-only (no VK_KHR_android_surface), so no Vulkan validation
+# layers or loader beyond this system library are needed.
+find_library(vulkan-lib vulkan)
 
-# Link libraries - OpenGL ES 3.0 for splat rendering, jnigraphics for Bitmap manipulation.
+# Link libraries - OpenGL ES 3.0 for splat rendering, jnigraphics for Bitmap manipulation,
+# vulkan for VulkanStampEngine's GPU dab compositor (docs/Native Rendering Engine Design.md §9).
 # OpenCV::opencv_java5 carries both the include dirs and the shared library to link against.
 target_link_libraries(graffitixr
     ${log-lib}
@@ -42,4 +48,5 @@ target_link_libraries(graffitixr
     EGL
     android
     jnigraphics
+    ${vulkan-lib}
 )

@@ -1,0 +1,621 @@
+// FILE: core/nativebridge/src/main/cpp/VulkanStampEngine.cpp
+#include "include/VulkanStampEngine.h"
+
+#include <android/log.h>
+#include <cstring>
+
+#include "shaders/StampSpv.h"
+
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "VulkanStampEngine", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "VulkanStampEngine", __VA_ARGS__)
+
+namespace graffux {
+
+namespace {
+
+// Push constants for stamp.comp — layout and field order must match the shader's
+// `layout(push_constant) uniform PushConstants` block exactly (std430 scalar packing: all four
+// members are 4 bytes, so no padding is inserted between them).
+struct PushConstants {
+    uint32_t dabCount;
+    float hardness;
+    float colorR;
+    float colorG;
+    float colorB;
+    float baseAlpha;
+};
+
+bool checkResult(VkResult result, const char* what) {
+    if (result != VK_SUCCESS) {
+        LOGE("%s failed: VkResult=%d", what, static_cast<int>(result));
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+VulkanStampEngine::~VulkanStampEngine() { destroy(); }
+
+bool VulkanStampEngine::init(int width, int height) {
+    if (device_ != VK_NULL_HANDLE) destroy();
+    width_ = width;
+    height_ = height;
+
+    if (!createInstance()) { destroy(); return false; }
+    if (!pickPhysicalDeviceAndQueueFamily()) { destroy(); return false; }
+    if (!createLogicalDeviceAndQueue()) { destroy(); return false; }
+    if (!createLayerImage(width, height)) { destroy(); return false; }
+    if (!createDescriptorAndPipeline()) { destroy(); return false; }
+    if (!allocateCommandBuffer()) { destroy(); return false; }
+
+    LOGI("VulkanStampEngine initialized: %dx%d layer", width, height);
+    return true;
+}
+
+bool VulkanStampEngine::createInstance() {
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = "graffux-stamp-engine";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "graffux";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    // Compute-only: no VK_KHR_surface/VK_KHR_android_surface needed, so no window/display
+    // dependency and no Activity/Surface handoff required to use this engine.
+    appInfo.apiVersion = VK_API_VERSION_1_1;
+
+    VkInstanceCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
+
+    return checkResult(vkCreateInstance(&createInfo, nullptr, &instance_), "vkCreateInstance");
+}
+
+bool VulkanStampEngine::pickPhysicalDeviceAndQueueFamily() {
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance_, &deviceCount, nullptr);
+    if (deviceCount == 0) {
+        LOGE("No Vulkan physical devices found");
+        return false;
+    }
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance_, &deviceCount, devices.data());
+
+    for (VkPhysicalDevice candidate : devices) {
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queueFamilyCount, queueFamilies.data());
+
+        for (uint32_t i = 0; i < queueFamilyCount; i++) {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                physicalDevice_ = candidate;
+                queueFamilyIndex_ = i;
+                return true;
+            }
+        }
+    }
+
+    LOGE("No physical device exposes a compute-capable queue family");
+    return false;
+}
+
+bool VulkanStampEngine::createLogicalDeviceAndQueue() {
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueCreateInfo{};
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = queueFamilyIndex_;
+    queueCreateInfo.queueCount = 1;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
+
+    VkDeviceCreateInfo deviceCreateInfo{};
+    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+
+    if (!checkResult(vkCreateDevice(physicalDevice_, &deviceCreateInfo, nullptr, &device_),
+                      "vkCreateDevice")) {
+        return false;
+    }
+    vkGetDeviceQueue(device_, queueFamilyIndex_, 0, &queue_);
+    return true;
+}
+
+int32_t VulkanStampEngine::findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memProperties);
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeBits & (1u << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+bool VulkanStampEngine::createLayerImage(int width, int height) {
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    // STORAGE for the shader's imageLoad/imageStore, TRANSFER_SRC so readback() can copy it out
+    // via a staging buffer (optimal-tiling images can't be mapped directly).
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &layerImage_), "vkCreateImage")) {
+        return false;
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, layerImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) { LOGE("No device-local memory type for layer image"); return false; }
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &layerImageMemory_),
+                      "vkAllocateMemory(layerImage)")) {
+        return false;
+    }
+    vkBindImageMemory(device_, layerImage_, layerImageMemory_, 0);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = layerImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &layerImageView_),
+                      "vkCreateImageView")) {
+        return false;
+    }
+
+    // Staging buffer for readback() — sized once here since it never needs to be larger than the
+    // layer image itself.
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height * 4;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &stagingBuffer_),
+                      "vkCreateBuffer(staging)")) {
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, stagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) { LOGE("No host-visible memory type for staging buffer"); return false; }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &stagingBufferMemory_),
+                      "vkAllocateMemory(staging)")) {
+        return false;
+    }
+    vkBindBufferMemory(device_, stagingBuffer_, stagingBufferMemory_, 0);
+
+    return true;
+}
+
+bool VulkanStampEngine::createDescriptorAndPipeline() {
+    VkShaderModuleCreateInfo shaderInfo{};
+    shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shaderInfo.codeSize = kStampCompSpvWords * sizeof(uint32_t);
+    shaderInfo.pCode = kStampCompSpv;
+    if (!checkResult(vkCreateShaderModule(device_, &shaderInfo, nullptr, &shaderModule_),
+                      "vkCreateShaderModule")) {
+        return false;
+    }
+
+    VkDescriptorSetLayoutBinding bindings[2]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 2;
+    layoutInfo.pBindings = bindings;
+    if (!checkResult(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &descriptorSetLayout_),
+                      "vkCreateDescriptorSetLayout")) {
+        return false;
+    }
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(PushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout_;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushRange;
+    if (!checkResult(vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr, &pipelineLayout_),
+                      "vkCreatePipelineLayout")) {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo stageInfo{};
+    stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stageInfo.module = shaderModule_;
+    stageInfo.pName = "main";
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = stageInfo;
+    pipelineInfo.layout = pipelineLayout_;
+    if (!checkResult(
+            vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline_),
+            "vkCreateComputePipelines")) {
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSizes[2]{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[1].descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 2;
+    poolInfo.pPoolSizes = poolSizes;
+    if (!checkResult(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &descriptorPool_),
+                      "vkCreateDescriptorPool")) {
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool = descriptorPool_;
+    dsAllocInfo.descriptorSetCount = 1;
+    dsAllocInfo.pSetLayouts = &descriptorSetLayout_;
+    if (!checkResult(vkAllocateDescriptorSets(device_, &dsAllocInfo, &descriptorSet_),
+                      "vkAllocateDescriptorSets")) {
+        return false;
+    }
+
+    // The dab buffer (binding 0) is (re)written per stampDabs() call by createDabBuffer(), which
+    // also updates this descriptor set's binding 0 write once the buffer exists. Binding 1 (the
+    // layer image) is stable for this engine's lifetime, so it's written once, here.
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageView = layerImageView_;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet imageWrite{};
+    imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    imageWrite.dstSet = descriptorSet_;
+    imageWrite.dstBinding = 1;
+    imageWrite.descriptorCount = 1;
+    imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    imageWrite.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(device_, 1, &imageWrite, 0, nullptr);
+
+    return true;
+}
+
+bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
+    if (dabCount <= dabBufferCapacity_ && dabBuffer_ != VK_NULL_HANDLE) return true;
+
+    if (dabBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, dabBuffer_, nullptr);
+        vkFreeMemory(device_, dabBufferMemory_, nullptr);
+        dabBuffer_ = VK_NULL_HANDLE;
+    }
+    if (dabStagingBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, dabStagingBuffer_, nullptr);
+        vkFreeMemory(device_, dabStagingBufferMemory_, nullptr);
+        dabStagingBuffer_ = VK_NULL_HANDLE;
+    }
+
+    // Grow with headroom so a stroke whose dab count fluctuates near a boundary doesn't
+    // reallocate on every single call.
+    size_t newCapacity = dabCount + dabCount / 2 + 16;
+    VkDeviceSize bufferSize = static_cast<VkDeviceSize>(newCapacity) * sizeof(GpuDab);
+
+    VkBufferCreateInfo deviceBufferInfo{};
+    deviceBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    deviceBufferInfo.size = bufferSize;
+    deviceBufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &deviceBufferInfo, nullptr, &dabBuffer_),
+                      "vkCreateBuffer(dabBuffer)")) {
+        return false;
+    }
+    VkMemoryRequirements memReq;
+    vkGetBufferMemoryRequirements(device_, dabBuffer_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) { LOGE("No device-local memory type for dab buffer"); return false; }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &dabBufferMemory_),
+                      "vkAllocateMemory(dabBuffer)")) {
+        return false;
+    }
+    vkBindBufferMemory(device_, dabBuffer_, dabBufferMemory_, 0);
+
+    VkBufferCreateInfo stagingBufferInfo{};
+    stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingBufferInfo.size = bufferSize;
+    stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &stagingBufferInfo, nullptr, &dabStagingBuffer_),
+                      "vkCreateBuffer(dabStaging)")) {
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, dabStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) { LOGE("No host-visible memory type for dab staging buffer"); return false; }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &dabStagingBufferMemory_),
+                      "vkAllocateMemory(dabStaging)")) {
+        return false;
+    }
+    vkBindBufferMemory(device_, dabStagingBuffer_, dabStagingBufferMemory_, 0);
+
+    dabBufferCapacity_ = newCapacity;
+
+    VkDescriptorBufferInfo bufInfo{};
+    bufInfo.buffer = dabBuffer_;
+    bufInfo.offset = 0;
+    bufInfo.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet bufWrite{};
+    bufWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bufWrite.dstSet = descriptorSet_;
+    bufWrite.dstBinding = 0;
+    bufWrite.descriptorCount = 1;
+    bufWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bufWrite.pBufferInfo = &bufInfo;
+    vkUpdateDescriptorSets(device_, 1, &bufWrite, 0, nullptr);
+
+    return true;
+}
+
+bool VulkanStampEngine::allocateCommandBuffer() {
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = queueFamilyIndex_;
+    if (!checkResult(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_),
+                      "vkCreateCommandPool")) {
+        return false;
+    }
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool_;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    if (!checkResult(vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer_),
+                      "vkAllocateCommandBuffers")) {
+        return false;
+    }
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    return checkResult(vkCreateFence(device_, &fenceInfo, nullptr, &fence_), "vkCreateFence");
+}
+
+bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness) {
+    if (!isInitialized() || dabs.empty()) return false;
+    if (!createDabBuffer(dabs.size())) return false;
+
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = dabs.size() * sizeof(GpuDab);
+    if (!checkResult(vkMapMemory(device_, dabStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(dabStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, dabs.data(), uploadSize);
+    vkUnmapMemory(device_, dabStagingBufferMemory_);
+
+    vkResetCommandBuffer(commandBuffer_, 0);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer")) {
+        return false;
+    }
+
+    VkBufferCopy copyRegion{0, 0, uploadSize};
+    vkCmdCopyBuffer(commandBuffer_, dabStagingBuffer_, dabBuffer_, 1, &copyRegion);
+
+    VkBufferMemoryBarrier bufBarrier{};
+    bufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bufBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    bufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufBarrier.buffer = dabBuffer_;
+    bufBarrier.offset = 0;
+    bufBarrier.size = uploadSize;
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
+                          nullptr);
+
+    // First dispatch ever: the layer image starts VK_IMAGE_LAYOUT_UNDEFINED and must transition
+    // to GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal.
+    // Subsequent stampDabs() calls on the same engine leave it in GENERAL already, so this is a
+    // no-op transition (old==new layout) that vkCmdPipelineBarrier handles cheaply.
+    VkImageMemoryBarrier imgBarrier{};
+    imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    imgBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    imgBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    imgBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    imgBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    imgBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imgBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imgBarrier.image = layerImage_;
+    imgBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &imgBarrier);
+
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+    vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
+                             &descriptorSet_, 0, nullptr);
+
+    PushConstants pc{};
+    pc.dabCount = static_cast<uint32_t>(dabs.size());
+    pc.hardness = hardness;
+    // ARGB -> normalized RGB; alpha is handled separately as baseAlpha so the shader can combine
+    // it with each dab's own alpha, exactly like StampBrushRenderer.paintDabs's `baseAlpha * d.alpha`.
+    pc.colorR = static_cast<float>((colorArgb >> 16) & 0xFF) / 255.0f;
+    pc.colorG = static_cast<float>((colorArgb >> 8) & 0xFF) / 255.0f;
+    pc.colorB = static_cast<float>(colorArgb & 0xFF) / 255.0f;
+    pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
+    vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                        sizeof(pc), &pc);
+
+    uint32_t groupsX = (static_cast<uint32_t>(width_) + 15) / 16;
+    uint32_t groupsY = (static_cast<uint32_t>(height_) + 15) / 16;
+    vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit")) return false;
+    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(stampDabs)");
+}
+
+bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
+    if (!isInitialized()) return false;
+    size_t requiredBytes = static_cast<size_t>(width_) * height_ * 4;
+    if (outCapacityBytes < requiredBytes) {
+        LOGE("readback buffer too small: need %zu, got %zu", requiredBytes, outCapacityBytes);
+        return false;
+    }
+
+    vkResetCommandBuffer(commandBuffer_, 0);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(readback)")) {
+        return false;
+    }
+
+    VkImageMemoryBarrier toTransferSrc{};
+    toTransferSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferSrc.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferSrc.newLayout = VK_IMAGE_LAYOUT_GENERAL;  // GENERAL is valid as a transfer source too.
+    toTransferSrc.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    toTransferSrc.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toTransferSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferSrc.image = layerImage_;
+    toTransferSrc.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toTransferSrc);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
+    vkCmdCopyImageToBuffer(commandBuffer_, layerImage_, VK_IMAGE_LAYOUT_GENERAL, stagingBuffer_, 1,
+                            &region);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(readback)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(readback)")) return false;
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(readback)")) {
+        return false;
+    }
+
+    void* mapped = nullptr;
+    if (!checkResult(vkMapMemory(device_, stagingBufferMemory_, 0, requiredBytes, 0, &mapped),
+                      "vkMapMemory(readback)")) {
+        return false;
+    }
+    std::memcpy(outRgba8, mapped, requiredBytes);
+    vkUnmapMemory(device_, stagingBufferMemory_);
+    return true;
+}
+
+void VulkanStampEngine::destroy() {
+    if (device_ != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device_);
+    }
+
+    if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }
+    if (commandPool_ != VK_NULL_HANDLE) { vkDestroyCommandPool(device_, commandPool_, nullptr); commandPool_ = VK_NULL_HANDLE; }
+    commandBuffer_ = VK_NULL_HANDLE;
+
+    if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
+    if (pipelineLayout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr); pipelineLayout_ = VK_NULL_HANDLE; }
+    if (shaderModule_ != VK_NULL_HANDLE) { vkDestroyShaderModule(device_, shaderModule_, nullptr); shaderModule_ = VK_NULL_HANDLE; }
+    if (descriptorPool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, descriptorPool_, nullptr); descriptorPool_ = VK_NULL_HANDLE; }
+    descriptorSet_ = VK_NULL_HANDLE;
+    if (descriptorSetLayout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr); descriptorSetLayout_ = VK_NULL_HANDLE; }
+
+    if (dabBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE; }
+    if (dabBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE; }
+    if (dabStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, dabStagingBuffer_, nullptr); dabStagingBuffer_ = VK_NULL_HANDLE; }
+    if (dabStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, dabStagingBufferMemory_, nullptr); dabStagingBufferMemory_ = VK_NULL_HANDLE; }
+    dabBufferCapacity_ = 0;
+
+    if (stagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, stagingBuffer_, nullptr); stagingBuffer_ = VK_NULL_HANDLE; }
+    if (stagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, stagingBufferMemory_, nullptr); stagingBufferMemory_ = VK_NULL_HANDLE; }
+
+    if (layerImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, layerImageView_, nullptr); layerImageView_ = VK_NULL_HANDLE; }
+    if (layerImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, layerImage_, nullptr); layerImage_ = VK_NULL_HANDLE; }
+    if (layerImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, layerImageMemory_, nullptr); layerImageMemory_ = VK_NULL_HANDLE; }
+
+    if (device_ != VK_NULL_HANDLE) { vkDestroyDevice(device_, nullptr); device_ = VK_NULL_HANDLE; }
+    if (instance_ != VK_NULL_HANDLE) { vkDestroyInstance(instance_, nullptr); instance_ = VK_NULL_HANDLE; }
+
+    physicalDevice_ = VK_NULL_HANDLE;
+    queue_ = VK_NULL_HANDLE;
+    width_ = 0;
+    height_ = 0;
+}
+
+}  // namespace graffux
