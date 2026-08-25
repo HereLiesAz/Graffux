@@ -315,6 +315,21 @@ class EditorViewModel @Inject constructor(
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
     /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
     private var lastSampleMs: Long = 0L
+    // Live Catmull-Rom curve window for the round brush (Tool.BRUSH, no stamp) — see
+    // feedLiveCurvePoint's doc. Bitmap-space points not yet curve-finalized, oldest first, and the
+    // BrushDynamics width of the segment ENDING at each (one shorter than the points — the very
+    // first windowed point has no segment yet). A segment is drawn once it has real neighbours on
+    // both sides — needs a 4-point window — and never touched again once drawn: like a git commit,
+    // each drawn run is a permanent function of the point list as it stood at that moment, not
+    // retroactively revised as the stroke grows. Reset per stroke in onStrokeStart/
+    // clearTransientStrokeState.
+    private val liveCurveWindow = ArrayDeque<Offset>()
+    private val liveCurveWidths = ArrayDeque<Float>()
+    /** How many segments the live window has drawn so far this stroke — 0 means the window hasn't
+     *  filled yet, at which point its FIRST draw also has to cover the stroke's own global first
+     *  segment (which uses a reflected phantom point on its near side regardless, live or replayed
+     *  — there being no real point before a stroke's first one either way). */
+    private var liveCurveFinalizedCount = 0
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
@@ -2706,6 +2721,9 @@ class EditorViewModel @Inject constructor(
         val layer = state.layers.find { it.id == layerId } ?: return
         val originalBitmap = layer.bitmap ?: return
 
+        liveCurveWindow.clear()
+        liveCurveWidths.clear()
+        liveCurveFinalizedCount = 0
         strokeStabilizer.reset()
         val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel)
 
@@ -2863,15 +2881,22 @@ class EditorViewModel @Inject constructor(
             } else {
                 val dyn = strokeDynamics
                 if (dyn != null) {
-                    // Dynamic brush: each segment at its own velocity-derived width. The same
-                    // recursion runs on commit/replay, so live pixels match replayed pixels.
-                    for (i in 0 until mappedAll.size - 1) {
-                        val p = catchUpPressures.getOrNull(i + 1) ?: 1f
-                        paint.strokeWidth = dyn.next((mappedAll[i + 1] - mappedAll[i]).getDistance(), brushSize * brushScale, p)
-                        val seg = android.graphics.Path()
-                        seg.moveTo(mappedAll[i].x, mappedAll[i].y)
-                        seg.lineTo(mappedAll[i + 1].x, mappedAll[i + 1].y)
-                        drawPathAll(seg)
+                    // Dynamic brush: each segment at its own velocity-derived width, drawn as a
+                    // Catmull-Rom-curved run through the live window once it has real neighbours
+                    // on both sides — see feedLiveCurvePoint's doc. Width still advances the same
+                    // recursion immediately as each point arrives, only drawing is windowed, so
+                    // live pixels match replayed pixels once the stroke commits.
+                    feedLiveCurvePoint(
+                        workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                        state.wrapAroundMode, mappedAll[0], 0f,
+                    )
+                    for (i in 1 until mappedAll.size) {
+                        val p = catchUpPressures.getOrNull(i) ?: 1f
+                        val width = dyn.next((mappedAll[i] - mappedAll[i - 1]).getDistance(), brushSize * brushScale, p)
+                        feedLiveCurvePoint(
+                            workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                            state.wrapAroundMode, mappedAll[i], width,
+                        )
                     }
                 } else {
                     val seg = android.graphics.Path()
@@ -3013,42 +3038,50 @@ class EditorViewModel @Inject constructor(
             strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
         ).first()
 
-        // Dynamic brush width: advance the per-stroke recursion by this segment's length. The same
-        // recursion runs from scratch on commit/replay, so the live paint matches exactly.
-        strokeDynamics?.let { dyn ->
+        val dyn = strokeDynamics
+        if (dyn != null) {
+            // Dynamic brush width: advance the per-stroke recursion by this segment's length,
+            // immediately, every call — the same recursion runs from scratch on commit/replay, so
+            // it matches exactly once committed. Drawing itself goes through the live Catmull-Rom
+            // curve window instead of a straight chord — see feedLiveCurvePoint's doc for why only
+            // width is computed eagerly while drawing is windowed by a point or two.
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
             )
-            paint.strokeWidth = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, pressure)
-        }
+            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, pressure)
+            feedLiveCurvePoint(
+                canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                _uiState.value.wrapAroundMode, mapped, width,
+            )
+        } else {
+            val seg = Path()
+            seg.moveTo(prev.x, prev.y)
+            seg.lineTo(mapped.x, mapped.y)
 
-        val seg = Path()
-        seg.moveTo(prev.x, prev.y)
-        seg.lineTo(mapped.x, mapped.y)
-
-        val segs = ArrayList<Path>(2)
-        segs.add(seg)
-        if (strokeSymmetry != SymmetryMode.NONE) {
-            val m = android.graphics.Matrix().apply { setScale(-1f, 1f, workBitmap.width / 2f, 0f) }
-            segs.add(Path(seg).apply { transform(m) })
-        }
-        for (s in segs) {
-            if (_uiState.value.wrapAroundMode) {
-                val w = workBitmap.width.toFloat()
-                val h = workBitmap.height.toFloat()
-                for (dx in -1..1) {
-                    for (dy in -1..1) {
-                        if (dx == 0 && dy == 0) {
-                            canvas.drawPath(s, paint)
-                        } else {
-                            val p = Path(s)
-                            p.offset(dx * w, dy * h)
-                            canvas.drawPath(p, paint)
+            val segs = ArrayList<Path>(2)
+            segs.add(seg)
+            if (strokeSymmetry != SymmetryMode.NONE) {
+                val m = android.graphics.Matrix().apply { setScale(-1f, 1f, workBitmap.width / 2f, 0f) }
+                segs.add(Path(seg).apply { transform(m) })
+            }
+            for (s in segs) {
+                if (_uiState.value.wrapAroundMode) {
+                    val w = workBitmap.width.toFloat()
+                    val h = workBitmap.height.toFloat()
+                    for (dx in -1..1) {
+                        for (dy in -1..1) {
+                            if (dx == 0 && dy == 0) {
+                                canvas.drawPath(s, paint)
+                            } else {
+                                val p = Path(s)
+                                p.offset(dx * w, dy * h)
+                                canvas.drawPath(p, paint)
+                            }
                         }
                     }
+                } else {
+                    canvas.drawPath(s, paint)
                 }
-            } else {
-                canvas.drawPath(s, paint)
             }
         }
         strokePrevBitmapPoint = mapped
@@ -4842,6 +4875,107 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Draws one already-curved run (interleaved `x0,y0,x1,y1,…`, bitmap space — one output of
+     * [CatmullRom.segments]) onto [canvas] with [paint]'s current stroke width, replicated for
+     * [symmetryMode] and tiled for [wrapAroundMode] exactly as every other stroke draw in this
+     * class does, so a curved live segment and a straight one (the no-dynamics tools that never
+     * reach [feedLiveCurvePoint]) can't drift apart on how either gets mirrored/tiled.
+     */
+    private fun drawCurveRun(
+        canvas: Canvas,
+        paint: Paint,
+        run: FloatArray,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+        symmetryMode: SymmetryMode,
+        wrapAroundMode: Boolean,
+    ) {
+        val seg = Path()
+        seg.moveTo(run[0], run[1])
+        var j = 2
+        while (j < run.size) {
+            seg.lineTo(run[j], run[j + 1])
+            j += 2
+        }
+        val segs = ArrayList<Path>(2)
+        segs.add(seg)
+        if (symmetryMode != SymmetryMode.NONE) {
+            val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bitmapWidth / 2f, 0f) }
+            segs.add(Path(seg).apply { transform(m) })
+        }
+        val bw = bitmapWidth.toFloat()
+        val bh = bitmapHeight.toFloat()
+        for (s in segs) {
+            if (wrapAroundMode) {
+                for (dx in -1..1) {
+                    for (dy in -1..1) {
+                        if (dx == 0 && dy == 0) canvas.drawPath(s, paint)
+                        else canvas.drawPath(Path(s).apply { offset(dx * bw, dy * bh) }, paint)
+                    }
+                }
+            } else {
+                canvas.drawPath(s, paint)
+            }
+        }
+    }
+
+    /**
+     * Feeds one new bitmap-space [point] — with the [width] [BrushDynamics] computed for the
+     * segment ending at it — into the round brush's live Catmull-Rom curve window
+     * ([liveCurveWindow]/[liveCurveWidths]/[liveCurveFinalizedCount]), drawing every segment that
+     * becomes finalizable as a result.
+     *
+     * Uniform Catmull-Rom is local — a segment's shape depends only on its 4 nearest points — but
+     * the newest drawn segment always used a reflected phantom point as its far-side neighbour,
+     * since the real one hadn't arrived yet. So a segment can't be drawn once and left alone until
+     * it has REAL neighbours on both sides, which takes a 4-point window: point `i`'s segment to
+     * point `i+1` needs point `i+2` to have actually arrived. That's the one thing this function
+     * buys over just re-fitting the whole growing point list every frame (which the "redraw only
+     * the new tail" live paths can't afford to begin with, since it would retroactively change
+     * whichever segment was drawn most recently): a bounded, ~one-sample lag on the newest
+     * segment, and every segment drawn is then a PERMANENT function of the point list as it stood
+     * the moment it finalized — like a git commit, never revised by what the stroke does next —
+     * rather than a value that has to be re-derived and potentially redrawn from a mutable buffer.
+     *
+     * [liveCurveFinalizedCount] `== 0` on entry means the window has never filled before, at which
+     * point drawing the window's middle segment (indices 1-2 of 0-3, i.e. `segs[1]`) also has to
+     * be preceded by drawing `segs[0]` — the stroke's own GLOBAL first segment — since it will
+     * never again be any later window's middle: `segs[0]` uses a reflected phantom on its near
+     * side regardless, which is correct and matches the authoritative (commit/replay) fit exactly,
+     * there being no real point before a stroke's first one either way.
+     */
+    private fun feedLiveCurvePoint(
+        canvas: Canvas,
+        paint: Paint,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+        symmetryMode: SymmetryMode,
+        wrapAroundMode: Boolean,
+        point: Offset,
+        width: Float,
+    ) {
+        if (liveCurveWindow.isNotEmpty()) liveCurveWidths.addLast(width)
+        liveCurveWindow.addLast(point)
+        if (liveCurveWindow.size < 4) return
+
+        val flat = ArrayList<Float>(8)
+        liveCurveWindow.forEach { flat.add(it.x); flat.add(it.y) }
+        val segs = CatmullRom.segments(flat)
+
+        if (liveCurveFinalizedCount == 0) {
+            paint.strokeWidth = liveCurveWidths[0]
+            drawCurveRun(canvas, paint, segs[0], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode)
+            liveCurveFinalizedCount++
+        }
+        paint.strokeWidth = liveCurveWidths[1]
+        drawCurveRun(canvas, paint, segs[1], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode)
+        liveCurveFinalizedCount++
+
+        liveCurveWindow.removeFirst()
+        liveCurveWidths.removeFirst()
+    }
+
     private fun clearTransientStrokeState() {
         strokeWorkingBitmap = null
         strokeWorkingCanvas = null
@@ -4853,6 +4987,9 @@ class EditorViewModel @Inject constructor(
         strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
+        liveCurveWindow.clear()
+        liveCurveWidths.clear()
+        liveCurveFinalizedCount = 0
         resetStrokePoints()
         strokeLayerId = null
 
