@@ -4,7 +4,12 @@
 #include <cstdint>
 #include <vector>
 
+// Pulls in vulkan_android.h from vulkan.h's own platform guard — VK_ANDROID_external_memory_
+// android_hardware_buffer's structs/functions initWithHardwareBuffer() needs.
+#define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
+
+struct AHardwareBuffer;
 
 namespace graffux {
 
@@ -51,6 +56,25 @@ public:
     // path in any of those cases, not treat them as fatal.
     bool init(int width, int height);
 
+    // Alternative to init(): the layer image's memory is a freshly-allocated AHardwareBuffer
+    // imported via VK_ANDROID_external_memory_android_hardware_buffer instead of engine-private
+    // device memory — docs/Native Rendering Engine Design.md §2's zero-copy interop. Once this
+    // succeeds, hardwareBuffer() returns the same memory a stampDabs() write lands in, which the
+    // JVM side can wrap as a hardware-backed android.graphics.Bitmap (Bitmap.wrapHardwareBuffer,
+    // API 29+) with no CPU copy — upload()/readback() still work too, for the cases (seeding an
+    // existing document's pixels, or a device where the zero-copy consumer can't be used) that
+    // still need a CPU-visible round trip. Returns false — falling back to init() is expected and
+    // safe — if the device lacks the AHB extension or its dependencies, the driver rejects AHB
+    // import for this format/usage combination, or AHardwareBuffer_allocate itself fails.
+    bool initWithHardwareBuffer(int width, int height);
+
+    // The AHardwareBuffer backing the layer image when initWithHardwareBuffer() was used, or
+    // nullptr otherwise (including after plain init()). Ownership stays with this engine — a
+    // caller that hands this to Java/JNI (AHardwareBuffer_toHardwareBuffer) needs its own
+    // reference, which that function acquires internally; do not call AHardwareBuffer_release on
+    // the pointer returned here directly, destroy() already owns that.
+    struct AHardwareBuffer* hardwareBuffer() const { return hardwareBuffer_; }
+
     // Seeds the layer image with `inRgba8` (same width*height*4 RGBA8 layout readback() produces),
     // replacing whatever the layer currently holds. Used to prime a live-preview session with a
     // document's existing pixels before compositing new dabs on top of them — stampDabs() never
@@ -77,12 +101,17 @@ public:
     void destroy();
 
     bool isInitialized() const { return device_ != VK_NULL_HANDLE; }
+    int width() const { return width_; }
+    int height() const { return height_; }
 
 private:
     bool createInstance();
     bool pickPhysicalDeviceAndQueueFamily();
-    bool createLogicalDeviceAndQueue();
+    bool createLogicalDeviceAndQueue(const std::vector<const char*>& requiredExtensions);
+    bool deviceSupportsExtensions(const std::vector<const char*>& names) const;
     bool createLayerImage(int width, int height);
+    bool createLayerImageFromHardwareBuffer(int width, int height);
+    bool createStagingBuffer(int width, int height);
     bool createDescriptorAndPipeline();
     bool createDabBuffer(size_t dabCount);
     bool allocateCommandBuffer();
@@ -111,6 +140,9 @@ private:
     int width_ = 0;
     int height_ = 0;
     VkImageLayout layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Non-null only when initWithHardwareBuffer() created layerImage_/layerImageMemory_ — see
+    // hardwareBuffer()'s doc comment.
+    struct AHardwareBuffer* hardwareBuffer_ = nullptr;
 
     // Host-visible staging buffer the layer image is copied into for readback(); re-created
     // alongside the layer image so its size always matches width_*height_*4.

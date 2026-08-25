@@ -35,6 +35,14 @@ layout(push_constant) uniform PushConstants {
     float colorG;
     float colorB;
     float baseAlpha;  // brush color's own alpha channel, 0..1 (Color.alpha(colorArgb) / 255).
+    // Pixel-space offset of this dispatch's (0,0) workgroup corner within the full layer image —
+    // VulkanStampEngine::stampDabs dispatches only the workgroups covering this call's dabs'
+    // bounding box (padded by their radii), not the whole image, so a review-flagged O(pixels ×
+    // dabs) full-canvas scan doesn't run on every touch sample of a multi-thousand-pixel document.
+    // gl_GlobalInvocationID is relative to THIS dispatch, so it has to be re-based by this origin
+    // to get the real layer pixel coordinate.
+    int originX;
+    int originY;
 } pc;
 
 // Same profile as BrushStamps.stampCoverage / StampBrushRenderer's radial gradient: solid out to
@@ -49,13 +57,14 @@ float stampCoverage(float distFromCenter, float radius, float hardness) {
 }
 
 void main() {
-    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy) + ivec2(pc.originX, pc.originY);
     ivec2 size = imageSize(layerImage);
-    if (pixel.x >= size.x || pixel.y >= size.y) return;
+    if (pixel.x < 0 || pixel.y < 0 || pixel.x >= size.x || pixel.y >= size.y) return;
 
     vec4 dst = imageLoad(layerImage, pixel);
     vec2 p = vec2(pixel) + vec2(0.5);
 
+    vec3 srcRgb = vec3(pc.colorR, pc.colorG, pc.colorB);
     for (uint i = 0u; i < pc.dabCount; i++) {
         Dab d = dabs[i];
         float radius = max(d.radius, 0.5);
@@ -69,10 +78,16 @@ void main() {
         float srcA = pc.baseAlpha * d.alpha * coverage;
         if (srcA <= 0.0) continue;
 
-        vec3 srcRgb = vec3(pc.colorR, pc.colorG, pc.colorB);
         // Straight-alpha SRC_OVER: dst = src*srcA + dst*(1-srcA), a_dst = srcA + a_dst*(1-srcA).
         dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
         dst.a = srcA + dst.a * (1.0 - srcA);
+        // The CPU reference (StampBrushRenderer.paintDabs) draws each dab as a SEPARATE
+        // Canvas.drawCircle into an ARGB_8888 bitmap, so its destination is quantized to 8 bits
+        // between every dab — not just once at the end. Without this, N overlapping dabs blended
+        // here in full float precision diverge from N sequential 8-bit-quantized CPU blends even
+        // at flow/opacity 1, contradicting the bit-identical-at-full-opacity goal. round(x*255)/255
+        // matches how an 8-bit UNORM store/reload would quantize.
+        dst = round(dst * 255.0) / 255.0;
     }
 
     imageStore(layerImage, pixel, dst);

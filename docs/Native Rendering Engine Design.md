@@ -324,17 +324,37 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    `DrawingEngine` replays for undo/redo/co-op — is untouched and always re-renders the whole
    stroke on the CPU from scratch, so a live preview that fell back partway through a stroke can
    never affect what's actually saved; only what you see while dragging goes through the GPU.
-   **Not yet done:** the engine reads/writes a plain pixel buffer, not an `AHardwareBuffer`-backed
-   image — §2's zero-copy GL/Vulkan interop is still to build (today's `upload()`/`readback()` pair
-   is a CPU-side memcpy round trip each frame, not a copy-free share); the round brush's live path
-   (variable-width stroked segments, not a dab list) is untouched — only azphalt stamp-brush
-   strokes with a generated round tip go through the GPU; the GPU calls run synchronously on
-   whatever thread calls `onStrokePoint` (the main thread, same as the CPU path today), so there is
-   no pipelining/async dispatch yet — §3's front-buffer work is what actually addresses that; and
-   none of this has been exercised on a physical device/GPU driver — compiling and linking real
-   Vulkan code is verifiable in this environment, pixel-correctness and frame-timing on real
-   hardware is not, and remains a manual QA step (Settings → Developer → "Test GPU Engine" gives a
-   quick standalone check; drawing with an azphalt round-tip brush exercises the real wiring).
+   **The round brush is dab-based now too.** `ImageProcessor.drawStrokeDynamic` (authoritative
+   commit/replay) and `EditorViewModel.drawCurveRun` (live preview) no longer stroke a
+   variable-width `Path` — both walk each Catmull-Rom-curved segment with `BrushStamps.place` at
+   `ROUND_BRUSH_DAB_SPACING_FRACTION` of the segment's own dab diameter and stamp solid filled
+   circles, the same rendering primitive azphalt stamp brushes use. This is what actually unified
+   the round brush onto the compute shader's model — a real brush engine stamps, it doesn't stroke
+   a path — but the round brush's *live* path is not yet wired to `VulkanStampEngine` itself (only
+   azphalt stamp-brush strokes are); that's now purely a wiring gap, not a rendering-model gap,
+   since both brushes speak dabs.
+   **`AHardwareBuffer` zero-copy interop exists** (`VulkanStampEngine::initWithHardwareBuffer`,
+   `hardwareBuffer()`, `VulkanStampEngine.kt`'s `initHardwareBufferBacked`/`getHardwareBuffer`) —
+   an alternate to `init()` whose layer image imports a freshly-allocated `AHardwareBuffer` via
+   `VK_ANDROID_external_memory_android_hardware_buffer` instead of engine-private device memory,
+   so a `stampDabs()` write is visible through the same memory a `Bitmap.wrapHardwareBuffer`
+   (API 29+) could wrap with no CPU copy. `vkGetAndroidHardwareBufferPropertiesANDROID` is resolved
+   via `vkGetDeviceProcAddr` rather than linked directly — the app's actual minSdk-26 build target
+   doesn't export that symbol from its loader stub at all, confirmed by an real link failure
+   against the full Gradle/CMake build, not a theoretical concern; direct linkage would have broken
+   the whole app's build. **Not yet used anywhere**: nothing calls `initHardwareBufferBacked`
+   instead of `init` — the live stamp-brush preview wiring above still uses the plain
+   `init`/`upload`/`readback` path, since consuming a hardware-backed layer image (a `Bitmap` that
+   can be displayed but not drawn into with a software `Canvas`) needs its own integration work
+   this pass didn't do. The capability compiles, links, and is exercised nowhere yet.
+   **Also not yet done:** the round brush's live-preview *wiring* to the GPU (as above); the GPU
+   calls run synchronously on whatever thread calls `onStrokePoint` (the main thread, same as the
+   CPU path today), so there is no pipelining/async dispatch yet — §3's front-buffer work is what
+   actually addresses that; and none of this has been exercised on a physical device/GPU driver —
+   compiling and linking real Vulkan code is verifiable in this environment, pixel-correctness and
+   frame-timing on real hardware is not, and remains a manual QA step (Settings → Developer →
+   "Test GPU Engine" gives a quick standalone check; drawing with an azphalt round-tip brush
+   exercises the real live-preview wiring).
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.

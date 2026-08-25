@@ -72,6 +72,7 @@ import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 data class StrokeCommand(
@@ -207,6 +208,14 @@ private const val CONTINUOUS_EDIT_IDLE_MS = 400L
  * through a displacement field rather than compositing a stroke, and has its own commit path.
  */
 private val RESAMPLING_TOOLS = setOf(Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE)
+
+// Round-brush dab spacing as a fraction of dab diameter — shared by [EditorViewModel.drawCurveRun]
+// (live preview) and [ImageProcessor.drawStrokeDynamic] (authoritative commit/replay), both of
+// which stamp the round brush as a train of solid filled dabs rather than stroke a variable-width
+// path. Tight enough (a dab every ~15% of its own diameter) that consecutive dabs overlap heavily
+// and the train reads as one smooth, round-capped stroke with no visible bumps, matching what
+// Paint.Style.STROKE + Paint.Cap.ROUND used to draw directly.
+internal const val ROUND_BRUSH_DAB_SPACING_FRACTION = 0.15f
 
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
@@ -4951,6 +4960,16 @@ class EditorViewModel @Inject constructor(
      * class does, so a curved live segment and a straight one (the no-dynamics tools that never
      * reach [feedLiveCurvePoint]) can't drift apart on how either gets mirrored/tiled.
      */
+    /**
+     * Stamps [run] (a curved segment, interleaved `[x0,y0,x1,y1,…]`) as a train of solid filled
+     * round dabs at `paint.strokeWidth / 2` radius, spaced by [BrushStamps.place] at
+     * [ROUND_BRUSH_DAB_SPACING_FRACTION] of the diameter — the same arc-length-walk spacing model the azphalt
+     * stamp brushes use, applied here to the round brush too so both share one rendering primitive
+     * (a real brush engine stamps; it doesn't stroke a variable-width path). `paint.style` is
+     * forced to `FILL` for the duration of this call and restored after — the shared [paint] this
+     * runs on is also used with `Style.STROKE` for other tools (eraser, blur, smudge) in the same
+     * stroke lifetime elsewhere, so this must never leak.
+     */
     private fun drawCurveRun(
         canvas: Canvas,
         paint: Paint,
@@ -4960,31 +4979,49 @@ class EditorViewModel @Inject constructor(
         symmetryMode: SymmetryMode,
         wrapAroundMode: Boolean,
     ) {
-        val seg = Path()
-        seg.moveTo(run[0], run[1])
-        var j = 2
-        while (j < run.size) {
-            seg.lineTo(run[j], run[j + 1])
-            j += 2
-        }
-        val segs = ArrayList<Path>(2)
-        segs.add(seg)
-        if (symmetryMode != SymmetryMode.NONE) {
-            val m = android.graphics.Matrix().apply { setScale(-1f, 1f, bitmapWidth / 2f, 0f) }
-            segs.add(Path(seg).apply { transform(m) })
-        }
+        val radius = max(paint.strokeWidth / 2f, 0.5f)
+        val centres = BrushStamps.place(run.toList(), max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f))
+        val originalStyle = paint.style
+        paint.style = Paint.Style.FILL
         val bw = bitmapWidth.toFloat()
         val bh = bitmapHeight.toFloat()
-        for (s in segs) {
+        var j = 0
+        while (j < centres.size) {
+            drawDab(canvas, paint, centres[j], centres[j + 1], radius, bw, bh, symmetryMode, wrapAroundMode)
+            j += 2
+        }
+        paint.style = originalStyle
+    }
+
+    /** Draws one filled round dab, mirrored per [symmetryMode] and tiled per [wrapAroundMode] — the
+     *  same transform set [drawCurveRun]'s stroked-path predecessor applied to a whole segment, now
+     *  applied per dab centre instead. `paint.style` must already be `FILL`; unlike [drawCurveRun]
+     *  this does not save/restore it, since it's meant to be called many times per style toggle. */
+    private fun drawDab(
+        canvas: Canvas,
+        paint: Paint,
+        cx: Float,
+        cy: Float,
+        radius: Float,
+        bitmapWidth: Float,
+        bitmapHeight: Float,
+        symmetryMode: SymmetryMode,
+        wrapAroundMode: Boolean,
+    ) {
+        val centres = ArrayList<Offset>(2)
+        centres.add(Offset(cx, cy))
+        if (symmetryMode != SymmetryMode.NONE) {
+            centres.add(Offset(bitmapWidth - cx, cy))
+        }
+        for (c in centres) {
             if (wrapAroundMode) {
                 for (dx in -1..1) {
                     for (dy in -1..1) {
-                        if (dx == 0 && dy == 0) canvas.drawPath(s, paint)
-                        else canvas.drawPath(Path(s).apply { offset(dx * bw, dy * bh) }, paint)
+                        canvas.drawCircle(c.x + dx * bitmapWidth, c.y + dy * bitmapHeight, radius, paint)
                     }
                 }
             } else {
-                canvas.drawPath(s, paint)
+                canvas.drawCircle(c.x, c.y, radius, paint)
             }
         }
     }
