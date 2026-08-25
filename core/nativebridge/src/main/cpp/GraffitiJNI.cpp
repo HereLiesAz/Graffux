@@ -18,6 +18,7 @@
 #include "include/MobileGS.h"
 #include "include/StereoProcessor.h"
 #include "include/ImageWarper.h"
+#include "include/VulkanStampEngine.h"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
@@ -1456,6 +1457,100 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
         LOGE("nativeBakeLiquify: bakeToBitmap declined (buffer/source size mismatch or no source set)");
     }
     AndroidBitmap_unlockPixels(env, outBitmap);
+}
+
+} // extern "C"
+
+// ---------------------------------------------------------------------------------------------
+// VulkanStampEngine bridge (docs/Native Rendering Engine Design.md §9 Phase 3).
+//
+// Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above — this engine has no
+// GLES/window dependency (compute-only Vulkan) and is created/destroyed per drawing session by
+// the Kotlin-side VulkanStampEngine wrapper, not tied to AR session start/stop. Its own mutex
+// mirrors gEngineMutex's purpose (serialize create/destroy against concurrent stamp/readback
+// calls) without coupling the two engines' locks together.
+static graffux::VulkanStampEngine* gVulkanStampEngine = nullptr;
+static std::mutex gVulkanStampMutex;
+
+extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
+    JNIEnv*, jobject, jint width, jint height) {
+    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
+    if (!gVulkanStampEngine) gVulkanStampEngine = new graffux::VulkanStampEngine();
+    if (!gVulkanStampEngine->init(width, height)) {
+        delete gVulkanStampEngine;
+        gVulkanStampEngine = nullptr;
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+// `dabData` is a flat float array, 5 floats per dab (x, y, radius, alpha, angleDeg) — the same
+// fields BrushStamps.Dab exposes on the Kotlin side, packed by the VulkanStampEngine.kt wrapper
+// so no per-dab JNI round trip is needed for a whole stroke's dab list.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
+    JNIEnv* env, jobject, jfloatArray dabData, jint colorArgb, jfloat hardness) {
+    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
+    if (!gVulkanStampEngine || !gVulkanStampEngine->isInitialized()) return JNI_FALSE;
+
+    jsize len = env->GetArrayLength(dabData);
+    jsize dabCount = len / 5;
+    if (dabCount <= 0) return JNI_FALSE;
+    jfloat* ptr = env->GetFloatArrayElements(dabData, nullptr);
+    if (!ptr) return JNI_FALSE;
+
+    std::vector<graffux::GpuDab> dabs;
+    dabs.reserve(static_cast<size_t>(dabCount));
+    for (jsize i = 0; i < dabCount; i++) {
+        const jfloat* d = ptr + i * 5;
+        dabs.push_back(graffux::GpuDab{d[0], d[1], d[2], d[3], d[4], 0.0f, 0.0f, 0.0f});
+    }
+    env->ReleaseFloatArrayElements(dabData, ptr, JNI_ABORT);
+
+    bool ok = gVulkanStampEngine->stampDabs(dabs, static_cast<uint32_t>(colorArgb), hardness);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Reads the layer back directly into `outBitmap`'s pixels. Requires an ARGB_8888, non-hardware
+// bitmap sized exactly width x height (the size passed to nativeInit) — Android's ARGB_8888
+// native byte layout is R,G,B,A per pixel (low to high address on the little-endian devices this
+// app targets), which is bit-for-bit what the shader's rgba8 imageStore writes, so this is a
+// straight memcpy with no channel reordering.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeReadback(
+    JNIEnv* env, jobject, jobject outBitmap) {
+    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
+    if (!gVulkanStampEngine || !gVulkanStampEngine->isInitialized()) return JNI_FALSE;
+
+    AndroidBitmapInfo info;
+    void* pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, outBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
+    // The engine's readback() writes a tightly-packed width*4-byte-stride buffer; a bitmap whose
+    // native stride pads each row wider than that would silently corrupt rows below the first, so
+    // require an exact match rather than special-casing a row-by-row copy for a case that never
+    // arises from Bitmap.createBitmap()-allocated bitmaps in practice.
+    if (info.stride != info.width * 4) return JNI_FALSE;
+    if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
+        return JNI_FALSE;
+    }
+    size_t capacity = static_cast<size_t>(info.stride) * info.height;
+    bool ok = gVulkanStampEngine->readback(static_cast<uint8_t*>(pixels), capacity);
+    AndroidBitmap_unlockPixels(env, outBitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeDestroy(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
+    if (gVulkanStampEngine) {
+        gVulkanStampEngine->destroy();
+        delete gVulkanStampEngine;
+        gVulkanStampEngine = nullptr;
+    }
 }
 
 } // extern "C"

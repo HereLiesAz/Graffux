@@ -1,0 +1,79 @@
+#version 450
+// Phase 3 (docs/Native Rendering Engine Design.md §9): GPU dab compositor. One invocation per
+// output pixel; each invocation walks the dab list in submission order and applies the same
+// SRC_OVER-per-dab compositing StampBrushRenderer.paintDabs uses for the CPU round-tip path, so a
+// stroke rendered here at flow/opacity 1 is bit-identical to the CPU result.
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Mirrors BrushStamps.Dab (x, y, radius, alpha, angleDeg) plus padding to a 32-byte stride —
+// angleDeg is unused by the round generated tip (only the shape-stamp path in
+// StampBrushRenderer.paintDabs rotates, and that path is CPU-only for now), but the field is kept
+// so the Kotlin/JNI side can hand this struct across unmodified if a rotated tip is added later.
+struct Dab {
+    float x;
+    float y;
+    float radius;
+    float alpha;
+    float angleDeg;
+    float _pad0;
+    float _pad1;
+    float _pad2;
+};
+
+layout(std430, binding = 0) readonly buffer DabBuffer {
+    Dab dabs[];
+};
+
+// The persistent layer this stroke paints into. RGBA8, straight (non-premultiplied) alpha —
+// matches the ARGB_8888 Bitmap the CPU path reads back into.
+layout(binding = 1, rgba8) uniform image2D layerImage;
+
+layout(push_constant) uniform PushConstants {
+    uint dabCount;
+    float hardness;   // brush.hardness, 0..1 — solid core radius fraction before the fade begins.
+    float colorR;
+    float colorG;
+    float colorB;
+    float baseAlpha;  // brush color's own alpha channel, 0..1 (Color.alpha(colorArgb) / 255).
+} pc;
+
+// Same profile as BrushStamps.stampCoverage / StampBrushRenderer's radial gradient: solid out to
+// `hardness` of the radius, linearly fading to fully transparent at the radius edge.
+float stampCoverage(float distFromCenter, float radius, float hardness) {
+    if (radius <= 0.0) return 0.0;
+    float t = distFromCenter / radius;
+    if (t <= hardness) return 1.0;
+    if (t >= 1.0) return 0.0;
+    if (hardness >= 0.999) return 1.0 - (t - hardness) / 0.001;
+    return 1.0 - (t - hardness) / (1.0 - hardness);
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(layerImage);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec4 dst = imageLoad(layerImage, pixel);
+    vec2 p = vec2(pixel) + vec2(0.5);
+
+    for (uint i = 0u; i < pc.dabCount; i++) {
+        Dab d = dabs[i];
+        float radius = max(d.radius, 0.5);
+        // Skip pixels outside this dab's bounding box before paying for the sqrt below.
+        if (abs(p.x - d.x) > radius || abs(p.y - d.y) > radius) continue;
+
+        float dist = distance(p, vec2(d.x, d.y));
+        float coverage = stampCoverage(dist, radius, pc.hardness);
+        if (coverage <= 0.0) continue;
+
+        float srcA = pc.baseAlpha * d.alpha * coverage;
+        if (srcA <= 0.0) continue;
+
+        vec3 srcRgb = vec3(pc.colorR, pc.colorG, pc.colorB);
+        // Straight-alpha SRC_OVER: dst = src*srcA + dst*(1-srcA), a_dst = srcA + a_dst*(1-srcA).
+        dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
+        dst.a = srcA + dst.a * (1.0 - srcA);
+    }
+
+    imageStore(layerImage, pixel, dst);
+}

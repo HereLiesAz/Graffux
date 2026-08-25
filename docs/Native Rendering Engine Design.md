@@ -296,12 +296,29 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    already model cleanly enough to port directly (dab centre + radius + alpha + rotation is
    already exactly the compute shader's input buffer layout). Every other tool (eraser, blur,
    smudge, clone, fill, liquify) stays on the CPU `ImageProcessor` path — they don't need it as
-   urgently and porting them is separate, later work, not a blocker for the brush itself. This
-   phase alone is the bulk of the new native surface area §2 describes: Vulkan instance/device
-   setup, the `AHardwareBuffer`-backed layer image, and the `stamp.comp` kernel — get this working
-   and correct (bit-identical to the CPU path at opacity/flow 1, same as this session's opacity
-   work held itself to) before layering §4's presentation change or §6's wet-mix complexity on
-   top of it.
+   urgently and porting them is separate, later work, not a blocker for the brush itself.
+   **First vertical slice landed:** `core/nativebridge/src/main/cpp/VulkanStampEngine.{h,cpp}` is
+   a real, standalone-headless Vulkan 1.1 compute engine — instance/device/queue setup, a
+   `VK_FORMAT_R8G8B8A8_UNORM` storage-image layer, a `stamp.comp` compute kernel matching
+   `BrushStamps.Dab`'s x/y/radius/alpha/angleDeg layout and `StampBrushRenderer`'s
+   hardness-then-fade coverage profile, per-dab SRC_OVER compositing in submission order (so a
+   stroke at flow/opacity 1 is bit-identical to the CPU round-tip path by construction, not just
+   by intent), JNI exports on `GraffitiJNI.cpp` (`nativeInit`/`nativeStampDabs`/`nativeReadback`/
+   `nativeDestroy`), and a `VulkanStampEngine.kt` wrapper. `stamp.comp` is compiled to SPIR-V
+   ahead of time (`glslc -mfmt=c`, checked in as `shaders/StampSpv.h`) so the CMake build never
+   needs the shader compiler on the host — only `libvulkan.so` from the NDK platform sysroot,
+   already linked in `CMakeLists.txt`. Verified by actually building: `:core:nativebridge:
+   externalNativeBuildDebug` compiles and links this against the real OpenCV/Prefab dependency
+   for both `arm64-v8a` and `armeabi-v7a`, and the four JNI symbols are present in the resulting
+   `libgraffitixr.so` (checked with `nm -D`).
+   **Not yet done**, and the reason this remains a "first slice" rather than a finished phase 3:
+   the engine reads/writes a plain pixel buffer today, not an `AHardwareBuffer`-backed image — §2's
+   zero-copy GL/Vulkan interop is still to build; nothing in `StampBrushRenderer`'s or
+   `ImageProcessor`'s actual call path invokes this engine yet, so no stroke drawn in the app runs
+   on it today; and none of this has been exercised on a physical device/GPU driver — compiling
+   and linking real Vulkan code is verifiable in this environment, pixel-correctness and
+   frame-timing on real hardware is not, and remains a manual QA step before this can replace the
+   CPU path for real strokes.
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
