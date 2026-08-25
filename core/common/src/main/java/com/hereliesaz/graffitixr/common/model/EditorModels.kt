@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import com.hereliesaz.graffitixr.common.serialization.BlendModeSerializer
 import com.hereliesaz.graffitixr.common.serialization.OffsetSerializer
 import com.hereliesaz.graffitixr.common.serialization.UriSerializer
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
@@ -216,6 +217,9 @@ data class EditorUiState(
     // Flow [0..1] for an azphalt stamp brush: per-dab paint build-up. Ignored by the built-in brush.
     val brushFlow: Float = 1f,
     val stabilizerLevel: Int = 0,
+    // Which of StrokeStabilizer's three algorithms `stabilizerLevel` drives — see
+    // docs/Native Rendering Engine Design.md §6.
+    val stabilizerAlgorithm: StabilizerAlgorithm = StabilizerAlgorithm.STABILIZATION,
     // Ceiling on touch samples rendered per second while drawing (0 = unthrottled). The editor
     // renders a frame per recorded sample, so this is the main lever on drawing's power draw.
     val inputSampleRateHz: Int = 60,

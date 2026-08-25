@@ -1032,6 +1032,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ToolOptionsWindow(
                         stabilizerLevel = uiState.stabilizerLevel,
                         onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
+                        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                        onSetStabilizerAlgorithm = { vm.setStabilizerAlgorithm(it) },
                         // Both are null unless they mean something right now — the window shows the
                         // dials the tool in hand actually has, never a dead control.
                         magicWandTolerance =
