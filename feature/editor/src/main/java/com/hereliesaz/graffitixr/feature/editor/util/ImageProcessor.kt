@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.BlurMaskFilter
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.Dispatchers
@@ -833,10 +834,18 @@ object ImageProcessor {
     }
 
     /**
-     * Variable-width stroke for the dynamic brush: each segment is drawn as its own
-     * round-capped line at the width [com.hereliesaz.graffitixr.feature.editor.BrushDynamics]
-     * computes for it, giving velocity thinning and a start taper. The round caps make
-     * adjacent segments of different widths join seamlessly.
+     * Variable-width stroke for the dynamic brush: each ORIGINAL segment is drawn as its own
+     * round-capped [CatmullRom]-curved run at the width
+     * [com.hereliesaz.graffitixr.feature.editor.BrushDynamics] computes for it, giving velocity
+     * thinning, a start taper, and (Phase 1 of `docs/Native Rendering Engine Design.md` §5) a
+     * smooth curve through the touch samples instead of a faceted straight-chord polyline. The
+     * round caps make adjacent segments of different widths join seamlessly.
+     *
+     * Width is computed from the RAW [stroke]/[pressures] — not the curved geometry below —
+     * deliberately: [com.hereliesaz.graffitixr.feature.editor.BrushDynamics]' speed measure is
+     * calibrated to true touch-sample spacing, and feeding it a curve fit's denser sub-points
+     * would read every stroke as slower (and so thicker) than it was actually drawn. The curve
+     * only smooths what gets DRAWN for a given original segment, never what WIDTH it's drawn at.
      */
     private fun drawStrokeDynamic(
         canvas: Canvas,
@@ -852,9 +861,19 @@ object ImageProcessor {
             return
         }
         val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth, pressures)
+        val flat = ArrayList<Float>(stroke.size * 2)
+        stroke.forEach { flat.add(it.x); flat.add(it.y) }
+        val curvedSegments = CatmullRom.segments(flat)
         for (i in 0 until stroke.size - 1) {
             paint.strokeWidth = widths[i]
-            drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetryMode)
+            val run = curvedSegments[i]
+            val runOffsets = ArrayList<Offset>(run.size / 2)
+            var j = 0
+            while (j < run.size) {
+                runOffsets.add(Offset(run[j], run[j + 1]))
+                j += 2
+            }
+            drawStroke(canvas, runOffsets, paint, wrapAroundMode, symmetryMode)
         }
         paint.strokeWidth = baseWidth
     }
