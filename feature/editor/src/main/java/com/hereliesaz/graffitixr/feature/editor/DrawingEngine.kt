@@ -162,6 +162,7 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                 alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
                 clipPath = paintClip,
                 opacity = stroke.opacity,
+                pressures = stroke.pressures,
                 // Screen-space offset carried through the same affine the coordinates take, as a
                 // difference of two mapped points — that applies the scale and the layer rotation
                 // while cancelling the translation, which a scalar multiply would get wrong on a

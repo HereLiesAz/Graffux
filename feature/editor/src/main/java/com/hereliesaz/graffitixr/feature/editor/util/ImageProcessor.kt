@@ -208,6 +208,9 @@ object ImageProcessor {
         cloneOffset: Offset? = null,
         // Tool.BRUSH only: whole-stroke opacity ceiling (0..1). Ignored by every other tool.
         opacity: Float = 1f,
+        // Tool.BRUSH only: per-point pressure (0..1, aligned 1:1 with `stroke`), fed into
+        // BrushDynamics alongside speed. Empty (the default) reads as full pressure throughout.
+        pressures: List<Float> = emptyList(),
     ): Bitmap = withContext(Dispatchers.Default) {
         if (stroke.isEmpty()) return@withContext originalBitmap
 
@@ -253,7 +256,7 @@ object ImageProcessor {
                     // and usually opaque enough, that this is an acceptable trade against faking
                     // "existing alpha" for a from-scratch mask.
                     paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
-                    drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode)
+                    drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
                 } else {
                     // Whole-stroke opacity ceiling (Procreate's "Opacity", as opposed to a stamp
                     // brush's per-dab "Flow" — see StampBrushRenderer, deliberately left alone): paint
@@ -265,7 +268,7 @@ object ImageProcessor {
                     val mask = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
                     if (mask != null) {
                         val maskCanvas = Canvas(mask)
-                        drawStrokeDynamic(maskCanvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode)
+                        drawStrokeDynamic(maskCanvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
                         val compositePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             alpha = (255 * op).toInt().coerceIn(0, 255)
                         }
@@ -275,7 +278,7 @@ object ImageProcessor {
                         // Allocation failed under memory pressure: fall back to a direct draw rather
                         // than silently painting nothing.
                         paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
-                        drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode)
+                        drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
                     }
                 }
             }
@@ -842,12 +845,13 @@ object ImageProcessor {
         baseWidth: Float,
         wrapAroundMode: Boolean = false,
         symmetryMode: SymmetryMode = SymmetryMode.NONE,
+        pressures: List<Float> = emptyList(),
     ) {
         if (stroke.size == 1) {
             drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
             return
         }
-        val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth)
+        val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth, pressures)
         for (i in 0 until stroke.size - 1) {
             paint.strokeWidth = widths[i]
             drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetryMode)

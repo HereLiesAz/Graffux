@@ -148,6 +148,8 @@ data class BrushStroke(
     val brushFeathering: Float = 0f,
     val blendModeOrdinal: Int = 3, // BlendMode.SrcOver ordinal
     val opacity: Float = 1f,
+    // Aligned 1:1 with `points` (one per x,y pair, not per float). Empty reads as full pressure.
+    val pressures: List<Float> = emptyList(),
 )
 
 /**
