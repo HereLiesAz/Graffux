@@ -419,7 +419,47 @@ class EditorViewModel @Inject constructor(
     private var stampGpuEngine: VulkanStampEngine? = null
     private var stampGpuActive: Boolean = false
 
+    // Same contract as stampGpuEngine/stampGpuActive above, for the round brush's live path
+    // instead of azphalt stamp brushes — both now stamp dabs (see ROUND_BRUSH_DAB_SPACING_FRACTION),
+    // so both get the same GPU compositor treatment. drawCurveRun/feedLiveCurvePoint take the
+    // target bitmap to read back into as an explicit parameter (rather than a class field like
+    // stampLiveBitmap) since it's set once, early, by onStrokeStart's async setup — the same
+    // `workBitmap` local that later becomes strokeWorkingBitmap.
+    private var strokeGpuEngine: VulkanStampEngine? = null
+    private var strokeGpuActive: Boolean = false
+
     private val strokeStabilizer = StrokeStabilizer()
+
+    /**
+     * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
+     * current pixels. Tries the `AHardwareBuffer`-backed path first (docs/Native Rendering Engine
+     * Design.md §2's zero-copy interop — real memory, not yet a zero-copy DISPLAY path here, since
+     * this call site still reads it back into [seed] every frame same as the plain path would) and
+     * falls back to plain device memory if that's unavailable. Returns null (nothing to clean up)
+     * if every step fails — the caller stays on the CPU path for this stroke, same as always.
+     */
+    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): VulkanStampEngine? {
+        // VulkanStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
+        // which THROWS — not returns false — when the .so can't be loaded at all: unit tests
+        // (Robolectric has no native code), and in principle any device/build variant that
+        // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
+        // format) already returns false cleanly; only the "library isn't there" case needs a
+        // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
+        // coroutine that would otherwise have gone on to draw the stroke.
+        return try {
+            val engine = VulkanStampEngine()
+            val ready = (engine.initHardwareBufferBacked(width, height) || engine.init(width, height)) &&
+                engine.upload(seed)
+            if (!ready) {
+                engine.destroy()
+                null
+            } else {
+                engine
+            }
+        } catch (e: Throwable) {
+            null
+        }
+    }
 
     // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
     private val timeLapseRecorder = TimeLapseRecorder()
@@ -2811,9 +2851,8 @@ class EditorViewModel @Inject constructor(
                 // on GPU work, hence doing this here on Dispatchers.Default alongside the bitmap
                 // copy, not on the main thread. A null/failed engine just means every dab this
                 // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
-                val gpuEngine = if (stampShapeForStroke == null) VulkanStampEngine() else null
-                val gpuReady = gpuEngine != null && gpuEngine.init(work.width, work.height) && gpuEngine.upload(work)
-                if (gpuEngine != null && !gpuReady) gpuEngine.destroy()
+                val gpuEngine = if (stampShapeForStroke == null) createSeededGpuEngine(work.width, work.height, work) else null
+                val gpuReady = gpuEngine != null
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -2884,6 +2923,21 @@ class EditorViewModel @Inject constructor(
             )
             val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock, strokeOpacity)
 
+            // GPU live-preview compositor for the round brush (docs/Native Rendering Engine
+            // Design.md §9 Phase 3) — only for the dynamic (round) brush path, and kept purely
+            // local through the catch-up loop below since `strokeGpuEngine`/`strokeGpuActive` are
+            // only published to the class fields once this coroutine's result is adopted, same
+            // guard shape the azphalt stamp-brush path uses for its own GPU engine. Both native
+            // calls block on GPU work, hence doing this here on Dispatchers.Default.
+            // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
+            // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
+            // to call defensively and a leaked Vulkan device is not) — same defensive pattern the
+            // azphalt stamp-brush path uses.
+            strokeGpuEngine?.destroy()
+            val gpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null
+            strokeGpuEngine = gpuEngine
+            strokeGpuActive = gpuEngine != null
+
             // Snapshot the collected points at this moment — may include points that arrived
             // during the bitmap-copy phase.
             val catchUpPoints = snapshotStrokePoints()
@@ -2936,14 +2990,14 @@ class EditorViewModel @Inject constructor(
                     // live pixels match replayed pixels once the stroke commits.
                     feedLiveCurvePoint(
                         workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
-                        state.wrapAroundMode, mappedAll[0], 0f,
+                        state.wrapAroundMode, mappedAll[0], 0f, workBitmap,
                     )
                     for (i in 1 until mappedAll.size) {
                         val p = catchUpPressures.getOrNull(i) ?: 1f
                         val width = dyn.next((mappedAll[i] - mappedAll[i - 1]).getDistance(), brushSize * brushScale, p)
                         feedLiveCurvePoint(
                             workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
-                            state.wrapAroundMode, mappedAll[i], width,
+                            state.wrapAroundMode, mappedAll[i], width, workBitmap,
                         )
                     }
                 } else {
@@ -3129,7 +3183,7 @@ class EditorViewModel @Inject constructor(
             val width = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, stabilizedPressure)
             feedLiveCurvePoint(
                 canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
-                _uiState.value.wrapAroundMode, mapped, width,
+                _uiState.value.wrapAroundMode, mapped, width, workBitmap,
             )
         } else {
             val seg = Path()
@@ -4978,9 +5032,46 @@ class EditorViewModel @Inject constructor(
         bitmapHeight: Int,
         symmetryMode: SymmetryMode,
         wrapAroundMode: Boolean,
+        targetBitmap: Bitmap,
     ) {
         val radius = max(paint.strokeWidth / 2f, 0.5f)
         val centres = BrushStamps.place(run.toList(), max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f))
+
+        // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — same fallback
+        // contract as the azphalt stamp-brush path: a failure disables it for the rest of THIS
+        // stroke only, and `targetBitmap` is already correct up through the last successful GPU
+        // readback (or was always CPU-drawn if GPU was never active), so falling straight into the
+        // CPU loop below for just this run's dabs is exactly right either way. Skipped entirely for
+        // wrapAroundMode — replicating every dab 9x to match the CPU tiling is real work this pass
+        // doesn't do, so wraparound strokes stay on the CPU path, same as a textured stamp tip does.
+        if (strokeGpuActive && !wrapAroundMode) {
+            val engine = strokeGpuEngine
+            val gpuHandled = engine != null && run {
+                val gpuDabs = ArrayList<BrushDab>(centres.size)
+                var k = 0
+                while (k < centres.size) {
+                    gpuDabs.add(BrushDab(centres[k], centres[k + 1], radius, 1f, 0f))
+                    if (symmetryMode != SymmetryMode.NONE) {
+                        gpuDabs.add(BrushDab(bitmapWidth - centres[k], centres[k + 1], radius, 1f, 0f))
+                    }
+                    k += 2
+                }
+                // Paint.alpha is a separate multiplier from paint.color's own alpha channel for
+                // Android's Canvas — the shader only ever multiplies baseAlpha * dab.alpha, so both
+                // have to be pre-folded into one alpha channel handed across the JNI boundary.
+                val baseAlpha = (paint.color ushr 24) and 0xFF
+                val combinedAlpha = (baseAlpha * paint.alpha / 255).coerceIn(0, 255)
+                val colorForGpu = (combinedAlpha shl 24) or (paint.color and 0x00FFFFFF)
+                // hardness = 1: a solid filled circle (Paint.Style.FILL, no gradient) is the
+                // CPU path's equivalent of the shader's hard-core-to-the-edge profile.
+                engine.stampDabs(gpuDabs, colorForGpu, 1f) && engine.readback(targetBitmap)
+            }
+            if (gpuHandled) return
+            strokeGpuActive = false
+            strokeGpuEngine?.destroy()
+            strokeGpuEngine = null
+        }
+
         val originalStyle = paint.style
         paint.style = Paint.Style.FILL
         val bw = bitmapWidth.toFloat()
@@ -5060,6 +5151,7 @@ class EditorViewModel @Inject constructor(
         wrapAroundMode: Boolean,
         point: Offset,
         width: Float,
+        targetBitmap: Bitmap,
     ) {
         if (liveCurveWindow.isNotEmpty()) liveCurveWidths.addLast(width)
         liveCurveWindow.addLast(point)
@@ -5071,11 +5163,11 @@ class EditorViewModel @Inject constructor(
 
         if (liveCurveFinalizedCount == 0) {
             paint.strokeWidth = liveCurveWidths[0]
-            drawCurveRun(canvas, paint, segs[0], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode)
+            drawCurveRun(canvas, paint, segs[0], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode, targetBitmap)
             liveCurveFinalizedCount++
         }
         paint.strokeWidth = liveCurveWidths[1]
-        drawCurveRun(canvas, paint, segs[1], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode)
+        drawCurveRun(canvas, paint, segs[1], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode, targetBitmap)
         liveCurveFinalizedCount++
 
         liveCurveWindow.removeFirst()
@@ -5112,6 +5204,10 @@ class EditorViewModel @Inject constructor(
         stampGpuEngine?.destroy()
         stampGpuEngine = null
         stampGpuActive = false
+
+        strokeGpuEngine?.destroy()
+        strokeGpuEngine = null
+        strokeGpuActive = false
     }
 
     private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =
