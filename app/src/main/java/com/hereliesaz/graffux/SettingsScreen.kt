@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
@@ -32,10 +34,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -43,6 +47,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
+import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngineSelfTest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Graffux settings — the design-relevant preferences, shown as a full-bleed overlay over the editor.
@@ -67,9 +75,15 @@ fun SettingsScreen(
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
     var showNotices by remember { mutableStateOf(false) }
+    var gpuTestRunning by remember { mutableStateOf(false) }
+    var gpuTestResult by remember { mutableStateOf<VulkanStampEngineSelfTest.Result?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     if (showNotices) {
         OpenSourceNotices(onDismiss = { showNotices = false })
+    }
+    gpuTestResult?.let { result ->
+        GpuTestResultDialog(result, onDismiss = { gpuTestResult = null })
     }
 
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
@@ -172,6 +186,31 @@ fun SettingsScreen(
                 HorizontalDivider()
             }
 
+            Text(
+                "Developer",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+            )
+            ActionRow(
+                title = if (gpuTestRunning) "Testing…" else "Test GPU Engine",
+                subtitle = "Runs the native Vulkan compute dab-stamping engine " +
+                    "(docs/Native Rendering Engine Design.md §9 Phase 3) end to end on this " +
+                    "device — init, stamp three overlapping dabs, read the result back — and " +
+                    "shows what it produced. Not yet used by any brush; this is the on-device " +
+                    "check that couldn't be done where the engine was written.",
+                onClick = {
+                    if (!gpuTestRunning) {
+                        gpuTestRunning = true
+                        coroutineScope.launch {
+                            gpuTestResult = withContext(Dispatchers.Default) { VulkanStampEngineSelfTest.run() }
+                            gpuTestRunning = false
+                        }
+                    }
+                },
+            )
+            HorizontalDivider()
+
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = vm::resetTutorials) {
                 Text("Reset tutorials & hints")
@@ -222,6 +261,38 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
             )
+        },
+    )
+}
+
+/** Shows [VulkanStampEngineSelfTest.run]'s outcome: the stamped bitmap on success, the failure
+ *  reason (with a pointer to the `VulkanStampEngine` logcat tag for the underlying VkResult) on
+ *  failure. */
+@Composable
+private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text(if (result.success) "GPU engine: pass" else "GPU engine: fail") },
+        text = {
+            Column {
+                Text(result.message, style = MaterialTheme.typography.bodyMedium)
+                result.bitmap?.let { bmp ->
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Expect a soft red blob with two firmer, darker-edged lobes overlapping it — " +
+                            "that's the hardness falloff and SRC_OVER build-up stamp.comp is responsible for.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = "GPU stamp engine self-test output",
+                        modifier = Modifier.size(200.dp),
+                    )
+                }
+            }
         },
     )
 }
