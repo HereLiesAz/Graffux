@@ -41,6 +41,22 @@ class VulkanStampEngine {
     val isInitialized: Boolean get() = initialized
 
     /**
+     * Seeds the layer image with [bitmap]'s current pixels, replacing whatever it currently holds
+     * — [stampDabs] never clears the layer, so a fresh [init] starts transparent, and a live
+     * painting session needs the document's existing pixels underneath the new dabs. [bitmap] MUST
+     * be `ARGB_8888`, non-hardware, and exactly the width/height passed to [init] — the same
+     * requirement [readback] has, since this engine assumes its layer image and the bitmap it
+     * round-trips through always agree on dimensions.
+     */
+    fun upload(bitmap: Bitmap): Boolean {
+        if (!initialized) return false
+        require(bitmap.config == Bitmap.Config.ARGB_8888) {
+            "VulkanStampEngine.upload requires an ARGB_8888 bitmap, got ${bitmap.config}"
+        }
+        return nativeUpload(bitmap)
+    }
+
+    /**
      * Stamps [dabs] onto the layer image, in submission order, using [colorArgb] (standard
      * Android ARGB int — its own alpha channel combines multiplicatively with each dab's own
      * [BrushDab.alpha], matching `StampBrushRenderer.paintDabs`'s `baseAlpha * d.alpha`) and
@@ -83,6 +99,7 @@ class VulkanStampEngine {
     }
 
     private external fun nativeInit(width: Int, height: Int): Boolean
+    private external fun nativeUpload(inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeReadback(outBitmap: Bitmap): Boolean
     private external fun nativeDestroy()

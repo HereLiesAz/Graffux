@@ -51,6 +51,14 @@ public:
     // path in any of those cases, not treat them as fatal.
     bool init(int width, int height);
 
+    // Seeds the layer image with `inRgba8` (same width*height*4 RGBA8 layout readback() produces),
+    // replacing whatever the layer currently holds. Used to prime a live-preview session with a
+    // document's existing pixels before compositing new dabs on top of them — stampDabs() never
+    // clears the layer itself, so without this every session would start from transparent black
+    // (fine for `VulkanStampEngineSelfTest`'s throwaway canvas, wrong for painting into real
+    // artwork). Returns false if the engine isn't initialized or `inSizeBytes` is too small.
+    bool upload(const uint8_t* inRgba8, size_t inSizeBytes);
+
     // Uploads `dabs` and dispatches the compute shader to stamp them onto the layer image using
     // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness). Composites
     // in submission order, matching the CPU path's sequential canvas.drawCircle calls. No-op
@@ -80,6 +88,12 @@ private:
     bool allocateCommandBuffer();
 
     int32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const;
+    // Records a barrier moving layerImage_ from its current tracked layout to GENERAL, if it isn't
+    // already there — a no-op after the first call, since every op (compute read/write, transfer
+    // src/dst for upload()/readback()) stays in GENERAL from then on rather than juggling optimal
+    // layouts per-operation. Must be called at the start of any command buffer that touches
+    // layerImage_, before the actual compute dispatch or copy command.
+    void ensureLayerImageGeneral(VkCommandBuffer cmd);
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
@@ -96,6 +110,7 @@ private:
     VkImageView layerImageView_ = VK_NULL_HANDLE;
     int width_ = 0;
     int height_ = 0;
+    VkImageLayout layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
     // Host-visible staging buffer the layer image is copied into for readback(); re-created
     // alongside the layer image so its size always matches width_*height_*4.

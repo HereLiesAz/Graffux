@@ -36,6 +36,8 @@ import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
+import com.hereliesaz.graffitixr.nativebridge.BrushDab
+import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -394,6 +396,19 @@ class EditorViewModel @Inject constructor(
     // Bitmap-space stroke points, appended incrementally so each drag frame maps only the NEW points
     // instead of re-mapping the whole stroke (interleaved [x0,y0,…]).
     private val stampMappedPoints = ArrayList<Float>()
+
+    // GPU live-preview compositor for the CURRENT stamp stroke (docs/Native Rendering Engine
+    // Design.md §9 Phase 3) — only ever set for a generated-round-tip stroke (stampShapeForStroke
+    // == null; the shader has no textured-tip path), and only while it's actually kept in sync
+    // with [stampLiveBitmap]. [stampGpuActive] is the single source of truth for whether new dabs
+    // should be attempted on the GPU this stroke; a failure at any point (init/upload/stamp/
+    // readback) clears it for the REST of the stroke and every dab from then on falls back to
+    // [StampBrushRenderer.paintDabs] on the same, already-correct [stampLiveCanvas] — never a
+    // partial GPU composite silently left stale. The one-shot commit (`commitStampStroke`) never
+    // touches this: it always re-renders the whole stroke on the CPU from scratch, so a live
+    // preview that fell back partway through never affects what's actually saved.
+    private var stampGpuEngine: VulkanStampEngine? = null
+    private var stampGpuActive: Boolean = false
 
     private val strokeStabilizer = StrokeStabilizer()
 
@@ -2772,9 +2787,24 @@ class EditorViewModel @Inject constructor(
             stampStampedCount = 0
             stampLiveBitmap = null
             stampLiveCanvas = null
+            // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
+            // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
+            // to call defensively and a leaked Vulkan device is not).
+            stampGpuEngine?.destroy()
+            stampGpuEngine = null
+            stampGpuActive = false
             stampMappedPoints.clear()
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
+                // GPU live-preview compositor: only for a generated round tip (the shader has no
+                // textured-tip path) — init the layer at this stroke's bitmap size and seed it with
+                // the document's current pixels before any dab is stamped. Both native calls block
+                // on GPU work, hence doing this here on Dispatchers.Default alongside the bitmap
+                // copy, not on the main thread. A null/failed engine just means every dab this
+                // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
+                val gpuEngine = if (stampShapeForStroke == null) VulkanStampEngine() else null
+                val gpuReady = gpuEngine != null && gpuEngine.init(work.width, work.height) && gpuEngine.upload(work)
+                if (gpuEngine != null && !gpuReady) gpuEngine.destroy()
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -2790,6 +2820,8 @@ class EditorViewModel @Inject constructor(
                                 ),
                             )
                         }
+                        stampGpuEngine = if (gpuReady) gpuEngine else null
+                        stampGpuActive = gpuReady
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
@@ -2797,6 +2829,10 @@ class EditorViewModel @Inject constructor(
                                 liveStrokeVersion = it.liveStrokeVersion + 1,
                             )
                         }
+                    } else {
+                        // Superseded by a newer stroke before this coroutine finished — don't leak
+                        // the GPU engine this branch may have just stood up.
+                        gpuEngine?.destroy()
                     }
                 }
             }
@@ -3023,10 +3059,38 @@ class EditorViewModel @Inject constructor(
             )
             val dabs = BrushStamps.dabs(stampMappedPoints, _uiState.value.brushSize * brushScale, stampBrush, stampSeed)
             if (dabs.size > stampStampedCount) {
-                StampBrushRenderer.paintDabs(
-                    canvas, dabs.subList(stampStampedCount, dabs.size), stampBrush,
-                    _uiState.value.activeColor.toArgb(), _uiState.value.brushFlow, stampShapeForStroke,
-                )
+                val newDabs = dabs.subList(stampStampedCount, dabs.size)
+                val colorArgb = _uiState.value.activeColor.toArgb()
+                // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — only ever
+                // attempted for a generated round tip; see stampGpuActive's doc comment for the
+                // fallback contract. A failure here disables it for the rest of THIS stroke only —
+                // work is already correctly up to date through the last successful GPU readback
+                // (or, if GPU was never active, was always drawn by the CPU branch below), so
+                // continuing straight into the CPU branch for just `newDabs` is exactly correct,
+                // no re-render of earlier dabs needed either way.
+                val gpuHandled = stampGpuActive && stampGpuEngine?.let { engine ->
+                    val gpuDabs = newDabs.map { BrushDab(it.x, it.y, it.radius, it.alpha, it.angleDeg) }
+                    // The shader's baseAlpha (colorArgb's own alpha channel) must fold in `flow` the
+                    // same way StampBrushRenderer.paintDabs's `baseAlpha * d.alpha * f` does — the
+                    // shader only ever multiplies baseAlpha * d.alpha, so flow has to be pre-baked
+                    // into the alpha channel handed across the JNI boundary rather than passed
+                    // separately.
+                    val flow = _uiState.value.brushFlow.coerceIn(0f, 1f)
+                    val flowAlpha = (((colorArgb ushr 24) and 0xFF) * flow).toInt().coerceIn(0, 255)
+                    val flowColorArgb = (flowAlpha shl 24) or (colorArgb and 0x00FFFFFF)
+                    engine.stampDabs(gpuDabs, flowColorArgb, stampBrush.hardness.coerceIn(0f, 1f)) &&
+                        engine.readback(work)
+                } == true
+                if (!gpuHandled) {
+                    if (stampGpuActive) {
+                        stampGpuActive = false
+                        stampGpuEngine?.destroy()
+                        stampGpuEngine = null
+                    }
+                    StampBrushRenderer.paintDabs(
+                        canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow, stampShapeForStroke,
+                    )
+                }
                 stampStampedCount = dabs.size
                 _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
             }
@@ -5008,6 +5072,9 @@ class EditorViewModel @Inject constructor(
         stampBrushForStroke = null
         stampShapeForStroke = null
         stampMappedPoints.clear()
+        stampGpuEngine?.destroy()
+        stampGpuEngine = null
+        stampGpuActive = false
     }
 
     private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =

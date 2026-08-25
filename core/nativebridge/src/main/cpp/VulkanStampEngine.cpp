@@ -180,13 +180,15 @@ bool VulkanStampEngine::createLayerImage(int width, int height) {
         return false;
     }
 
-    // Staging buffer for readback() — sized once here since it never needs to be larger than the
-    // layer image itself.
+    layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // Staging buffer shared by upload() (as a copy source) and readback() (as a copy destination)
+    // — sized once here since it never needs to be larger than the layer image itself.
     VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height * 4;
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = stagingSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &stagingBuffer_),
                       "vkCreateBuffer(staging)")) {
@@ -428,6 +430,92 @@ bool VulkanStampEngine::allocateCommandBuffer() {
     return checkResult(vkCreateFence(device_, &fenceInfo, nullptr, &fence_), "vkCreateFence");
 }
 
+void VulkanStampEngine::ensureLayerImageGeneral(VkCommandBuffer cmd) {
+    if (layerImageLayout_ == VK_IMAGE_LAYOUT_GENERAL) return;
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = layerImageLayout_;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    // Coming from UNDEFINED (the only other state this ever tracks) there's nothing to flush, so
+    // srcAccessMask 0 is correct — this only ever runs once per init(), the image's first use.
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                             VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = layerImage_;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          0, 0, nullptr, 0, nullptr, 1, &barrier);
+    layerImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+}
+
+bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
+    if (!isInitialized()) return false;
+    size_t requiredBytes = static_cast<size_t>(width_) * height_ * 4;
+    if (inSizeBytes < requiredBytes) {
+        LOGE("upload buffer too small: need %zu, got %zu", requiredBytes, inSizeBytes);
+        return false;
+    }
+
+    void* mapped = nullptr;
+    if (!checkResult(vkMapMemory(device_, stagingBufferMemory_, 0, requiredBytes, 0, &mapped),
+                      "vkMapMemory(upload)")) {
+        return false;
+    }
+    std::memcpy(mapped, inRgba8, requiredBytes);
+    vkUnmapMemory(device_, stagingBufferMemory_);
+
+    vkResetCommandBuffer(commandBuffer_, 0);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(upload)")) {
+        return false;
+    }
+
+    ensureLayerImageGeneral(commandBuffer_);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
+    // GENERAL is a valid layout for a transfer destination too, so no further transition is needed
+    // beyond ensureLayerImageGeneral() above — see stampDabs()'s and readback()'s doc comments for
+    // why this engine keeps the layer permanently in GENERAL rather than juggling per-op layouts.
+    vkCmdCopyBufferToImage(commandBuffer_, stagingBuffer_, layerImage_, VK_IMAGE_LAYOUT_GENERAL, 1,
+                            &region);
+
+    VkImageMemoryBarrier toShaderReadable{};
+    toShaderReadable.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderReadable.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderReadable.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderReadable.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderReadable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    toShaderReadable.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderReadable.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderReadable.image = layerImage_;
+    toShaderReadable.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderReadable);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(upload)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(upload)")) return false;
+    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(upload)");
+}
+
 bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness) {
     if (!isInitialized() || dabs.empty()) return false;
     if (!createDabBuffer(dabs.size())) return false;
@@ -465,23 +553,12 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
                           nullptr);
 
-    // First dispatch ever: the layer image starts VK_IMAGE_LAYOUT_UNDEFINED and must transition
-    // to GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal.
-    // Subsequent stampDabs() calls on the same engine leave it in GENERAL already, so this is a
-    // no-op transition (old==new layout) that vkCmdPipelineBarrier handles cheaply.
-    VkImageMemoryBarrier imgBarrier{};
-    imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    imgBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imgBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imgBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    imgBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    imgBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imgBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imgBarrier.image = layerImage_;
-    imgBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                          &imgBarrier);
+    // The layer image starts VK_IMAGE_LAYOUT_UNDEFINED after init() and must transition to
+    // GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal — a
+    // no-op on every call after the first (by this engine or by upload()), see
+    // ensureLayerImageGeneral()'s doc comment for why GENERAL is kept permanently rather than
+    // transitioned per-op.
+    ensureLayerImageGeneral(commandBuffer_);
 
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
     vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1,
@@ -531,6 +608,12 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(readback)")) {
         return false;
     }
+
+    // Handles both cases: an engine that never had stampDabs()/upload() called on it yet (image
+    // still UNDEFINED — the transition itself, dstAccessMask below doesn't matter since there's no
+    // prior write to flush) and the normal case (already GENERAL — a no-op layout-wise, but the
+    // access-mask barrier below is still needed to order the compute write before this read).
+    ensureLayerImageGeneral(commandBuffer_);
 
     VkImageMemoryBarrier toTransferSrc{};
     toTransferSrc.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -616,6 +699,7 @@ void VulkanStampEngine::destroy() {
     queue_ = VK_NULL_HANDLE;
     width_ = 0;
     height_ = 0;
+    layerImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 }  // namespace graffux

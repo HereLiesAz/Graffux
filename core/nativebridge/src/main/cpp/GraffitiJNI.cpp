@@ -1487,6 +1487,29 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
     return JNI_TRUE;
 }
 
+// Seeds the layer with `inBitmap`'s current pixels — the reverse of nativeReadback below, same
+// requirements (ARGB_8888, non-hardware, exactly width x height, tight stride) and same "no
+// channel reordering needed" reasoning.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUpload(
+    JNIEnv* env, jobject, jobject inBitmap) {
+    std::lock_guard<std::mutex> lock(gVulkanStampMutex);
+    if (!gVulkanStampEngine || !gVulkanStampEngine->isInitialized()) return JNI_FALSE;
+
+    AndroidBitmapInfo info;
+    void* pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, inBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
+    if (info.stride != info.width * 4) return JNI_FALSE;
+    if (AndroidBitmap_lockPixels(env, inBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
+        return JNI_FALSE;
+    }
+    size_t capacity = static_cast<size_t>(info.stride) * info.height;
+    bool ok = gVulkanStampEngine->upload(static_cast<const uint8_t*>(pixels), capacity);
+    AndroidBitmap_unlockPixels(env, inBitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 // `dabData` is a flat float array, 5 floats per dab (x, y, radius, alpha, angleDeg) — the same
 // fields BrushStamps.Dab exposes on the Kotlin side, packed by the VulkanStampEngine.kt wrapper
 // so no per-dab JNI round trip is needed for a whole stroke's dab list.
