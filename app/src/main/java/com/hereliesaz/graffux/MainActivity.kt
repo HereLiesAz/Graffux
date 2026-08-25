@@ -1041,6 +1041,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
                         brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null },
                         onSetBrushFlow = { vm.setBrushFlow(it) },
+                        brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
+                        onSetBrushOpacity = { vm.setBrushOpacity(it) },
                         symmetryMode = uiState.symmetryMode,
                         onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },

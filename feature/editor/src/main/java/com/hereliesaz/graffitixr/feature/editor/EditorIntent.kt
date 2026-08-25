@@ -91,6 +91,7 @@ internal sealed interface EditorIntent {
     data object FeedbackShown : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent
+    data class SetBrushOpacity(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
     /** Ceiling on rendered touch samples per second while drawing; 0 is unthrottled. */

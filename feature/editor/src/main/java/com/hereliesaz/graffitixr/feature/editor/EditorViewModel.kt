@@ -80,6 +80,11 @@ data class StrokeCommand(
     val brushColor: Int,
     val intensity: Float,
     val feathering: Float = 0f,
+    // Stroke-level opacity ceiling for [Tool.BRUSH] (0..1, default fully opaque — every other tool
+    // ignores this). Unlike [flow]'s per-dab build-up, this caps the WHOLE stroke's resulting
+    // coverage regardless of how much it overlaps itself, so a translucent stroke that loops back on
+    // itself doesn't paint darker where it crosses — see DrawingEngine's Tool.BRUSH branch.
+    val opacity: Float = 1f,
     val layerScale: Float = 1f,
     val layerOffset: Offset = Offset.Zero,
     val layerRotationZ: Float = 0f,
@@ -300,6 +305,9 @@ class EditorViewModel @Inject constructor(
     // StrokeCommand (which is what undo/redo replays).
     private var strokeSymmetry: SymmetryMode = SymmetryMode.NONE
     private var strokeAlphaLock: Boolean = false
+    /** Captured at stroke start for the same reason as [strokeAlphaLock] — 1f for every tool but the
+     *  built-in round brush, which reads it from live state right before this. */
+    private var strokeOpacity: Float = 1f
     /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
     /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
@@ -2699,6 +2707,7 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeSymmetry = if (state.activeTool != Tool.LIQUIFY) state.symmetryMode else SymmetryMode.NONE
         strokeAlphaLock = layer.alphaLock
+        strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
@@ -2794,7 +2803,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height, layerScale
             )
-            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock)
+            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock, strokeOpacity)
 
             // Snapshot the collected points at this moment — may include points that arrived
             // during the bitmap-copy phase.
@@ -3263,7 +3272,7 @@ class EditorViewModel @Inject constructor(
                     )
                     val paint = buildStrokePaint(
                         state.activeTool, state.activeColor.toArgb(), state.brushSize * brushScale,
-                        state.brushFeathering, strokeAlphaLock
+                        state.brushFeathering, strokeAlphaLock, strokeOpacity
                     )
                     val mapped = ImageProcessor.mapScreenToBitmap(
                         points, canvasW, canvasH, target.width, target.height,
@@ -3330,6 +3339,7 @@ class EditorViewModel @Inject constructor(
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
+                opacity = strokeOpacity,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
@@ -3366,6 +3376,7 @@ class EditorViewModel @Inject constructor(
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
+                opacity = strokeOpacity,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
@@ -3447,7 +3458,8 @@ class EditorViewModel @Inject constructor(
                     colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
                     brushSize = state.brushSize,
                     brushFeathering = state.brushFeathering,
-                    blendModeOrdinal = state.activeTool.ordinal
+                    blendModeOrdinal = state.activeTool.ordinal,
+                    opacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f,
                 )
                 opEmitter.emit(Op.StrokeComplete(layerId, brushStroke))
             }
@@ -4805,6 +4817,7 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = null
         strokeSymmetry = SymmetryMode.NONE
         strokeAlphaLock = false
+        strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
         resetStrokePoints()
@@ -4822,7 +4835,7 @@ class EditorViewModel @Inject constructor(
         stampMappedPoints.clear()
     }
 
-    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false): Paint =
+    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =
         Paint().apply {
             strokeWidth = brushSize
             style = Paint.Style.STROKE
@@ -4832,6 +4845,14 @@ class EditorViewModel @Inject constructor(
             when (tool) {
                 Tool.BRUSH -> {
                     color = argbColor
+                    // Stroke-level opacity ceiling, layered on top of whatever alpha the colour
+                    // itself carries — a translucent colour times a translucent brush stays that
+                    // translucent, not fully opaque. Only affects this LIVE-preview/fast-path paint;
+                    // the authoritative committed pixels go through DrawingEngine's whole-stroke
+                    // buffer composite (see ImageProcessor.applyToolToBitmap's Tool.BRUSH branch),
+                    // so a self-overlapping stroke previews with (harmless, transient) per-segment
+                    // build-up but commits without it.
+                    alpha = (android.graphics.Color.alpha(argbColor) * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
                     // Alpha Lock: paint only where the layer already has alpha, so strokes
                     // recolour existing content without extending its silhouette.
                     if (alphaLock) xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
@@ -4888,6 +4909,11 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushFeathering(amount: Float) {
         dispatch(EditorIntent.SetBrushFeathering(amount))
+    }
+
+    /** Opacity (0..1) ceiling for the built-in round brush. No-op for an azphalt stamp brush (use flow). */
+    fun setBrushOpacity(amount: Float) {
+        dispatch(EditorIntent.SetBrushOpacity(amount))
     }
 
     /** Flow (0..1) for the active azphalt stamp brush — per-dab build-up. No-op for the round brush. */
@@ -6145,6 +6171,7 @@ class EditorViewModel @Inject constructor(
                         brushColor = stroke.colorArgb.toInt(),
                         intensity = 0.5f,
                         feathering = stroke.brushFeathering,
+                        opacity = stroke.opacity,
                         layerScale = 1f,
                         layerOffset = Offset.Zero,
                         layerRotationZ = 0f

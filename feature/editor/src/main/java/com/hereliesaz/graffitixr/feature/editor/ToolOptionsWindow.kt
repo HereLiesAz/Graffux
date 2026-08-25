@@ -51,6 +51,13 @@ fun ToolOptionsWindow(
     brushFlow: Float?,
     onSetBrushFlow: (Float) -> Unit,
     /**
+     * Built-in round brush opacity, or null when an azphalt stamp brush is in hand (which uses
+     * [brushFlow] instead). A whole-stroke ceiling — unlike flow, it does not build up where a
+     * self-overlapping stroke crosses itself.
+     */
+    brushOpacity: Float?,
+    onSetBrushOpacity: (Float) -> Unit,
+    /**
      * Which axis the symmetry guide mirrors across, or [SymmetryMode.NONE] when the guide is off.
      * The mode picker below only appears once the guide is actually on — picking a mode while it's
      * off would be a control with nothing to preview.
@@ -64,6 +71,15 @@ fun ToolOptionsWindow(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (brushOpacity != null) {
+                Text("Opacity  ${(brushOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Caps how solid the stroke can get, even where it crosses itself.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Slider(value = brushOpacity, onValueChange = onSetBrushOpacity, valueRange = 0f..1f)
+            }
+
             if (brushFlow != null) {
                 Text("Flow  ${(brushFlow * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
                 Text(
