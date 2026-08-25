@@ -75,39 +75,72 @@ varies by OEM/digitizer — S Pen exposes tilt and some orientation, most others
 some far lower. The design below targets device capability tiers rather than assuming Apple-Pencil
 parity everywhere (§8).
 
-## 2. GPU compute backbone: GLES 3.1/3.2 compute shaders, not Vulkan
+## 2. GPU compute backbone: Vulkan compute for stamping/wet-mix, GL for presentation
 
-`core/nativebridge` already links `GLESv3` + `EGL` and runs a real OpenGL ES pipeline for
-`MobileGS` (Gaussian-splat AR rendering) — there is a proven EGL context/surface pattern in this
-codebase to build on (`core/nativebridge/src/main/cpp/MobileGS.cpp` and friends). GLES 3.1
-(API 21+, universal by now) adds compute shaders and image load/store; GLES 3.2 adds a few
-conveniences (geometry/tessellation, ASTC) we don't need. **Recommendation: target GLES 3.1
-compute, not Vulkan.**
+**Revised from this document's first draft.** The original version of this section recommended
+GLES 3.1 compute across the board and treated `CMakeLists.txt`'s `# Removed VulkanBackend.cpp`
+comment as an unknown risk worth avoiding. You've since confirmed that code predates this repo —
+it's leftover from GraffitiXR, the app Graffux's editor was migrated out of, not a Vulkan attempt
+made *in* Graffux that got pulled for cause. That removes the one reason the first draft had to
+avoid Vulkan; the actual engineering tradeoff underneath still needs stating on its own merits,
+which is what this section now does. **Recommendation: Vulkan compute for the stamping/wet-mix
+kernels, GL/EGL kept only where Android's first-party low-latency library requires it, the two
+bridged through `AHardwareBuffer`.**
 
-Two things point away from Vulkan specifically for this engine, not just "Vulkan is harder":
+Why split it rather than pick one wholesale:
 
-- `core/nativebridge/src/main/cpp/CMakeLists.txt` currently reads `# Define the native library
-  (Removed VulkanBackend.cpp)` — there was a Vulkan backend in this codebase at some point and it
-  was pulled. I don't have the history behind that (this session's shallow clone and GitHub commit
-  search didn't surface it — worth asking whoever removed it, or digging with
-  `git log --all --full-history -- '**/VulkanBackend*'` against a full clone, before ruling
-  Vulkan back in). Re-proposing it blind, without knowing why it left, is a real risk.
-- GLES compute gets us everything §3–§7 need (image load/store into a persistent layer texture,
-  atomics for wet-mix accumulation, indirect dispatch for variable dab counts) without Vulkan's
-  much larger surface area (explicit sync primitives, pipeline barriers, descriptor sets,
-  SPIR-V toolchain). Vulkan's real advantage — explicit, fine-grained control over frame pacing
-  and multi-queue submission — matters most once GLES compute's own frame-pacing ceiling becomes
-  the bottleneck, which is a "phase 2, once we've measured it" problem, not a day-one one.
+- **Wet Mix (§7) is a read-your-own-write hazard** — every dab samples the *same* layer texture
+  it's about to blend into, and dabs in one dispatch can overlap. GLES exposes this only through
+  `glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)` — coarse, and it serializes the whole
+  dispatch around it. Vulkan's `vkCmdPipelineBarrier` with explicit access/stage masks (or a
+  render pass with a self-dependency) says exactly which reads must see which writes, which is
+  what a correct per-dab wet-mix accumulation actually needs — this is Vulkan's explicit sync
+  model solving a real problem this engine has, not sync-for-its-own-sake.
+- **A dedicated async compute queue** lets dab stamping for the *next* frame's dabs run
+  concurrently with the GPU still presenting the *current* frame — a genuine latency win in the
+  same spirit as Valkyrie's own use of Metal's parallel command-buffer submission (companion doc
+  §"Compute Shaders and Highly Parallel GPU Processing"). GLES has no equivalent to a second,
+  independent queue; everything serializes through the one context.
+- **Fence export to `SurfaceControl` is a better fit on Vulkan.** `ASurfaceTransaction_setBuffer`
+  (the API under `androidx.graphics.lowlatency`, §3) wants a sync fence FD to know when a buffer
+  is ready to present. Vulkan's `VK_KHR_external_fence_fd` produces that directly from a compute
+  submission; GL's route there (`EGL_ANDROID_native_fence_sync`) works too but is one layer more
+  indirect for a compute-only (non-EGL-surface) workload.
+
+Why GL/EGL still has a real job, not just a legacy one: **`androidx.graphics.lowlatency`'s
+`GLFrontBufferedRenderer` — the actual front-buffer presentation library this design relies on in
+§3 — is GL-native.** There is no Vulkan equivalent shipped by Android today; hand-rolling raw
+`SurfaceControl` + a Vulkan swapchain to replace it is a materially larger, riskier undertaking
+than using the library Android already ships for exactly this. So GL keeps the presentation job,
+Vulkan takes the compute job, and the two share GPU memory via `AHardwareBuffer` (Android 10+,
+`AHardwareBuffer_allocate` + `EGL_ANDROID_get_native_client_buffer`/`VK_ANDROID_external_memory_
+android_hardware_buffer` on each side) — the same object both APIs import as their respective
+image/texture, no CPU-side copy between them. `core/nativebridge` already links `GLESv3` + `EGL`
+and runs a real EGL context/surface for `MobileGS` (Gaussian-splat AR rendering,
+`core/nativebridge/src/main/cpp/MobileGS.cpp`) — that pattern is what the presentation half reuses;
+the compute half is genuinely new native surface area (a Vulkan instance/device, a compute
+pipeline, SPIR-V shaders compiled at build time via `glslc`).
+
+Be honest about the cost of this over the single-API version: two graphics APIs in one process is
+more moving parts than one, `AHardwareBuffer` interop has its own format/usage-flag compatibility
+matrix to get right per GPU vendor, and Vulkan's setup boilerplate (instance, physical device
+selection, queue families, command pools) is real work with no equivalent in the GLES-only draft.
+This is the right call because §7's hazard is real and §3's library is fixed, not because Vulkan is
+categorically better — a stamping-only engine with no Wet Mix would have a much weaker case for
+paying this complexity, and should probably have stayed on GLES compute alone.
 
 Core objects, per layer:
 
-- A persistent `GL_TEXTURE_2D` (RGBA16F, see §7) holding that layer's pixels GPU-side, created
-  once and mutated in place across strokes — the direct answer to `applyToolToBitmap` re-copying
-  the whole `Bitmap` on every commit.
-- A compute shader (`stamp.comp`) that takes a dab-centre buffer (positions, radii, alpha,
-  rotation — literally `BrushStamps.Dab` already models this correctly) and rasterizes all of a
-  stroke's pending dabs into the layer texture in one dispatch, replacing
-  `StampBrushRenderer.paintDabs`'s per-dab `Canvas.drawCircle`/`drawBitmap` loop.
+- A persistent GPU image (RGBA16F, see §7) backed by an `AHardwareBuffer`, holding that layer's
+  pixels, created once and mutated in place across strokes — the direct answer to
+  `applyToolToBitmap` re-copying the whole `Bitmap` on every commit. Imported as a Vulkan
+  `VkImage` for the compute kernels below and as a GL texture for presentation (§3) — same memory,
+  two views.
+- A Vulkan compute shader (`stamp.comp`, GLSL compiled to SPIR-V via `glslc` at build time) that
+  takes a dab-centre buffer (positions, radii, alpha, rotation — literally `BrushStamps.Dab`
+  already models this correctly) and rasterizes all of a stroke's pending dabs into the layer
+  image in one dispatch, replacing `StampBrushRenderer.paintDabs`'s per-dab
+  `Canvas.drawCircle`/`drawBitmap` loop.
 - Readback to a CPU `Bitmap` only where the rest of the app still needs one: thumbnails, PNG
   export, the co-op wire format. Not for painting itself.
 
@@ -221,10 +254,21 @@ Not every Android device in `minSdk 26`'s range can do all of this. Rather than 
 
 | Capability | Requirement | Fallback |
 |---|---|---|
-| GPU compute stamping (§2) | GLES 3.1 (API 21+, near-universal) | Today's CPU `Canvas` path, unchanged |
+| GPU compute stamping (§2) | Vulkan 1.1+ (API 29 for the version guaranteed present; effectively near-universal by now, but see below) | Today's CPU `Canvas` path, unchanged |
+| `AHardwareBuffer` GPU interop (§2) | API 26+ (`AHardwareBuffer` itself), API 29+ for the GL/Vulkan external-memory extensions this design actually needs | Same as above — no interop, no GPU path |
 | Front-buffer presentation (§3) | API 29+ (`SurfaceControl`); best on 34+ (`HardwareBufferRenderer`) | Persistent-texture render + normal Compose frame |
 | Touch prediction (§4) | `androidx.input.motionprediction` — works on any API level, quality varies by digitizer | No prediction; historical-only, as today |
 | Wet Mix (§7) | GPU compute (same as §2) | Feature hidden on brushes that use it, or CPU-approximated at a coarser dab rate |
+
+Net effect of the Vulkan-compute revision on this table: the GPU path's floor moved from "GLES
+3.1, essentially every device" to "API 29+, `AHardwareBuffer` interop present" — a real reduction
+in the device range that gets the GPU engine at all, in exchange for the correctness/latency
+properties §2 argues for. Below API 29, this project's `minSdk 26` gets exactly what it gets
+today: the CPU `Canvas` path, unchanged, same as it would if this whole document were never
+implemented. Confirm this tradeoff is acceptable before committing to it — if `minSdk 26–28`
+device share matters more than §2's wet-mix/latency argument, GLES 3.1 compute (this document's
+first draft) is the one that keeps the wider floor, at the cost of a coarser wet-mix barrier and
+no async compute queue.
 
 This mirrors how Procreate Pocket scales the *same* Valkyrie engine down to a phone's thermal
 envelope (companion doc §"Cross-Platform Scalability") rather than shipping a materially different
@@ -246,7 +290,12 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    already model cleanly enough to port directly (dab centre + radius + alpha + rotation is
    already exactly the compute shader's input buffer layout). Every other tool (eraser, blur,
    smudge, clone, fill, liquify) stays on the CPU `ImageProcessor` path — they don't need it as
-   urgently and porting them is separate, later work, not a blocker for the brush itself.
+   urgently and porting them is separate, later work, not a blocker for the brush itself. This
+   phase alone is the bulk of the new native surface area §2 describes: Vulkan instance/device
+   setup, the `AHardwareBuffer`-backed layer image, and the `stamp.comp` kernel — get this working
+   and correct (bit-identical to the CPU path at opacity/flow 1, same as this session's opacity
+   work held itself to) before layering §4's presentation change or §6's wet-mix complexity on
+   top of it.
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
@@ -266,8 +315,10 @@ it, exactly as today. Nothing above proposes touching the `StrokeCommand`/co-op/
 
 - **Naming.** "Azphalt" is already the extension/brush-package system's name — this engine needs
   its own, distinct name before any of this lands in code. No proposal here; your call.
-- **Why was `VulkanBackend.cpp` removed?** If there's a concrete reason (driver bugs on some
-  vendor, build complexity, abandoned experiment), it directly bears on §2's recommendation and
-  I'd rather have that context than guess at it.
+- **The API 29 floor (§8).** Vulkan-compute-plus-`AHardwareBuffer` is a narrower device floor
+  than the GLES-3.1-everywhere version this document started with, for the sync/latency/async-
+  queue properties §2 argues are worth it. If `minSdk 26–28` share is significant enough that this
+  tradeoff isn't acceptable, say so and §2 reverts to GLES compute — the rest of this document
+  (§3–§9) doesn't otherwise depend on which one wins.
 - **Scope for a first cut.** §9's phase 1 (Catmull-Rom) is small enough to do this session if you
   want it now rather than waiting on sign-off for the rest. Say the word and I'll start there.
