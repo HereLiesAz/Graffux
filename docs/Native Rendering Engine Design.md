@@ -315,10 +315,13 @@ it, exactly as today. Nothing above proposes touching the `StrokeCommand`/co-op/
 
 - **Naming.** "Azphalt" is already the extension/brush-package system's name — this engine needs
   its own, distinct name before any of this lands in code. No proposal here; your call.
-- **The API 29 floor (§8).** Vulkan-compute-plus-`AHardwareBuffer` is a narrower device floor
-  than the GLES-3.1-everywhere version this document started with, for the sync/latency/async-
-  queue properties §2 argues are worth it. If `minSdk 26–28` share is significant enough that this
-  tradeoff isn't acceptable, say so and §2 reverts to GLES compute — the rest of this document
-  (§3–§9) doesn't otherwise depend on which one wins.
-- **Scope for a first cut.** §9's phase 1 (Catmull-Rom) is small enough to do this session if you
-  want it now rather than waiting on sign-off for the rest. Say the word and I'll start there.
+- ~~The API 29 floor (§8).~~ **Resolved: acceptable.** §2's Vulkan-compute-plus-`AHardwareBuffer`
+  recommendation stands as the narrower-but-better-for-Wet-Mix device floor.
+- ~~Scope for a first cut.~~ **Resolved: started.** §9 phase 1 (Catmull-Rom spline fitting)
+  landed — see `core/common/.../model/CatmullRom.kt`, wired into the round brush's authoritative
+  commit/replay path (`ImageProcessor.drawStrokeDynamic`, plus the "fast stroke" fallback in
+  `EditorViewModel.onStrokeEnd`) and the stamp brush's authoritative path
+  (`StampBrushRenderer.paintStroke`). Deliberately NOT wired into either tool's live-preview path
+  — see `CatmullRom`'s own doc comment for why (uniform Catmull-Rom's boundary handling makes the
+  most-recently-fitted segment unstable under append-only growth, which the incremental
+  "redraw only new dabs/segments" live paths assume never happens).

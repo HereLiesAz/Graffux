@@ -12,6 +12,7 @@ import android.graphics.Shader
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
+import com.hereliesaz.graffitixr.common.model.CatmullRom
 import kotlin.math.max
 
 /**
@@ -33,6 +34,12 @@ internal object StampBrushRenderer {
      * Stamp [brush] along [points] (interleaved `[x0,y0,…]`, bitmap space) onto [canvas] in [colorArgb]
      * at tip [diameterPx], modulating each dab by [flow] (0..1). [seed] makes the jitter deterministic
      * so a replayed stroke re-composites identically — pass a stable per-stroke seed.
+     *
+     * The ONE-SHOT commit/replay entry point (DrawingEngine calls this, never the live preview,
+     * which stamps [BrushStamps.dabs] directly and incrementally) — so [points] is fit through a
+     * [CatmullRom] curve before dab placement, smoothing the corners a straight-chord poly-line
+     * would leave faceted. See [CatmullRom]'s own doc for why this is safe here and not on the
+     * incremental path.
      */
     fun paintStroke(
         canvas: Canvas,
@@ -44,7 +51,8 @@ internal object StampBrushRenderer {
         seed: Long,
         stamp: Bitmap? = null,
     ) {
-        paintDabs(canvas, BrushStamps.dabs(points, diameterPx, brush, seed), brush, colorArgb, flow, stamp)
+        val curved = CatmullRom.densify(points)
+        paintDabs(canvas, BrushStamps.dabs(curved, diameterPx, brush, seed), brush, colorArgb, flow, stamp)
     }
 
     /**

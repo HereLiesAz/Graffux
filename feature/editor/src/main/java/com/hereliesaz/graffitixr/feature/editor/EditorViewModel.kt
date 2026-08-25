@@ -3328,13 +3328,25 @@ class EditorViewModel @Inject constructor(
                             }
                         }
                     } else if (state.activeTool == Tool.BRUSH) {
-                        // Dynamic brush: same recursion the live path and undo replay use.
+                        // Dynamic brush: same recursion the live path and undo replay use. Widths
+                        // come from the RAW points (BrushDynamics' speed measure is calibrated to
+                        // true touch-sample spacing); geometry is Catmull-Rom-curved per original
+                        // segment, same technique as ImageProcessor.drawStrokeDynamic — see its
+                        // doc comment for why the two don't share input.
                         val widths = BrushDynamics.segmentWidths(mapped, state.brushSize * brushScale, pressures)
+                        val flatMapped = ArrayList<Float>(mapped.size * 2)
+                        mapped.forEach { flatMapped.add(it.x); flatMapped.add(it.y) }
+                        val curvedSegments = CatmullRom.segments(flatMapped)
                         for (i in 0 until mapped.size - 1) {
                             paint.strokeWidth = widths[i]
+                            val run = curvedSegments[i]
                             val seg = android.graphics.Path()
-                            seg.moveTo(mapped[i].x, mapped[i].y)
-                            seg.lineTo(mapped[i + 1].x, mapped[i + 1].y)
+                            seg.moveTo(run[0], run[1])
+                            var j = 2
+                            while (j < run.size) {
+                                seg.lineTo(run[j], run[j + 1])
+                                j += 2
+                            }
                             drawPathAll(seg)
                         }
                     } else {
