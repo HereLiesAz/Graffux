@@ -41,8 +41,8 @@ fun DrawingCanvas(
     layerBitmapKey: Any?,
     gate: StrokeGate,
     modifier: Modifier = Modifier,
-    onStrokeStart: (Offset, IntSize) -> Unit,
-    onStrokePoint: (Offset) -> Unit,
+    onStrokeStart: (Offset, IntSize, Float) -> Unit,
+    onStrokePoint: (Offset, Float) -> Unit,
     onStrokeEnd: () -> Unit,
     onStrokeCancel: () -> Unit,
     onFillTap: (Offset, IntSize) -> Unit,
@@ -153,7 +153,7 @@ fun DrawingCanvas(
                                 else -> {
                                     // Quick tap: a single dab.
                                     gate.strokeActive = true
-                                    onStrokeStart(down.position, canvasSize)
+                                    onStrokeStart(down.position, canvasSize, down.pressure)
                                     gate.strokeActive = false
                                     onStrokeEnd()
                                 }
@@ -169,29 +169,33 @@ fun DrawingCanvas(
                                 liquifyPoints = listOf(down.position)
                                 liquifyPending = emptyList()
                             }
-                            onStrokeStart(down.position, canvasSize)
+                            onStrokeStart(down.position, canvasSize, down.pressure)
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
                                 }
-                                onStrokePoint(hist.position)
+                                // HistoricalChange carries no pressure of its own (Compose only
+                                // batches position/time sub-samples) — the enclosing change's
+                                // pressure is the closest reading available, and pressure changes
+                                // slowly enough within one frame's batch that this is unnoticeable.
+                                onStrokePoint(hist.position, change.pressure)
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
-                            onStrokePoint(change.position)
+                            onStrokePoint(change.position, change.pressure)
                             change.consume()
                         } else if (began) {
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
                                 }
-                                onStrokePoint(hist.position)
+                                onStrokePoint(hist.position, change.pressure)
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
-                            onStrokePoint(change.position)
+                            onStrokePoint(change.position, change.pressure)
                             change.consume()
                         }
                     }

@@ -74,12 +74,20 @@ import kotlin.math.roundToInt
 
 data class StrokeCommand(
     val path: List<Offset>,
+    // Aligned 1:1 with `path` by index. Empty for every tool but Tool.BRUSH, which reads pressure
+    // (0..1, 1 = a device/finger with no real pressure sensor) into BrushDynamics — see EditorViewModel.
+    val pressures: List<Float> = emptyList(),
     val canvasSize: IntSize,
     val tool: Tool,
     val brushSize: Float,
     val brushColor: Int,
     val intensity: Float,
     val feathering: Float = 0f,
+    // Stroke-level opacity ceiling for [Tool.BRUSH] (0..1, default fully opaque — every other tool
+    // ignores this). Unlike [flow]'s per-dab build-up, this caps the WHOLE stroke's resulting
+    // coverage regardless of how much it overlaps itself, so a translucent stroke that loops back on
+    // itself doesn't paint darker where it crosses — see DrawingEngine's Tool.BRUSH branch.
+    val opacity: Float = 1f,
     val layerScale: Float = 1f,
     val layerOffset: Offset = Offset.Zero,
     val layerRotationZ: Float = 0f,
@@ -300,6 +308,9 @@ class EditorViewModel @Inject constructor(
     // StrokeCommand (which is what undo/redo replays).
     private var strokeSymmetry: SymmetryMode = SymmetryMode.NONE
     private var strokeAlphaLock: Boolean = false
+    /** Captured at stroke start for the same reason as [strokeAlphaLock] — 1f for every tool but the
+     *  built-in round brush, which reads it from live state right before this. */
+    private var strokeOpacity: Float = 1f
     /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
     /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
@@ -314,19 +325,29 @@ class EditorViewModel @Inject constructor(
     // MUST go through the synchronized helpers below, or a concurrent add during toList() throws a
     // ConcurrentModificationException mid-stroke (uncaught in viewModelScope → crash).
     private var strokeCollectedPoints: MutableList<Offset> = mutableListOf()
+    // Parallel to strokeCollectedPoints (same index = same touch sample). 1f for a device/finger
+    // that reports no real pressure — Android's own synthetic default — so a stroke's width dynamics
+    // are unaffected wherever there is no stylus in play.
+    private var strokeCollectedPressures: MutableList<Float> = mutableListOf()
 
-    private fun resetStrokePoints(initial: Offset? = null) = synchronized(strokeCollectedPointsLock) {
+    private fun resetStrokePoints(initial: Offset? = null, initialPressure: Float = 1f) = synchronized(strokeCollectedPointsLock) {
         // `vararg Offset` is rejected by the compiler (Offset is a Compose value class), so take a
         // single optional seed point — the only two call sites are reset-with-start and reset-empty.
         strokeCollectedPoints = if (initial != null) mutableListOf(initial) else mutableListOf()
+        strokeCollectedPressures = if (initial != null) mutableListOf(initialPressure) else mutableListOf()
     }
 
-    private fun addStrokePoint(point: Offset) = synchronized(strokeCollectedPointsLock) {
+    private fun addStrokePoint(point: Offset, pressure: Float) = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPoints.add(point)
+        strokeCollectedPressures.add(pressure)
     }
 
     private fun snapshotStrokePoints(): List<Offset> = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPoints.toList()
+    }
+
+    private fun snapshotStrokePressures(): List<Float> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPressures.toList()
     }
     private var strokeLayerId: String? = null
     private var strokeCanvasW: Int = 0
@@ -2678,7 +2699,7 @@ class EditorViewModel @Inject constructor(
 
     /** Called when the user first touches the canvas. Prepares a mutable working bitmap for
      *  incremental real-time rendering (all tools except Liquify). */
-    fun onStrokeStart(startPoint: Offset, canvasSize: IntSize) {
+    fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
         val state = _uiState.value
         if (state.activeTool == Tool.NONE) return
         val layerId = state.activeLayerId ?: return
@@ -2688,7 +2709,7 @@ class EditorViewModel @Inject constructor(
         strokeStabilizer.reset()
         val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel)
 
-        resetStrokePoints(stabilizedStart)
+        resetStrokePoints(stabilizedStart, pressure)
         strokeLayerId = layerId
         strokeCanvasW = canvasSize.width
         strokeCanvasH = canvasSize.height
@@ -2699,6 +2720,7 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeSymmetry = if (state.activeTool != Tool.LIQUIFY) state.symmetryMode else SymmetryMode.NONE
         strokeAlphaLock = layer.alphaLock
+        strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
@@ -2794,11 +2816,12 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height, layerScale
             )
-            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock)
+            val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock, strokeOpacity)
 
             // Snapshot the collected points at this moment — may include points that arrived
             // during the bitmap-copy phase.
             val catchUpPoints = snapshotStrokePoints()
+            val catchUpPressures = snapshotStrokePressures()
             val mappedAll = ImageProcessor.mapScreenToBitmap(
                 catchUpPoints, canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height,
                 layerScale, layerOffset, layerRotationZ
@@ -2843,7 +2866,8 @@ class EditorViewModel @Inject constructor(
                     // Dynamic brush: each segment at its own velocity-derived width. The same
                     // recursion runs on commit/replay, so live pixels match replayed pixels.
                     for (i in 0 until mappedAll.size - 1) {
-                        paint.strokeWidth = dyn.next((mappedAll[i + 1] - mappedAll[i]).getDistance(), brushSize * brushScale)
+                        val p = catchUpPressures.getOrNull(i + 1) ?: 1f
+                        paint.strokeWidth = dyn.next((mappedAll[i + 1] - mappedAll[i]).getDistance(), brushSize * brushScale, p)
                         val seg = android.graphics.Path()
                         seg.moveTo(mappedAll[i].x, mappedAll[i].y)
                         seg.lineTo(mappedAll[i + 1].x, mappedAll[i + 1].y)
@@ -2876,7 +2900,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
-    fun onStrokePoint(currentPoint: Offset) {
+    fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f) {
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel)
 
         // Input-rate throttle. Touch panels report at 120-240 Hz and this method previously
@@ -2897,7 +2921,7 @@ class EditorViewModel @Inject constructor(
             lastSampleMs = android.os.SystemClock.uptimeMillis()
         }
 
-        addStrokePoint(stabilizedPoint)
+        addStrokePoint(stabilizedPoint, pressure)
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
         // original bitmap so each drag frame shows the full accumulated warp.
@@ -2995,7 +3019,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
             )
-            paint.strokeWidth = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale)
+            paint.strokeWidth = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, pressure)
         }
 
         val seg = Path()
@@ -3038,6 +3062,9 @@ class EditorViewModel @Inject constructor(
         val layerId = strokeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
         val points = snapshotStrokePoints()
+        // Aligned 1:1 with `points` by index (both grow together — see addStrokePoint). Recorded
+        // onto the command so undo/redo replay reproduces the same pressure-responsive width.
+        val pressures = snapshotStrokePressures()
         val canvasW = strokeCanvasW
         val canvasH = strokeCanvasH
 
@@ -3263,7 +3290,7 @@ class EditorViewModel @Inject constructor(
                     )
                     val paint = buildStrokePaint(
                         state.activeTool, state.activeColor.toArgb(), state.brushSize * brushScale,
-                        state.brushFeathering, strokeAlphaLock
+                        state.brushFeathering, strokeAlphaLock, strokeOpacity
                     )
                     val mapped = ImageProcessor.mapScreenToBitmap(
                         points, canvasW, canvasH, target.width, target.height,
@@ -3302,7 +3329,7 @@ class EditorViewModel @Inject constructor(
                         }
                     } else if (state.activeTool == Tool.BRUSH) {
                         // Dynamic brush: same recursion the live path and undo replay use.
-                        val widths = BrushDynamics.segmentWidths(mapped, state.brushSize * brushScale)
+                        val widths = BrushDynamics.segmentWidths(mapped, state.brushSize * brushScale, pressures)
                         for (i in 0 until mapped.size - 1) {
                             paint.strokeWidth = widths[i]
                             val seg = android.graphics.Path()
@@ -3330,6 +3357,8 @@ class EditorViewModel @Inject constructor(
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
+                opacity = strokeOpacity,
+                pressures = pressures,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
@@ -3366,6 +3395,8 @@ class EditorViewModel @Inject constructor(
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
+                opacity = strokeOpacity,
+                pressures = pressures,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
@@ -3447,7 +3478,9 @@ class EditorViewModel @Inject constructor(
                     colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
                     brushSize = state.brushSize,
                     brushFeathering = state.brushFeathering,
-                    blendModeOrdinal = state.activeTool.ordinal
+                    blendModeOrdinal = state.activeTool.ordinal,
+                    opacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f,
+                    pressures = if (state.activeTool == Tool.BRUSH) pressures else emptyList(),
                 )
                 opEmitter.emit(Op.StrokeComplete(layerId, brushStroke))
             }
@@ -4805,6 +4838,7 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = null
         strokeSymmetry = SymmetryMode.NONE
         strokeAlphaLock = false
+        strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
         resetStrokePoints()
@@ -4822,7 +4856,7 @@ class EditorViewModel @Inject constructor(
         stampMappedPoints.clear()
     }
 
-    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false): Paint =
+    private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =
         Paint().apply {
             strokeWidth = brushSize
             style = Paint.Style.STROKE
@@ -4832,6 +4866,14 @@ class EditorViewModel @Inject constructor(
             when (tool) {
                 Tool.BRUSH -> {
                     color = argbColor
+                    // Stroke-level opacity ceiling, layered on top of whatever alpha the colour
+                    // itself carries — a translucent colour times a translucent brush stays that
+                    // translucent, not fully opaque. Only affects this LIVE-preview/fast-path paint;
+                    // the authoritative committed pixels go through DrawingEngine's whole-stroke
+                    // buffer composite (see ImageProcessor.applyToolToBitmap's Tool.BRUSH branch),
+                    // so a self-overlapping stroke previews with (harmless, transient) per-segment
+                    // build-up but commits without it.
+                    alpha = (android.graphics.Color.alpha(argbColor) * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
                     // Alpha Lock: paint only where the layer already has alpha, so strokes
                     // recolour existing content without extending its silhouette.
                     if (alphaLock) xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
@@ -4888,6 +4930,11 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushFeathering(amount: Float) {
         dispatch(EditorIntent.SetBrushFeathering(amount))
+    }
+
+    /** Opacity (0..1) ceiling for the built-in round brush. No-op for an azphalt stamp brush (use flow). */
+    fun setBrushOpacity(amount: Float) {
+        dispatch(EditorIntent.SetBrushOpacity(amount))
     }
 
     /** Flow (0..1) for the active azphalt stamp brush — per-dab build-up. No-op for the round brush. */
@@ -6145,6 +6192,8 @@ class EditorViewModel @Inject constructor(
                         brushColor = stroke.colorArgb.toInt(),
                         intensity = 0.5f,
                         feathering = stroke.brushFeathering,
+                        opacity = stroke.opacity,
+                        pressures = stroke.pressures,
                         layerScale = 1f,
                         layerOffset = Offset.Zero,
                         layerRotationZ = 0f

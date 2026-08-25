@@ -146,7 +146,10 @@ data class BrushStroke(
     val colorArgb: Long = 0xFFFFFFFF,
     val brushSize: Float = 50f,
     val brushFeathering: Float = 0f,
-    val blendModeOrdinal: Int = 3 // BlendMode.SrcOver ordinal
+    val blendModeOrdinal: Int = 3, // BlendMode.SrcOver ordinal
+    val opacity: Float = 1f,
+    // Aligned 1:1 with `points` (one per x,y pair, not per float). Empty reads as full pressure.
+    val pressures: List<Float> = emptyList(),
 )
 
 /**
@@ -201,6 +204,12 @@ data class EditorUiState(
     val brushSize: Float = 50f,
     // Feathering [0..1]: 0 = hard edge, 1 = fully soft (blur radius = brushSize)
     val brushFeathering: Float = 0f,
+    // Stroke-level opacity ceiling [0..1] for the built-in round brush (Tool.BRUSH with no azphalt
+    // stamp selected) — Procreate's "Opacity". Unlike flow (below), this caps the WHOLE stroke's
+    // resulting coverage regardless of self-overlap, so a translucent stroke that loops back on
+    // itself doesn't paint darker where it crosses. Ignored by every other tool and by stamp brushes,
+    // which use flow instead.
+    val brushOpacity: Float = 1f,
     // Selected azphalt stamp-brush name, or null for the built-in round brush. When set, the brush
     // control's second axis is flow (below) rather than hardness.
     val activeBrushName: String? = null,

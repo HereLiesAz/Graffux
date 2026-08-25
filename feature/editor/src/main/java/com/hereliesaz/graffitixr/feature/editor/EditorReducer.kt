@@ -125,6 +125,7 @@ internal object EditorReducer {
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
         is EditorIntent.SetBrushSize -> state.copy(brushSize = intent.value.coerceIn(1f, 200f))
         is EditorIntent.SetBrushFeathering -> state.copy(brushFeathering = intent.value.coerceIn(0f, 1f))
+        is EditorIntent.SetBrushOpacity -> state.copy(brushOpacity = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetBrushFlow -> state.copy(brushFlow = intent.value.coerceIn(0f, 1f))
         is EditorIntent.SetStabilizerLevel -> state.copy(stabilizerLevel = intent.level.coerceIn(0, 100))
         // 240 Hz is above any panel's report rate, so it doubles as "unthrottled" without a

@@ -206,6 +206,11 @@ object ImageProcessor {
         // moment the stroke starts and recorded onto the command, which is what
         // makes a clone stroke replay identically on undo/redo.
         cloneOffset: Offset? = null,
+        // Tool.BRUSH only: whole-stroke opacity ceiling (0..1). Ignored by every other tool.
+        opacity: Float = 1f,
+        // Tool.BRUSH only: per-point pressure (0..1, aligned 1:1 with `stroke`), fed into
+        // BrushDynamics alongside speed. Empty (the default) reads as full pressure throughout.
+        pressures: List<Float> = emptyList(),
     ): Bitmap = withContext(Dispatchers.Default) {
         if (stroke.isEmpty()) return@withContext originalBitmap
 
@@ -238,10 +243,44 @@ object ImageProcessor {
                         maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                     }
                 }
+                val op = opacity.coerceIn(0f, 1f)
                 // The brush is dynamic (velocity width + start taper);
                 // BrushDynamics is deterministic from the points, so this
                 // replay renders exactly what the live stroke painted.
-                drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode)
+                if (alphaLock) {
+                    // SRC_ATOP reads the destination's EXISTING alpha to confine the paint, which a
+                    // blank offscreen mask (below) doesn't have — this has to draw straight onto the
+                    // layer. An alpha-locked stroke can therefore still double-darken at translucent
+                    // opacity where it loops over itself, same as every other tool in this file that
+                    // draws straight onto the layer; alpha-locked recolouring strokes are rare enough,
+                    // and usually opaque enough, that this is an acceptable trade against faking
+                    // "existing alpha" for a from-scratch mask.
+                    paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
+                    drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                } else {
+                    // Whole-stroke opacity ceiling (Procreate's "Opacity", as opposed to a stamp
+                    // brush's per-dab "Flow" — see StampBrushRenderer, deliberately left alone): paint
+                    // the stroke fully opaque onto a blank offscreen mask, then composite that mask
+                    // onto the layer ONCE at `op`. SRC_OVER of the same opaque colour over itself
+                    // inside the mask is a no-op, so a stroke that loops back on itself paints at a
+                    // uniform opacity everywhere it touched instead of building up darker at the
+                    // self-intersection — which a direct per-segment translucent draw would do.
+                    val mask = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
+                    if (mask != null) {
+                        val maskCanvas = Canvas(mask)
+                        drawStrokeDynamic(maskCanvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                        val compositePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            alpha = (255 * op).toInt().coerceIn(0, 255)
+                        }
+                        canvas.drawBitmap(mask, 0f, 0f, compositePaint)
+                        mask.recycle()
+                    } else {
+                        // Allocation failed under memory pressure: fall back to a direct draw rather
+                        // than silently painting nothing.
+                        paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
+                        drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                    }
+                }
             }
 
             Tool.ERASER -> {
@@ -806,12 +845,13 @@ object ImageProcessor {
         baseWidth: Float,
         wrapAroundMode: Boolean = false,
         symmetryMode: SymmetryMode = SymmetryMode.NONE,
+        pressures: List<Float> = emptyList(),
     ) {
         if (stroke.size == 1) {
             drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
             return
         }
-        val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth)
+        val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth, pressures)
         for (i in 0 until stroke.size - 1) {
             paint.strokeWidth = widths[i]
             drawStroke(canvas, listOf(stroke[i], stroke[i + 1]), paint, wrapAroundMode, symmetryMode)
