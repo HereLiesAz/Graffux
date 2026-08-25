@@ -2367,6 +2367,8 @@ class EditorViewModel @Inject constructor(
     override fun onOffsetChanged(o: Offset) = dispatch(EditorIntent.AddOffset(o))
 
     fun setStabilizerLevel(level: Int) = dispatch(EditorIntent.SetStabilizerLevel(level))
+    fun setStabilizerAlgorithm(algorithm: com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm) =
+        dispatch(EditorIntent.SetStabilizerAlgorithm(algorithm))
 
     /** Persisted; the collector above mirrors it back into [EditorUiState]. */
     fun setInputSampleRateHz(hz: Int) {
@@ -2725,9 +2727,10 @@ class EditorViewModel @Inject constructor(
         liveCurveWidths.clear()
         liveCurveFinalizedCount = 0
         strokeStabilizer.reset()
-        val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel)
+        val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel, state.stabilizerAlgorithm)
+        val stabilizedStartPressure = strokeStabilizer.stabilizePressure(pressure, state.stabilizerLevel, state.stabilizerAlgorithm)
 
-        resetStrokePoints(stabilizedStart, pressure)
+        resetStrokePoints(stabilizedStart, stabilizedStartPressure)
         strokeLayerId = layerId
         strokeCanvasW = canvasSize.width
         strokeCanvasH = canvasSize.height
@@ -2926,7 +2929,9 @@ class EditorViewModel @Inject constructor(
 
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
     fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f) {
-        val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel)
+        val algorithm = _uiState.value.stabilizerAlgorithm
+        val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel, algorithm)
+        val stabilizedPressure = strokeStabilizer.stabilizePressure(pressure, _uiState.value.stabilizerLevel, algorithm)
 
         // Input-rate throttle. Touch panels report at 120-240 Hz and this method previously
         // rendered and published a frame for every single sample — the editor's largest power cost
@@ -2946,7 +2951,7 @@ class EditorViewModel @Inject constructor(
             lastSampleMs = android.os.SystemClock.uptimeMillis()
         }
 
-        addStrokePoint(stabilizedPoint, pressure)
+        addStrokePoint(stabilizedPoint, stabilizedPressure)
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
         // original bitmap so each drag frame shows the full accumulated warp.
@@ -3048,7 +3053,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
             )
-            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, pressure)
+            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, stabilizedPressure)
             feedLiveCurvePoint(
                 canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
                 _uiState.value.wrapAroundMode, mapped, width,

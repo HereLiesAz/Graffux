@@ -280,11 +280,17 @@ A rewrite-everything-at-once approach is not realistic against a shipping app wi
 independently-correct render paths (live/commit/replay) that already have to agree pixel-for-pixel
 across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on its own:
 
-1. **Catmull-Rom spline fitting (§5)** — pure math, CPU, `BrushStamps.kt` only. No architecture
-   change, immediately visible quality win on fast strokes. Do this first regardless of anything
-   else in this document.
-2. **StreamLine + Motion Filtering (§6)** — pure Kotlin, extends `StrokeStabilizer`. Independent
-   of §5 and of the GPU work; can land in parallel.
+1. ~~**Catmull-Rom spline fitting (§5)**~~ **Landed.** Both the authoritative commit/replay path
+   and, via a one-point-lookahead sliding window (`feedLiveCurvePoint`), the round brush's LIVE
+   drag too — a segment draws once it has real neighbours on both sides (a 4-point window), never
+   revisited afterward, so the live curve never needs retroactive correction the way naively
+   re-fitting a growing point list every frame would. `CatmullRom.kt`, `StampBrushRenderer.
+   paintStroke`, `ImageProcessor.drawStrokeDynamic`, `EditorViewModel`'s live path and fast-stroke
+   fallback.
+2. ~~**StreamLine + Motion Filtering (§6)**~~ **Landed.** `StrokeStabilizer` now takes a
+   `StabilizerAlgorithm` (Stabilization/StreamLine/Motion Filtering) alongside its existing level;
+   StreamLine also damps pressure change rate. Picker in `ToolOptionsWindow`, shown once the
+   stabilizer level is above 0.
 3. **GPU compute stamping (§2)**, scoped *only* to `Tool.BRUSH` (both the round brush and azphalt
    stamp brushes) — the highest-traffic path, and the one `BrushStamps`/`StampBrushRenderer`
    already model cleanly enough to port directly (dab centre + radius + alpha + rotation is

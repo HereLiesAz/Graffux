@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
@@ -35,6 +36,8 @@ import kotlin.math.roundToInt
 fun ToolOptionsWindow(
     stabilizerLevel: Int,
     onSetStabilizerLevel: (Int) -> Unit,
+    stabilizerAlgorithm: StabilizerAlgorithm,
+    onSetStabilizerAlgorithm: (StabilizerAlgorithm) -> Unit,
     /** Magic-wand threshold, 0..255, or null when Automatic is not the active selection mode. */
     magicWandTolerance: Int?,
     onSetMagicWandTolerance: (Int) -> Unit,
@@ -99,6 +102,16 @@ fun ToolOptionsWindow(
                 onValueChange = { onSetStabilizerLevel(it.roundToInt()) },
                 valueRange = 0f..100f,
             )
+            if (stabilizerLevel > 0) {
+                StabilizerAlgorithm.entries.forEach { algo ->
+                    AzButton(
+                        text = if (algo == stabilizerAlgorithm) "${algo.label} ✓" else algo.label,
+                        onClick = { onSetStabilizerAlgorithm(algo) },
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
 
             if (magicWandTolerance != null) {
                 Text(

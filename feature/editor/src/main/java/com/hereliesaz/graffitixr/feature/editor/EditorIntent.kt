@@ -94,6 +94,7 @@ internal sealed interface EditorIntent {
     data class SetBrushOpacity(val value: Float) : EditorIntent
     data class SetBrushFlow(val value: Float) : EditorIntent
     data class SetStabilizerLevel(val level: Int) : EditorIntent
+    data class SetStabilizerAlgorithm(val algorithm: com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm) : EditorIntent
     /** Ceiling on rendered touch samples per second while drawing; 0 is unthrottled. */
     data class SetInputSampleRateHz(val hz: Int) : EditorIntent
     /** Fraction of screen resolution new layers allocate at. */
