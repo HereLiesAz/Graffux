@@ -3,6 +3,22 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("graffitixr_native")
 
+# Google Ink Stroke Modeler requires C++20. Pinning it keeps prediction behaviour reproducible and
+# prevents an upstream main-branch change from silently changing Graffux's stroke feel.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(FetchContent)
+set(INK_STROKE_MODELER_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(INK_STROKE_MODELER_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    ink_stroke_modeler
+    GIT_REPOSITORY https://github.com/google/ink-stroke-modeler.git
+    GIT_TAG f2388813b0b25bc3e33d143d369a8367ab2e30c8
+    GIT_SHALLOW FALSE
+)
+FetchContent_MakeAvailable(ink_stroke_modeler)
+
 # OpenCV is imported from Maven Central (org.opencv:opencv). Since 4.9.0 that artifact ships a
 # Prefab part, so with `buildFeatures { prefab = true }` in build.gradle.kts, AGP generates a CMake
 # config package for it — nothing to vendor, fetch, or point OpenCV_DIR at. The package name is
@@ -23,6 +39,7 @@ add_library(graffitixr SHARED
     ImageWarper.cpp
     MlasStub.cpp
     VulkanStampEngine.cpp
+    InkStrokePredictorJNI.cpp
 )
 
 # Include directories. OpenCV's headers arrive via the imported target's INTERFACE_INCLUDE_DIRECTORIES.
@@ -49,4 +66,5 @@ target_link_libraries(graffitixr
     android
     jnigraphics
     ${vulkan-lib}
+    InkStrokeModeler::stroke_modeler
 )
