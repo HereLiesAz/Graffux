@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -12,10 +13,18 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.feature.editor.prediction.AccelerationGesturePredictor
+import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
+import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
+import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
+import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
+import kotlin.math.roundToLong
 
 /** How long a still touch becomes the eyedropper (Procreate's touch-and-hold sample). */
 private const val EYEDROP_HOLD_MS = 500L
@@ -32,6 +41,10 @@ private const val EYEDROP_HOLD_MS = 500L
  *
  * [gate] tells the app-level multi-finger tap observer whether a stroke was in progress, so a
  * cancelling two-finger tap doesn't ALSO fire an undo of the previous action.
+ *
+ * Brush latency prediction is presentation-only: predictors race to extend the visible tail to the
+ * next frame, but predicted points are NEVER sent to [onStrokePoint]. Only real input can enter the
+ * bitmap/history path, so a bad prediction disappears on the next sample instead of becoming paint.
  */
 @Composable
 fun DrawingCanvas(
@@ -59,6 +72,31 @@ fun DrawingCanvas(
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
+    val view = LocalView.current
+    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
+    val predictionTournament = remember(androidXPredictor) {
+        PredictionTournament(
+            listOf(
+                LinearGesturePredictor(),
+                AccelerationGesturePredictor(),
+                androidXPredictor,
+            )
+        )
+    }
+    val refreshRate = view.display?.refreshRate?.takeIf { it.isFinite() && it > 1f } ?: 60f
+    val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
+    var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
+
+    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float) {
+        predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
+        val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
+        predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
+            position to prediction.position
+        } else {
+            null
+        }
+    }
+
     // When the layer bitmap updates (stroke committed), clear Liquify pending path.
     LaunchedEffect(layerBitmapKey) {
         liquifyPending = emptyList()
@@ -67,6 +105,7 @@ fun DrawingCanvas(
     LaunchedEffect(activeTool) {
         liquifyPoints = emptyList()
         liquifyPending = emptyList()
+        predictionTail = null
     }
 
     // Leaving composition mid-stroke (tool change, the layer getting locked, a project reload)
@@ -79,7 +118,21 @@ fun DrawingCanvas(
     Canvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
-            .pointerInput(activeTool) {
+            // AndroidX needs the untouched MotionEvent stream. motionEventSpy observes without
+            // consuming, so the Compose pointerInput grammar below remains the sole gesture owner.
+            .motionEventSpy { event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    predictionTournament.reset()
+                    predictionTail = null
+                }
+                androidXPredictor.recordMotionEvent(event)
+                if (event.actionMasked == MotionEvent.ACTION_UP ||
+                    event.actionMasked == MotionEvent.ACTION_CANCEL
+                ) {
+                    predictionTail = null
+                }
+            }
+            .pointerInput(activeTool, nextFrameMs) {
                 // Changing tool relaunches this block, killing any in-flight stroke's loop before it
                 // can clear the latch. Nothing is being painted the instant this starts, so start clean.
                 gate.strokeActive = false
@@ -104,6 +157,7 @@ fun DrawingCanvas(
 
                         if (event == null) {
                             // Held still long enough → eyedropper (any tool; FILL included).
+                            predictionTail = null
                             eyedrop = true
                             onEyedropStart(canvasSize)
                             onEyedropSample(last)
@@ -113,6 +167,7 @@ fun DrawingCanvas(
                         // A second finger lands → this is a gesture, not painting. Cancel.
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
+                            predictionTail = null
                             if (began) {
                                 gate.markCancelled()
                                 if (activeTool == Tool.LIQUIFY) {
@@ -138,7 +193,14 @@ fun DrawingCanvas(
                         }
 
                         if (!change.pressed) {
-                            // Lift.
+                            // Let the final real point score any prediction that matured before lift,
+                            // but don't create another future tail after the stroke has ended.
+                            if (began) {
+                                predictionTournament.record(
+                                    GestureSample(change.position, change.uptimeMillis, change.pressure)
+                                )
+                            }
+                            predictionTail = null
                             when {
                                 pickingCloneSource -> onPickCloneSource(down.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
@@ -170,6 +232,9 @@ fun DrawingCanvas(
                                 liquifyPending = emptyList()
                             }
                             onStrokeStart(down.position, canvasSize, down.pressure)
+                            predictionTournament.record(
+                                GestureSample(down.position, down.uptimeMillis, down.pressure)
+                            )
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
@@ -179,11 +244,13 @@ fun DrawingCanvas(
                                 // pressure is the closest reading available, and pressure changes
                                 // slowly enough within one frame's batch that this is unnoticeable.
                                 onStrokePoint(hist.position, change.pressure)
+                                recordRealPoint(hist.position, hist.uptimeMillis, change.pressure)
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
                             onStrokePoint(change.position, change.pressure)
+                            recordRealPoint(change.position, change.uptimeMillis, change.pressure)
                             change.consume()
                         } else if (began) {
                             change.historical.forEach { hist ->
@@ -191,11 +258,13 @@ fun DrawingCanvas(
                                     liquifyPoints = liquifyPoints + hist.position
                                 }
                                 onStrokePoint(hist.position, change.pressure)
+                                recordRealPoint(hist.position, hist.uptimeMillis, change.pressure)
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
                             onStrokePoint(change.position, change.pressure)
+                            recordRealPoint(change.position, change.uptimeMillis, change.pressure)
                             change.consume()
                         }
                     }
@@ -204,22 +273,37 @@ fun DrawingCanvas(
                 }
             }
     ) {
-        // Only render a fake preview for Liquify — all other tools render directly into the layer bitmap.
         val displayPath = when {
             activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty() -> liquifyPoints
             activeTool == Tool.LIQUIFY && liquifyPending.isNotEmpty() -> liquifyPending
-            else -> return@Canvas
+            else -> null
         }
 
-        val path = Path().apply {
-            moveTo(displayPath.first().x, displayPath.first().y)
-            for (i in 1 until displayPath.size) lineTo(displayPath[i].x, displayPath[i].y)
+        if (displayPath != null) {
+            val path = Path().apply {
+                moveTo(displayPath.first().x, displayPath.first().y)
+                for (i in 1 until displayPath.size) lineTo(displayPath[i].x, displayPath[i].y)
+            }
+            drawPath(
+                path = path,
+                color = Color.Magenta.copy(alpha = 0.25f),
+                style = Stroke(width = brushSize, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                blendMode = BlendMode.SrcOver
+            )
         }
-        drawPath(
-            path = path,
-            color = Color.Magenta.copy(alpha = 0.25f),
-            style = Stroke(width = brushSize, cap = StrokeCap.Round, join = StrokeJoin.Round),
-            blendMode = BlendMode.SrcOver
-        )
+
+        // The winning predictor's disposable tail. Deliberately translucent: it should read as the
+        // same stroke reaching the pen, but a correction on the next frame should not flash like a
+        // committed opaque segment being erased.
+        predictionTail?.let { (real, predicted) ->
+            drawLine(
+                color = activeColor.copy(alpha = activeColor.alpha * 0.45f),
+                start = real,
+                end = predicted,
+                strokeWidth = brushSize,
+                cap = StrokeCap.Round,
+                blendMode = BlendMode.SrcOver,
+            )
+        }
     }
 }
