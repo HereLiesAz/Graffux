@@ -12,4 +12,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete obsolete branch
-        run: git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git --delete fix/arraydeque-live-curve-race
+        run: git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git :refs/heads/fix/arraydeque-live-curve-race
