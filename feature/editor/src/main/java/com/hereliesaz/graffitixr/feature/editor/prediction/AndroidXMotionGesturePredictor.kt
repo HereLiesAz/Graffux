@@ -27,12 +27,27 @@ class AndroidXMotionGesturePredictor(
     fun recordMotionEvent(event: MotionEvent) {
         if (event.pointerCount <= 0) return
         latestPressure = event.getPressure(event.actionIndex.coerceIn(0, event.pointerCount - 1))
-        predictor.record(event)
+        try {
+            predictor.record(event)
+        } catch (_: IllegalArgumentException) {
+            // Compose can start observing halfway through an already-active stream after a tool or
+            // layer recomposition. AndroidX quite correctly rejects that malformed history. Reset
+            // instead of letting a prediction-only aid crash the drawing surface; a later ACTION_DOWN
+            // starts a clean stream.
+            reset()
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                predictor.record(event)
+            }
+        }
     }
 
     /** AndroidX chooses its own next-frame target time, so [targetUptimeMillis] is advisory only. */
     override fun predict(targetUptimeMillis: Long): GesturePrediction? {
-        val predicted = predictor.predict() ?: return null
+        val predicted = try {
+            predictor.predict()
+        } catch (_: IllegalArgumentException) {
+            null
+        } ?: return null
         return try {
             if (predicted.pointerCount <= 0) return null
             val index = predicted.actionIndex.coerceIn(0, predicted.pointerCount - 1)
