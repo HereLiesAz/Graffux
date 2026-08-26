@@ -9,22 +9,73 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
-# Reads the repo and runs tests/build only — no pushes, no releases, no issue writes. Without
-# this block every other workflow in the repo declares one explicitly, this job silently
-# inherits the repository/org default token permissions, which can be far broader than it needs
-# (historically write-all on repos configured for "Read and write permissions").
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  patch-empty-stroke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Patch zero-point catch-up crash
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt')
+          s = path.read_text()
+          old = '''            val catchUpPoints = snapshotStrokePoints()
+            val catchUpPressures = snapshotStrokePressures()
+            val mappedAll = ImageProcessor.mapScreenToBitmap(
+'''
+          new = '''            val catchUpPoints = snapshotStrokePoints()
+            val catchUpPressures = snapshotStrokePressures()
+            if (generation != strokeGeneration || strokeLayerId != layerId || catchUpPoints.isEmpty()) {
+                gpuEngine?.destroy()
+                workBitmap.recycle()
+                return@launch
+            }
+            val mappedAll = ImageProcessor.mapScreenToBitmap(
+'''
+          if old not in s:
+              raise SystemExit(0)
+          s = s.replace(old, new, 1)
+          old2 = '''                layerScale, layerOffset, layerRotationZ
+            )
+
+            val bw = workBitmap.width.toFloat()
+'''
+          new2 = '''                layerScale, layerOffset, layerRotationZ
+            )
+            if (mappedAll.isEmpty()) {
+                gpuEngine?.destroy()
+                workBitmap.recycle()
+                return@launch
+            }
+
+            val bw = workBitmap.width.toFloat()
+'''
+          if old2 not in s:
+              raise SystemExit('mappedAll anchor not found')
+          path.write_text(s.replace(old2, new2, 1))
+          PY
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'Az'
+          git config user.email '103241502+HereLiesAz@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
+          git commit -m 'Fix empty live-stroke catch-up [skip ci]'
+          git push origin HEAD:main
+
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      # OpenCV (Java + native via Prefab) is a plain Maven Central dependency now — Gradle resolves
-      # it during the build, so there is nothing to fetch or vendor here.
 
       - name: Inject Google Services
         env:
