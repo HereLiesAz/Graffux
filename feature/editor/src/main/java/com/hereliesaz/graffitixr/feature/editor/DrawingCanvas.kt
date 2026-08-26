@@ -83,7 +83,15 @@ fun DrawingCanvas(
             )
         )
     }
-    val refreshRate = view.display?.refreshRate?.takeIf { it.isFinite() && it > 1f } ?: 60f
+    // View.getDisplay() throws under Robolectric and can be unavailable while a real View is
+    // detached. Prediction is a latency hint, not a reason to crash; 60 Hz is the conservative
+    // horizon until a visual display is actually attached.
+    val refreshRate = remember(view) {
+        runCatching { view.display?.refreshRate }
+            .getOrNull()
+            ?.takeIf { it.isFinite() && it > 1f }
+            ?: 60f
+    }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
     var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
 
