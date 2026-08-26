@@ -15,7 +15,9 @@ android {
         }
         externalNativeBuild {
             cmake {
-                cppFlags("-std=c++17")
+                // Google Ink Stroke Modeler requires C++20; the existing native sources are valid
+                // C++20 and keep the same ABI through the shared-library boundary.
+                cppFlags("-std=c++20")
                 arguments("-DANDROID_STL=c++_shared")
             }
         }
