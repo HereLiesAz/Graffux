@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor.prediction
 
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.ui.geometry.Offset
 import kotlin.math.max
 
@@ -90,20 +91,29 @@ class AccelerationGesturePredictor : GesturePredictor {
 /**
  * Scores predictors against the real samples that eventually arrive. Predictions are presentation
  * only; this class never mutates the authoritative stroke. Each prediction keeps its own target
- * timestamp because AndroidX predicts the next display frame while arithmetic models predict the
- * explicit horizon requested by the caller.
+ * timestamp because AndroidX and Google Ink choose their own confidence/display horizons while the
+ * arithmetic models predict the explicit horizon requested by the caller.
+ *
+ * Google Ink is opportunistic: on a real Android process its native model joins automatically; on
+ * JVM/Robolectric (where the native .so deliberately does not exist) construction fails harmlessly
+ * and the pure Kotlin + AndroidX competitors continue. As a [RememberObserver], this tournament also
+ * closes native predictors when its Compose owner leaves composition, so a prediction aid cannot
+ * leak a native model merely because the editor screen was closed between strokes.
  */
 class PredictionTournament(
-    predictors: List<GesturePredictor>,
+    suppliedPredictors: List<GesturePredictor>,
     private val errorSmoothing: Float = 0.2f,
-) {
-    private val predictors = predictors.toList()
+) : RememberObserver {
+    private val predictors: List<GesturePredictor> = buildList {
+        addAll(suppliedPredictors)
+        runCatching { GoogleInkGesturePredictor() }.getOrNull()?.let(::add)
+    }.distinctBy { it.name }
+
     private val errors = predictors.associate { it.name to Float.POSITIVE_INFINITY }.toMutableMap()
     private val scoreCounts = predictors.associate { it.name to 0 }.toMutableMap()
     private val pending = ArrayDeque<GesturePrediction>()
 
     init {
-        require(this.predictors.map { it.name }.distinct().size == this.predictors.size)
         require(errorSmoothing in 0f..1f)
     }
 
@@ -162,5 +172,15 @@ class PredictionTournament(
             previous * (1f - errorSmoothing) + error * errorSmoothing
         }
         scoreCounts[prediction.model] = count + 1
+    }
+
+    override fun onRemembered() = Unit
+    override fun onForgotten() = closeNativePredictors()
+    override fun onAbandoned() = closeNativePredictors()
+
+    private fun closeNativePredictors() {
+        predictors.filterIsInstance<AutoCloseable>().forEach { predictor ->
+            runCatching { predictor.close() }
+        }
     }
 }
