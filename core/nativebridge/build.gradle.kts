@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.opencv)
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    androidTestImplementation(libs.androidx.junit)
 }
 
 // Pin Kotlin's JVM target to match Java (17). Without this, Kotlin defaults to a lower target
