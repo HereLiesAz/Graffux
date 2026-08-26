@@ -17,7 +17,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Patch live curve state race and restore workflows
+      - name: Patch live curve state race
         shell: bash
         run: |
           python - <<'PY'
@@ -91,12 +91,8 @@ jobs:
           path.write_text(s)
           PY
 
-          # Restore the real release workflow exactly as it was before mapping capture.
-          git checkout f0ceda6f30ede8445618f43ab476266ddb0f66ce -- .github/workflows/release-aab.yml
-          git rm .github/workflows/temporary-capture-r8-mapping.yml
-
           git config user.name 'Az'
           git config user.email '103241502+HereLiesAz@users.noreply.github.com'
-          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt .github/workflows/release-aab.yml
-          git commit -m 'Fix live brush ArrayDeque race and restore release workflow'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
+          git commit -m 'Fix live brush ArrayDeque race'
           git push origin HEAD:main
