@@ -89,8 +89,9 @@ class AccelerationGesturePredictor : GesturePredictor {
 
 /**
  * Scores predictors against the real samples that eventually arrive. Predictions are presentation
- * only; this class never mutates the authoritative stroke. The winner is the model with the lowest
- * exponentially-smoothed pixel error, with a tiny exploration bias toward models with fewer scores.
+ * only; this class never mutates the authoritative stroke. Each prediction keeps its own target
+ * timestamp because AndroidX predicts the next display frame while arithmetic models predict the
+ * explicit horizon requested by the caller.
  */
 class PredictionTournament(
     predictors: List<GesturePredictor>,
@@ -99,7 +100,7 @@ class PredictionTournament(
     private val predictors = predictors.toList()
     private val errors = predictors.associate { it.name to Float.POSITIVE_INFINITY }.toMutableMap()
     private val scoreCounts = predictors.associate { it.name to 0 }.toMutableMap()
-    private val pending = ArrayDeque<List<GesturePrediction>>()
+    private val pending = ArrayDeque<GesturePrediction>()
 
     init {
         require(this.predictors.map { it.name }.distinct().size == this.predictors.size)
@@ -113,27 +114,19 @@ class PredictionTournament(
         pending.clear()
     }
 
-    /** Record a real sample and score any predictions whose target time has now arrived. */
+    /** Record a real sample and score every prediction whose own target time has arrived. */
     fun record(sample: GestureSample) {
-        while (pending.isNotEmpty()) {
-            val batch = pending.first()
-            val target = batch.firstOrNull()?.targetUptimeMillis ?: run {
-                pending.removeFirst()
-                continue
-            }
-            if (target > sample.uptimeMillis) break
-            pending.removeFirst()
-            batch.forEach { prediction ->
-                val error = (prediction.position - sample.position).getDistance()
-                val count = scoreCounts.getValue(prediction.model)
-                val previous = errors.getValue(prediction.model)
-                errors[prediction.model] = if (count == 0 || !previous.isFinite()) {
-                    error
+        if (pending.isNotEmpty()) {
+            val survivors = ArrayDeque<GesturePrediction>(pending.size)
+            while (pending.isNotEmpty()) {
+                val prediction = pending.removeFirst()
+                if (prediction.targetUptimeMillis <= sample.uptimeMillis) {
+                    score(prediction, sample)
                 } else {
-                    previous * (1f - errorSmoothing) + error * errorSmoothing
+                    survivors.addLast(prediction)
                 }
-                scoreCounts[prediction.model] = count + 1
             }
+            pending.addAll(survivors)
         }
         predictors.forEach { it.record(sample) }
     }
@@ -141,13 +134,14 @@ class PredictionTournament(
     fun predict(targetUptimeMillis: Long): GesturePrediction? {
         val predictions = predictors.mapNotNull { it.predict(targetUptimeMillis) }
         if (predictions.isEmpty()) return null
-        pending.addLast(predictions)
-        while (pending.size > 8) pending.removeFirst()
+        predictions.forEach { pending.addLast(it) }
+        while (pending.size > predictors.size * 8) pending.removeFirst()
+
         return predictions.minByOrNull { prediction ->
             val count = scoreCounts.getValue(prediction.model)
             val error = errors.getValue(prediction.model)
             when {
-                count == 0 -> -1f / (1 + count)
+                count == 0 -> 0f
                 !error.isFinite() -> Float.MAX_VALUE
                 else -> error
             }
@@ -157,4 +151,16 @@ class PredictionTournament(
     fun leaderboard(): List<Pair<String, Float>> = predictors
         .map { it.name to errors.getValue(it.name) }
         .sortedBy { it.second }
+
+    private fun score(prediction: GesturePrediction, actual: GestureSample) {
+        val error = (prediction.position - actual.position).getDistance()
+        val count = scoreCounts.getValue(prediction.model)
+        val previous = errors.getValue(prediction.model)
+        errors[prediction.model] = if (count == 0 || !previous.isFinite()) {
+            error
+        } else {
+            previous * (1f - errorSmoothing) + error * errorSmoothing
+        }
+        scoreCounts[prediction.model] = count + 1
+    }
 }
