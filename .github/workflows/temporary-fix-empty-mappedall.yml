@@ -41,3 +41,5 @@ jobs:
           git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
           git commit -m 'Fix empty live-stroke catch-up [empty-mappedall-fixed]'
           git push origin HEAD:main
+
+      # temporary diagnostic workflow; delete after patch lands
