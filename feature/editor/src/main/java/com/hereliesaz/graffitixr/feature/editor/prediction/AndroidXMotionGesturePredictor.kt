@@ -6,29 +6,35 @@ import androidx.compose.ui.geometry.Offset
 import androidx.input.motionprediction.MotionEventPredictor
 
 /**
- * Adapter around AndroidX's frame-time MotionEvent predictor. It is fed the raw MotionEvent stream
- * from the Compose host via pointerInteropFilter, but exposes the same prediction record used by the
- * pure Kotlin models so all of them can be scored together.
+ * Adapter around AndroidX's frame-time MotionEvent predictor. Raw MotionEvents are fed separately
+ * through [recordMotionEvent]; the GesturePredictor [record] call is deliberately a no-op because
+ * AndroidX owns its own input history and requires the original MotionEvent stream.
  */
-class AndroidXMotionGesturePredictor(view: View) {
-    val name: String = "androidx"
+class AndroidXMotionGesturePredictor(
+    private val view: View,
+) : GesturePredictor {
+    override val name: String = "androidx"
     private var predictor: MotionEventPredictor = MotionEventPredictor.newInstance(view)
     private var latestPressure: Float = 1f
 
-    fun reset(view: View) {
+    override fun reset() {
         predictor = MotionEventPredictor.newInstance(view)
         latestPressure = 1f
     }
 
-    fun record(event: MotionEvent) {
+    override fun record(sample: GestureSample) = Unit
+
+    fun recordMotionEvent(event: MotionEvent) {
+        if (event.pointerCount <= 0) return
         latestPressure = event.getPressure(event.actionIndex.coerceIn(0, event.pointerCount - 1))
         predictor.record(event)
     }
 
-    /** AndroidX chooses the prediction timestamp itself: the next frame presentation time. */
-    fun predict(): GesturePrediction? {
+    /** AndroidX chooses its own next-frame target time, so [targetUptimeMillis] is advisory only. */
+    override fun predict(targetUptimeMillis: Long): GesturePrediction? {
         val predicted = predictor.predict() ?: return null
         return try {
+            if (predicted.pointerCount <= 0) return null
             val index = predicted.actionIndex.coerceIn(0, predicted.pointerCount - 1)
             GesturePrediction(
                 model = name,
