@@ -42,10 +42,13 @@ add_library(graffitixr SHARED
     InkStrokePredictorJNI.cpp
 )
 
-# Include directories. OpenCV's headers arrive via the imported target's INTERFACE_INCLUDE_DIRECTORIES.
+# Include directories. Google Ink's public headers are rooted at the fetched repository itself
+# (`ink_stroke_modeler/...`); its target does not propagate that root to consumers on Android.
+# OpenCV's headers arrive through its imported target's INTERFACE_INCLUDE_DIRECTORIES.
 target_include_directories(graffitixr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${GLM_DIR}
+    ${ink_stroke_modeler_SOURCE_DIR}
 )
 
 # Find required Android libraries
