@@ -334,6 +334,7 @@ class EditorViewModel @Inject constructor(
     // each drawn run is a permanent function of the point list as it stood at that moment, not
     // retroactively revised as the stroke grows. Reset per stroke in onStrokeStart/
     // clearTransientStrokeState.
+    private val liveCurveLock = Any()
     private val liveCurveWindow = ArrayDeque<Offset>()
     private val liveCurveWidths = ArrayDeque<Float>()
     /** How many segments the live window has drawn so far this stroke — 0 means the window hasn't
@@ -341,6 +342,7 @@ class EditorViewModel @Inject constructor(
      *  segment (which uses a reflected phantom point on its near side regardless, live or replayed
      *  — there being no real point before a stroke's first one either way). */
     private var liveCurveFinalizedCount = 0
+    @Volatile private var strokeGeneration = 0L
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
@@ -2787,9 +2789,8 @@ class EditorViewModel @Inject constructor(
         val layer = state.layers.find { it.id == layerId } ?: return
         val originalBitmap = layer.bitmap ?: return
 
-        liveCurveWindow.clear()
-        liveCurveWidths.clear()
-        liveCurveFinalizedCount = 0
+        val generation = ++strokeGeneration
+        resetLiveCurveState()
         strokeStabilizer.reset()
         val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel, state.stabilizerAlgorithm)
         val stabilizedStartPressure = strokeStabilizer.stabilizePressure(pressure, state.stabilizerLevel, state.stabilizerAlgorithm)
@@ -2900,6 +2901,10 @@ class EditorViewModel @Inject constructor(
             // onStrokeEnd's whole-stroke fallback, which is exactly the path a stroke too fast for
             // this copy already takes.
             val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch
+            if (generation != strokeGeneration || strokeLayerId != layerId) {
+                workBitmap.recycle()
+                return@launch
+            }
             val workCanvas = Canvas(workBitmap)
             // Clip the live-preview canvas to the lasso once, here. A Canvas clip is sticky until a
             // restore, and this canvas is retained for the whole stroke — so every later segment
@@ -2991,6 +2996,7 @@ class EditorViewModel @Inject constructor(
                     feedLiveCurvePoint(
                         workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
                         state.wrapAroundMode, mappedAll[0], 0f, workBitmap,
+                        generation = generation,
                     )
                     for (i in 1 until mappedAll.size) {
                         val p = catchUpPressures.getOrNull(i) ?: 1f
@@ -2998,6 +3004,7 @@ class EditorViewModel @Inject constructor(
                         feedLiveCurvePoint(
                             workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
                             state.wrapAroundMode, mappedAll[i], width, workBitmap,
+                            generation = generation,
                         )
                     }
                 } else {
@@ -3013,6 +3020,11 @@ class EditorViewModel @Inject constructor(
             val lastMapped = mappedAll.last()
 
             withContext(dispatchers.main) {
+                if (generation != strokeGeneration || strokeLayerId != layerId) {
+                    gpuEngine?.destroy()
+                    workBitmap.recycle()
+                    return@withContext
+                }
                 strokeWorkingBitmap = workBitmap
                 strokeWorkingCanvas = workCanvas
                 strokePaint = paint
@@ -5142,6 +5154,12 @@ class EditorViewModel @Inject constructor(
      * side regardless, which is correct and matches the authoritative (commit/replay) fit exactly,
      * there being no real point before a stroke's first one either way.
      */
+    private fun resetLiveCurveState() = synchronized(liveCurveLock) {
+        liveCurveWindow.clear()
+        liveCurveWidths.clear()
+        liveCurveFinalizedCount = 0
+    }
+
     private fun feedLiveCurvePoint(
         canvas: Canvas,
         paint: Paint,
@@ -5152,10 +5170,12 @@ class EditorViewModel @Inject constructor(
         point: Offset,
         width: Float,
         targetBitmap: Bitmap,
-    ) {
+        generation: Long? = null,
+    ) = synchronized(liveCurveLock) {
+        if (generation != null && generation != strokeGeneration) return@synchronized
         if (liveCurveWindow.isNotEmpty()) liveCurveWidths.addLast(width)
         liveCurveWindow.addLast(point)
-        if (liveCurveWindow.size < 4) return
+        if (liveCurveWindow.size < 4) return@synchronized
 
         val flat = ArrayList<Float>(8)
         liveCurveWindow.forEach { flat.add(it.x); flat.add(it.y) }
@@ -5185,9 +5205,8 @@ class EditorViewModel @Inject constructor(
         strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
-        liveCurveWindow.clear()
-        liveCurveWidths.clear()
-        liveCurveFinalizedCount = 0
+        strokeGeneration++
+        resetLiveCurveState()
         resetStrokePoints()
         strokeLayerId = null
 
