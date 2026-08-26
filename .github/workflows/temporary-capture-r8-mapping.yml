@@ -1,41 +1,97 @@
 name: Temporary Capture R8 Mapping
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  capture-mapping:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout staging branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          ref: fix/arraydeque-live-curve-race
+          fetch-depth: 0
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
-        with:
-          dependency-graph: disabled
-
-      - name: Build release mapping
+      - name: Patch live curve state race
+        shell: bash
         run: |
-          chmod +x gradlew
-          ./gradlew bundleRelease
-          test -f app/build/outputs/mapping/release/mapping.txt
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Upload R8 mapping
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: graffux-r8-mapping
-          path: app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: error
-          retention-days: 1
+          path = Path('feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt')
+          s = path.read_text()
+
+          def once(old, new, label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'{label}: anchor not found')
+              s = s.replace(old, new, 1)
+
+          once(
+              '    private val liveCurveWindow = ArrayDeque<Offset>()\n    private val liveCurveWidths = ArrayDeque<Float>()',
+              '    private val liveCurveLock = Any()\n    private val liveCurveWindow = ArrayDeque<Offset>()\n    private val liveCurveWidths = ArrayDeque<Float>()',
+              'curve lock',
+          )
+          once(
+              '    private var liveCurveFinalizedCount = 0\n    // Incremental brush dynamics',
+              '    private var liveCurveFinalizedCount = 0\n    @Volatile private var strokeGeneration = 0L\n    // Incremental brush dynamics',
+              'stroke generation',
+          )
+          once(
+              '        val originalBitmap = layer.bitmap ?: return\n\n        liveCurveWindow.clear()\n        liveCurveWidths.clear()\n        liveCurveFinalizedCount = 0',
+              '        val originalBitmap = layer.bitmap ?: return\n\n        val generation = ++strokeGeneration\n        resetLiveCurveState()',
+              'stroke-start reset',
+          )
+          once(
+              '            val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch\n            val workCanvas = Canvas(workBitmap)',
+              '            val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch\n            if (generation != strokeGeneration || strokeLayerId != layerId) {\n                workBitmap.recycle()\n                return@launch\n            }\n            val workCanvas = Canvas(workBitmap)',
+              'background generation guard',
+          )
+          once(
+              '                        state.wrapAroundMode, mappedAll[0], 0f, workBitmap,\n                    )',
+              '                        state.wrapAroundMode, mappedAll[0], 0f, workBitmap,\n                        generation = generation,\n                    )',
+              'first catch-up feed token',
+          )
+          once(
+              '                            state.wrapAroundMode, mappedAll[i], width, workBitmap,\n                        )',
+              '                            state.wrapAroundMode, mappedAll[i], width, workBitmap,\n                            generation = generation,\n                        )',
+              'catch-up feed token',
+          )
+          once(
+              '            withContext(dispatchers.main) {\n                strokeWorkingBitmap = workBitmap\n                strokeWorkingCanvas = workCanvas',
+              '            withContext(dispatchers.main) {\n                if (generation != strokeGeneration || strokeLayerId != layerId) {\n                    gpuEngine?.destroy()\n                    workBitmap.recycle()\n                    return@withContext\n                }\n                strokeWorkingBitmap = workBitmap\n                strokeWorkingCanvas = workCanvas',
+              'adoption guard',
+          )
+          once(
+              '    private fun feedLiveCurvePoint(\n',
+              '    private fun resetLiveCurveState() = synchronized(liveCurveLock) {\n        liveCurveWindow.clear()\n        liveCurveWidths.clear()\n        liveCurveFinalizedCount = 0\n    }\n\n    private fun feedLiveCurvePoint(\n',
+              'reset helper',
+          )
+          once(
+              '        targetBitmap: Bitmap,\n    ) {\n        if (liveCurveWindow.isNotEmpty()) liveCurveWidths.addLast(width)',
+              '        targetBitmap: Bitmap,\n        generation: Long? = null,\n    ) = synchronized(liveCurveLock) {\n        if (generation != null && generation != strokeGeneration) return@synchronized\n        if (liveCurveWindow.isNotEmpty()) liveCurveWidths.addLast(width)',
+              'serialized feed',
+          )
+          once(
+              '        if (liveCurveWindow.size < 4) return\n',
+              '        if (liveCurveWindow.size < 4) return@synchronized\n',
+              'synchronized early return',
+          )
+          once(
+              '        liveCurveWindow.clear()\n        liveCurveWidths.clear()\n        liveCurveFinalizedCount = 0\n        resetStrokePoints()',
+              '        strokeGeneration++\n        resetLiveCurveState()\n        resetStrokePoints()',
+              'transient reset',
+          )
+
+          path.write_text(s)
+          PY
+
+          git config user.name 'Az'
+          git config user.email '103241502+HereLiesAz@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
+          git commit -m 'Fix live brush ArrayDeque race [skip ci]'
+          git push origin HEAD:fix/arraydeque-live-curve-race
