@@ -7,7 +7,7 @@
 #include <cmath>
 #include <cstring>
 
-#include "shaders/StampSpv.h"
+#include "StampSpv.h"
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "VulkanStampEngine", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "VulkanStampEngine", __VA_ARGS__)
@@ -961,6 +961,7 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
 void VulkanStampEngine::destroy() {
     if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
+        destroyColorSmudgeResources();
     }
 
     if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }

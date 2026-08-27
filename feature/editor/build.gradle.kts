@@ -86,4 +86,5 @@ dependencies {
     // no coverage at all until this was wired up.
     testImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
+    androidTestImplementation(libs.androidx.junit)
 }

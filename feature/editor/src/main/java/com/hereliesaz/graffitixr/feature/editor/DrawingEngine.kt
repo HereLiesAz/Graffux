@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
+import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
@@ -132,38 +134,73 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
 
-        // Color Smudge is a stateful read/modify/write paint-op, not a Canvas blend. Keep its
-        // correctness path separate from ImageProcessor's generic raster-tool switch so Smear,
-        // Dulling and paint deposition can evolve together and later move to Vulkan as one unit.
-        // The current Tool.SMUDGE maps exactly onto the historical Smear preset: no foreground paint,
-        // carry alpha, and the same intensity->retention curve the previous implementation used.
+        // Color Smudge is stateful read/modify/write, not a Canvas blend. The stroke snapshots its
+        // settings so changing Tool Options later cannot alter undo/redo. A null snapshot is a legacy
+        // command and intentionally receives the exact old Smear/intensity preset.
         if (stroke.tool == Tool.SMUDGE) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val width = target.width
             val height = target.height
-            val pixels = IntArray(width * height)
-            target.getPixels(pixels, 0, width, 0, 0, width, height)
-            ColorSmudgeEngine.apply(
-                pixels,
-                width,
-                height,
-                mapped,
-                ColorSmudgeEngine.Settings(
-                    mode = ColorSmudgeEngine.Mode.SMEAR,
-                    smudgeRate = 0.35f + stroke.intensity.coerceIn(0f, 1f) * 0.6f,
-                    colorRate = 0f,
-                    opacity = 1f,
-                    radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
-                    feathering = stroke.feathering,
-                    smearAlpha = true,
-                    paintColor = stroke.brushColor,
-                    symmetryMode = stroke.symmetryMode,
-                ),
+            val baseSettings = stroke.colorSmudgeSettings ?: ColorSmudgeEngine.Settings(
+                mode = ColorSmudgeEngine.Mode.SMEAR,
+                smudgeRate = 0.35f + stroke.intensity.coerceIn(0f, 1f) * 0.6f,
+                colorRate = 0f,
+                opacity = 1f,
+                smearAlpha = true,
             )
-            target.setPixels(pixels, 0, width, 0, 0, width, height)
-            // The engine produces a whole bitmap and cannot obey a Canvas clip mid-pass, so this is
-            // the same confinement contract Liquify uses: hard selections are replaced through a
-            // clip, feathered ones through a soft mask.
+            val mappedSamples = if (stroke.brushSamples.size == mapped.size) {
+                stroke.brushSamples.mapIndexed { index, sample ->
+                    val point = mapped[index]
+                    sample.copy(x = point.x, y = point.y, predicted = false)
+                }
+            } else emptyList()
+            val settings = baseSettings.copy(
+                radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
+                feathering = stroke.feathering,
+                wrapAround = false,
+                paintColor = stroke.brushColor,
+                symmetryMode = stroke.symmetryMode,
+            )
+            val plans = ColorSmudgeEngine.resolvePlans(
+                mapped, width, height, settings, mappedSamples, stroke.seed,
+            )
+
+            // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
+            // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
+            // discard the possibly-partial target and recompute from the pristine CPU source below.
+            val gpuPainted = runCatching {
+                val engine = VulkanStampEngine()
+                try {
+                    if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
+                    val mode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                    for (plan in plans) {
+                        if (plan.dabs.size < 2) continue
+                        val nativeDabs = plan.dabs.map { dab ->
+                            ColorSmudgeDab(
+                                dab.x, dab.y, dab.smudgeRate, dab.colorRate,
+                                dab.opacity, dab.smudgeRadius,
+                            )
+                        }
+                        if (!engine.colorSmudge(
+                                nativeDabs, mode, settings.radiusPx, settings.feathering,
+                                settings.smearAlpha, settings.paintColor,
+                            )) return@runCatching false
+                    }
+                    engine.readback(target)
+                } finally {
+                    engine.destroy()
+                }
+            }.getOrDefault(false)
+
+            if (!gpuPainted) {
+                val pixels = IntArray(width * height)
+                bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                ColorSmudgeEngine.apply(
+                    pixels, width, height, mapped, settings,
+                    samples = mappedSamples, strokeSeed = stroke.seed,
+                )
+                target.setPixels(pixels, 0, width, 0, 0, width, height)
+            }
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 

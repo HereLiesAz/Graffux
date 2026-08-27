@@ -157,4 +157,20 @@ class BrushSensorDynamicsTest {
             BrushStamps.dynamicDabs(withPrediction, 10f, brush, 1L),
         )
     }
+
+
+    @Test
+    fun `color smudge parameters use the shared sensor resolver`() {
+        val bindings = listOf(
+            BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SMUDGE_RATE, outputMin = 0.2f, outputMax = 1f),
+            BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.COLOR_RATE, outputMin = 0f, outputMax = 0.8f),
+            BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SMUDGE_RADIUS, outputMin = 0.5f, outputMax = 2f),
+        )
+        val resolved = BrushSensorEngine.resolve(
+            BrushSample(0f, 0f, pressure = 1f), bindings, 0L, 9L, 0,
+        )
+        assertEquals(1f, resolved.smudgeRateMultiplier, 0.0001f)
+        assertEquals(0.8f, resolved.colorRateMultiplier, 0.0001f)
+        assertEquals(2f, resolved.smudgeRadiusMultiplier, 0.0001f)
+    }
 }

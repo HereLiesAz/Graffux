@@ -39,6 +39,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
+import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
@@ -71,6 +72,7 @@ import javax.inject.Inject
 import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
+import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
@@ -82,8 +84,13 @@ data class StrokeCommand(
     // Aligned 1:1 with `path` by index. Empty for every tool but Tool.BRUSH, which reads pressure
     // (0..1, 1 = a device/finger with no real pressure sensor) into BrushDynamics — see EditorViewModel.
     val pressures: List<Float> = emptyList(),
-    // Canonical per-point brush telemetry. Empty on legacy/remote commands.
+    // Canonical per-point brush telemetry. Empty on legacy/remote commands. Smudge stores it too:
+    // the same physical pressure/speed/tilt stream can drive Color Smudge sensor routes on replay.
     val brushSamples: List<BrushSample> = emptyList(),
+    // Tool.SMUDGE only. Null means a legacy command, whose historical intensity->Smear mapping is
+    // retained by DrawingEngine. Snapshotting the settings here makes undo/redo independent of what
+    // the Tool Options window is set to later.
+    val colorSmudgeSettings: ColorSmudgeEngine.Settings? = null,
     val canvasSize: IntSize,
     val tool: Tool,
     val brushSize: Float,
@@ -244,6 +251,9 @@ class EditorViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState = _uiState.asStateFlow()
+
+    private val _colorSmudgeSettings = MutableStateFlow(ColorSmudgeEngine.Settings())
+    val colorSmudgeSettings = _colorSmudgeSettings.asStateFlow()
 
     /**
      * Per-host AzNavRail expansion state (host id -> expanded), surfaced from the current project so the
@@ -3209,23 +3219,20 @@ class EditorViewModel @Inject constructor(
                 // (or, if GPU was never active, was always drawn by the CPU branch below), so
                 // continuing straight into the CPU branch for just `newDabs` is exactly correct,
                 // no re-render of earlier dabs needed either way.
-                val needsPerDabPaint = stampBrush.dynamics.any { route ->
-                    route.parameter == BrushParameter.FLOW ||
-                        route.parameter == BrushParameter.HUE ||
-                        route.parameter == BrushParameter.SATURATION ||
-                        route.parameter == BrushParameter.VALUE
-                }
-                val gpuHandled = !needsPerDabPaint && stampGpuActive && stampGpuEngine?.let { engine ->
-                    val gpuDabs = newDabs.map { BrushDab(it.x, it.y, it.radius, it.alpha, it.angleDeg) }
-                    // The shader's baseAlpha (colorArgb's own alpha channel) must fold in `flow` the
-                    // same way StampBrushRenderer.paintDabs's `baseAlpha * d.alpha * f` does — the
-                    // shader only ever multiplies baseAlpha * d.alpha, so flow has to be pre-baked
-                    // into the alpha channel handed across the JNI boundary rather than passed
-                    // separately.
-                    val flow = _uiState.value.brushFlow.coerceIn(0f, 1f)
-                    val flowAlpha = (((colorArgb ushr 24) and 0xFF) * flow).toInt().coerceIn(0, 255)
-                    val flowColorArgb = (flowAlpha shl 24) or (colorArgb and 0x00FFFFFF)
-                    engine.stampDabs(gpuDabs, flowColorArgb, stampBrush.hardness.coerceIn(0f, 1f)) &&
+                val gpuHandled = stampGpuActive && stampGpuEngine?.let { engine ->
+                    val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
+                    val gpuDabs = newDabs.map { dab ->
+                        ResolvedBrushDab(
+                            x = dab.x,
+                            y = dab.y,
+                            radius = dab.radius,
+                            alpha = dab.alpha,
+                            angleDeg = dab.angleDeg,
+                            colorArgb = StampBrushRenderer.resolvedColor(colorArgb, dab),
+                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                        )
+                    }
+                    engine.stampResolvedDabs(gpuDabs, stampBrush.hardness.coerceIn(0f, 1f)) &&
                         engine.readback(work)
                 } == true
                 if (!gpuHandled) {
@@ -3345,11 +3352,13 @@ class EditorViewModel @Inject constructor(
             val command = StrokeCommand(
                 path = points,
                 brushSamples = brushSamples,
+                colorSmudgeSettings = _colorSmudgeSettings.value.takeIf { state.activeTool == Tool.SMUDGE },
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
                 brushSize = state.brushSize,
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
+                seed = if (state.activeTool == Tool.SMUDGE) System.nanoTime() else 0L,
                 feathering = state.brushFeathering,
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
@@ -5394,6 +5403,27 @@ class EditorViewModel @Inject constructor(
     fun setBrushFlow(amount: Float) {
         dispatch(EditorIntent.SetBrushFlow(amount))
     }
+
+    fun setColorSmudgeMode(mode: ColorSmudgeEngine.Mode) =
+        _colorSmudgeSettings.update { it.copy(mode = mode) }
+
+    fun setColorSmudgeRate(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(smudgeRate = amount.coerceIn(0f, 1f)) }
+
+    fun setColorSmudgeColorRate(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(colorRate = amount.coerceIn(0f, 1f)) }
+
+    fun setColorSmudgeRadius(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(smudgeRadius = amount.coerceIn(0.05f, 3f)) }
+
+    fun setColorSmudgeOpacity(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(opacity = amount.coerceIn(0f, 1f)) }
+
+    fun setColorSmudgeAlphaCarry(enabled: Boolean) =
+        _colorSmudgeSettings.update { it.copy(smearAlpha = enabled) }
+
+    fun setColorSmudgeDynamics(bindings: List<com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding>) =
+        _colorSmudgeSettings.update { it.copy(dynamics = bindings) }
 
     /**
      * Installed azphalt brush extensions available to paint with (id + display name), reactive so a
