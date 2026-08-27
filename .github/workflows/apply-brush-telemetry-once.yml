@@ -19,12 +19,12 @@ jobs:
           ref: feat/krita-brush-dynamics
           fetch-depth: 0
       - name: Patch source
-        run: python3 .github/patch_brush_telemetry_once.py
+        run: python3 .github/run_patch_retry.py
       - name: Commit source and clean helpers
         run: |
           git config user.name "Az"
           git config user.email "103241502+HereLiesAz@users.noreply.github.com"
-          git rm .github/patch_brush_telemetry_once.py .github/workflows/apply-brush-telemetry-once.yml
+          git rm .github/patch_brush_telemetry_once.py .github/run_patch_retry.py .github/workflows/apply-brush-telemetry-once.yml
           git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
           git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
           git commit -m "Wire canonical brush telemetry through editor"
