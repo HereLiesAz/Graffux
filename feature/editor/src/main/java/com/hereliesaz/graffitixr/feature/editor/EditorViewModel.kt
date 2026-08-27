@@ -112,6 +112,11 @@ data class StrokeCommand(
     val flow: Float = 1f,
     val seed: Long = 0L,
     val stampShape: Bitmap? = null,
+    // Orthogonal Krita-style brush assets. Grain is tiled independently of the primary shape; the
+    // masked shape is the optional secondary tip. Both are snapshotted with the stroke just like
+    // stampShape so undo/redo cannot depend on whichever extension is selected later.
+    val stampGrain: Bitmap? = null,
+    val stampMaskShape: Bitmap? = null,
     // Procreate parity, recorded per stroke so undo/redo replay reproduces the paint exactly:
     // [symmetryMode] mirrors the stroke across one or more axes through the canvas centre;
     // [alphaLock] confines the paint to pixels that already have alpha.
@@ -423,8 +428,10 @@ class EditorViewModel @Inject constructor(
     // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
     // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
     private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
-    // Decoded tip image for the active stamp brush (null = a generated round tip). Loaded alongside it.
+    // Decoded primary, grain, and secondary-mask assets for the active brush.
     private var activeStampShape: Bitmap? = null
+    private var activeStampGrain: Bitmap? = null
+    private var activeStampMaskShape: Bitmap? = null
 
     // Live stamp-stroke preview state — valid only between onStrokeStart and onStrokeEnd for a stamp
     // brush. Dabs are stamped incrementally onto [stampLiveBitmap]; [stampSeed] fixes the jitter so the
@@ -435,6 +442,8 @@ class EditorViewModel @Inject constructor(
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
+    private var stampGrainForStroke: Bitmap? = null
+    private var stampMaskShapeForStroke: Bitmap? = null
     // Bitmap-space stroke points, appended incrementally so each drag frame maps only the NEW points
     // instead of re-mapping the whole stroke (interleaved [x0,y0,…]).
     private val stampMappedPoints = ArrayList<Float>()
@@ -2873,6 +2882,8 @@ class EditorViewModel @Inject constructor(
             // Fix the jitter seed now so the preview, the commit, and history replay all match.
             stampBrushForStroke = stampBrush
             stampShapeForStroke = activeStampShape
+            stampGrainForStroke = activeStampGrain
+            stampMaskShapeForStroke = activeStampMaskShape
             val currentSeed = System.nanoTime()
             stampSeed = currentSeed
             stampStampedCount = 0
@@ -2893,7 +2904,12 @@ class EditorViewModel @Inject constructor(
                 // on GPU work, hence doing this here on Dispatchers.Default alongside the bitmap
                 // copy, not on the main thread. A null/failed engine just means every dab this
                 // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
-                val gpuEngine = if (stampShapeForStroke == null) createSeededGpuEngine(work.width, work.height, work) else null
+                val gpuCompatibleBrush = stampShapeForStroke == null &&
+                    stampGrainForStroke == null &&
+                    stampMaskShapeForStroke == null &&
+                    stampBrush.maskedBrush == null &&
+                    stampBrush.tipRatio == 1f
+                val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
                 val gpuReady = gpuEngine != null
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
@@ -3242,7 +3258,8 @@ class EditorViewModel @Inject constructor(
                         stampGpuEngine = null
                     }
                     StampBrushRenderer.paintDabs(
-                        canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow, stampShapeForStroke,
+                        canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
+                        stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke, stampSeed,
                     )
                 }
                 stampStampedCount = dabs.size
@@ -3336,7 +3353,7 @@ class EditorViewModel @Inject constructor(
             commitStampStroke(
                 state, layer, layerId, points, brushSamples, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
-                strokeSelection,
+                stampGrainForStroke, stampMaskShapeForStroke, strokeSelection,
             )
             clearTransientStrokeState()
             return
@@ -3790,6 +3807,8 @@ class EditorViewModel @Inject constructor(
         rotationZ: Float,
         brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
         stampShape: Bitmap?,
+        stampGrain: Bitmap?,
+        stampMaskShape: Bitmap?,
         // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke
         // state the moment this returns, while the rasterization below runs later on a background
         // dispatcher and would otherwise find it already null.
@@ -3817,6 +3836,8 @@ class EditorViewModel @Inject constructor(
             // Reuse the live-preview seed so the committed pixels match what was previewed (no flash).
             seed = stampSeed,
             stampShape = stampShape,
+            stampGrain = stampGrain,
+            stampMaskShape = stampMaskShape,
             selection = selection,
         )
         layerStore.addStroke(layerId, command)
@@ -5308,6 +5329,8 @@ class EditorViewModel @Inject constructor(
         stampStampedCount = 0
         stampBrushForStroke = null
         stampShapeForStroke = null
+        stampGrainForStroke = null
+        stampMaskShapeForStroke = null
         stampMappedPoints.clear()
         stampGpuEngine?.destroy()
         stampGpuEngine = null
@@ -6272,7 +6295,9 @@ class EditorViewModel @Inject constructor(
             return
         }
         activeStampBrush = brush
-        activeStampShape = null   // null → StampBrushRenderer draws its generated round tip
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
         dispatch(EditorIntent.SetActiveBrush(brush.name))
         setActiveTool(Tool.BRUSH)
     }
@@ -6305,9 +6330,11 @@ class EditorViewModel @Inject constructor(
 
     private fun applyBrushDraft(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
         activeStampBrush = brush
-        // A draft brush is params-only; drop any tip image the previously-selected brush had, or the
-        // new settings would render against the old brush's shape.
+        // Brush Studio drafts are params-only. Never let assets from the previously selected extension
+        // leak into a generated/custom draft.
         activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
         dispatch(EditorIntent.SetActiveBrush(brush.name))
     }
 
@@ -6349,21 +6376,28 @@ class EditorViewModel @Inject constructor(
         if (id == null) {
             activeStampBrush = null
             activeStampShape = null
+            activeStampGrain = null
+            activeStampMaskShape = null
             dispatch(EditorIntent.SetActiveBrush(null))
             return
         }
         // loadBrush + the tip-image decode both read from disk — do them off the main thread.
         viewModelScope.launch(dispatchers.io) {
             val brush = extensionRepository.loadBrush(id)
-            val shape = brush?.shapePath
+            fun decodeAsset(relativePath: String?): Bitmap? = relativePath
                 ?.let { extensionRepository.assetFilePath(id, it) }
                 ?.let { path -> runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull() }
+            val shape = decodeAsset(brush?.shapePath)
+            val grain = decodeAsset(brush?.grainPath)
+            val maskShape = decodeAsset(brush?.maskedBrush?.shapePath)
             withContext(dispatchers.main) {
                 if (brush == null) {
                     Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
                 } else {
                     activeStampBrush = brush
-                    activeStampShape = shape   // null → StampBrushRenderer draws a generated round tip
+                    activeStampShape = shape
+                    activeStampGrain = grain
+                    activeStampMaskShape = maskShape
                     dispatch(EditorIntent.SetActiveBrush(brush.name))
                     setActiveTool(Tool.BRUSH)
                 }

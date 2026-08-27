@@ -123,12 +123,14 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             if (brush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
                 StampBrushRenderer.paintDynamicStroke(
                     stampCanvas, mappedSamples, brush, stroke.brushColor,
-                    stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
+                    stroke.brushSize * brushScale, stroke.flow, stroke.seed,
+                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
                 )
             } else {
                 StampBrushRenderer.paintStroke(
                     stampCanvas, pts, brush, stroke.brushColor,
-                    stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
+                    stroke.brushSize * brushScale, stroke.flow, stroke.seed,
+                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
                 )
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
