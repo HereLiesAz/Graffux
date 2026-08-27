@@ -110,6 +110,8 @@ The existing `Tool.SMUDGE` default maps to Smear with zero Color Rate.
 7. **Done:** move the correct CPU implementation to a persistent Vulkan read/modify/write path with CPU fallback/reference parity.
 8. **Implemented, awaiting physical-device data:** the Vulkan engine carries both 8x8 and 16x16 compute variants, benchmarks them on the active Vulkan vendor/device, caches the selected tile size for that device, and exposes an instrumentation parity/benchmark test. Actual Adreno and Mali benchmark results still require running that instrumentation on representative physical devices; no such result is claimed here.
 
+The build gate compiles and links both ARM native targets, but build success is not treated as a substitute for running the instrumentation on physical Adreno/Mali hardware.
+
 Overlay/all-layer sampling and paint-thickness/height-map simulation come after the core Smear/Dulling/Color Rate behavior is correct and fast.
 
 ## 8. Non-negotiable architecture rules
