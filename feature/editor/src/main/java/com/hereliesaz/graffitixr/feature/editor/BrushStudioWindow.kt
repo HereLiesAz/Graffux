@@ -218,14 +218,18 @@ private fun ParamSlider(
 @Composable
 private fun BrushPreview(brush: AzphaltBrush, color: Color) {
     Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
-        val diameter = size.height / 3f
+        // Capture the CanvasScope dimensions before entering buildList below. Inside buildList the
+        // receiver is a MutableList, whose `size` would otherwise shadow CanvasScope.size.
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+        val diameter = canvasHeight / 3f
         val dabs = if (brush.dynamics.isEmpty()) {
             // Interleaved [x0,y0,x1,y1,…] — BrushStamps' legacy/static convention.
             val path = ArrayList<Float>(SAMPLES * 2)
             for (i in 0 until SAMPLES) {
                 val t = i / (SAMPLES - 1f)
-                path.add(diameter + t * (size.width - diameter * 2f))
-                path.add(size.height / 2f + sin(t * 2f * PI_F) * size.height / 5f)
+                path.add(diameter + t * (canvasWidth - diameter * 2f))
+                path.add(canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f)
             }
             BrushStamps.dabs(path, diameter, brush, seed = PREVIEW_SEED)
         } else {
@@ -235,8 +239,8 @@ private fun BrushPreview(brush: AzphaltBrush, color: Color) {
                     val t = i / (SAMPLES - 1f)
                     add(
                         builder.add(
-                            x = diameter + t * (size.width - diameter * 2f),
-                            y = size.height / 2f + sin(t * 2f * PI_F) * size.height / 5f,
+                            x = diameter + t * (canvasWidth - diameter * 2f),
+                            y = canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f,
                             uptimeMillis = i * 8L,
                             pressure = 0.15f + 0.85f * t,
                             tiltRadians = HALF_PI_F * t,
