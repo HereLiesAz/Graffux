@@ -1,0 +1,754 @@
+name: Apply Krita telemetry integration
+
+on:
+  push:
+    branches: [feat/krita-brush-dynamics]
+    paths: [.github/workflows/apply-krita-telemetry.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/krita-brush-dynamics
+          fetch-depth: 0
+      - name: Wire real telemetry through live paint and replay
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected exactly 1 match, found {count}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # DrawingCanvas: normalize real MotionEvent telemetry once at input.
+          # ------------------------------------------------------------------
+          path = 'feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/DrawingCanvas.kt'
+          s = read(path)
+          s = replace_once(
+              s,
+              'import com.hereliesaz.graffitixr.common.model.Tool\n',
+              'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n'
+              'import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder\n'
+              'import com.hereliesaz.graffitixr.common.model.Tool\n',
+              'DrawingCanvas imports',
+          )
+          s = replace_once(
+              s,
+              '    onStrokeStart: (Offset, IntSize, Float) -> Unit,\n'
+              '    onStrokePoint: (Offset, Float) -> Unit,\n',
+              '    onStrokeStart: (BrushSample, IntSize) -> Unit,\n'
+              '    onStrokePoint: (BrushSample) -> Unit,\n',
+              'DrawingCanvas callback signatures',
+          )
+          anchor = '''    val predictionTournament = remember(androidXPredictor) {
+        PredictionTournament(
+            listOf(
+                LinearGesturePredictor(),
+                AccelerationGesturePredictor(),
+                androidXPredictor,
+            )
+        )
+    }
+'''
+          replacement = anchor + '''    // Krita-style paint information: normalize the device event once, before camera/world
+    // transforms. Distance and speed therefore describe the hand moving across the physical screen,
+    // not document pixels — zooming the canvas must not make the same hand motion become "faster".
+    val brushSampleBuilder = remember { BrushSampleBuilder() }
+    var latestTiltRadians by remember { mutableFloatStateOf(0f) }
+    var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
+'''
+          s = replace_once(s, anchor, replacement, 'DrawingCanvas sample state')
+
+          old = '''    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float) {
+        predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
+        val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
+        predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
+            position to prediction.position
+        } else {
+            null
+        }
+    }
+'''
+          new = '''    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float): BrushSample {
+        predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
+        val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
+        predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
+            position to prediction.position
+        } else {
+            null
+        }
+        return brushSampleBuilder.add(
+            x = position.x,
+            y = position.y,
+            uptimeMillis = uptimeMillis,
+            pressure = pressure,
+            tiltRadians = latestTiltRadians,
+            orientationRadians = latestOrientationRadians,
+        )
+    }
+'''
+          s = replace_once(s, old, new, 'DrawingCanvas recordRealPoint')
+
+          old = '''            .motionEventSpy { event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    predictionTournament.reset()
+                    predictionTail = null
+                }
+                androidXPredictor.recordMotionEvent(event)
+'''
+          new = '''            .motionEventSpy { event ->
+                // Compose PointerInputChange exposes pressure but not the stylus tilt/orientation
+                // axes. Observe the untouched MotionEvent and carry the latest primary-pointer
+                // telemetry into the canonical BrushSample used by the gesture loop below.
+                if (event.pointerCount > 0) {
+                    val axisIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                    latestTiltRadians = event.getAxisValue(MotionEvent.AXIS_TILT, axisIndex)
+                    latestOrientationRadians = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, axisIndex)
+                }
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    predictionTournament.reset()
+                    brushSampleBuilder.reset()
+                    predictionTail = null
+                }
+                androidXPredictor.recordMotionEvent(event)
+'''
+          s = replace_once(s, old, new, 'DrawingCanvas MotionEvent telemetry')
+
+          s = replace_once(
+              s,
+              '                    val down = awaitFirstDown()\n'
+              '                    var began = false\n',
+              '                    val down = awaitFirstDown()\n'
+              '                    brushSampleBuilder.reset()\n'
+              '                    var began = false\n',
+              'DrawingCanvas per-gesture sample reset',
+          )
+
+          old = '''                                    onStrokeStart(down.position, canvasSize, down.pressure)
+                                    gate.strokeActive = false
+                                    onStrokeEnd()
+'''
+          new = '''                                    onStrokeStart(
+                                        brushSampleBuilder.add(
+                                            x = down.position.x,
+                                            y = down.position.y,
+                                            uptimeMillis = down.uptimeMillis,
+                                            pressure = down.pressure,
+                                            tiltRadians = latestTiltRadians,
+                                            orientationRadians = latestOrientationRadians,
+                                        ),
+                                        canvasSize,
+                                    )
+                                    gate.strokeActive = false
+                                    onStrokeEnd()
+'''
+          s = replace_once(s, old, new, 'DrawingCanvas tap sample')
+
+          old = '''                            onStrokeStart(down.position, canvasSize, down.pressure)
+                            predictionTournament.record(
+                                GestureSample(down.position, down.uptimeMillis, down.pressure)
+                            )
+'''
+          new = '''                            onStrokeStart(
+                                recordRealPoint(down.position, down.uptimeMillis, down.pressure),
+                                canvasSize,
+                            )
+'''
+          s = replace_once(s, old, new, 'DrawingCanvas drag start sample')
+
+          # Historical/current points: build canonical telemetry first, then hand exactly that
+          # sample to the authoritative stroke path. There are two historical loops and two current
+          # point calls in the gesture branches.
+          s = s.replace(
+              '                                onStrokePoint(hist.position, change.pressure)\n'
+              '                                recordRealPoint(hist.position, hist.uptimeMillis, change.pressure)\n',
+              '                                onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))\n',
+          )
+          s = s.replace(
+              '                            onStrokePoint(change.position, change.pressure)\n'
+              '                            recordRealPoint(change.position, change.uptimeMillis, change.pressure)\n',
+              '                            onStrokePoint(recordRealPoint(change.position, change.uptimeMillis, change.pressure))\n',
+          )
+          if 'onStrokePoint(hist.position, change.pressure)' in s or 'onStrokePoint(change.position, change.pressure)' in s:
+              raise RuntimeError('DrawingCanvas: not all point callbacks were converted')
+          write(path, s)
+
+          # --------------------------------------------------------------
+          # EditorScreen: transform only x/y; sensor-space values survive.
+          # --------------------------------------------------------------
+          path = 'feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt'
+          s = read(path)
+          # Add import only if the file doesn't already get it through a wildcard.
+          if 'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n' not in s:
+              marker = 'import androidx.compose.ui.geometry.Offset\n'
+              if marker not in s:
+                  raise RuntimeError('EditorScreen: Offset import anchor missing')
+              s = s.replace(marker, marker + 'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n', 1)
+
+          old = '''            fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
+                screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+            )
+            DrawingCanvas(
+'''
+          new = '''            fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
+                screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+            )
+            fun toWorldSample(sample: BrushSample): BrushSample {
+                val world = toWorld(Offset(sample.x, sample.y))
+                // Preserve pressure/tilt/orientation and, importantly, hand-space speed/distance.
+                // Only geometry enters the viewport/world transform.
+                return sample.copy(x = world.x, y = world.y)
+            }
+            DrawingCanvas(
+'''
+          s = replace_once(s, old, new, 'EditorScreen world sample helper')
+          s = replace_once(
+              s,
+              '                onStrokeStart = { offset, size, pressure -> vm.onStrokeStart(toWorld(offset), size, pressure) },\n'
+              '                onStrokePoint = { offset, pressure -> vm.onStrokePoint(toWorld(offset), pressure) },\n',
+              '                onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },\n'
+              '                onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },\n',
+              'EditorScreen stroke callbacks',
+          )
+          write(path, s)
+
+          # --------------------------------------------------------------------
+          # EditorViewModel: keep canonical samples aligned with points/pressure.
+          # --------------------------------------------------------------------
+          path = 'feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt'
+          s = read(path)
+          if 'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n' not in s:
+              s = replace_once(
+                  s,
+                  'import com.hereliesaz.graffitixr.common.azphalt.BrushStamps\n',
+                  'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n'
+                  'import com.hereliesaz.graffitixr.common.azphalt.BrushParameter\n'
+                  'import com.hereliesaz.graffitixr.common.azphalt.BrushStamps\n',
+                  'EditorViewModel brush imports',
+              )
+          s = replace_once(
+              s,
+              '    val pressures: List<Float> = emptyList(),\n'
+              '    val canvasSize: IntSize,\n',
+              '    val pressures: List<Float> = emptyList(),\n'
+              '    // Canonical per-point telemetry. Empty on legacy/remote commands; pressure-only\n'
+              '    // behavior remains available through [pressures] for backward compatibility.\n'
+              '    val brushSamples: List<BrushSample> = emptyList(),\n'
+              '    val canvasSize: IntSize,\n',
+              'StrokeCommand brushSamples',
+          )
+
+          old = '''    private var strokeCollectedPressures: MutableList<Float> = mutableListOf()
+
+    private fun resetStrokePoints(initial: Offset? = null, initialPressure: Float = 1f) = synchronized(strokeCollectedPointsLock) {
+        // `vararg Offset` is rejected by the compiler (Offset is a Compose value class), so take a
+        // single optional seed point — the only two call sites are reset-with-start and reset-empty.
+        strokeCollectedPoints = if (initial != null) mutableListOf(initial) else mutableListOf()
+        strokeCollectedPressures = if (initial != null) mutableListOf(initialPressure) else mutableListOf()
+    }
+
+    private fun addStrokePoint(point: Offset, pressure: Float) = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPoints.add(point)
+        strokeCollectedPressures.add(pressure)
+    }
+
+    private fun snapshotStrokePoints(): List<Offset> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPoints.toList()
+    }
+
+    private fun snapshotStrokePressures(): List<Float> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPressures.toList()
+    }
+'''
+          new = '''    private var strokeCollectedPressures: MutableList<Float> = mutableListOf()
+    // Same index as points/pressures. Sensor speed/distance stay in physical screen-hand space;
+    // x/y are replaced by the stabilized world-space position before storage.
+    private var strokeCollectedSamples: MutableList<BrushSample> = mutableListOf()
+    private var pendingStrokeStartSample: BrushSample? = null
+    private var pendingStrokePointSample: BrushSample? = null
+
+    private fun resetStrokePoints(initial: Offset? = null, initialPressure: Float = 1f) = synchronized(strokeCollectedPointsLock) {
+        // `vararg Offset` is rejected by the compiler (Offset is a Compose value class), so take a
+        // single optional seed point — the only two call sites are reset-with-start and reset-empty.
+        strokeCollectedPoints = if (initial != null) mutableListOf(initial) else mutableListOf()
+        strokeCollectedPressures = if (initial != null) mutableListOf(initialPressure) else mutableListOf()
+        strokeCollectedSamples = if (initial != null) {
+            val source = pendingStrokeStartSample
+                ?: BrushSample(initial.x, initial.y, pressure = initialPressure)
+            mutableListOf(source.copy(x = initial.x, y = initial.y, pressure = initialPressure, predicted = false))
+        } else {
+            mutableListOf()
+        }
+    }
+
+    private fun addStrokePoint(point: Offset, pressure: Float) = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPoints.add(point)
+        strokeCollectedPressures.add(pressure)
+        val source = pendingStrokePointSample ?: BrushSample(point.x, point.y, pressure = pressure)
+        strokeCollectedSamples.add(source.copy(x = point.x, y = point.y, pressure = pressure, predicted = false))
+    }
+
+    private fun snapshotStrokePoints(): List<Offset> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPoints.toList()
+    }
+
+    private fun snapshotStrokePressures(): List<Float> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedPressures.toList()
+    }
+
+    private fun snapshotStrokeSamples(): List<BrushSample> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedSamples.toList()
+    }
+'''
+          s = replace_once(s, old, new, 'EditorViewModel stroke telemetry storage')
+
+          # Preserve the old public API for tests/callers; new UI uses the canonical overload.
+          marker = '''    /** Called when the user first touches the canvas. Prepares a mutable working bitmap for
+     *  incremental real-time rendering (all tools except Liquify). */
+    fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
+'''
+          insertion = '''    /** Canonical telemetry entry point used by DrawingCanvas. */
+    fun onStrokeStart(startSample: BrushSample, canvasSize: IntSize) {
+        pendingStrokeStartSample = startSample
+        try {
+            onStrokeStart(Offset(startSample.x, startSample.y), canvasSize, startSample.pressure)
+        } finally {
+            pendingStrokeStartSample = null
+        }
+    }
+
+''' + marker
+          s = replace_once(s, marker, insertion, 'EditorViewModel onStrokeStart overload')
+
+          marker = '''    /** Called for every drag update. Draws only the new segment onto the working bitmap. */
+    fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f) {
+'''
+          insertion = '''    /** Canonical telemetry entry point used by DrawingCanvas. */
+    fun onStrokePoint(sample: BrushSample) {
+        pendingStrokePointSample = sample
+        try {
+            onStrokePoint(Offset(sample.x, sample.y), sample.pressure)
+        } finally {
+            // The legacy implementation may throttle/return before addStrokePoint; never leak a
+            // skipped sample into the next accepted point.
+            pendingStrokePointSample = null
+        }
+    }
+
+''' + marker
+          s = replace_once(s, marker, insertion, 'EditorViewModel onStrokePoint overload')
+
+          # Record canonical samples on locally-created commands in onStrokeEnd only.
+          start = s.index('    fun onStrokeEnd() {')
+          next_fun = s.find('\n    fun ', start + 20)
+          if next_fun < 0:
+              raise RuntimeError('EditorViewModel: could not bound onStrokeEnd')
+          section = s[start:next_fun]
+          section = replace_once(
+              section,
+              '        val pressures = snapshotStrokePressures()\n',
+              '        val pressures = snapshotStrokePressures()\n'
+              '        val brushSamples = snapshotStrokeSamples()\n',
+              'EditorViewModel onStrokeEnd sample snapshot',
+          )
+          section = section.replace(
+              '                pressures = pressures,\n',
+              '                pressures = pressures,\n'
+              '                brushSamples = brushSamples,\n',
+          )
+          if 'brushSamples = brushSamples' not in section:
+              raise RuntimeError('EditorViewModel: no StrokeCommand received brushSamples')
+          s = s[:start] + section + s[next_fun:]
+
+          # Sensor-aware live stamp brushes. Static brushes deliberately stay on the old path.
+          old_line = '            val dabs = BrushStamps.dabs(stampMappedPoints, _uiState.value.brushSize * brushScale, stampBrush, stampSeed)\n'
+          new_line = '''            val dabs = if (stampBrush.dynamics.isEmpty()) {
+                BrushStamps.dabs(stampMappedPoints, _uiState.value.brushSize * brushScale, stampBrush, stampSeed)
+            } else {
+                val sourceSamples = snapshotStrokeSamples()
+                val mappedCountForSamples = minOf(sourceSamples.size, stampMappedPoints.size / 2)
+                val mappedSamples = ArrayList<BrushSample>(mappedCountForSamples)
+                for (i in 0 until mappedCountForSamples) {
+                    mappedSamples.add(
+                        sourceSamples[i].copy(
+                            x = stampMappedPoints[i * 2],
+                            y = stampMappedPoints[i * 2 + 1],
+                        )
+                    )
+                }
+                BrushStamps.dynamicDabs(
+                    mappedSamples,
+                    _uiState.value.brushSize * brushScale,
+                    stampBrush,
+                    stampSeed,
+                )
+            }
+'''
+          s = replace_once(s, old_line, new_line, 'EditorViewModel dynamic live dabs')
+
+          old = '                val gpuHandled = stampGpuActive && stampGpuEngine?.let { engine ->\n'
+          new = '''                // Current native dab ABI has one colour/flow for the whole batch. Geometry,
+                // alpha and rotation dynamics are already baked into each Dab and are GPU-safe;
+                // per-dab flow/HSV dynamics must use the CPU renderer until the ABI grows those fields.
+                val needsPerDabPaint = stampBrush.dynamics.any { binding ->
+                    binding.parameter == BrushParameter.FLOW ||
+                        binding.parameter == BrushParameter.HUE ||
+                        binding.parameter == BrushParameter.SATURATION ||
+                        binding.parameter == BrushParameter.VALUE
+                }
+                val gpuHandled = !needsPerDabPaint && stampGpuActive && stampGpuEngine?.let { engine ->
+'''
+          s = replace_once(s, old, new, 'EditorViewModel GPU compatibility gate')
+          write(path, s)
+
+          # ------------------------------------------------------------------
+          # StampBrushRenderer: dynamic replay + per-dab color/flow on CPU.
+          # ------------------------------------------------------------------
+          path = 'feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/StampBrushRenderer.kt'
+          s = read(path)
+          s = replace_once(
+              s,
+              'import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush\n',
+              'import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush\n'
+              'import com.hereliesaz.graffitixr.common.azphalt.BrushSample\n',
+              'StampBrushRenderer BrushSample import',
+          )
+          s = replace_once(
+              s,
+              'import kotlin.math.max\n',
+              'import kotlin.math.atan2\n'
+              'import kotlin.math.hypot\n'
+              'import kotlin.math.max\n',
+              'StampBrushRenderer math imports',
+          )
+          old = '''        flow: Float,
+        seed: Long,
+        stamp: Bitmap? = null,
+    ) {
+        val curved = CatmullRom.densify(points)
+        paintDabs(canvas, BrushStamps.dabs(curved, diameterPx, brush, seed), brush, colorArgb, flow, stamp)
+    }
+'''
+          new = '''        flow: Float,
+        seed: Long,
+        stamp: Bitmap? = null,
+        samples: List<BrushSample> = emptyList(),
+    ) {
+        val curved = CatmullRom.densify(points)
+        val dabs = if (brush.dynamics.isNotEmpty() && samples.isNotEmpty()) {
+            BrushStamps.dynamicDabs(remapSamplesToCurve(samples, curved), diameterPx, brush, seed)
+        } else {
+            BrushStamps.dabs(curved, diameterPx, brush, seed)
+        }
+        paintDabs(canvas, dabs, brush, colorArgb, flow, stamp)
+    }
+'''
+          s = replace_once(s, old, new, 'StampBrushRenderer dynamic paintStroke')
+
+          # Shape branch per-dab flow/color.
+          old = '''            for (d in dabs) {
+                val diameter = max(d.radius, 0.5f) * 2f
+                val alphaVal = (baseAlpha * d.alpha * f).toInt().coerceIn(0, 255)
+                paint.colorFilter = PorterDuffColorFilter(rgbNoAlpha or (alphaVal shl 24), PorterDuff.Mode.SRC_IN)
+'''
+          new = '''            for (d in dabs) {
+                val diameter = max(d.radius, 0.5f) * 2f
+                val dabRgb = resolveDabColor(colorArgb, d) and 0x00FFFFFF
+                val alphaVal = (baseAlpha * d.alpha * (f * d.flowMultiplier).coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+                paint.colorFilter = PorterDuffColorFilter(dabRgb or (alphaVal shl 24), PorterDuff.Mode.SRC_IN)
+'''
+          s = replace_once(s, old, new, 'StampBrushRenderer shaped dab color')
+
+          old = '''        val hardness = brush.hardness.coerceIn(0f, 1f)
+        val edge = rgbNoAlpha                         // transparent edge (alpha 0) — loop-invariant
+        val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        for (d in dabs) {
+            val radius = max(d.radius, 0.5f)
+            val alphaVal = (baseAlpha * d.alpha * f).toInt().coerceIn(0, 255)
+            val core = rgbNoAlpha or (alphaVal shl 24)
+            paint.shader = RadialGradient(
+                d.x, d.y, radius,
+                intArrayOf(core, core, edge),
+'''
+          new = '''        val hardness = brush.hardness.coerceIn(0f, 1f)
+        val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        for (d in dabs) {
+            val radius = max(d.radius, 0.5f)
+            val dabRgb = resolveDabColor(colorArgb, d) and 0x00FFFFFF
+            val alphaVal = (baseAlpha * d.alpha * (f * d.flowMultiplier).coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+            val core = dabRgb or (alphaVal shl 24)
+            val edge = dabRgb
+            paint.shader = RadialGradient(
+                d.x, d.y, radius,
+                intArrayOf(core, core, edge),
+'''
+          s = replace_once(s, old, new, 'StampBrushRenderer round dab color')
+
+          # Remove now-unused static rgb variable.
+          s = s.replace('        val rgbNoAlpha = colorArgb and 0x00FFFFFF\n', '')
+
+          # Add helpers before object closing brace.
+          closing = '\n}\n'
+          idx = s.rfind(closing)
+          if idx < 0:
+              raise RuntimeError('StampBrushRenderer closing brace missing')
+          helpers = r'''
+
+    /** Apply carried HSV dynamics without changing the stroke's alpha channel. */
+    private fun resolveDabColor(colorArgb: Int, dab: Dab): Int {
+        if (dab.hueShiftDeg == 0f && dab.saturationMultiplier == 1f && dab.valueMultiplier == 1f) {
+            return colorArgb
+        }
+        val hsv = FloatArray(3)
+        Color.colorToHSV(colorArgb, hsv)
+        var hue = (hsv[0] + dab.hueShiftDeg) % 360f
+        if (hue < 0f) hue += 360f
+        hsv[0] = hue
+        hsv[1] = (hsv[1] * dab.saturationMultiplier).coerceIn(0f, 1f)
+        hsv[2] = (hsv[2] * dab.valueMultiplier).coerceIn(0f, 1f)
+        return Color.HSVToColor(Color.alpha(colorArgb), hsv)
+    }
+
+    /**
+     * Catmull-Rom changes geometry but must not invent new sensor readings. Re-sample the recorded
+     * telemetry by original geometric arc fraction and replace only x/y with the curved geometry.
+     */
+    private fun remapSamplesToCurve(samples: List<BrushSample>, curved: List<Float>): List<BrushSample> {
+        val count = curved.size / 2
+        if (samples.isEmpty() || count == 0) return emptyList()
+        if (samples.size == 1) {
+            return List(count) { i -> samples.first().copy(x = curved[i * 2], y = curved[i * 2 + 1]) }
+        }
+
+        val sourceArc = FloatArray(samples.size)
+        for (i in 1 until samples.size) {
+            sourceArc[i] = sourceArc[i - 1] + hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y)
+        }
+        val curvedArc = FloatArray(count)
+        for (i in 1 until count) {
+            curvedArc[i] = curvedArc[i - 1] + hypot(
+                curved[i * 2] - curved[(i - 1) * 2],
+                curved[i * 2 + 1] - curved[(i - 1) * 2 + 1],
+            )
+        }
+        val sourceTotal = sourceArc.last()
+        val curvedTotal = curvedArc.last()
+
+        return List(count) { i ->
+            val sourceTarget = if (curvedTotal <= 1e-6f) 0f else sourceTotal * (curvedArc[i] / curvedTotal)
+            var hi = 1
+            while (hi < sourceArc.size && sourceArc[hi] < sourceTarget) hi++
+            hi = hi.coerceAtMost(samples.lastIndex)
+            val lo = (hi - 1).coerceAtLeast(0)
+            val span = (sourceArc[hi] - sourceArc[lo]).coerceAtLeast(1e-6f)
+            val t = ((sourceTarget - sourceArc[lo]) / span).coerceIn(0f, 1f)
+            val a = samples[lo]
+            val b = samples[hi]
+            val cx = curved[i * 2]
+            val cy = curved[i * 2 + 1]
+            val heading = if (i == 0 && count > 1) {
+                atan2(curved[3] - cy, curved[2] - cx) * 57.29578f
+            } else if (i > 0) {
+                atan2(cy - curved[(i - 1) * 2 + 1], cx - curved[(i - 1) * 2]) * 57.29578f
+            } else {
+                a.drawingAngleDeg
+            }
+            BrushSample(
+                x = cx,
+                y = cy,
+                uptimeMillis = a.uptimeMillis + ((b.uptimeMillis - a.uptimeMillis) * t).toLong(),
+                pressure = a.pressure + (b.pressure - a.pressure) * t,
+                tiltRadians = a.tiltRadians + (b.tiltRadians - a.tiltRadians) * t,
+                orientationRadians = a.orientationRadians + (b.orientationRadians - a.orientationRadians) * t,
+                distancePx = a.distancePx + (b.distancePx - a.distancePx) * t,
+                speedPxPerMs = a.speedPxPerMs + (b.speedPxPerMs - a.speedPxPerMs) * t,
+                drawingAngleDeg = heading,
+                predicted = false,
+            )
+        }
+    }
+'''
+          s = s[:idx] + helpers + s[idx:]
+          write(path, s)
+
+          # -------------------------------------------------------------
+          # DrawingEngine: replay canonical sensor data deterministically.
+          # -------------------------------------------------------------
+          path = 'feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/DrawingEngine.kt'
+          s = read(path)
+          old = '''            StampBrushRenderer.paintStroke(
+                stampCanvas, pts, brush, stroke.brushColor,
+                stroke.brushSize * brushScale, stroke.flow, stroke.seed, stroke.stampShape,
+            )
+'''
+          new = '''            val mappedSamples = if (stroke.brushSamples.isNotEmpty()) {
+                stroke.brushSamples.take(mapped.size).mapIndexed { i, sample ->
+                    sample.copy(x = mapped[i].x, y = mapped[i].y, predicted = false)
+                }
+            } else {
+                emptyList()
+            }
+            StampBrushRenderer.paintStroke(
+                canvas = stampCanvas,
+                points = pts,
+                brush = brush,
+                colorArgb = stroke.brushColor,
+                diameterPx = stroke.brushSize * brushScale,
+                flow = stroke.flow,
+                seed = stroke.seed,
+                stamp = stroke.stampShape,
+                samples = mappedSamples,
+            )
+'''
+          s = replace_once(s, old, new, 'DrawingEngine dynamic stamp replay')
+          write(path, s)
+
+          # -------------------------------------------------------------
+          # Focused architecture note: Krita engine, phone-first product.
+          # -------------------------------------------------------------
+          doc = Path('docs/Krita Brush Engine Adoption.md')
+          doc.write_text(r'''# Krita Brush Engine Adoption — Phone-First Graffux
+
+## Product rule
+
+Krita is a primary engineering reference for Graffux's paint engine, not its interface model.
+Krita has already solved a large class of hard raster-painting problems — sensor-driven brush
+parameters, response curves, deterministic dab generation, color-smudge behavior, spacing and
+randomness — but its interaction model is designed around desktop/tablet-sized workspaces.
+Graffux should take the engine lessons aggressively while exploiting the space Krita does not
+prioritize: a serious painting tool that remains comfortable on a phone.
+
+That gives us a non-negotiable split:
+
+- **Under the canvas:** deep, composable, Krita-class brush machinery.
+- **Over the canvas:** phone-first progressive disclosure. Drawing owns the screen; configuration
+  appears transiently and leaves again.
+
+No permanent docker forest. No shrinking the artwork to make room for a desktop control panel.
+Advanced capability is allowed to be deep; it is not allowed to be permanently in the way.
+
+## Landed foundation
+
+Graffux now has a renderer-independent canonical `BrushSample` and a Krita-shaped sensor/curve
+routing layer in `core/common/.../azphalt/BrushSensorDynamics.kt`.
+
+A sample carries position, timestamp, pressure, tilt, orientation, travelled distance, speed and
+drawing angle. Predicted samples are explicitly marked and cannot enter authoritative dab history.
+The input boundary computes speed/distance in physical screen-hand space before viewport transforms,
+so zooming the document does not change what the same physical hand velocity means to a brush.
+
+Available sensors:
+
+- pressure
+- speed
+- tilt
+- orientation
+- travelled distance
+- elapsed stroke time
+- drawing angle
+- deterministic random per dab
+- deterministic random per stroke
+
+Available targets:
+
+- size
+- opacity
+- flow
+- spacing
+- scatter
+- rotation
+- hue
+- saturation
+- value
+
+Each route has an input range, output range, invert flag and authored response curve. Multiple
+routes can target one parameter. Existing brushes have an empty route list and therefore continue
+to use the legacy dab path exactly.
+
+`BrushStamps.dynamicDabs()` resolves those routes at each arc-length dab. Size, opacity, scatter
+and rotation are baked into the concrete `Dab`; flow and HSV modifiers travel with it to the
+renderer. Seeded randomness remains deterministic across live paint and replay.
+
+The real Android stroke path now records canonical samples alongside points/pressure. MotionEvent
+supplies stylus tilt and orientation; Compose supplies pressure and historical positions/times.
+Only x/y are transformed from screen to world/layer space. Commit/replay remaps those x/y positions
+while preserving the recorded sensor values.
+
+## Phone-first Brush Studio
+
+Brush Studio keeps its compact floating-window model. The sensor engine does **not** surface as a
+permanent matrix of controls.
+
+The first dynamics surface is collapsed by default and offers one-tap mappings:
+
+- Pressure → Size
+- Pressure → Opacity
+- Speed → Thin
+- Tilt → Rotation
+
+The preview feeds synthetic pressure/tilt telemetry so these mappings are visible before saving.
+The underlying data model already supports arbitrary routes and curves; a later advanced editor can
+open from this section without making every user navigate it for ordinary drawing.
+
+## GPU contract
+
+The existing Vulkan dab ABI already accepts per-dab position, radius, alpha and rotation, so size,
+opacity, spacing, scatter and rotation dynamics work without changing the shader ABI.
+
+Per-dab flow and HSV variation currently force the live stamp stroke onto the CPU renderer, because
+the native API supplies one color for an entire submitted batch. This fallback is deliberate: a
+correct CPU preview is preferable to a fast GPU preview that disagrees with replay. A future Vulkan
+ABI revision should add packed per-dab color/flow so those routes return to the compute path.
+
+## Next Krita systems to mine
+
+In priority order:
+
+1. **Color Smudge / wet-paint behavior.** Use Krita's proven separation of source color pickup,
+   blending rate and opacity as the conceptual baseline for Graffux Wet Mix, implemented in Vulkan.
+2. **Brush-tip and mask caching.** Cache transformed/generated masks by the parameters that actually
+   invalidate them instead of regenerating work per dab.
+3. **Spacing policy.** Extend dynamic spacing with airbrush/rate behavior and device-independent
+   distance semantics while preserving deterministic replay.
+4. **Texture/grain application.** Treat texture as a first-class mask stage with canvas-anchored and
+   brush-anchored modes rather than a special renderer branch.
+5. **Preset serialization/import.** Map as much of Krita's brush-preset vocabulary as makes sense
+   into Azphalt's declarative format, with explicit compatibility metadata rather than silent loss.
+6. **Color-source dynamics.** Gradient/mix/random color sources should feed the same per-dab resolved
+   render instruction instead of becoming separate brush engines.
+7. **Stroke-end/taper behavior.** Use distance/time/fade sensors plus explicit lift-off synthesis,
+   keeping finger-only taper useful on phones where a stylus may not exist at all.
+
+The test for every adoption is not “does Graffux now expose another Krita setting?” It is “did we
+inherit a solved painting problem while making it faster to reach on a phone?”
+''')
+
+          # This workflow is a one-shot patch carrier. Delete it in the same commit it creates so
+          # the feature branch doesn't accumulate scaffolding.
+          Path('.github/workflows/apply-krita-telemetry.yml').unlink()
+          PY
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Wire Krita-style brush dynamics into live strokes"
+          git push origin HEAD:feat/krita-brush-dynamics
