@@ -28,6 +28,32 @@ find_package(OpenCV REQUIRED CONFIG)
 # Set GLM include directory (header-only, committed under libs/glm)
 set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
+# stamp.comp is authoritative. Regenerate the embedded SPIR-V at configure time so the checked-in
+# header can never drift from the shader source. Android NDK distributions include glslc under
+# shader-tools for each desktop host.
+find_program(GRAFFUX_GLSLC glslc
+    HINTS
+        "${ANDROID_NDK}/shader-tools/linux-x86_64"
+        "${ANDROID_NDK}/shader-tools/windows-x86_64"
+        "${ANDROID_NDK}/shader-tools/darwin-x86_64"
+    NO_DEFAULT_PATH
+)
+if(NOT GRAFFUX_GLSLC)
+    message(FATAL_ERROR "NDK glslc not found; cannot regenerate shaders/StampSpv.h")
+endif()
+set(STAMP_SPV_BODY "${CMAKE_CURRENT_BINARY_DIR}/stamp_spv_body.inc")
+execute_process(
+    COMMAND "${GRAFFUX_GLSLC}" -O -mfmt=c --target-env=vulkan1.1
+            -o "${STAMP_SPV_BODY}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
+    RESULT_VARIABLE STAMP_GLSLC_RESULT
+)
+if(NOT STAMP_GLSLC_RESULT EQUAL 0)
+    message(FATAL_ERROR "glslc failed for shaders/stamp.comp: ${STAMP_GLSLC_RESULT}")
+endif()
+file(READ "${STAMP_SPV_BODY}" STAMP_SPV_C_WORDS)
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/StampSpv.h"
+"// Generated from stamp.comp at CMake configure time. Do not hand-edit.\n#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t kStampCompSpv[] = {${STAMP_SPV_C_WORDS}};\ninline constexpr size_t kStampCompSpvWords = sizeof(kStampCompSpv) / sizeof(kStampCompSpv[0]);\n}  // namespace graffux\n")
+
 # Define the native library
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
@@ -40,6 +66,7 @@ add_library(graffitixr SHARED
     MlasStub.cpp
     VulkanStampEngine.cpp
     VulkanStampEngineReuse.cpp
+    VulkanStampDynamicsJNI.cpp
     InkStrokePredictorJNI.cpp
 )
 

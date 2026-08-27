@@ -13,19 +13,24 @@ struct AHardwareBuffer;
 
 namespace graffux {
 
-// One dab, laid out to match BrushStamps.Dab (x, y, radius, alpha, angleDeg) plus padding to a
-// 32-byte stride — see shaders/stamp.comp's `Dab` struct, which this must stay binary-identical
-// to (std430 layout rules pad a 5-float struct to 8 floats / 32 bytes regardless, so the padding
-// here just makes that explicit instead of relying on the compiler to insert it invisibly).
+// One dab. The first five fields are the historical ABI. The resolved paint fields widen the
+// buffer to 12 floats / 48 bytes; old aggregate initializers that provide only five values leave
+// `resolved` at zero, so the shader falls back to the stroke-level push-constant colour exactly as
+// before. New callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
+// shaders/stamp.comp.
 struct GpuDab {
     float x;
     float y;
     float radius;
     float alpha;
     float angleDeg;
-    float pad0;
-    float pad1;
-    float pad2;
+    float colorR = 0.0f;
+    float colorG = 0.0f;
+    float colorB = 0.0f;
+    float colorA = 0.0f;
+    float flow = 0.0f;
+    float resolved = 0.0f;
+    float pad0 = 0.0f;
 };
 
 /**
