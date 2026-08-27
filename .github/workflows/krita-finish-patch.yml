@@ -21,6 +21,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Narrow known multi-match anchor
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/krita_finish_patch.py')
+          s = p.read_text()
+          old = '''    count = text.count(old)\n    if count != 1:\n        raise RuntimeError(f"{path}: expected one occurrence, found {count}: {old[:100]!r}")\n    write(path, text.replace(old, new, 1))\n'''
+          new = '''    count = text.count(old)\n    if count == 0:\n        raise RuntimeError(f"{path}: expected an occurrence, found 0: {old[:100]!r}")\n    if count > 1:\n        known_resampling_constructor = (\n            path.endswith("EditorViewModel.kt") and\n            "brushSamples = brushSamples" in old and\n            "tool = state.activeTool" in old\n        )\n        if not known_resampling_constructor:\n            raise RuntimeError(f"{path}: expected one occurrence, found {count}: {old[:100]!r}")\n    write(path, text.replace(old, new, 1))\n'''
+          if old not in s:
+              raise SystemExit('replace_once body not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
       - name: Apply deterministic source patch
         run: python scripts/krita_finish_patch.py
       - name: Remove patch machinery
