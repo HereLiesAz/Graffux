@@ -1,10 +1,12 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.floatOrNull
 
 /**
@@ -12,10 +14,11 @@ import kotlinx.serialization.json.floatOrNull
  * (spec/extension-manifest.md § assets). GraffitiXR is an asset host, so a brush extension contributes
  * *data* — a stamp shape plus stroke dynamics — that the editor renders; it carries no code.
  *
- * The model follows how Procreate (and most raster painters) build a stroke: a **stamp** (the brush's
- * shape, optionally a grain-textured image) is laid down repeatedly along the stroke path, one dab
- * every [spacing] of the tip's diameter, each dab jittered per the dynamics below. A round, hard,
- * fully-opaque, unjittered brush at `spacing = 0.05` reproduces the app's built-in pen.
+ * The model follows how Procreate/Krita-class raster painters build a stroke: a **stamp** (the brush's
+ * shape, optionally a grain-textured image) is laid down repeatedly along the stroke path. Static
+ * values below describe the brush's baseline; [dynamics] is the sensor/curve routing layer that can
+ * drive those values from pressure, speed, tilt, orientation, travelled distance, time and stable
+ * random signals without teaching the renderer about any particular input device.
  *
  * Pure and Android-free so parsing and the placement maths are unit-testable; an Android renderer that
  * rasterizes each dab lives in the editor layer.
@@ -56,6 +59,11 @@ data class AzphaltBrush(
     val grainPath: String? = null,
     /** Whether the stamp rotates to follow the stroke direction (Procreate's "Azimuth"/heading). */
     val followStroke: Boolean = false,
+    /**
+     * Krita-style sensor routes. Empty by default, which is an important compatibility invariant:
+     * every existing brush renders exactly as before until the author explicitly maps a sensor.
+     */
+    val dynamics: List<BrushSensorBinding> = emptyList(),
 ) {
     /**
      * Clamps every value into the same ranges [fromParams] enforces. A brush built in the app's own
@@ -70,6 +78,7 @@ data class AzphaltBrush(
         sizeJitter = sizeJitter.coerceIn(0f, 1f),
         opacityJitter = opacityJitter.coerceIn(0f, 1f),
         scatter = scatter.coerceAtLeast(0f),
+        dynamics = dynamics.map(BrushSensorBinding::sanitized),
     )
 
     companion object {
@@ -78,12 +87,22 @@ data class AzphaltBrush(
          * clamping every value to a sane range. Unknown keys are ignored and any malformed value falls
          * back to its default, mirroring [ExtensionRepository]'s lenient LUT-param reading — a brush
          * from a newer/looser package still yields a usable tip rather than throwing.
+         *
+         * `dynamics` is an optional array of [BrushSensorBinding] objects. It uses the stable wire names
+         * from [BrushSensor]/[BrushParameter] (`pressure`, `speed`, `tilt`, `size`, `opacity`, etc.). A
+         * malformed individual binding is ignored instead of invalidating the whole brush package.
          */
         fun fromParams(name: String, params: JsonObject?): AzphaltBrush {
             fun f(key: String): Float? = (params?.get(key) as? JsonPrimitive)?.floatOrNull
             fun s(key: String): String? =
                 (params?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             fun b(key: String): Boolean? = (params?.get(key) as? JsonPrimitive)?.booleanOrNull
+            val dynamics = (params?.get("dynamics") as? JsonArray)
+                ?.mapNotNull { element ->
+                    runCatching { AzphaltJson.decodeFromJsonElement<BrushSensorBinding>(element) }.getOrNull()
+                }
+                .orEmpty()
+                .map(BrushSensorBinding::sanitized)
             return AzphaltBrush(
                 name = name,
                 spacing = (f("spacing") ?: 0.1f).coerceIn(0.01f, 4f),
@@ -96,6 +115,7 @@ data class AzphaltBrush(
                 shapePath = s("shape") ?: s("shapePath"),
                 grainPath = s("grain") ?: s("grainPath"),
                 followStroke = b("followStroke") ?: false,
+                dynamics = dynamics,
             )
         }
     }
