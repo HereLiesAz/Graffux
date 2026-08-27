@@ -18,6 +18,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.prediction.AccelerationGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
@@ -45,6 +47,12 @@ private const val EYEDROP_HOLD_MS = 500L
  * Brush latency prediction is presentation-only: predictors race to extend the visible tail to the
  * next frame, but predicted points are NEVER sent to [onStrokePoint]. Only real input can enter the
  * bitmap/history path, so a bad prediction disappears on the next sample instead of becoming paint.
+ *
+ * Real input is normalized here into [BrushSample] before viewport/layer transforms. That mirrors
+ * Krita's paint-information model: pressure, tilt, orientation, distance and speed describe the hand
+ * motion that actually happened on the screen, while downstream code is free to remap only x/y into
+ * world/bitmap space. Zooming the canvas therefore cannot make an identical physical gesture become
+ * a different "speed" sensor value.
  */
 @Composable
 fun DrawingCanvas(
@@ -54,8 +62,8 @@ fun DrawingCanvas(
     layerBitmapKey: Any?,
     gate: StrokeGate,
     modifier: Modifier = Modifier,
-    onStrokeStart: (Offset, IntSize, Float) -> Unit,
-    onStrokePoint: (Offset, Float) -> Unit,
+    onStrokeStart: (BrushSample, IntSize) -> Unit,
+    onStrokePoint: (BrushSample) -> Unit,
     onStrokeEnd: () -> Unit,
     onStrokeCancel: () -> Unit,
     onFillTap: (Offset, IntSize) -> Unit,
@@ -83,6 +91,10 @@ fun DrawingCanvas(
             )
         )
     }
+    val brushSampleBuilder = remember { BrushSampleBuilder() }
+    var latestTiltRadians by remember { mutableFloatStateOf(0f) }
+    var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
+
     // View.getDisplay() throws under Robolectric and can be unavailable while a real View is
     // detached. Prediction is a latency hint, not a reason to crash; 60 Hz is the conservative
     // horizon until a visual display is actually attached.
@@ -95,7 +107,7 @@ fun DrawingCanvas(
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
     var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
 
-    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float) {
+    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float): BrushSample {
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
         val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
         predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
@@ -103,6 +115,14 @@ fun DrawingCanvas(
         } else {
             null
         }
+        return brushSampleBuilder.add(
+            x = position.x,
+            y = position.y,
+            uptimeMillis = uptimeMillis,
+            pressure = pressure,
+            tiltRadians = latestTiltRadians,
+            orientationRadians = latestOrientationRadians,
+        )
     }
 
     // When the layer bitmap updates (stroke committed), clear Liquify pending path.
@@ -129,8 +149,14 @@ fun DrawingCanvas(
             // AndroidX needs the untouched MotionEvent stream. motionEventSpy observes without
             // consuming, so the Compose pointerInput grammar below remains the sole gesture owner.
             .motionEventSpy { event ->
+                if (event.pointerCount > 0) {
+                    val pointerIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                    latestTiltRadians = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
+                    latestOrientationRadians = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
+                }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     predictionTournament.reset()
+                    brushSampleBuilder.reset()
                     predictionTail = null
                 }
                 androidXPredictor.recordMotionEvent(event)
@@ -149,6 +175,9 @@ fun DrawingCanvas(
 
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    // ACTION_DOWN normally resets this through motionEventSpy, but keep the gesture
+                    // loop self-contained for tests and unusual dispatch paths where the spy is absent.
+                    brushSampleBuilder.reset()
                     var began = false
                     var eyedrop = false
                     var cancelled = false
@@ -223,7 +252,17 @@ fun DrawingCanvas(
                                 else -> {
                                     // Quick tap: a single dab.
                                     gate.strokeActive = true
-                                    onStrokeStart(down.position, canvasSize, down.pressure)
+                                    onStrokeStart(
+                                        brushSampleBuilder.add(
+                                            x = down.position.x,
+                                            y = down.position.y,
+                                            uptimeMillis = down.uptimeMillis,
+                                            pressure = down.pressure,
+                                            tiltRadians = latestTiltRadians,
+                                            orientationRadians = latestOrientationRadians,
+                                        ),
+                                        canvasSize,
+                                    )
                                     gate.strokeActive = false
                                     onStrokeEnd()
                                 }
@@ -239,9 +278,9 @@ fun DrawingCanvas(
                                 liquifyPoints = listOf(down.position)
                                 liquifyPending = emptyList()
                             }
-                            onStrokeStart(down.position, canvasSize, down.pressure)
-                            predictionTournament.record(
-                                GestureSample(down.position, down.uptimeMillis, down.pressure)
+                            onStrokeStart(
+                                recordRealPoint(down.position, down.uptimeMillis, down.pressure),
+                                canvasSize,
                             )
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
@@ -251,28 +290,24 @@ fun DrawingCanvas(
                                 // batches position/time sub-samples) — the enclosing change's
                                 // pressure is the closest reading available, and pressure changes
                                 // slowly enough within one frame's batch that this is unnoticeable.
-                                onStrokePoint(hist.position, change.pressure)
-                                recordRealPoint(hist.position, hist.uptimeMillis, change.pressure)
+                                onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
-                            onStrokePoint(change.position, change.pressure)
-                            recordRealPoint(change.position, change.uptimeMillis, change.pressure)
+                            onStrokePoint(recordRealPoint(change.position, change.uptimeMillis, change.pressure))
                             change.consume()
                         } else if (began) {
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
                                 }
-                                onStrokePoint(hist.position, change.pressure)
-                                recordRealPoint(hist.position, hist.uptimeMillis, change.pressure)
+                                onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))
                             }
                             if (activeTool == Tool.LIQUIFY) {
                                 liquifyPoints = liquifyPoints + change.position
                             }
-                            onStrokePoint(change.position, change.pressure)
-                            recordRealPoint(change.position, change.uptimeMillis, change.pressure)
+                            onStrokePoint(recordRealPoint(change.position, change.uptimeMillis, change.pressure))
                             change.consume()
                         }
                     }
