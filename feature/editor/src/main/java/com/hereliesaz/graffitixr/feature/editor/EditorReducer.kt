@@ -309,6 +309,11 @@ internal object EditorReducer {
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)
         is EditorIntent.SetActiveColor -> state.copy(activeColor = intent.color)
+        is EditorIntent.SetSecondaryColor -> state.copy(secondaryColor = intent.color)
+        EditorIntent.SwapBrushColors -> state.copy(
+            activeColor = state.secondaryColor,
+            secondaryColor = state.activeColor,
+        )
         else -> null
     }
 
