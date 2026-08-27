@@ -81,7 +81,7 @@ versions_path = Path('gradle/libs.versions.toml')
 v = versions_path.read_text()
 v2, n = re.subn(
     r'(?m)^azNavRail\s*=\s*"[^"]+"$',
-    'azNavRail = "d116cfa93971d58afab86f1bcb6ed6d62e65b0dd"',
+    'azNavRail = "11.27"',
     v,
     count=1,
 )
