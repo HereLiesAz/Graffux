@@ -4,6 +4,8 @@ Graffux should borrow solved painting-engine ideas from Krita aggressively while
 
 Krita is the reference for mature brush-engine decomposition; Graffux is not trying to reproduce Krita's desktop/tablet interface. The invariant is **Krita underneath, Graffux on top**: deep engine capability, small transient controls, presets, gestures, and progressive disclosure that preserve canvas space on phones.
 
+Every brush-engine tranche has one additional merge gate beyond ordinary unit/build success: it must preserve the phone interaction model. New engine capability may add transient or progressively disclosed controls, but it must not require permanent desktop-style panels or reduce the default drawing area.
+
 ## 1. Canonical input telemetry
 
 Graffux normalizes Android input into `BrushSample` before rendering. A sample carries:
