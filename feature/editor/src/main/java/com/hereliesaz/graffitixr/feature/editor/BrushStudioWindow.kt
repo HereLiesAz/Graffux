@@ -22,6 +22,10 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -29,14 +33,13 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Procreate's Brush Studio: the parameters of the active stamp brush, live. Every edit is applied to
- * the live brush immediately (see EditorViewModel.onEditBrushDraft), so the preview stroke and the
- * next real stroke show the same thing.
+ * Phone-first Brush Studio.
  *
- * Deliberately limited to the knobs the stamp renderer actually honours today — spacing, opacity,
- * hardness, the two jitters, and scatter. `angle`/`followStroke` only mean something for an image
- * tip (a custom brush has none) and `grainPath` is parsed but unused by the renderer, so exposing
- * any of them here would be three dead dials on an editor whose whole job is immediate feedback.
+ * The engine underneath can now expose Krita-class sensor routing, but the surface deliberately does
+ * not become Krita's desktop/tablet cockpit. Baseline brush controls stay immediately visible; dynamic
+ * routing is collapsed behind one button and starts with useful one-tap mappings. The brush model is
+ * already general enough for a later advanced curve/matrix editor without forcing that complexity on
+ * somebody who just wants to draw on a phone.
  */
 @Composable
 fun BrushStudioWindow(
@@ -49,6 +52,7 @@ fun BrushStudioWindow(
     onDismiss: () -> Unit,
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
+    var showDynamics by remember { mutableStateOf(false) }
     if (confirmingDelete) {
         ConfirmDialog(
             title = "Delete brush?",
@@ -81,12 +85,113 @@ fun BrushStudioWindow(
             ParamSlider("Opacity jitter", draft.opacityJitter, 0f..1f) { v -> onEdit { it.copy(opacityJitter = v) } }
             ParamSlider("Scatter", draft.scatter, 0f..2f, asFraction = true) { v -> onEdit { it.copy(scatter = v) } }
 
+            AzButton(
+                text = if (showDynamics) "Dynamics ▴" else "Dynamics ▾",
+                onClick = { showDynamics = !showDynamics },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showDynamics) {
+                Text(
+                    "Input mappings (${draft.dynamics.size})",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                DynamicsPreset(
+                    label = "Pressure → Size",
+                    active = draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.SIZE),
+                ) {
+                    onEdit {
+                        it.toggleRoute(
+                            BrushSensorBinding(
+                                sensor = BrushSensor.PRESSURE,
+                                parameter = BrushParameter.SIZE,
+                                outputMin = 0.2f,
+                                outputMax = 1f,
+                            )
+                        )
+                    }
+                }
+                DynamicsPreset(
+                    label = "Pressure → Opacity",
+                    active = draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.OPACITY),
+                ) {
+                    onEdit {
+                        it.toggleRoute(
+                            BrushSensorBinding(
+                                sensor = BrushSensor.PRESSURE,
+                                parameter = BrushParameter.OPACITY,
+                                outputMin = 0.1f,
+                                outputMax = 1f,
+                            )
+                        )
+                    }
+                }
+                DynamicsPreset(
+                    label = "Speed → Thin",
+                    active = draft.hasRoute(BrushSensor.SPEED, BrushParameter.SIZE),
+                ) {
+                    onEdit {
+                        it.toggleRoute(
+                            BrushSensorBinding(
+                                sensor = BrushSensor.SPEED,
+                                parameter = BrushParameter.SIZE,
+                                inputMin = 0f,
+                                inputMax = 2f,
+                                outputMin = 1f,
+                                outputMax = 0.45f,
+                            )
+                        )
+                    }
+                }
+                DynamicsPreset(
+                    label = "Tilt → Rotation",
+                    active = draft.hasRoute(BrushSensor.TILT, BrushParameter.ROTATION),
+                ) {
+                    onEdit {
+                        it.toggleRoute(
+                            BrushSensorBinding(
+                                sensor = BrushSensor.TILT,
+                                parameter = BrushParameter.ROTATION,
+                                inputMin = 0f,
+                                inputMax = HALF_PI_F,
+                                outputMin = 0f,
+                                outputMax = 180f,
+                            )
+                        )
+                    }
+                }
+                Text(
+                    "Advanced curves and arbitrary sensor routes stay one level deeper; these presets keep the phone surface fast.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
             AzButton(text = "Save Brush", onClick = onSave, shape = AzButtonShape.RECTANGLE)
             if (isSaved) {
                 AzButton(text = "Delete Brush", onClick = { confirmingDelete = true }, shape = AzButtonShape.RECTANGLE)
             }
         }
     }
+}
+
+@Composable
+private fun DynamicsPreset(label: String, active: Boolean, onClick: () -> Unit) {
+    AzButton(
+        text = if (active) "✓ $label" else label,
+        onClick = onClick,
+        shape = AzButtonShape.RECTANGLE,
+    )
+}
+
+private fun AzphaltBrush.hasRoute(sensor: BrushSensor, parameter: BrushParameter): Boolean =
+    dynamics.any { it.sensor == sensor && it.parameter == parameter }
+
+private fun AzphaltBrush.toggleRoute(binding: BrushSensorBinding): AzphaltBrush {
+    val existing = dynamics.filterNot {
+        it.sensor == binding.sensor && it.parameter == binding.parameter
+    }
+    return copy(
+        dynamics = if (existing.size == dynamics.size) existing + binding else existing,
+    )
 }
 
 @Composable
@@ -105,23 +210,45 @@ private fun ParamSlider(
 }
 
 /**
- * A test stroke rendered with the draft's own dab placement — the same [BrushStamps.dabs] the real
- * engine uses, so spacing/jitter/scatter preview honestly rather than being approximated. The dabs
- * are drawn as plain circles here (no radial-gradient tip), so hardness is the one parameter the
- * preview only hints at; it reads correctly on the canvas itself.
+ * A test stroke rendered with the same dab placement as the real engine. When the brush has sensor
+ * routes, the preview feeds a synthetic phone/stylus gesture whose pressure and tilt increase along
+ * the stroke, so a one-tap dynamics preset is visible immediately rather than becoming a mystery
+ * setting that only reveals itself after the window closes.
  */
 @Composable
 private fun BrushPreview(brush: AzphaltBrush, color: Color) {
     Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
         val diameter = size.height / 3f
-        // Interleaved [x0,y0,x1,y1,…] — BrushStamps' own convention.
-        val path = ArrayList<Float>(SAMPLES * 2)
-        for (i in 0 until SAMPLES) {
-            val t = i / (SAMPLES - 1f)
-            path.add(diameter + t * (size.width - diameter * 2f))
-            path.add(size.height / 2f + sin(t * 2f * PI_F) * size.height / 5f)
+        val dabs = if (brush.dynamics.isEmpty()) {
+            // Interleaved [x0,y0,x1,y1,…] — BrushStamps' legacy/static convention.
+            val path = ArrayList<Float>(SAMPLES * 2)
+            for (i in 0 until SAMPLES) {
+                val t = i / (SAMPLES - 1f)
+                path.add(diameter + t * (size.width - diameter * 2f))
+                path.add(size.height / 2f + sin(t * 2f * PI_F) * size.height / 5f)
+            }
+            BrushStamps.dabs(path, diameter, brush, seed = PREVIEW_SEED)
+        } else {
+            val builder = BrushSampleBuilder()
+            val samples = buildList {
+                for (i in 0 until SAMPLES) {
+                    val t = i / (SAMPLES - 1f)
+                    add(
+                        builder.add(
+                            x = diameter + t * (size.width - diameter * 2f),
+                            y = size.height / 2f + sin(t * 2f * PI_F) * size.height / 5f,
+                            uptimeMillis = i * 8L,
+                            pressure = 0.15f + 0.85f * t,
+                            tiltRadians = HALF_PI_F * t,
+                            orientationRadians = -PI_F + 2f * PI_F * t,
+                        )
+                    )
+                }
+            }
+            BrushStamps.dabs(samples, diameter, brush, seed = PREVIEW_SEED)
         }
-        BrushStamps.dabs(path, diameter, brush, seed = PREVIEW_SEED).forEach { dab ->
+
+        dabs.forEach { dab ->
             drawCircle(
                 color = color.copy(alpha = color.alpha * dab.alpha),
                 radius = dab.radius,
@@ -135,3 +262,4 @@ private fun BrushPreview(brush: AzphaltBrush, color: Color) {
 private const val PREVIEW_SEED = 12345L
 private const val SAMPLES = 48
 private const val PI_F = 3.1415927f
+private const val HALF_PI_F = PI_F / 2f
