@@ -39,6 +39,7 @@ add_library(graffitixr SHARED
     ImageWarper.cpp
     MlasStub.cpp
     VulkanStampEngine.cpp
+    VulkanStampEngineReuse.cpp
     InkStrokePredictorJNI.cpp
 )
 

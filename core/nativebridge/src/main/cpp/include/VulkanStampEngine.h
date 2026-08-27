@@ -68,6 +68,12 @@ public:
     // import for this format/usage combination, or AHardwareBuffer_allocate itself fails.
     bool initWithHardwareBuffer(int width, int height);
 
+    // Clears the existing layer image to transparent black without recreating the Vulkan instance,
+    // device, AHardwareBuffer, descriptor set, pipeline, command pool, or staging buffers. Used when
+    // a Kotlin wrapper checks a healthy engine back out of the bounded reuse pool. Synchronous like
+    // upload()/readback()/stampDabs(): when it returns true the clear is complete.
+    bool clear();
+
     // The AHardwareBuffer backing the layer image when initWithHardwareBuffer() was used, or
     // nullptr otherwise (including after plain init()). Ownership stays with this engine — a
     // caller that hands this to Java/JNI (AHardwareBuffer_toHardwareBuffer) needs its own
