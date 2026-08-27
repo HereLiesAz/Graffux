@@ -2,9 +2,12 @@ package com.hereliesaz.graffitixr.feature.editor.util
 
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * CPU reference implementation for Graffux's Color Smudge paint-op.
@@ -47,6 +50,7 @@ object ColorSmudgeEngine {
         val smearAlpha: Boolean = true,
         /** Foreground colour used only when [colorRate] > 0. */
         val paintColor: Int = Color.BLACK,
+        val symmetryMode: SymmetryMode = SymmetryMode.NONE,
     )
 
     fun apply(
@@ -57,10 +61,24 @@ object ColorSmudgeEngine {
         settings: Settings,
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
+        applyOne(pixels, width, height, stroke, settings)
+        for (transform in symmetryTransforms(settings.symmetryMode, width.toFloat(), height.toFloat())) {
+            // Sequential application is intentional and matches the historical tool: when mirrored
+            // smudge footprints overlap they interact with the pixels left by earlier twins.
+            applyOne(pixels, width, height, stroke.map(transform), settings.copy(symmetryMode = SymmetryMode.NONE))
+        }
+    }
+
+    private fun applyOne(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        stroke: List<Offset>,
+        settings: Settings,
+    ) {
         val radius = settings.radiusPx.coerceAtLeast(1f)
         val path = resample(stroke, (radius / 2f).coerceAtLeast(1f))
         if (path.isEmpty()) return
-
         val kernel = BrushKernel(radius, settings.feathering)
         when (settings.mode) {
             Mode.SMEAR -> smear(pixels, width, height, path, kernel, settings)
@@ -83,16 +101,12 @@ object ColorSmudgeEngine {
         val carrier = IntArray(kernel.size)
         val start = path.first()
 
-        // Edge extension is deliberate. Sampling transparent black outside a non-wrapping layer
-        // would punch transparency into artwork when a stroke starts near a border.
         forEachKernel(kernel) { dx, dy, k, _ ->
             val sx = (start.x.toInt() + dx).coerceIn(0, width - 1)
             val sy = (start.y.toInt() + dy).coerceIn(0, height - 1)
             carrier[k] = pixels[sy * width + sx]
         }
 
-        // The first dab only seeds the carrier, mirroring the previous Graffux implementation and
-        // Krita's stateful paint-op pattern. Painting begins once there is a direction to smear in.
         for (i in 1 until path.size) {
             val cx = path[i].x.toInt()
             val cy = path[i].y.toInt()
@@ -102,8 +116,6 @@ object ColorSmudgeEngine {
                 if (idx < 0) return@forEachKernel
 
                 val under = pixels[idx]
-                // Historical Graffux semantics: at rate=1 the old carried colour survives; at 0 it
-                // immediately becomes what is currently under the dab.
                 carrier[k] = lerpArgb(under, carrier[k], rate, includeAlpha = settings.smearAlpha)
                 var out = lerpArgb(
                     under,
@@ -124,12 +136,6 @@ object ColorSmudgeEngine {
         }
     }
 
-    /**
-     * Local colour mixing. A weighted colour is sampled from a configurable neighbourhood at each
-     * dab, then applied through the actual brush footprint. Unlike blur, the sampled colour becomes
-     * the dab's paint source; the operation is still directional because only positions visited by
-     * the stroke receive that source.
-     */
     private fun dull(
         pixels: IntArray,
         width: Int,
@@ -188,7 +194,6 @@ object ColorSmudgeEngine {
         val size: Int get() = mask.size
 
         init {
-            // Preserve the old Smudge falloff exactly: a solid core followed by a smoothstep rim.
             val soft = 0.25f + feathering.coerceIn(0f, 1f) * 0.7f
             for (dy in -r..r) {
                 for (dx in -r..r) {
@@ -283,7 +288,6 @@ object ColorSmudgeEngine {
         )
     }
 
-    /** `a` moved towards `b` by `t`, rounded per channel so repeated pickup cannot bias dark. */
     private fun lerpArgb(a: Int, b: Int, t: Float, includeAlpha: Boolean): Int {
         val f = t.coerceIn(0f, 1f)
         val aa = a ushr 24 and 0xFF
@@ -313,5 +317,30 @@ object ColorSmudgeEngine {
             }
         }
         return out
+    }
+
+    private fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
+        val cx = w / 2f
+        val cy = h / 2f
+        return when (mode) {
+            SymmetryMode.NONE -> emptyList()
+            SymmetryMode.VERTICAL -> listOf({ p: Offset -> Offset(w - p.x, p.y) })
+            SymmetryMode.HORIZONTAL -> listOf({ p: Offset -> Offset(p.x, h - p.y) })
+            SymmetryMode.QUADRANT -> listOf(
+                { p: Offset -> Offset(w - p.x, p.y) },
+                { p: Offset -> Offset(p.x, h - p.y) },
+                { p: Offset -> Offset(w - p.x, h - p.y) },
+            )
+            SymmetryMode.RADIAL_6 -> (1..5).map { k ->
+                val rad = Math.toRadians(60.0 * k)
+                val c = cos(rad).toFloat()
+                val s = sin(rad).toFloat()
+                { p: Offset ->
+                    val dx = p.x - cx
+                    val dy = p.y - cy
+                    Offset(cx + dx * c - dy * s, cy + dx * s + dy * c)
+                }
+            }
+        }
     }
 }
