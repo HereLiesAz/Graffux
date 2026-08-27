@@ -57,8 +57,11 @@ enum class ColorPickerMode(val label: String) {
 @Composable
 fun ColorPickerDialog(
     currentColor: Color,
+    secondaryColor: Color = Color.Black,
     history: List<Color>,
     onSelectColor: (Color) -> Unit,
+    onSelectSecondaryColor: (Color) -> Unit = {},
+    onSwapColors: () -> Unit = {},
     onDismiss: () -> Unit,
     strings: AppStrings,
     savedPalette: List<Color> = emptyList(),
@@ -77,10 +80,25 @@ fun ColorPickerDialog(
     var hue by remember { mutableFloatStateOf(initHsv[0]) }
     var saturation by remember { mutableFloatStateOf(initHsv[1]) }
     var brightness by remember { mutableFloatStateOf(initHsv[2]) }
+    var target by remember { mutableStateOf(BrushColorTarget.FOREGROUND) }
 
-    val selectedColor = remember(hue, saturation, brightness) {
+    fun loadWorking(color: Color) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (color.red * 255).toInt(),
+            (color.green * 255).toInt(),
+            (color.blue * 255).toInt(),
+            hsv,
+        )
+        hue = hsv[0]
+        saturation = hsv[1]
+        brightness = hsv[2]
+    }
+
+    val workingAlpha = if (target == BrushColorTarget.FOREGROUND) currentColor.alpha else secondaryColor.alpha
+    val selectedColor = remember(hue, saturation, brightness, workingAlpha) {
         val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
-        Color(argb).copy(alpha = currentColor.alpha)
+        Color(argb).copy(alpha = workingAlpha)
     }
 
     var mode by remember { mutableStateOf(ColorPickerMode.DISC) }
@@ -91,13 +109,34 @@ fun ColorPickerDialog(
 
     FloatingWindow(title = "Color", onDismiss = onDismiss) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Color preview
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .background(selectedColor, CircleShape)
-                    .border(2.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BrushColorTarget.entries.forEach { candidate ->
+                    val swatch = if (candidate == BrushColorTarget.FOREGROUND) currentColor else secondaryColor
+                    Box(
+                        Modifier
+                            .size(42.dp)
+                            .background(swatch, CircleShape)
+                            .border(
+                                if (candidate == target) 3.dp else 1.dp,
+                                if (candidate == target) Color.White else Color.White.copy(alpha = 0.4f),
+                                CircleShape,
+                            )
+                            .clickable {
+                                target = candidate
+                                loadWorking(swatch)
+                            }
+                    )
+                }
+                AzButton(
+                    text = "Swap",
+                    onClick = {
+                        val next = if (target == BrushColorTarget.FOREGROUND) secondaryColor else currentColor
+                        onSwapColors()
+                        loadWorking(next)
+                    },
+                    shape = AzButtonShape.RECTANGLE,
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -183,13 +222,18 @@ fun ColorPickerDialog(
 
             AzButton(
                 text = strings.common.apply,
-                onClick = { onSelectColor(selectedColor) },
+                onClick = {
+                    if (target == BrushColorTarget.FOREGROUND) onSelectColor(selectedColor)
+                    else onSelectSecondaryColor(selectedColor)
+                },
                 shape = AzButtonShape.RECTANGLE,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
     }
 }
+
+private enum class BrushColorTarget { FOREGROUND, BACKGROUND }
 
 /** A small selectable label — the picker's mode and harmony choosers. */
 @Composable

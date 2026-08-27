@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -9,103 +10,146 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.floatOrNull
 
+@Serializable
+enum class GrainBehavior {
+    @SerialName("moving") MOVING,
+    @SerialName("canvas") CANVAS_LOCKED,
+}
+
+@Serializable
+enum class GrainBlendMode {
+    @SerialName("multiply") MULTIPLY,
+    @SerialName("subtract") SUBTRACT,
+    @SerialName("darken") DARKEN,
+    @SerialName("overlay") OVERLAY,
+}
+
+@Serializable
+enum class BrushColorSource {
+    @SerialName("plain") PLAIN,
+    @SerialName("gradient") GRADIENT,
+    @SerialName("uniformRandom") UNIFORM_RANDOM,
+}
+
+@Serializable
+enum class MaskedBrushBlendMode {
+    @SerialName("multiply") MULTIPLY,
+    @SerialName("subtract") SUBTRACT,
+}
+
+@Serializable
+data class MaskedBrushConfig(
+    val shapePath: String? = null,
+    val sizeRatio: Float = 1f,
+    /** Height / width. 1 = round/square; values below 1 produce an elongated tip. */
+    val tipRatio: Float = 1f,
+    val hardness: Float = 1f,
+    val opacity: Float = 1f,
+    val flow: Float = 1f,
+    val angle: Float = 0f,
+    val followStroke: Boolean = false,
+    val scatter: Float = 0f,
+    val invert: Boolean = false,
+    val blendMode: MaskedBrushBlendMode = MaskedBrushBlendMode.MULTIPLY,
+    val dynamics: List<BrushSensorBinding> = emptyList(),
+) {
+    fun sanitized(): MaskedBrushConfig = copy(
+        sizeRatio = sizeRatio.coerceIn(0.05f, 8f),
+        tipRatio = tipRatio.coerceIn(0.05f, 1f),
+        hardness = hardness.coerceIn(0f, 1f),
+        opacity = opacity.coerceIn(0f, 1f),
+        flow = flow.coerceIn(0f, 1f),
+        scatter = scatter.coerceAtLeast(0f),
+        dynamics = dynamics.map(BrushSensorBinding::sanitized),
+    )
+}
+
 /**
- * A normalized stamp-brush definition parsed from an azphalt `brush` asset's `params`
- * (spec/extension-manifest.md § assets). GraffitiXR is an asset host, so a brush extension contributes
- * *data* — a stamp shape plus stroke dynamics — that the editor renders; it carries no code.
- *
- * The model follows how Procreate/Krita-class raster painters build a stroke: a **stamp** (the brush's
- * shape, optionally a grain-textured image) is laid down repeatedly along the stroke path. Static
- * values below describe the brush's baseline; [dynamics] is the sensor/curve routing layer that can
- * drive those values from pressure, speed, tilt, orientation, travelled distance, time and stable
- * random signals without teaching the renderer about any particular input device.
- *
- * Pure and Android-free so parsing and the placement maths are unit-testable; an Android renderer that
- * rasterizes each dab lives in the editor layer.
+ * A normalized stamp-brush definition. Graffux follows Krita's stage decomposition: spacing,
+ * primary brush-tip mask, sensor options, texture/grain, and an optional masked second tip are
+ * independent systems rather than one pre-baked stamp bitmap.
  */
 @Serializable
 data class AzphaltBrush(
-    /** Human name for the brush (from the manifest asset, falling back to the package name). */
     val name: String,
-    /**
-     * Dab spacing as a fraction of the tip diameter (Procreate's "Spacing"). `0.05` = tight/solid,
-     * `1.0` = dabs just touching, `>1` = a dotted trail. Clamped to `0.01..4`.
-     */
     val spacing: Float = 0.1f,
-    /** Per-dab alpha (`0..1`), multiplied into the brush colour. `1` = fully opaque tip. */
+    /** True keeps historical diameter-only spacing; false makes spacing ratio-aware. */
+    val isotropicSpacing: Boolean = true,
+    /** Height / width of the primary tip. */
+    val tipRatio: Float = 1f,
     val opacity: Float = 1f,
-    /**
-     * Edge falloff (`0..1`): `1` = a crisp disc, `0` = a soft feathered blob. Maps to the radius at
-     * which the round stamp's alpha starts ramping to zero (`hardness` of the way out).
-     */
     val hardness: Float = 1f,
-    /** Random size variation per dab (`0..1`): fraction of diameter each dab may shrink by. */
     val sizeJitter: Float = 0f,
-    /** Random alpha variation per dab (`0..1`): fraction of [opacity] each dab may drop by. */
     val opacityJitter: Float = 0f,
-    /** Perpendicular scatter per dab, as a fraction of diameter (`0..`): Procreate's "Scatter". */
     val scatter: Float = 0f,
-    /** Base stamp rotation in degrees; meaningful for a non-round [shapePath] stamp. */
     val angle: Float = 0f,
-    /**
-     * In-package path to a greyscale stamp image (the brush "Shape"), relative to `/assets`. Null ⇒ a
-     * generated round tip governed by [hardness]. A host that can't load the image falls back to round.
-     */
     val shapePath: String? = null,
-    /**
-     * In-package path to a tiling grain texture (the brush "Grain") modulating each dab's alpha. Null ⇒
-     * a smooth dab. Optional for a host to honour.
-     */
     val grainPath: String? = null,
-    /** Whether the stamp rotates to follow the stroke direction (Procreate's "Azimuth"/heading). */
+    val grainScale: Float = 1f,
+    val grainStrength: Float = 1f,
+    val grainBehavior: GrainBehavior = GrainBehavior.MOVING,
+    val grainBlendMode: GrainBlendMode = GrainBlendMode.MULTIPLY,
+    val grainRandomOffsetPerStroke: Boolean = false,
+    val grainOffsetX: Float = 0f,
+    val grainOffsetY: Float = 0f,
     val followStroke: Boolean = false,
-    /**
-     * Krita-style sensor routes. Empty by default, which is an important compatibility invariant:
-     * every existing brush renders exactly as before until the author explicitly maps a sensor.
-     */
+    /** Krita-style colour source. PLAIN is the historical single foreground colour. */
+    val colorSource: BrushColorSource = BrushColorSource.PLAIN,
+    /** Base foreground→background gradient coordinate. A MIX sensor route may override per dab. */
+    val colorMix: Float = 0f,
+    val maskedBrush: MaskedBrushConfig? = null,
     val dynamics: List<BrushSensorBinding> = emptyList(),
 ) {
-    /**
-     * Clamps every value into the same ranges [fromParams] enforces. A brush built in the app's own
-     * Brush Studio never goes through the params parser, so this keeps the one set of legal ranges
-     * shared between the two construction paths instead of letting them drift.
-     */
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
         spacing = spacing.coerceIn(0.01f, 4f),
+        tipRatio = tipRatio.coerceIn(0.05f, 1f),
         opacity = opacity.coerceIn(0f, 1f),
         hardness = hardness.coerceIn(0f, 1f),
         sizeJitter = sizeJitter.coerceIn(0f, 1f),
         opacityJitter = opacityJitter.coerceIn(0f, 1f),
         scatter = scatter.coerceAtLeast(0f),
+        grainScale = grainScale.coerceIn(0.05f, 16f),
+        grainStrength = grainStrength.coerceIn(0f, 1f),
+        colorMix = colorMix.coerceIn(0f, 1f),
+        maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
     )
 
+    fun spacingReferencePx(diameterPx: Float): Float =
+        if (isotropicSpacing) diameterPx else diameterPx * tipRatio.coerceIn(0.05f, 1f)
+
     companion object {
-        /**
-         * Parse a `brush` asset's declarative [params] into an [AzphaltBrush], applying defaults and
-         * clamping every value to a sane range. Unknown keys are ignored and any malformed value falls
-         * back to its default, mirroring [ExtensionRepository]'s lenient LUT-param reading — a brush
-         * from a newer/looser package still yields a usable tip rather than throwing.
-         *
-         * `dynamics` is an optional array of [BrushSensorBinding] objects. It uses the stable wire names
-         * from [BrushSensor]/[BrushParameter] (`pressure`, `speed`, `tilt`, `size`, `opacity`, etc.). A
-         * malformed individual binding is ignored instead of invalidating the whole brush package.
-         */
         fun fromParams(name: String, params: JsonObject?): AzphaltBrush {
             fun f(key: String): Float? = (params?.get(key) as? JsonPrimitive)?.floatOrNull
             fun s(key: String): String? =
                 (params?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             fun b(key: String): Boolean? = (params?.get(key) as? JsonPrimitive)?.booleanOrNull
+
             val dynamics = (params?.get("dynamics") as? JsonArray)
                 ?.mapNotNull { element ->
                     runCatching { AzphaltJson.decodeFromJsonElement<BrushSensorBinding>(element) }.getOrNull()
                 }
                 .orEmpty()
                 .map(BrushSensorBinding::sanitized)
+            val grainBehavior = params?.get("grainBehavior")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<GrainBehavior>(element) }.getOrNull()
+            } ?: GrainBehavior.MOVING
+            val grainBlendMode = params?.get("grainBlendMode")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<GrainBlendMode>(element) }.getOrNull()
+            } ?: GrainBlendMode.MULTIPLY
+            val maskedBrush = params?.get("maskedBrush")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<MaskedBrushConfig>(element) }.getOrNull()
+            }?.sanitized()
+            val colorSource = params?.get("colorSource")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<BrushColorSource>(element) }.getOrNull()
+            } ?: BrushColorSource.PLAIN
+
             return AzphaltBrush(
                 name = name,
                 spacing = (f("spacing") ?: 0.1f).coerceIn(0.01f, 4f),
+                isotropicSpacing = b("isotropicSpacing") ?: true,
+                tipRatio = (f("ratio") ?: f("tipRatio") ?: 1f).coerceIn(0.05f, 1f),
                 opacity = (f("opacity") ?: 1f).coerceIn(0f, 1f),
                 hardness = (f("hardness") ?: 1f).coerceIn(0f, 1f),
                 sizeJitter = (f("sizeJitter") ?: 0f).coerceIn(0f, 1f),
@@ -114,9 +158,19 @@ data class AzphaltBrush(
                 angle = f("angle") ?: 0f,
                 shapePath = s("shape") ?: s("shapePath"),
                 grainPath = s("grain") ?: s("grainPath"),
+                grainScale = (f("grainScale") ?: 1f).coerceIn(0.05f, 16f),
+                grainStrength = (f("grainStrength") ?: 1f).coerceIn(0f, 1f),
+                grainBehavior = grainBehavior,
+                grainBlendMode = grainBlendMode,
+                grainRandomOffsetPerStroke = b("grainRandomOffsetPerStroke") ?: false,
+                grainOffsetX = f("grainOffsetX") ?: 0f,
+                grainOffsetY = f("grainOffsetY") ?: 0f,
                 followStroke = b("followStroke") ?: false,
+                colorSource = colorSource,
+                colorMix = (f("colorMix") ?: f("mix") ?: 0f).coerceIn(0f, 1f),
+                maskedBrush = maskedBrush,
                 dynamics = dynamics,
-            )
+            ).sanitized()
         }
     }
 }

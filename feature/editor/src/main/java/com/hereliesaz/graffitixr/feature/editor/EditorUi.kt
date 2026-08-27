@@ -60,11 +60,17 @@ fun EditorUi(
             val palette by actions.savedPalette.collectAsState()
             ColorPickerDialog(
                 currentColor = uiState.activeColor,
+                secondaryColor = uiState.secondaryColor,
                 history = emptyList(),
                 onSelectColor = { color ->
                     actions.setActiveColor(color)
                     actions.onColorPickerDismissed()
                 },
+                onSelectSecondaryColor = { color ->
+                    actions.setSecondaryColor(color)
+                    actions.onColorPickerDismissed()
+                },
+                onSwapColors = actions::swapBrushColors,
                 onDismiss = { actions.onColorPickerDismissed() },
                 strings = strings,
                 savedPalette = palette,

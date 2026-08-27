@@ -1270,6 +1270,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     BrushStudioWindow(
                         draft = draft,
                         brushColor = uiState.activeColor,
+                        secondaryColor = uiState.secondaryColor,
                         isSaved = uiState.brushStudioEditingId != null,
                         onEdit = { edit -> vm.onEditBrushDraft(edit) },
                         onSave = { vm.onSaveBrushDraft() },

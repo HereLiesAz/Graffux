@@ -317,6 +317,8 @@ data class EditorUiState(
     val hudMessage: String? = null,
     val brushHudVisible: Boolean = false,
     val activeColor: Color = Color.White,
+    /** Krita-style background/secondary paint colour used by gradient Source/Mix brushes. */
+    val secondaryColor: Color = Color.Black,
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,
 

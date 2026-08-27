@@ -110,6 +110,7 @@ enum class BrushParameter {
     @SerialName("hue") HUE,
     @SerialName("saturation") SATURATION,
     @SerialName("value") VALUE,
+    @SerialName("mix") MIX,
     @SerialName("smudgeRate") SMUDGE_RATE,
     @SerialName("colorRate") COLOR_RATE,
     @SerialName("smudgeRadius") SMUDGE_RADIUS,
@@ -213,6 +214,8 @@ data class ResolvedBrushDynamics(
     val hueShiftDeg: Float = 0f,
     val saturationMultiplier: Float = 1f,
     val valueMultiplier: Float = 1f,
+    /** Absolute gradient coordinate supplied by the last MIX route; null means use brush.colorMix. */
+    val mixValue: Float? = null,
     val smudgeRateMultiplier: Float = 1f,
     val colorRateMultiplier: Float = 1f,
     val smudgeRadiusMultiplier: Float = 1f,
@@ -238,6 +241,7 @@ object BrushSensorEngine {
         var hue = 0f
         var saturation = 1f
         var value = 1f
+        var mix: Float? = null
         var smudgeRate = 1f
         var colorRate = 1f
         var smudgeRadius = 1f
@@ -255,6 +259,7 @@ object BrushSensorEngine {
                 BrushParameter.HUE -> hue += mapped
                 BrushParameter.SATURATION -> saturation *= mapped
                 BrushParameter.VALUE -> value *= mapped
+                BrushParameter.MIX -> mix = mapped
                 BrushParameter.SMUDGE_RATE -> smudgeRate *= mapped
                 BrushParameter.COLOR_RATE -> colorRate *= mapped
                 BrushParameter.SMUDGE_RADIUS -> smudgeRadius *= mapped
@@ -271,6 +276,7 @@ object BrushSensorEngine {
             hueShiftDeg = hue,
             saturationMultiplier = saturation.coerceAtLeast(0f),
             valueMultiplier = value.coerceAtLeast(0f),
+            mixValue = mix?.coerceIn(0f, 1f),
             smudgeRateMultiplier = smudgeRate.coerceAtLeast(0f),
             colorRateMultiplier = colorRate.coerceAtLeast(0f),
             smudgeRadiusMultiplier = smudgeRadius.coerceAtLeast(0.01f),
