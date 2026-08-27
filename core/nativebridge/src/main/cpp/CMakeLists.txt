@@ -30,7 +30,8 @@ set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
 # stamp.comp is authoritative. Regenerate the embedded SPIR-V at configure time so the checked-in
 # header can never drift from the shader source. Android NDK distributions include glslc under
-# shader-tools for each desktop host.
+# shader-tools for each desktop host. `-mfmt=c` already emits the surrounding `{ ... }`; do not add
+# another pair here or C++ sees an array initialized by one scalar subaggregate.
 find_program(GRAFFUX_GLSLC glslc
     HINTS
         "${ANDROID_NDK}/shader-tools/linux-x86_64"
@@ -52,7 +53,7 @@ if(NOT STAMP_GLSLC_RESULT EQUAL 0)
 endif()
 file(READ "${STAMP_SPV_BODY}" STAMP_SPV_C_WORDS)
 file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/StampSpv.h"
-"// Generated from stamp.comp at CMake configure time. Do not hand-edit.\n#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t kStampCompSpv[] = {${STAMP_SPV_C_WORDS}};\ninline constexpr size_t kStampCompSpvWords = sizeof(kStampCompSpv) / sizeof(kStampCompSpv[0]);\n}  // namespace graffux\n")
+"// Generated from stamp.comp at CMake configure time. Do not hand-edit.\n#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t kStampCompSpv[] = ${STAMP_SPV_C_WORDS};\ninline constexpr size_t kStampCompSpvWords = sizeof(kStampCompSpv) / sizeof(kStampCompSpv[0]);\n}  // namespace graffux\n")
 
 # Define the native library
 add_library(graffitixr SHARED
