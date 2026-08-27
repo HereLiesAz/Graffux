@@ -135,9 +135,6 @@ data class AzphaltBrush(
             fun s(key: String): String? =
                 (params?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             fun b(key: String): Boolean? = (params?.get(key) as? JsonPrimitive)?.booleanOrNull
-            fun <T> decode(key: String): T? = params?.get(key)?.let { element ->
-                runCatching { AzphaltJson.decodeFromJsonElement<T>(element) }.getOrNull()
-            }
 
             val dynamics = (params?.get("dynamics") as? JsonArray)
                 ?.mapNotNull { element ->
@@ -145,6 +142,15 @@ data class AzphaltBrush(
                 }
                 .orEmpty()
                 .map(BrushSensorBinding::sanitized)
+            val grainBehavior = params?.get("grainBehavior")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<GrainBehavior>(element) }.getOrNull()
+            } ?: GrainBehavior.MOVING
+            val grainBlendMode = params?.get("grainBlendMode")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<GrainBlendMode>(element) }.getOrNull()
+            } ?: GrainBlendMode.MULTIPLY
+            val maskedBrush = params?.get("maskedBrush")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<MaskedBrushConfig>(element) }.getOrNull()
+            }?.sanitized()
 
             return AzphaltBrush(
                 name = name,
@@ -161,13 +167,13 @@ data class AzphaltBrush(
                 grainPath = s("grain") ?: s("grainPath"),
                 grainScale = (f("grainScale") ?: 1f).coerceIn(0.05f, 16f),
                 grainStrength = (f("grainStrength") ?: 1f).coerceIn(0f, 1f),
-                grainBehavior = decode<GrainBehavior>("grainBehavior") ?: GrainBehavior.MOVING,
-                grainBlendMode = decode<GrainBlendMode>("grainBlendMode") ?: GrainBlendMode.MULTIPLY,
+                grainBehavior = grainBehavior,
+                grainBlendMode = grainBlendMode,
                 grainRandomOffsetPerStroke = b("grainRandomOffsetPerStroke") ?: false,
                 grainOffsetX = f("grainOffsetX") ?: 0f,
                 grainOffsetY = f("grainOffsetY") ?: 0f,
                 followStroke = b("followStroke") ?: false,
-                maskedBrush = decode<MaskedBrushConfig>("maskedBrush")?.sanitized(),
+                maskedBrush = maskedBrush,
                 dynamics = dynamics,
             ).sanitized()
         }
