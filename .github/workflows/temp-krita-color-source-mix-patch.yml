@@ -17,7 +17,9 @@ jobs:
           ref: feat/krita-color-source-mix
           fetch-depth: 0
       - name: Apply guarded patch
-        run: python3 .github/scripts/temp_krita_color_source_patch.py
+        run: |
+          python3 .github/scripts/fix_temp_krita_patch.py
+          python3 .github/scripts/temp_krita_color_source_patch.py
       - name: Commit patch and remove scaffolding
         run: |
           git config user.name "github-actions[bot]"
