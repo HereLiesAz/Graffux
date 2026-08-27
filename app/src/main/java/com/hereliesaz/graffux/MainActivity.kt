@@ -868,19 +868,38 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     val viewMoved = uiState.viewportZoom != 1f ||
                         uiState.viewportOffset != Offset.Zero ||
                         uiState.viewportRotation != 0f
-                    if (viewMoved) {
-                        FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
+
+                    // These are permanent positions, not a row of whichever buttons happen to exist.
+                    // Keeping all three 56dp slots mounted prevents the row from recentering when one
+                    // action becomes unavailable. Order is always Undo -> Reset -> Redo.
+                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        if (uiState.undoCount > 0) {
+                            FloatingActionButton(
+                                onClick = { vm.onUndoClicked() },
+                                containerColor = surfaceVariantColor,
+                            ) {
+                                Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
+                            }
                         }
                     }
-                    if (uiState.undoCount > 0) {
-                        FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
+                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        if (viewMoved) {
+                            FloatingActionButton(
+                                onClick = { vm.resetViewport() },
+                                containerColor = surfaceVariantColor,
+                            ) {
+                                Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
+                            }
                         }
                     }
-                    if (uiState.redoCount > 0) {
-                        FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
+                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        if (uiState.redoCount > 0) {
+                            FloatingActionButton(
+                                onClick = { vm.onRedoClicked() },
+                                containerColor = surfaceVariantColor,
+                            ) {
+                                Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
+                            }
                         }
                     }
                 }
