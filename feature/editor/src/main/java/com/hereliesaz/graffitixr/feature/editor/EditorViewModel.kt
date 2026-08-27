@@ -2952,6 +2952,12 @@ class EditorViewModel @Inject constructor(
                 layerScale, layerOffset, layerRotationZ
             )
 
+            if (mappedAll.isEmpty()) {
+                gpuEngine?.destroy()
+                workBitmap.recycle()
+                return@launch
+            }
+
             val bw = workBitmap.width.toFloat()
             val bh = workBitmap.height.toFloat()
             val mirrored = strokeSymmetry != SymmetryMode.NONE

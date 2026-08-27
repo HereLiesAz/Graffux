@@ -44,6 +44,9 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
+        <!-- Package visibility for GMS (Google Play Services) components, to help resolve
+             "Unknown calling package name" errors in modern Android versions. -->
+        <package android:name="com.google.android.gms" />
     </queries>
 
     <application
