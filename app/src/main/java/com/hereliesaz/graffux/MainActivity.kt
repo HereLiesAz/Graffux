@@ -116,6 +116,7 @@ import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
+import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -199,6 +200,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
@@ -1240,6 +1242,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetBrushFlow = { vm.setBrushFlow(it) },
                         brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
+                        colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },
+                        onSetColorSmudgeMode = { vm.setColorSmudgeMode(it) },
+                        onSetColorSmudgeRate = { vm.setColorSmudgeRate(it) },
+                        onSetColorSmudgeColorRate = { vm.setColorSmudgeColorRate(it) },
+                        onSetColorSmudgeRadius = { vm.setColorSmudgeRadius(it) },
+                        onSetColorSmudgeOpacity = { vm.setColorSmudgeOpacity(it) },
+                        onSetColorSmudgeAlphaCarry = { vm.setColorSmudgeAlphaCarry(it) },
                         symmetryMode = uiState.symmetryMode,
                         onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },

@@ -1,52 +1,29 @@
 #version 450
-// Phase 3 (docs/Native Rendering Engine Design.md §9): GPU dab compositor. One invocation per
-// output pixel; each invocation walks the dab list in submission order and applies the same
-// SRC_OVER-per-dab compositing StampBrushRenderer.paintDabs uses for the CPU round-tip path, so a
-// stroke rendered here at flow/opacity 1 is bit-identical to the CPU result.
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Mirrors BrushStamps.Dab (x, y, radius, alpha, angleDeg) plus padding to a 32-byte stride —
-// angleDeg is unused by the round generated tip (only the shape-stamp path in
-// StampBrushRenderer.paintDabs rotates, and that path is CPU-only for now), but the field is kept
-// so the Kotlin/JNI side can hand this struct across unmodified if a rotated tip is added later.
+// Explicit 3×vec4 std430 layout: exactly 48 bytes per dab, matching GpuDab's twelve floats.
+// This avoids relying on compiler-specific intuition about the array stride of a scalar-only struct.
+// Legacy JNI leaves paint1.z (`resolved`) zero, so existing callers keep using push-constant paint.
 struct Dab {
-    float x;
-    float y;
-    float radius;
-    float alpha;
-    float angleDeg;
-    float _pad0;
-    float _pad1;
-    float _pad2;
+    vec4 geometry; // x, y, radius, alpha
+    vec4 paint0;   // angleDeg, colorR, colorG, colorB
+    vec4 paint1;   // colorA, flow, resolved, padding
 };
 
-layout(std430, binding = 0) readonly buffer DabBuffer {
-    Dab dabs[];
-};
-
-// The persistent layer this stroke paints into. RGBA8, straight (non-premultiplied) alpha —
-// matches the ARGB_8888 Bitmap the CPU path reads back into.
+layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
 layout(binding = 1, rgba8) uniform image2D layerImage;
 
 layout(push_constant) uniform PushConstants {
     uint dabCount;
-    float hardness;   // brush.hardness, 0..1 — solid core radius fraction before the fade begins.
+    float hardness;
     float colorR;
     float colorG;
     float colorB;
-    float baseAlpha;  // brush color's own alpha channel, 0..1 (Color.alpha(colorArgb) / 255).
-    // Pixel-space offset of this dispatch's (0,0) workgroup corner within the full layer image —
-    // VulkanStampEngine::stampDabs dispatches only the workgroups covering this call's dabs'
-    // bounding box (padded by their radii), not the whole image, so a review-flagged O(pixels ×
-    // dabs) full-canvas scan doesn't run on every touch sample of a multi-thousand-pixel document.
-    // gl_GlobalInvocationID is relative to THIS dispatch, so it has to be re-based by this origin
-    // to get the real layer pixel coordinate.
+    float baseAlpha;
     int originX;
     int originY;
 } pc;
 
-// Same profile as BrushStamps.stampCoverage / StampBrushRenderer's radial gradient: solid out to
-// `hardness` of the radius, linearly fading to fully transparent at the radius edge.
 float stampCoverage(float distFromCenter, float radius, float hardness) {
     if (radius <= 0.0) return 0.0;
     float t = distFromCenter / radius;
@@ -64,31 +41,25 @@ void main() {
     vec4 dst = imageLoad(layerImage, pixel);
     vec2 p = vec2(pixel) + vec2(0.5);
 
-    vec3 srcRgb = vec3(pc.colorR, pc.colorG, pc.colorB);
     for (uint i = 0u; i < pc.dabCount; i++) {
         Dab d = dabs[i];
-        float radius = max(d.radius, 0.5);
-        // Skip pixels outside this dab's bounding box before paying for the sqrt below.
-        if (abs(p.x - d.x) > radius || abs(p.y - d.y) > radius) continue;
-
-        float dist = distance(p, vec2(d.x, d.y));
-        float coverage = stampCoverage(dist, radius, pc.hardness);
+        vec2 center = d.geometry.xy;
+        float radius = max(d.geometry.z, 0.5);
+        float dabAlpha = d.geometry.w;
+        if (abs(p.x - center.x) > radius || abs(p.y - center.y) > radius) continue;
+        float coverage = stampCoverage(distance(p, center), radius, pc.hardness);
         if (coverage <= 0.0) continue;
 
-        float srcA = pc.baseAlpha * d.alpha * coverage;
+        bool hasResolvedPaint = d.paint1.z >= 0.5;
+        vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);
+        float baseAlpha = hasResolvedPaint ? d.paint1.x : pc.baseAlpha;
+        float dabFlow = hasResolvedPaint ? max(d.paint1.y, 0.0) : 1.0;
+        float srcA = baseAlpha * dabAlpha * dabFlow * coverage;
         if (srcA <= 0.0) continue;
 
-        // Straight-alpha SRC_OVER: dst = src*srcA + dst*(1-srcA), a_dst = srcA + a_dst*(1-srcA).
         dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
         dst.a = srcA + dst.a * (1.0 - srcA);
-        // The CPU reference (StampBrushRenderer.paintDabs) draws each dab as a SEPARATE
-        // Canvas.drawCircle into an ARGB_8888 bitmap, so its destination is quantized to 8 bits
-        // between every dab — not just once at the end. Without this, N overlapping dabs blended
-        // here in full float precision diverge from N sequential 8-bit-quantized CPU blends even
-        // at flow/opacity 1, contradicting the bit-identical-at-full-opacity goal. round(x*255)/255
-        // matches how an 8-bit UNORM store/reload would quantize.
         dst = round(dst * 255.0) / 255.0;
     }
-
     imageStore(layerImage, pixel, dst);
 }

@@ -140,7 +140,7 @@ internal object StampBrushRenderer {
     }
 
     /** Avoid HSV conversion entirely for the overwhelmingly common identity/static dab. */
-    private fun resolvedColor(baseArgb: Int, dab: Dab): Int {
+    internal fun resolvedColor(baseArgb: Int, dab: Dab): Int {
         if (dab.hueShiftDeg == 0f &&
             dab.saturationMultiplier == 1f &&
             dab.valueMultiplier == 1f

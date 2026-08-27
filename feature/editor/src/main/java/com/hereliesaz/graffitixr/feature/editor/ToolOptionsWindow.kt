@@ -14,89 +14,81 @@ import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import kotlin.math.roundToInt
 
-/**
- * The dials that belong to whatever tool is currently in hand.
- *
- * These were rail sliders. A slider is the wrong thing to put on a rail of round buttons — it needs
- * a length to be usable and a read-out to be meaningful, and it has no "you let go" event, which is
- * why the two that wrote to history did so once per emitted frame. A panel gives all three for free.
- *
- * Only ever shows controls that mean something right now: the magic wand's threshold is absent
- * unless Automatic is the selection mode, and the feather is absent until there is a selection to
- * soften — the same conditions the rail items carried, kept so this never becomes a window of
- * controls that do nothing.
- *
- * Brush **size** and **feathering** are deliberately not here: they live on the drag pad in the
- * Adjust palette, which shows the actual brush footprint at the actual size while you set it. Two
- * controls for one value is what this whole clean-up is undoing.
- */
+/** Tool-specific controls; only controls meaningful to the current tool are surfaced. */
 @Composable
 fun ToolOptionsWindow(
     stabilizerLevel: Int,
     onSetStabilizerLevel: (Int) -> Unit,
     stabilizerAlgorithm: StabilizerAlgorithm,
     onSetStabilizerAlgorithm: (StabilizerAlgorithm) -> Unit,
-    /** Magic-wand threshold, 0..255, or null when Automatic is not the active selection mode. */
     magicWandTolerance: Int?,
     onSetMagicWandTolerance: (Int) -> Unit,
-    /** Selection edge softness in px, or null when there is no selection. */
     selectionFeatherPx: Float?,
     onSetSelectionFeather: (Float) -> Unit,
-    /**
-     * Stamp-brush flow, or null when the built-in round brush is in hand.
-     *
-     * It has no meaning for the round brush, and it used to share the brush pad's horizontal axis
-     * with hardness — the same drag doing two unrelated things depending on which brush was
-     * selected. The pad is hardness now; flow is a parameter of the brush, so it sits here.
-     */
     brushFlow: Float?,
     onSetBrushFlow: (Float) -> Unit,
-    /**
-     * Built-in round brush opacity, or null when an azphalt stamp brush is in hand (which uses
-     * [brushFlow] instead). A whole-stroke ceiling — unlike flow, it does not build up where a
-     * self-overlapping stroke crosses itself.
-     */
     brushOpacity: Float?,
     onSetBrushOpacity: (Float) -> Unit,
-    /**
-     * Which axis the symmetry guide mirrors across, or [SymmetryMode.NONE] when the guide is off.
-     * The mode picker below only appears once the guide is actually on — picking a mode while it's
-     * off would be a control with nothing to preview.
-     */
+    colorSmudgeSettings: ColorSmudgeEngine.Settings?,
+    onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -> Unit,
+    onSetColorSmudgeRate: (Float) -> Unit,
+    onSetColorSmudgeColorRate: (Float) -> Unit,
+    onSetColorSmudgeRadius: (Float) -> Unit,
+    onSetColorSmudgeOpacity: (Float) -> Unit,
+    onSetColorSmudgeAlphaCarry: (Boolean) -> Unit,
     symmetryMode: SymmetryMode,
     onSetSymmetryMode: (SymmetryMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     FloatingWindow(title = "Tool Options", onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (brushOpacity != null) {
                 Text("Opacity  ${(brushOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Caps how solid the stroke can get, even where it crosses itself.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                Text("Caps how solid the stroke can get, even where it crosses itself.", style = MaterialTheme.typography.labelSmall)
                 Slider(value = brushOpacity, onValueChange = onSetBrushOpacity, valueRange = 0f..1f)
             }
 
             if (brushFlow != null) {
                 Text("Flow  ${(brushFlow * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "How much paint each stamp lays down.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                Text("How much paint each stamp lays down.", style = MaterialTheme.typography.labelSmall)
                 Slider(value = brushFlow, onValueChange = onSetBrushFlow, valueRange = 0f..1f)
             }
 
+            colorSmudgeSettings?.let { smudge ->
+                Text("Color Smudge", style = MaterialTheme.typography.bodySmall)
+                ColorSmudgeEngine.Mode.entries.forEach { mode ->
+                    AzButton(
+                        text = if (mode == smudge.mode) "${mode.name.lowercase().replaceFirstChar { it.uppercase() }} ✓"
+                        else mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                        onClick = { onSetColorSmudgeMode(mode) },
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text("Smudge  ${(smudge.smudgeRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Slider(value = smudge.smudgeRate, onValueChange = onSetColorSmudgeRate, valueRange = 0f..1f)
+                Text("Color rate  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text("Adds the active colour independently of how much existing paint is moved.", style = MaterialTheme.typography.labelSmall)
+                Slider(value = smudge.colorRate, onValueChange = onSetColorSmudgeColorRate, valueRange = 0f..1f)
+                if (smudge.mode == ColorSmudgeEngine.Mode.DULLING) {
+                    Text("Sample radius  ${"%.2f".format(smudge.smudgeRadius)}×", style = MaterialTheme.typography.bodySmall)
+                    Slider(value = smudge.smudgeRadius, onValueChange = onSetColorSmudgeRadius, valueRange = 0.25f..3f)
+                }
+                Text("Smudge opacity  ${(smudge.opacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Slider(value = smudge.opacity, onValueChange = onSetColorSmudgeOpacity, valueRange = 0f..1f)
+                AzButton(
+                    text = if (smudge.smearAlpha) "Carry alpha ✓" else "Preserve destination alpha",
+                    onClick = { onSetColorSmudgeAlphaCarry(!smudge.smearAlpha) },
+                    shape = AzButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Text("Stabilize  $stabilizerLevel%", style = MaterialTheme.typography.bodySmall)
-            Text(
-                "Smooths jitter out of a drag before it becomes a stroke.",
-                style = MaterialTheme.typography.labelSmall,
-            )
+            Text("Smooths jitter out of a drag before it becomes a stroke.", style = MaterialTheme.typography.labelSmall)
             Slider(
                 value = stabilizerLevel.toFloat(),
                 onValueChange = { onSetStabilizerLevel(it.roundToInt()) },
@@ -114,14 +106,8 @@ fun ToolOptionsWindow(
             }
 
             if (magicWandTolerance != null) {
-                Text(
-                    "Threshold  ${(magicWandTolerance / 255f * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "How far from the tapped colour still counts as the same colour.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                Text("Threshold  ${(magicWandTolerance / 255f * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text("How far from the tapped colour still counts as the same colour.", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = magicWandTolerance.toFloat(),
                     onValueChange = { onSetMagicWandTolerance(it.roundToInt()) },
@@ -131,24 +117,12 @@ fun ToolOptionsWindow(
 
             if (selectionFeatherPx != null) {
                 Text("Feather  ${selectionFeatherPx.roundToInt()} px", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Softens the boundary of the current selection. Stored on the selection, so it " +
-                        "travels when the region moves.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                Slider(
-                    value = selectionFeatherPx,
-                    onValueChange = onSetSelectionFeather,
-                    valueRange = 0f..64f,
-                )
+                Text("Softens the boundary of the current selection.", style = MaterialTheme.typography.labelSmall)
+                Slider(value = selectionFeatherPx, onValueChange = onSetSelectionFeather, valueRange = 0f..64f)
             }
 
             if (symmetryMode != SymmetryMode.NONE) {
                 Text("Symmetry", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Which axis strokes mirror across while the guide is on.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
                 SymmetryMode.entries.filter { it != SymmetryMode.NONE }.forEach { mode ->
                     AzButton(
                         text = if (mode == symmetryMode) "${mode.label} ✓" else mode.label,

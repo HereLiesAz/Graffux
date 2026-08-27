@@ -13,19 +13,42 @@ struct AHardwareBuffer;
 
 namespace graffux {
 
-// One dab, laid out to match BrushStamps.Dab (x, y, radius, alpha, angleDeg) plus padding to a
-// 32-byte stride — see shaders/stamp.comp's `Dab` struct, which this must stay binary-identical
-// to (std430 layout rules pad a 5-float struct to 8 floats / 32 bytes regardless, so the padding
-// here just makes that explicit instead of relying on the compiler to insert it invisibly).
+// One dab. The first five fields are the historical ABI. The resolved paint fields widen the
+// buffer to 12 floats / 48 bytes; old aggregate initializers that provide only five values leave
+// `resolved` at zero, so the shader falls back to the stroke-level push-constant colour exactly as
+// before. New callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
+// shaders/stamp.comp.
 struct GpuDab {
     float x;
     float y;
     float radius;
     float alpha;
     float angleDeg;
-    float pad0;
-    float pad1;
-    float pad2;
+    float colorR = 0.0f;
+    float colorG = 0.0f;
+    float colorB = 0.0f;
+    float colorA = 0.0f;
+    float flow = 0.0f;
+    float resolved = 0.0f;
+    float pad0 = 0.0f;
+};
+static_assert(sizeof(GpuDab) == 48, "GpuDab must match the shader's 3xvec4 std430 record");
+
+struct ColorSmudgeDab {
+    float x;
+    float y;
+    float smudgeRate;
+    float colorRate;
+    float opacity;
+    float smudgeRadius;
+};
+
+struct ColorSmudgeBenchmarkInfo {
+    uint32_t vendorId = 0;
+    uint32_t deviceId = 0;
+    uint32_t selectedTileSize = 0;
+    uint64_t nanos8 = 0;
+    uint64_t nanos16 = 0;
 };
 
 /**
@@ -95,6 +118,12 @@ public:
     // (returns false) if the engine failed init() or `dabs` is empty.
     bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness);
 
+    // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
+    // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
+    bool colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
+                     float feathering, bool smearAlpha, uint32_t paintColorArgb);
+    ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const { return smudgeBenchmark_; }
+
     // Blocks until all dispatched work completes, then reads the layer image back into
     // `outRgba8`, which must be at least width*height*4 bytes (RGBA8, straight alpha, row-major,
     // no padding — the same layout AndroidBitmap_lockPixels hands back for ARGB_8888, modulo the
@@ -121,6 +150,14 @@ private:
     bool createDescriptorAndPipeline();
     bool createDabBuffer(size_t dabCount);
     bool allocateCommandBuffer();
+
+    bool ensureColorSmudgePipelines();
+    bool ensureColorSmudgeCarrier(size_t pixelCount);
+    bool benchmarkColorSmudge(float radiusPx);
+    bool runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
+                            float feathering, bool smearAlpha, uint32_t paintColorArgb,
+                            VkPipeline pipeline, uint32_t tileSize);
+    void destroyColorSmudgeResources();
 
     int32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const;
     // Records a barrier moving layerImage_ from its current tracked layout to GENERAL, if it isn't
@@ -165,6 +202,21 @@ private:
     // implementations, so this indirection is required, not an optimization.
     VkBuffer dabStagingBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory dabStagingBufferMemory_ = VK_NULL_HANDLE;
+
+    // Lazily-created Color Smudge resources. They live on the same persistent layer image as the
+    // stamp compositor and survive Kotlin wrapper release while the native handle sits in the pool.
+    VkBuffer smudgeCarrier_ = VK_NULL_HANDLE;
+    VkDeviceMemory smudgeCarrierMemory_ = VK_NULL_HANDLE;
+    size_t smudgeCarrierCapacity_ = 0;
+    VkDescriptorSetLayout smudgeDescriptorSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool smudgeDescriptorPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet smudgeDescriptorSet_ = VK_NULL_HANDLE;
+    VkPipelineLayout smudgePipelineLayout_ = VK_NULL_HANDLE;
+    VkShaderModule smudgeShader8_ = VK_NULL_HANDLE;
+    VkShaderModule smudgeShader16_ = VK_NULL_HANDLE;
+    VkPipeline smudgePipeline8_ = VK_NULL_HANDLE;
+    VkPipeline smudgePipeline16_ = VK_NULL_HANDLE;
+    ColorSmudgeBenchmarkInfo smudgeBenchmark_{};
 
     VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
