@@ -15,11 +15,17 @@ class ColorSmudgeDynamicsTest {
         if (i % width < width / 4) Color.RED else Color.WHITE
     }
 
+    // Plain JVM Android tests use the mockable android.jar, whose Color.red()/green() methods are
+    // stubs. Read packed ARGB directly so these assertions measure the engine output rather than a
+    // framework stub. Color.RED/GREEN/WHITE themselves are compile-time constants and are safe.
+    private fun red(argb: Int): Int = argb ushr 16 and 0xFF
+    private fun green(argb: Int): Int = argb ushr 8 and 0xFF
+
     private fun reach(px: IntArray, width: Int, y: Int): Int {
         var out = width / 4 - 1
         for (x in width / 4 until width) {
             val p = px[y * width + x]
-            if (Color.red(p) - Color.green(p) > 20) out = x
+            if (red(p) - green(p) > 20) out = x
         }
         return out
     }
@@ -73,8 +79,10 @@ class ColorSmudgeDynamicsTest {
         )
         ColorSmudgeEngine.apply(low, w, h, points, settings, samples(0f), 7L)
         ColorSmudgeEngine.apply(high, w, h, points, settings, samples(1f), 7L)
-        val lowGreen = Color.green(low[12 * w + 20]) - Color.red(low[12 * w + 20])
-        val highGreen = Color.green(high[12 * w + 20]) - Color.red(high[12 * w + 20])
+        val lowPixel = low[12 * w + 20]
+        val highPixel = high[12 * w + 20]
+        val lowGreen = green(lowPixel) - red(lowPixel)
+        val highGreen = green(highPixel) - red(highPixel)
         assertTrue("pressure-driven Color Rate should deposit more green", highGreen > lowGreen)
     }
 }
