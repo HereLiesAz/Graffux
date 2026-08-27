@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
 /**
@@ -130,6 +131,42 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
+
+        // Color Smudge is a stateful read/modify/write paint-op, not a Canvas blend. Keep its
+        // correctness path separate from ImageProcessor's generic raster-tool switch so Smear,
+        // Dulling and paint deposition can evolve together and later move to Vulkan as one unit.
+        // The current Tool.SMUDGE maps exactly onto the historical Smear preset: no foreground paint,
+        // carry alpha, and the same intensity->retention curve the previous implementation used.
+        if (stroke.tool == Tool.SMUDGE) {
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val width = target.width
+            val height = target.height
+            val pixels = IntArray(width * height)
+            target.getPixels(pixels, 0, width, 0, 0, width, height)
+            ColorSmudgeEngine.apply(
+                pixels,
+                width,
+                height,
+                mapped,
+                ColorSmudgeEngine.Settings(
+                    mode = ColorSmudgeEngine.Mode.SMEAR,
+                    smudgeRate = 0.35f + stroke.intensity.coerceIn(0f, 1f) * 0.6f,
+                    colorRate = 0f,
+                    opacity = 1f,
+                    radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
+                    feathering = stroke.feathering,
+                    smearAlpha = true,
+                    paintColor = stroke.brushColor,
+                    symmetryMode = stroke.symmetryMode,
+                ),
+            )
+            target.setPixels(pixels, 0, width, 0, 0, width, height)
+            // The engine produces a whole bitmap and cannot obey a Canvas clip mid-pass, so this is
+            // the same confinement contract Liquify uses: hard selections are replaced through a
+            // clip, feathered ones through a soft mask.
+            return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
+        }
+
         return SelectionMask.feather(
             bitmap,
             ImageProcessor.applyToolToBitmap(
