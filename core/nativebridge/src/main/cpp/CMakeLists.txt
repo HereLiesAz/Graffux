@@ -3,8 +3,6 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("graffitixr_native")
 
-# Google Ink Stroke Modeler requires C++20. Pinning it keeps prediction behaviour reproducible and
-# prevents an upstream main-branch change from silently changing Graffux's stroke feel.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -19,19 +17,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ink_stroke_modeler)
 
-# OpenCV is imported from Maven Central (org.opencv:opencv). Since 4.9.0 that artifact ships a
-# Prefab part, so with `buildFeatures { prefab = true }` in build.gradle.kts, AGP generates a CMake
-# config package for it — nothing to vendor, fetch, or point OpenCV_DIR at. The package name is
-# `OpenCV` and it exposes the imported target `OpenCV::opencv_java5` (headers + libopencv_java5.so).
 find_package(OpenCV REQUIRED CONFIG)
-
-# Set GLM include directory (header-only, committed under libs/glm)
 set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
-# stamp.comp is authoritative. Regenerate the embedded SPIR-V at configure time so the checked-in
-# header can never drift from the shader source. Android NDK distributions include glslc under
-# shader-tools for each desktop host. `-mfmt=c` already emits the surrounding `{ ... }`; do not add
-# another pair here or C++ sees an array initialized by one scalar subaggregate.
+# GLSL source is authoritative. NDK glslc compiles the stamp shader plus two semantically identical
+# Color Smudge workgroup strategies. The generated C++ headers live in the build tree, not source,
+# so configuring a build never dirties the checkout. `-mfmt=c` already emits `{ ... }`.
 find_program(GRAFFUX_GLSLC glslc
     HINTS
         "${ANDROID_NDK}/shader-tools/linux-x86_64"
@@ -40,22 +31,44 @@ find_program(GRAFFUX_GLSLC glslc
     NO_DEFAULT_PATH
 )
 if(NOT GRAFFUX_GLSLC)
-    message(FATAL_ERROR "NDK glslc not found; cannot regenerate shaders/StampSpv.h")
+    message(FATAL_ERROR "NDK glslc not found")
 endif()
-set(STAMP_SPV_BODY "${CMAKE_CURRENT_BINARY_DIR}/stamp_spv_body.inc")
-execute_process(
-    COMMAND "${GRAFFUX_GLSLC}" -O -mfmt=c --target-env=vulkan1.1
-            -o "${STAMP_SPV_BODY}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
-    RESULT_VARIABLE STAMP_GLSLC_RESULT
-)
-if(NOT STAMP_GLSLC_RESULT EQUAL 0)
-    message(FATAL_ERROR "glslc failed for shaders/stamp.comp: ${STAMP_GLSLC_RESULT}")
-endif()
-file(READ "${STAMP_SPV_BODY}" STAMP_SPV_C_WORDS)
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/StampSpv.h"
-"// Generated from stamp.comp at CMake configure time. Do not hand-edit.\n#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t kStampCompSpv[] = ${STAMP_SPV_C_WORDS};\ninline constexpr size_t kStampCompSpvWords = sizeof(kStampCompSpv) / sizeof(kStampCompSpv[0]);\n}  // namespace graffux\n")
+set(GENERATED_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated-shaders")
+file(MAKE_DIRECTORY "${GENERATED_SHADER_DIR}")
 
-# Define the native library
+function(graffux_embed_shader SOURCE OUTPUT_HEADER SYMBOL)
+    set(BODY "${GENERATED_SHADER_DIR}/${SYMBOL}.inc")
+    execute_process(
+        COMMAND "${GRAFFUX_GLSLC}" -O -mfmt=c --target-env=vulkan1.1 ${ARGN}
+                -o "${BODY}" "${SOURCE}"
+        RESULT_VARIABLE GLSLC_RESULT
+    )
+    if(NOT GLSLC_RESULT EQUAL 0)
+        message(FATAL_ERROR "glslc failed for ${SOURCE}: ${GLSLC_RESULT}")
+    endif()
+    file(READ "${BODY}" WORDS)
+    file(WRITE "${GENERATED_SHADER_DIR}/${OUTPUT_HEADER}"
+"#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t ${SYMBOL}[] = ${WORDS};\ninline constexpr size_t ${SYMBOL}Words = sizeof(${SYMBOL}) / sizeof(${SYMBOL}[0]);\n}  // namespace graffux\n")
+endfunction()
+
+graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
+    "StampSpv.h"
+    "kStampCompSpv"
+)
+graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
+    "ColorSmudge8Spv.h"
+    "kColorSmudge8CompSpv"
+    -DTILE_SIZE=8
+)
+graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
+    "ColorSmudge16Spv.h"
+    "kColorSmudge16CompSpv"
+    -DTILE_SIZE=16
+)
+
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
     MobileGS.cpp
@@ -68,28 +81,21 @@ add_library(graffitixr SHARED
     VulkanStampEngine.cpp
     VulkanStampEngineReuse.cpp
     VulkanStampDynamicsJNI.cpp
+    VulkanColorSmudge.cpp
+    VulkanColorSmudgeJNI.cpp
     InkStrokePredictorJNI.cpp
 )
 
-# Include directories. Google Ink's public headers are rooted at the fetched repository itself
-# (`ink_stroke_modeler/...`); its target does not propagate that root to consumers on Android.
-# OpenCV's headers arrive through its imported target's INTERFACE_INCLUDE_DIRECTORIES.
 target_include_directories(graffitixr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${GENERATED_SHADER_DIR}
     ${GLM_DIR}
     ${ink_stroke_modeler_SOURCE_DIR}
 )
 
-# Find required Android libraries
 find_library(log-lib log)
-# libvulkan.so ships in the NDK's platform sysroot for API 24+ (Graffux's ABIs both carry it);
-# VulkanStampEngine.cpp is compute-only (no VK_KHR_android_surface), so no Vulkan validation
-# layers or loader beyond this system library are needed.
 find_library(vulkan-lib vulkan)
 
-# Link libraries - OpenGL ES 3.0 for splat rendering, jnigraphics for Bitmap manipulation,
-# vulkan for VulkanStampEngine's GPU dab compositor (docs/Native Rendering Engine Design.md §9).
-# OpenCV::opencv_java5 carries both the include dirs and the shared library to link against.
 target_link_libraries(graffitixr
     ${log-lib}
     OpenCV::opencv_java5
