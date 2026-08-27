@@ -13,14 +13,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34])
 class KritaTipTextureMaskTest {
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun setUp() = RenderTestBase.stubNativeLibs()
+    }
 
     @After
     fun clearCache() {
