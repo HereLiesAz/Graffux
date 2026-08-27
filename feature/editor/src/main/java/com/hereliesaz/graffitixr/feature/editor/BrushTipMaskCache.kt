@@ -17,6 +17,10 @@ import kotlin.math.roundToInt
  * Sensor/path code resolves *what* a dab should look like. This cache owns the expensive raster form
  * of reusable tip masks and processed grain tiles. The cache key contains only values that can alter
  * those pixels; position, colour, opacity and stroke seed stay out because they are applied later.
+ *
+ * Evicted bitmaps are deliberately not recycled: live preview and history replay may run on different
+ * workers and can still hold a returned mask after it leaves the LRU. Normal Bitmap/GC ownership is
+ * safer than creating a recycled-bitmap race in the painting hot path.
  */
 internal object BrushTipMaskCache {
     private const val MAX_CACHE_BYTES = 16 * 1024 * 1024
@@ -36,16 +40,10 @@ internal object BrushTipMaskCache {
 
     private val tips = object : LruCache<TipKey, Bitmap>(MAX_CACHE_BYTES) {
         override fun sizeOf(key: TipKey, value: Bitmap): Int = value.allocationByteCount
-        override fun entryRemoved(evicted: Boolean, key: TipKey, oldValue: Bitmap, newValue: Bitmap?) {
-            if (evicted && oldValue !== newValue && !oldValue.isRecycled) oldValue.recycle()
-        }
     }
 
     private val grains = object : LruCache<GrainKey, Bitmap>(MAX_CACHE_BYTES / 2) {
         override fun sizeOf(key: GrainKey, value: Bitmap): Int = value.allocationByteCount
-        override fun entryRemoved(evicted: Boolean, key: GrainKey, oldValue: Bitmap, newValue: Bitmap?) {
-            if (evicted && oldValue !== newValue && !oldValue.isRecycled) oldValue.recycle()
-        }
     }
 
     @Synchronized
@@ -89,10 +87,8 @@ internal object BrushTipMaskCache {
             val g = luminance * alpha
             val modeFactor = when (mode) {
                 GrainBlendMode.MULTIPLY -> g
-                // Krita's Subtract is intentionally harsher than Multiply.
                 GrainBlendMode.SUBTRACT -> (2f * g - 1f).coerceIn(0f, 1f)
                 GrainBlendMode.DARKEN -> g
-                // Soft texture: preserve more untextured coverage than Multiply.
                 GrainBlendMode.OVERLAY -> (0.5f + 0.5f * g).coerceIn(0f, 1f)
             }
             val pass = (1f - s) + s * modeFactor
