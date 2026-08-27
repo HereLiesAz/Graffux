@@ -1,0 +1,145 @@
+#version 450
+
+#ifndef TILE_SIZE
+#define TILE_SIZE 16
+#endif
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
+
+layout(binding = 0, rgba8) uniform image2D layerImage;
+layout(std430, binding = 1) buffer CarrierBuffer { vec4 carrier[]; };
+
+// One pipeline handles all ordered Color Smudge stages. C++ submits phases sequentially with
+// compute->compute barriers between them, so every dab reads the pixels written by the previous dab.
+layout(push_constant) uniform SmudgePush {
+    int phase;          // 0 seed carrier, 1 Smear, 2 Dulling sample, 3 Dulling deposit
+    int centerX;
+    int centerY;
+    int radius;
+    int sampleRadius;
+    int smearAlpha;
+    int originX;
+    int originY;
+    float soft;
+    float smudgeRate;
+    float colorRate;
+    float opacity;
+    float paintR;
+    float paintG;
+    float paintB;
+    float paintA;
+} pc;
+
+float brushMask(int dx, int dy) {
+    float r = float(max(pc.radius, 1));
+    float t = length(vec2(float(dx), float(dy))) / r;
+    if (t >= 1.0) return 0.0;
+    if (t <= 1.0 - pc.soft) return 1.0;
+    float u = (1.0 - t) / pc.soft;
+    return u * u * (3.0 - 2.0 * u);
+}
+
+vec4 rounded8(vec4 v) {
+    return round(clamp(v, 0.0, 1.0) * 255.0) / 255.0;
+}
+
+vec4 lerpArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
+    float f = clamp(t, 0.0, 1.0);
+    vec4 outColor = mix(a, b, f);
+    if (!includeAlpha) outColor.a = a.a;
+    return rounded8(outColor);
+}
+
+bool inLayer(ivec2 p) {
+    ivec2 size = imageSize(layerImage);
+    return p.x >= 0 && p.y >= 0 && p.x < size.x && p.y < size.y;
+}
+
+void seedCarrier() {
+    int diameter = pc.radius * 2 + 1;
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (local.x >= diameter || local.y >= diameter) return;
+    int dx = local.x - pc.radius;
+    int dy = local.y - pc.radius;
+    ivec2 size = imageSize(layerImage);
+    ivec2 src = clamp(ivec2(pc.centerX + dx, pc.centerY + dy), ivec2(0), size - ivec2(1));
+    carrier[local.y * diameter + local.x] = imageLoad(layerImage, src);
+}
+
+void smearDab() {
+    int diameter = pc.radius * 2 + 1;
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (local.x >= diameter || local.y >= diameter) return;
+    int dx = local.x - pc.radius;
+    int dy = local.y - pc.radius;
+    float mask = brushMask(dx, dy);
+    if (mask <= 0.0) return;
+    ivec2 dstPos = ivec2(pc.centerX + dx, pc.centerY + dy);
+    if (!inLayer(dstPos)) return;
+
+    int k = local.y * diameter + local.x;
+    vec4 under = imageLoad(layerImage, dstPos);
+    vec4 carried = lerpArgb(under, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
+    carrier[k] = carried;
+    vec4 outColor = lerpArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
+    if (pc.colorRate > 0.0) {
+        vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
+        outColor = lerpArgb(outColor, paint, mask * pc.opacity * pc.colorRate, true);
+    }
+    imageStore(layerImage, dstPos, outColor);
+}
+
+void dullSample() {
+    // Exactly one invocation performs the weighted neighbourhood reduction. This correctness-first
+    // reduction deliberately matches the CPU reference before any subgroup/tiled optimization.
+    if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
+    int sr = max(pc.sampleRadius, 1);
+    vec4 sum = vec4(0.0);
+    float sumW = 0.0;
+    for (int dy = -sr; dy <= sr; ++dy) {
+        for (int dx = -sr; dx <= sr; ++dx) {
+            float distancePx = length(vec2(float(dx), float(dy)));
+            if (distancePx > float(sr)) continue;
+            ivec2 p = ivec2(pc.centerX + dx, pc.centerY + dy);
+            if (!inLayer(p)) continue;
+            float weight = clamp(1.0 - distancePx / float(sr), 0.0, 1.0);
+            if (weight <= 0.0) continue;
+            sum += imageLoad(layerImage, p) * weight;
+            sumW += weight;
+        }
+    }
+    if (sumW > 0.0) {
+        carrier[0] = rounded8(sum / sumW);
+    } else {
+        ivec2 p = ivec2(pc.centerX, pc.centerY);
+        carrier[0] = inLayer(p) ? imageLoad(layerImage, p) : vec4(0.0);
+    }
+}
+
+void dullDeposit() {
+    int diameter = pc.radius * 2 + 1;
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (local.x >= diameter || local.y >= diameter) return;
+    int dx = local.x - pc.radius;
+    int dy = local.y - pc.radius;
+    float mask = brushMask(dx, dy);
+    if (mask <= 0.0) return;
+    ivec2 dstPos = ivec2(pc.centerX + dx, pc.centerY + dy);
+    if (!inLayer(dstPos)) return;
+
+    vec4 under = imageLoad(layerImage, dstPos);
+    vec4 outColor = lerpArgb(
+        under, carrier[0], mask * pc.opacity * pc.smudgeRate, pc.smearAlpha != 0
+    );
+    if (pc.colorRate > 0.0) {
+        vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
+        outColor = lerpArgb(outColor, paint, mask * pc.opacity * pc.colorRate, true);
+    }
+    imageStore(layerImage, dstPos, outColor);
+}
+
+void main() {
+    if (pc.phase == 0) seedCarrier();
+    else if (pc.phase == 1) smearDab();
+    else if (pc.phase == 2) dullSample();
+    else if (pc.phase == 3) dullDeposit();
+}
