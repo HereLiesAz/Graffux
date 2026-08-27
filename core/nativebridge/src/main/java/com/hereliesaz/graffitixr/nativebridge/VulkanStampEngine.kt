@@ -134,6 +134,48 @@ class VulkanStampEngine {
         return nativeStampResolvedDabs(nativeHandle, flat, hardness).also { if (!it) healthy = false }
     }
 
+    /** Persistent Color Smudge pass. The image must already be seeded with [upload]. */
+    fun colorSmudge(
+        dabs: List<ColorSmudgeDab>,
+        mode: Int,
+        radiusPx: Float,
+        feathering: Float,
+        smearAlpha: Boolean,
+        paintColorArgb: Int,
+    ): Boolean {
+        if (!isInitialized || dabs.size < 2) return false
+        val flat = FloatArray(dabs.size * 6)
+        for (i in dabs.indices) {
+            val d = dabs[i]
+            val base = i * 6
+            flat[base] = d.x
+            flat[base + 1] = d.y
+            flat[base + 2] = d.smudgeRate
+            flat[base + 3] = d.colorRate
+            flat[base + 4] = d.opacity
+            flat[base + 5] = d.smudgeRadius
+        }
+        val ok = nativeColorSmudge(
+            nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb,
+        )
+        if (!ok) healthy = false
+        return ok
+    }
+
+    /** Benchmark result chosen on this Vulkan physical device after the first Smudge call. */
+    fun colorSmudgeBenchmarkInfo(): ColorSmudgeBenchmarkInfo? {
+        if (!isInitialized) return null
+        val values = nativeColorSmudgeBenchmarkInfo(nativeHandle) ?: return null
+        if (values.size < 5 || values[2] == 0L) return null
+        return ColorSmudgeBenchmarkInfo(
+            vendorId = values[0].toInt(),
+            deviceId = values[1].toInt(),
+            selectedTileSize = values[2].toInt(),
+            nanos8 = values[3],
+            nanos16 = values[4],
+        )
+    }
+
     fun readback(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) { "VulkanStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }
@@ -161,11 +203,38 @@ class VulkanStampEngine {
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, hardness: Float): Boolean
+    private external fun nativeColorSmudge(
+        handle: Long,
+        dabData: FloatArray,
+        mode: Int,
+        radiusPx: Float,
+        feathering: Float,
+        smearAlpha: Boolean,
+        paintColorArgb: Int,
+    ): Boolean
+    private external fun nativeColorSmudgeBenchmarkInfo(handle: Long): LongArray?
     private external fun nativeReadback(handle: Long, outBitmap: Bitmap): Boolean
     private external fun nativeDestroy(handle: Long)
 }
 
 data class BrushDab(val x: Float, val y: Float, val radius: Float, val alpha: Float, val angleDeg: Float)
+
+data class ColorSmudgeDab(
+    val x: Float,
+    val y: Float,
+    val smudgeRate: Float,
+    val colorRate: Float,
+    val opacity: Float,
+    val smudgeRadius: Float,
+)
+
+data class ColorSmudgeBenchmarkInfo(
+    val vendorId: Int,
+    val deviceId: Int,
+    val selectedTileSize: Int,
+    val nanos8: Long,
+    val nanos16: Long,
+)
 
 data class ResolvedBrushDab(
     val x: Float,

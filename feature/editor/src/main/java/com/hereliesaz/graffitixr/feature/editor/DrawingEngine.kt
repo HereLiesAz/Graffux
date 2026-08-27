@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
+import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
@@ -139,8 +141,6 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val width = target.width
             val height = target.height
-            val pixels = IntArray(width * height)
-            target.getPixels(pixels, 0, width, 0, 0, width, height)
             val baseSettings = stroke.colorSmudgeSettings ?: ColorSmudgeEngine.Settings(
                 mode = ColorSmudgeEngine.Mode.SMEAR,
                 smudgeRate = 0.35f + stroke.intensity.coerceIn(0f, 1f) * 0.6f,
@@ -154,22 +154,53 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                     sample.copy(x = point.x, y = point.y, predicted = false)
                 }
             } else emptyList()
-            ColorSmudgeEngine.apply(
-                pixels,
-                width,
-                height,
-                mapped,
-                baseSettings.copy(
-                    radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
-                    feathering = stroke.feathering,
-                    wrapAround = false,
-                    paintColor = stroke.brushColor,
-                    symmetryMode = stroke.symmetryMode,
-                ),
-                samples = mappedSamples,
-                strokeSeed = stroke.seed,
+            val settings = baseSettings.copy(
+                radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
+                feathering = stroke.feathering,
+                wrapAround = false,
+                paintColor = stroke.brushColor,
+                symmetryMode = stroke.symmetryMode,
             )
-            target.setPixels(pixels, 0, width, 0, 0, width, height)
+            val plans = ColorSmudgeEngine.resolvePlans(
+                mapped, width, height, settings, mappedSamples, stroke.seed,
+            )
+
+            // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
+            // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
+            // discard the possibly-partial target and recompute from the pristine CPU source below.
+            val gpuPainted = runCatching {
+                val engine = VulkanStampEngine()
+                try {
+                    if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
+                    val mode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                    for (plan in plans) {
+                        if (plan.dabs.size < 2) continue
+                        val nativeDabs = plan.dabs.map { dab ->
+                            ColorSmudgeDab(
+                                dab.x, dab.y, dab.smudgeRate, dab.colorRate,
+                                dab.opacity, dab.smudgeRadius,
+                            )
+                        }
+                        if (!engine.colorSmudge(
+                                nativeDabs, mode, settings.radiusPx, settings.feathering,
+                                settings.smearAlpha, settings.paintColor,
+                            )) return@runCatching false
+                    }
+                    engine.readback(target)
+                } finally {
+                    engine.destroy()
+                }
+            }.getOrDefault(false)
+
+            if (!gpuPainted) {
+                val pixels = IntArray(width * height)
+                bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                ColorSmudgeEngine.apply(
+                    pixels, width, height, mapped, settings,
+                    samples = mappedSamples, strokeSeed = stroke.seed,
+                )
+                target.setPixels(pixels, 0, width, 0, 0, width, height)
+            }
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 

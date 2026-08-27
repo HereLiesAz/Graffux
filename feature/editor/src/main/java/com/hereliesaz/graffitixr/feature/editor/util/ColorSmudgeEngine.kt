@@ -53,12 +53,70 @@ object ColorSmudgeEngine {
 
     private data class DabPoint(val position: Offset, val sample: BrushSample?)
 
+    /** Renderer-neutral, per-dab Color Smudge instruction. */
+    data class ResolvedDab(
+        val x: Float,
+        val y: Float,
+        val smudgeRate: Float,
+        val colorRate: Float,
+        val opacity: Float,
+        val smudgeRadius: Float,
+    )
+
+    /** One ordered carrier lifetime. Symmetry twins are separate plans so Smear reseeds each one. */
+    data class ResolvedPlan(val dabs: List<ResolvedDab>)
+
     private data class Resolved(
         val smudgeRate: Float,
         val colorRate: Float,
         val opacity: Float,
         val smudgeRadius: Float,
     )
+
+
+    /**
+     * Resolves the exact resampling and sensor curves the CPU implementation uses into renderer-
+     * neutral dabs. Vulkan consumes this plan rather than reimplementing input/sensor semantics.
+     */
+    fun resolvePlans(
+        stroke: List<Offset>,
+        width: Int,
+        height: Int,
+        settings: Settings,
+        samples: List<BrushSample> = emptyList(),
+        strokeSeed: Long = 0L,
+    ): List<ResolvedPlan> {
+        if (stroke.isEmpty() || width <= 0 || height <= 0) return emptyList()
+        fun one(points: List<Offset>, telemetry: List<BrushSample>): ResolvedPlan {
+            val radius = settings.radiusPx.coerceAtLeast(1f)
+            val path = resampleWithTelemetry(points, telemetry, (radius / 2f).coerceAtLeast(1f))
+            val startTime = telemetry.firstOrNull()?.uptimeMillis ?: 0L
+            return ResolvedPlan(path.mapIndexed { index, dab ->
+                val r = resolve(settings, dab.sample, startTime, strokeSeed, index)
+                ResolvedDab(
+                    x = dab.position.x,
+                    y = dab.position.y,
+                    smudgeRate = r.smudgeRate,
+                    colorRate = r.colorRate,
+                    opacity = r.opacity,
+                    smudgeRadius = r.smudgeRadius,
+                )
+            })
+        }
+
+        val plans = ArrayList<ResolvedPlan>()
+        plans += one(stroke, samples)
+        for (transform in symmetryTransforms(settings.symmetryMode, width.toFloat(), height.toFloat())) {
+            val transformedSamples = if (samples.size == stroke.size) {
+                samples.map { sample ->
+                    val pos = transform(Offset(sample.x, sample.y))
+                    sample.copy(x = pos.x, y = pos.y, predicted = false)
+                }
+            } else emptyList()
+            plans += one(stroke.map(transform), transformedSamples)
+        }
+        return plans
+    }
 
     fun apply(
         pixels: IntArray,
