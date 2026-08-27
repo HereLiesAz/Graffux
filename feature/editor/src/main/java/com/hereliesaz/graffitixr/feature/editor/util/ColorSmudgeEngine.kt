@@ -335,11 +335,12 @@ object ColorSmudgeEngine {
                 val rad = Math.toRadians(60.0 * k)
                 val c = cos(rad).toFloat()
                 val s = sin(rad).toFloat()
-                { p: Offset ->
+                val transform: (Offset) -> Offset = { p ->
                     val dx = p.x - cx
                     val dy = p.y - cy
                     Offset(cx + dx * c - dy * s, cy + dx * s + dy * c)
                 }
+                transform
             }
         }
     }
