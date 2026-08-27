@@ -19,7 +19,7 @@ internal data class ToolEntry(val id: String, val label: String, val icon: Int)
 internal val TOOL_CATALOG: Map<Tool, ToolEntry> = mapOf(
     Tool.BRUSH to ToolEntry("tool.brush", "Brush", GraffuxIcons.Brush),
     Tool.ERASER to ToolEntry("tool.eraser", "Eraser", GraffuxIcons.Eraser),
-    Tool.FILL to ToolEntry("tool.fill", "Fill", GraffuxIcons.Colordrop),
+    Tool.FILL to ToolEntry("tool.fill", "Fill", GraffuxIcons.Fill),
     Tool.SELECT to ToolEntry("tool.select", "Select", GraffuxIcons.SelectSubject),
     Tool.PEN to ToolEntry("tool.pen", "Pen", GraffuxIcons.PenInk),
     Tool.HEAL to ToolEntry("tool.heal", "Heal", GraffuxIcons.Heal),
