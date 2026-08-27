@@ -2,7 +2,8 @@ name: Apply fixed history control slots
 
 on:
   push:
-    branches: [ "chatgpt/history-controls-fixed-slots" ]
+    branches:
+      - chatgpt/history-controls-fixed-slots
 
 permissions:
   contents: write
@@ -11,113 +12,23 @@ jobs:
   patch-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           ref: chatgpt/history-controls-fixed-slots
           fetch-depth: 0
 
-      - name: Patch Graffux history controls and AzNavRail dependency
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          main_path = Path('app/src/main/java/com/hereliesaz/graffux/MainActivity.kt')
-          s = main_path.read_text()
-
-          old = '''                } else if (uiState.activePanel == EditorPanel.NONE) Row(
-                    modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    val viewMoved = uiState.viewportZoom != 1f ||
-                        uiState.viewportOffset != Offset.Zero ||
-                        uiState.viewportRotation != 0f
-                    if (viewMoved) {
-                        FloatingActionButton(onClick = { vm.resetViewport() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
-                        }
-                    }
-                    if (uiState.undoCount > 0) {
-                        FloatingActionButton(onClick = { vm.onUndoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
-                        }
-                    }
-                    if (uiState.redoCount > 0) {
-                        FloatingActionButton(onClick = { vm.onRedoClicked() }, containerColor = surfaceVariantColor) {
-                            Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
-                        }
-                    }
-                }
-'''
-
-          new = '''                } else if (uiState.activePanel == EditorPanel.NONE) Row(
-                    modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    val viewMoved = uiState.viewportZoom != 1f ||
-                        uiState.viewportOffset != Offset.Zero ||
-                        uiState.viewportRotation != 0f
-
-                    // These are permanent positions, not a row of whichever buttons happen to exist.
-                    // Keeping all three 56dp slots mounted prevents the row from recentering when one
-                    // action becomes unavailable. Order is always Undo -> Reset -> Redo.
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (uiState.undoCount > 0) {
-                            FloatingActionButton(
-                                onClick = { vm.onUndoClicked() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
-                            }
-                        }
-                    }
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (viewMoved) {
-                            FloatingActionButton(
-                                onClick = { vm.resetViewport() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
-                            }
-                        }
-                    }
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (uiState.redoCount > 0) {
-                            FloatingActionButton(
-                                onClick = { vm.onRedoClicked() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
-                            }
-                        }
-                    }
-                }
-'''
-
-          if old not in s:
-              raise SystemExit('MainActivity history-controls block did not match current source')
-          s = s.replace(old, new, 1)
-          main_path.write_text(s)
-
-          versions_path = Path('gradle/libs.versions.toml')
-          v = versions_path.read_text()
-          v2, n = re.subn(
-              r'(?m)^azNavRail\s*=\s*"[^"]+"$',
-              'azNavRail = "d116cfa93971d58afab86f1bcb6ed6d62e65b0dd"',
-              v,
-              count=1,
-          )
-          if n != 1:
-              raise SystemExit('Could not update AzNavRail version pin')
-          versions_path.write_text(v2)
-          PY
+      - name: Apply patch
+        run: python .github/scripts/chatgpt_history_controls.py
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Build and test app
         run: |
@@ -125,11 +36,11 @@ jobs:
           ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
       - name: Commit tested fix
-        shell: bash
         run: |
           rm .github/workflows/chatgpt-history-controls-fixed-slots.yml
-          git config user.name 'ChatGPT'
-          git config user.email '103241502+HereLiesAz@users.noreply.github.com'
+          rm .github/scripts/chatgpt_history_controls.py
+          git config user.name ChatGPT
+          git config user.email 103241502+HereLiesAz@users.noreply.github.com
           git add -A
-          git commit -m 'Stabilize history controls and use fixed AzNavRail commit [skip ci]'
+          git commit -m "Stabilize history controls and pin AzNavRail fix [skip ci]"
           git push origin HEAD:chatgpt/history-controls-fixed-slots
