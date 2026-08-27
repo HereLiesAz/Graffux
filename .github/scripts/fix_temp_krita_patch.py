@@ -23,13 +23,18 @@ def replace_first(path: str, old: str, new: str) -> None:
 if text.count(anchor) != 1:
     raise SystemExit('replace_once helper anchor changed')
 text = text.replace(anchor, addition, 1)
-needle = '''replace_once(path,
-''' + "'''            maskStamp,\n            seed,\n        )''',"
-replacement = '''replace_first(path,
-''' + "'''            maskStamp,\n            seed,\n        )''',"
-count = text.count(needle)
-if count != 2:
-    raise SystemExit(f'expected two renderer forwarding guards, found {count}')
-text = text.replace(needle, replacement)
+
+needles = [
+    "'''            maskStamp,\n            seed,\n        )''',",
+    "'''                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,\n                )''',",
+]
+for quoted in needles:
+    needle = "replace_once(path,\n" + quoted
+    replacement = "replace_first(path,\n" + quoted
+    count = text.count(needle)
+    if count != 2:
+        raise SystemExit(f'expected two paired forwarding guards, found {count}: {quoted[:70]}')
+    text = text.replace(needle, replacement)
+
 patch.write_text(text)
 Path(__file__).unlink()
