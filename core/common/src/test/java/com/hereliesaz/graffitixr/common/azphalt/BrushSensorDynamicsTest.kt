@@ -85,7 +85,7 @@ class BrushSensorDynamicsTest {
 
         assertEquals(
             BrushStamps.dabs(points, 20f, brush, 99L),
-            BrushStamps.dabs(samples, 20f, brush, 99L),
+            BrushStamps.dynamicDabs(samples, 20f, brush, 99L),
         )
     }
 
@@ -108,7 +108,7 @@ class BrushSensorDynamicsTest {
             builder.add(0f, 0f, 0L, pressure = 0f),
             builder.add(100f, 0f, 100L, pressure = 1f),
         )
-        val dabs = BrushStamps.dabs(samples, 20f, brush, 42L)
+        val dabs = BrushStamps.dynamicDabs(samples, 20f, brush, 42L)
 
         assertTrue(dabs.size > 2)
         assertEquals(2.5f, dabs.first().radius, 1e-4f)
@@ -134,7 +134,7 @@ class BrushSensorDynamicsTest {
             builder.add(0f, 0f, 0L, pressure = 0f),
             builder.add(100f, 0f, 100L, pressure = 1f),
         )
-        val dynamic = BrushStamps.dabs(samples, 20f, brush, 42L)
+        val dynamic = BrushStamps.dynamicDabs(samples, 20f, brush, 42L)
         val fixed = BrushStamps.dabs(
             listOf(0f, 0f, 100f, 0f), 20f, brush.copy(dynamics = emptyList()), 42L,
         )
@@ -153,8 +153,8 @@ class BrushSensorDynamicsTest {
         )
         val withPrediction = real + BrushSample(200f, 0f, 30L, predicted = true)
         assertEquals(
-            BrushStamps.dabs(real, 10f, brush, 1L),
-            BrushStamps.dabs(withPrediction, 10f, brush, 1L),
+            BrushStamps.dynamicDabs(real, 10f, brush, 1L),
+            BrushStamps.dynamicDabs(withPrediction, 10f, brush, 1L),
         )
     }
 }
