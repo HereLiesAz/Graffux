@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -360,6 +361,10 @@ fun EditorScreen(
             fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
                 screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
             )
+            fun toWorldSample(sample: BrushSample): BrushSample {
+                val world = toWorld(Offset(sample.x, sample.y))
+                return sample.copy(x = world.x, y = world.y)
+            }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
                 brushSize = uiState.brushSize,
@@ -367,8 +372,8 @@ fun EditorScreen(
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
-                onStrokeStart = { offset, size, pressure -> vm.onStrokeStart(toWorld(offset), size, pressure) },
-                onStrokePoint = { offset, pressure -> vm.onStrokePoint(toWorld(offset), pressure) },
+                onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },
+                onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },
                 onStrokeEnd = { vm.onStrokeEnd() },
                 onStrokeCancel = { vm.onStrokeCancel() },
                 onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },

@@ -34,6 +34,8 @@ import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
@@ -80,6 +82,8 @@ data class StrokeCommand(
     // Aligned 1:1 with `path` by index. Empty for every tool but Tool.BRUSH, which reads pressure
     // (0..1, 1 = a device/finger with no real pressure sensor) into BrushDynamics — see EditorViewModel.
     val pressures: List<Float> = emptyList(),
+    // Canonical per-point brush telemetry. Empty on legacy/remote commands.
+    val brushSamples: List<BrushSample> = emptyList(),
     val canvasSize: IntSize,
     val tool: Tool,
     val brushSize: Float,
@@ -357,17 +361,30 @@ class EditorViewModel @Inject constructor(
     // that reports no real pressure — Android's own synthetic default — so a stroke's width dynamics
     // are unaffected wherever there is no stylus in play.
     private var strokeCollectedPressures: MutableList<Float> = mutableListOf()
+    // Same index as points/pressures. Kinematics remain in physical screen-hand space; only x/y are
+    // replaced by the stabilized world-space point before storage.
+    private var strokeCollectedSamples: MutableList<BrushSample> = mutableListOf()
+    private var pendingStrokeStartSample: BrushSample? = null
+    private var pendingStrokePointSample: BrushSample? = null
 
     private fun resetStrokePoints(initial: Offset? = null, initialPressure: Float = 1f) = synchronized(strokeCollectedPointsLock) {
         // `vararg Offset` is rejected by the compiler (Offset is a Compose value class), so take a
         // single optional seed point — the only two call sites are reset-with-start and reset-empty.
         strokeCollectedPoints = if (initial != null) mutableListOf(initial) else mutableListOf()
         strokeCollectedPressures = if (initial != null) mutableListOf(initialPressure) else mutableListOf()
+        strokeCollectedSamples = if (initial != null) {
+            val source = pendingStrokeStartSample ?: BrushSample(initial.x, initial.y, pressure = initialPressure)
+            mutableListOf(source.copy(x = initial.x, y = initial.y, pressure = initialPressure, predicted = false))
+        } else {
+            mutableListOf()
+        }
     }
 
     private fun addStrokePoint(point: Offset, pressure: Float) = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPoints.add(point)
         strokeCollectedPressures.add(pressure)
+        val source = pendingStrokePointSample ?: BrushSample(point.x, point.y, pressure = pressure)
+        strokeCollectedSamples.add(source.copy(x = point.x, y = point.y, pressure = pressure, predicted = false))
     }
 
     private fun snapshotStrokePoints(): List<Offset> = synchronized(strokeCollectedPointsLock) {
@@ -376,6 +393,10 @@ class EditorViewModel @Inject constructor(
 
     private fun snapshotStrokePressures(): List<Float> = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPressures.toList()
+    }
+
+    private fun snapshotStrokeSamples(): List<BrushSample> = synchronized(strokeCollectedPointsLock) {
+        strokeCollectedSamples.toList()
     }
     private var strokeLayerId: String? = null
     private var strokeCanvasW: Int = 0
@@ -2780,6 +2801,16 @@ class EditorViewModel @Inject constructor(
 
     override fun onFeedbackShown() = dispatch(EditorIntent.FeedbackShown)
 
+    /** Canonical input path used by DrawingCanvas. Legacy callers keep the Offset overload. */
+    fun onStrokeStart(startSample: BrushSample, canvasSize: IntSize) {
+        pendingStrokeStartSample = startSample
+        try {
+            onStrokeStart(Offset(startSample.x, startSample.y), canvasSize, startSample.pressure)
+        } finally {
+            pendingStrokeStartSample = null
+        }
+    }
+
     /** Called when the user first touches the canvas. Prepares a mutable working bitmap for
      *  incremental real-time rendering (all tools except Liquify). */
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
@@ -3044,6 +3075,18 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Canonical input path used by DrawingCanvas. */
+    fun onStrokePoint(sample: BrushSample) {
+        pendingStrokePointSample = sample
+        try {
+            onStrokePoint(Offset(sample.x, sample.y), sample.pressure)
+        } finally {
+            // The legacy implementation may throttle/return before addStrokePoint. Never leak a
+            // skipped sample into the next accepted point.
+            pendingStrokePointSample = null
+        }
+    }
+
     /** Called for every drag update. Draws only the new segment onto the working bitmap. */
     fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f) {
         val algorithm = _uiState.value.stabilizerAlgorithm
@@ -3138,7 +3181,24 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, work.width, work.height, strokeLayerScale
             )
-            val dabs = BrushStamps.dabs(stampMappedPoints, _uiState.value.brushSize * brushScale, stampBrush, stampSeed)
+            val diameterPx = _uiState.value.brushSize * brushScale
+            val allSamples = snapshotStrokeSamples()
+            val mappedSamples = if (allSamples.size * 2 == stampMappedPoints.size) {
+                allSamples.mapIndexed { index, sample ->
+                    sample.copy(
+                        x = stampMappedPoints[index * 2],
+                        y = stampMappedPoints[index * 2 + 1],
+                        predicted = false,
+                    )
+                }
+            } else {
+                emptyList()
+            }
+            val dabs = if (stampBrush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
+                BrushStamps.dynamicDabs(mappedSamples, diameterPx, stampBrush, stampSeed)
+            } else {
+                BrushStamps.dabs(stampMappedPoints, diameterPx, stampBrush, stampSeed)
+            }
             if (dabs.size > stampStampedCount) {
                 val newDabs = dabs.subList(stampStampedCount, dabs.size)
                 val colorArgb = _uiState.value.activeColor.toArgb()
@@ -3149,7 +3209,13 @@ class EditorViewModel @Inject constructor(
                 // (or, if GPU was never active, was always drawn by the CPU branch below), so
                 // continuing straight into the CPU branch for just `newDabs` is exactly correct,
                 // no re-render of earlier dabs needed either way.
-                val gpuHandled = stampGpuActive && stampGpuEngine?.let { engine ->
+                val needsPerDabPaint = stampBrush.dynamics.any { route ->
+                    route.parameter == BrushParameter.FLOW ||
+                        route.parameter == BrushParameter.HUE ||
+                        route.parameter == BrushParameter.SATURATION ||
+                        route.parameter == BrushParameter.VALUE
+                }
+                val gpuHandled = !needsPerDabPaint && stampGpuActive && stampGpuEngine?.let { engine ->
                     val gpuDabs = newDabs.map { BrushDab(it.x, it.y, it.radius, it.alpha, it.angleDeg) }
                     // The shader's baseAlpha (colorArgb's own alpha channel) must fold in `flow` the
                     // same way StampBrushRenderer.paintDabs's `baseAlpha * d.alpha * f` does — the
@@ -3248,6 +3314,7 @@ class EditorViewModel @Inject constructor(
         // Aligned 1:1 with `points` by index (both grow together — see addStrokePoint). Recorded
         // onto the command so undo/redo replay reproduces the same pressure-responsive width.
         val pressures = snapshotStrokePressures()
+        val brushSamples = snapshotStrokeSamples()
         val canvasW = strokeCanvasW
         val canvasH = strokeCanvasH
 
@@ -3260,7 +3327,7 @@ class EditorViewModel @Inject constructor(
         val stampBrush = stampBrushForStroke
         if (stampBrush != null && state.activeTool == Tool.BRUSH) {
             commitStampStroke(
-                state, layer, layerId, points, canvasW, canvasH,
+                state, layer, layerId, points, brushSamples, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
                 strokeSelection,
             )
@@ -3277,6 +3344,7 @@ class EditorViewModel @Inject constructor(
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
             val command = StrokeCommand(
                 path = points,
+                brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
                 brushSize = state.brushSize,
@@ -3360,6 +3428,7 @@ class EditorViewModel @Inject constructor(
             val base = layer.bitmap ?: run { clearTransientStrokeState(); return }
             val command = StrokeCommand(
                 path = points,
+                brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = Tool.CLONE,
                 brushSize = state.brushSize,
@@ -3412,6 +3481,7 @@ class EditorViewModel @Inject constructor(
             val base = liquifyOriginalBitmap ?: layer.bitmap ?: run { clearTransientStrokeState(); return }
             val command = StrokeCommand(
                 path = points,
+                brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = Tool.LIQUIFY,
                 brushSize = state.brushSize,
@@ -3546,6 +3616,7 @@ class EditorViewModel @Inject constructor(
 
             val command = StrokeCommand(
                 path = points,
+                brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
                 brushSize = state.brushSize,
@@ -3584,6 +3655,7 @@ class EditorViewModel @Inject constructor(
             val workBitmap = strokeWorkingBitmap!!
             val command = StrokeCommand(
                 path = points,
+                brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
                 brushSize = state.brushSize,
@@ -3701,6 +3773,7 @@ class EditorViewModel @Inject constructor(
         layer: Layer,
         layerId: String,
         points: List<Offset>,
+        brushSamples: List<BrushSample>,
         canvasW: Int,
         canvasH: Int,
         scale: Float,
@@ -3720,6 +3793,7 @@ class EditorViewModel @Inject constructor(
         val flow = state.brushFlow
         val command = StrokeCommand(
             path = points,
+            brushSamples = brushSamples,
             canvasSize = IntSize(canvasW, canvasH),
             tool = Tool.BRUSH,
             brushSize = brushSize,
