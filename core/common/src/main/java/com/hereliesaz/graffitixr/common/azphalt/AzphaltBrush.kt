@@ -25,6 +25,13 @@ enum class GrainBlendMode {
 }
 
 @Serializable
+enum class BrushColorSource {
+    @SerialName("plain") PLAIN,
+    @SerialName("gradient") GRADIENT,
+    @SerialName("uniformRandom") UNIFORM_RANDOM,
+}
+
+@Serializable
 enum class MaskedBrushBlendMode {
     @SerialName("multiply") MULTIPLY,
     @SerialName("subtract") SUBTRACT,
@@ -86,6 +93,10 @@ data class AzphaltBrush(
     val grainOffsetX: Float = 0f,
     val grainOffsetY: Float = 0f,
     val followStroke: Boolean = false,
+    /** Krita-style colour source. PLAIN is the historical single foreground colour. */
+    val colorSource: BrushColorSource = BrushColorSource.PLAIN,
+    /** Base foreground→background gradient coordinate. A MIX sensor route may override per dab. */
+    val colorMix: Float = 0f,
     val maskedBrush: MaskedBrushConfig? = null,
     val dynamics: List<BrushSensorBinding> = emptyList(),
 ) {
@@ -100,6 +111,7 @@ data class AzphaltBrush(
         scatter = scatter.coerceAtLeast(0f),
         grainScale = grainScale.coerceIn(0.05f, 16f),
         grainStrength = grainStrength.coerceIn(0f, 1f),
+        colorMix = colorMix.coerceIn(0f, 1f),
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
     )
@@ -129,6 +141,9 @@ data class AzphaltBrush(
             val maskedBrush = params?.get("maskedBrush")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<MaskedBrushConfig>(element) }.getOrNull()
             }?.sanitized()
+            val colorSource = params?.get("colorSource")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<BrushColorSource>(element) }.getOrNull()
+            } ?: BrushColorSource.PLAIN
 
             return AzphaltBrush(
                 name = name,
@@ -151,6 +166,8 @@ data class AzphaltBrush(
                 grainOffsetX = f("grainOffsetX") ?: 0f,
                 grainOffsetY = f("grainOffsetY") ?: 0f,
                 followStroke = b("followStroke") ?: false,
+                colorSource = colorSource,
+                colorMix = (f("colorMix") ?: f("mix") ?: 0f).coerceIn(0f, 1f),
                 maskedBrush = maskedBrush,
                 dynamics = dynamics,
             ).sanitized()

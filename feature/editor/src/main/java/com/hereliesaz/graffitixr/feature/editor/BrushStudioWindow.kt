@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
@@ -42,6 +43,7 @@ import kotlin.math.sin
 fun BrushStudioWindow(
     draft: AzphaltBrush,
     brushColor: Color,
+    secondaryColor: Color = Color.Black,
     isSaved: Boolean,
     onEdit: ((AzphaltBrush) -> AzphaltBrush) -> Unit,
     onSave: () -> Unit,
@@ -50,6 +52,7 @@ fun BrushStudioWindow(
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
     var showDynamics by remember { mutableStateOf(false) }
+    var showColorSource by remember { mutableStateOf(false) }
     var showTexture by remember { mutableStateOf(false) }
     var showMaskedTip by remember { mutableStateOf(false) }
 
@@ -76,7 +79,7 @@ fun BrushStudioWindow(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            BrushPreview(draft, brushColor)
+            BrushPreview(draft, brushColor, secondaryColor)
 
             ParamSlider("Spacing", draft.spacing, 0.01f..2f, asFraction = true) { v -> onEdit { it.copy(spacing = v) } }
             ParamSlider("Tip ratio", draft.tipRatio, 0.05f..1f, asFraction = true) { v -> onEdit { it.copy(tipRatio = v) } }
@@ -114,6 +117,27 @@ fun BrushStudioWindow(
                     onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.TILT, BrushParameter.ROTATION, inputMin = 0f, inputMax = HALF_PI_F, outputMin = 0f, outputMax = 180f)) }
                 }
                 Text("Arbitrary response curves remain one level deeper; these presets keep the phone surface fast.", style = MaterialTheme.typography.labelSmall)
+            }
+
+            AzButton(
+                text = if (showColorSource) "Color Source ▴" else "Color Source ▾",
+                onClick = { showColorSource = !showColorSource },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showColorSource) {
+                EnumButtons("Source", BrushColorSource.entries, draft.colorSource) { value ->
+                    onEdit { it.copy(colorSource = value) }
+                }
+                if (draft.colorSource == BrushColorSource.GRADIENT) {
+                    ParamSlider("Mix", draft.colorMix, 0f..1f) { value -> onEdit { it.copy(colorMix = value) } }
+                    DynamicsPreset("Pressure → Mix", draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.MIX)) {
+                        onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.MIX, outputMin = 0f, outputMax = 1f)) }
+                    }
+                } else if (draft.colorSource == BrushColorSource.UNIFORM_RANDOM) {
+                    Text("Each dab samples the foreground→background ramp from its own deterministic random stream.", style = MaterialTheme.typography.labelSmall)
+                } else {
+                    Text("Plain preserves the historical foreground colour exactly.", style = MaterialTheme.typography.labelSmall)
+                }
             }
 
             AzButton(
@@ -221,7 +245,7 @@ private fun ParamSlider(
 }
 
 @Composable
-private fun BrushPreview(brush: AzphaltBrush, color: Color) {
+private fun BrushPreview(brush: AzphaltBrush, color: Color, secondaryColor: Color) {
     Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
@@ -257,13 +281,28 @@ private fun BrushPreview(brush: AzphaltBrush, color: Color) {
         dabs.forEach { dab ->
             val width = dab.radius * 2f
             val height = width * dab.tipRatio
+            val sourced = when (brush.colorSource) {
+                BrushColorSource.PLAIN -> color
+                BrushColorSource.GRADIENT -> mixPreviewColor(color, secondaryColor, dab.colorMix)
+                BrushColorSource.UNIFORM_RANDOM -> mixPreviewColor(color, secondaryColor, dab.sourceRandom)
+            }
             drawOval(
-                color = color.copy(alpha = color.alpha * dab.alpha),
+                color = sourced.copy(alpha = sourced.alpha * dab.alpha),
                 topLeft = Offset(dab.x - width / 2f, dab.y - height / 2f),
                 size = Size(width, height),
             )
         }
     }
+}
+
+private fun mixPreviewColor(a: Color, b: Color, amount: Float): Color {
+    val t = amount.coerceIn(0f, 1f)
+    return Color(
+        red = a.red + (b.red - a.red) * t,
+        green = a.green + (b.green - a.green) * t,
+        blue = a.blue + (b.blue - a.blue) * t,
+        alpha = a.alpha + (b.alpha - a.alpha) * t,
+    )
 }
 
 private const val PREVIEW_SEED = 12345L

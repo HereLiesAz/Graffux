@@ -207,8 +207,11 @@ internal sealed interface EditorIntent {
     data class SetActiveBrush(val name: String?) : EditorIntent
     data object ShowColorPicker : EditorIntent
     data object DismissColorPicker : EditorIntent
-    /** Sets the active brush color and closes the color picker. */
+    /** Sets the active foreground brush color. */
     data class SetActiveColor(val color: Color) : EditorIntent
+    /** Sets the background/secondary brush color used by gradient Source/Mix brushes. */
+    data class SetSecondaryColor(val color: Color) : EditorIntent
+    data object SwapBrushColors : EditorIntent
     data class SetLayerWarp(val layerId: String, val mesh: List<Float>) : EditorIntent
     /** Sets the active layer's compositing / blend mode (from the blend-mode picker). */
     data class SetBlendMode(val mode: com.hereliesaz.graffitixr.common.model.BlendMode) : EditorIntent

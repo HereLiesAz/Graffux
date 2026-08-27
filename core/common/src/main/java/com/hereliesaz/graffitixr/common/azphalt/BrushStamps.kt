@@ -9,6 +9,7 @@ import kotlin.random.Random
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
+private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 
 /** Resolved secondary-tip instruction attached to a primary dab. */
 data class MaskDab(
@@ -38,6 +39,10 @@ data class Dab(
     val hueShiftDeg: Float = 0f,
     val saturationMultiplier: Float = 1f,
     val valueMultiplier: Float = 1f,
+    /** Foreground→background selector used by GRADIENT source. */
+    val colorMix: Float = 0f,
+    /** Independent deterministic per-dab sample used by UNIFORM_RANDOM source. */
+    val sourceRandom: Float = 0f,
     val mask: MaskDab? = null,
 )
 
@@ -80,6 +85,7 @@ object BrushStamps {
 
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
+        val colorRng = Random(seed xor COLOR_SEED_SALT)
         val out = ArrayList<Dab>(count)
         for (i in 0 until count) {
             val cx = centres[2 * i]; val cy = centres[2 * i + 1]
@@ -109,6 +115,8 @@ object BrushStamps {
                     alpha = alpha,
                     angleDeg = angle,
                     tipRatio = brush.tipRatio,
+                    colorMix = brush.colorMix.coerceIn(0f, 1f),
+                    sourceRandom = colorRng.nextFloat(),
                     mask = mask,
                 )
             )
@@ -137,6 +145,7 @@ object BrushStamps {
         val baseRadius = diameter / 2f
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
+        val colorRng = Random(seed xor COLOR_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
         var at = 0f
@@ -193,6 +202,8 @@ object BrushStamps {
                     hueShiftDeg = dynamic.hueShiftDeg,
                     saturationMultiplier = dynamic.saturationMultiplier,
                     valueMultiplier = dynamic.valueMultiplier,
+                    colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
+                    sourceRandom = colorRng.nextFloat(),
                     mask = mask,
                 )
             )

@@ -125,12 +125,14 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                     stampCanvas, mappedSamples, brush, stroke.brushColor,
                     stroke.brushSize * brushScale, stroke.flow, stroke.seed,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
+                    stroke.secondaryBrushColor,
                 )
             } else {
                 StampBrushRenderer.paintStroke(
                     stampCanvas, pts, brush, stroke.brushColor,
                     stroke.brushSize * brushScale, stroke.flow, stroke.seed,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
+                    stroke.secondaryBrushColor,
                 )
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)

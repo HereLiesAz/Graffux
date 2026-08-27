@@ -11,6 +11,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
@@ -47,6 +48,7 @@ internal object StampBrushRenderer {
         stamp: Bitmap? = null,
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
+        secondaryColorArgb: Int = colorArgb,
     ) {
         val curved = CatmullRom.densify(points)
         paintDabs(
@@ -59,6 +61,7 @@ internal object StampBrushRenderer {
             grain,
             maskStamp,
             seed,
+            secondaryColorArgb,
         )
     }
 
@@ -73,6 +76,7 @@ internal object StampBrushRenderer {
         stamp: Bitmap? = null,
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
+        secondaryColorArgb: Int = colorArgb,
     ) {
         paintDabs(
             canvas,
@@ -84,6 +88,7 @@ internal object StampBrushRenderer {
             grain,
             maskStamp,
             seed,
+            secondaryColorArgb,
         )
     }
 
@@ -97,11 +102,12 @@ internal object StampBrushRenderer {
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
         seed: Long = 0L,
+        secondaryColorArgb: Int = colorArgb,
     ) {
         if (dabs.isEmpty()) return
         val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
         if (advancedMaskPipeline) {
-            paintMaskedDabs(canvas, dabs, brush, colorArgb, flow, stamp, grain, maskStamp, seed)
+            paintMaskedDabs(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, stamp, grain, maskStamp, seed)
             return
         }
 
@@ -114,7 +120,7 @@ internal object StampBrushRenderer {
             val m = Matrix()
             val baseFlow = flow.coerceIn(0f, 1f)
             for (d in dabs) {
-                val dabColor = resolvedColor(colorArgb, d)
+                val dabColor = resolvedColor(colorArgb, secondaryColorArgb, brush, d)
                 val diameter = max(d.radius, 0.5f) * 2f
                 val alphaVal = (
                     Color.alpha(dabColor) * d.alpha * baseFlow * d.flowMultiplier.coerceAtLeast(0f)
@@ -137,7 +143,7 @@ internal object StampBrushRenderer {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val baseFlow = flow.coerceIn(0f, 1f)
         for (d in dabs) {
-            val dabColor = resolvedColor(colorArgb, d)
+            val dabColor = resolvedColor(colorArgb, secondaryColorArgb, brush, d)
             val rgbNoAlpha = dabColor and 0x00FFFFFF
             val radius = max(d.radius, 0.5f)
             val alphaVal = (
@@ -161,6 +167,7 @@ internal object StampBrushRenderer {
         dabs: List<Dab>,
         brush: AzphaltBrush,
         baseColor: Int,
+        secondaryColor: Int,
         flow: Float,
         stamp: Bitmap?,
         grain: Bitmap?,
@@ -259,7 +266,7 @@ internal object StampBrushRenderer {
                     )
                 }
 
-                val dabColor = resolvedColor(baseColor, dab)
+                val dabColor = resolvedColor(baseColor, secondaryColor, brush, dab)
                 val alphaVal = (
                     Color.alpha(dabColor) * dab.alpha * baseFlow * dab.flowMultiplier.coerceAtLeast(0f)
                     ).roundToInt().coerceIn(0, 255)
@@ -336,18 +343,34 @@ internal object StampBrushRenderer {
         mask.setPixels(pixels, 0, width, 0, 0, width, height)
     }
 
-    internal fun resolvedColor(baseArgb: Int, dab: Dab): Int {
+    internal fun resolvedColor(baseArgb: Int, secondaryArgb: Int, brush: AzphaltBrush, dab: Dab): Int {
+        val sourced = when (brush.colorSource) {
+            BrushColorSource.PLAIN -> baseArgb
+            BrushColorSource.GRADIENT -> lerpArgb(baseArgb, secondaryArgb, dab.colorMix)
+            BrushColorSource.UNIFORM_RANDOM -> lerpArgb(baseArgb, secondaryArgb, dab.sourceRandom)
+        }
         if (dab.hueShiftDeg == 0f &&
             dab.saturationMultiplier == 1f &&
             dab.valueMultiplier == 1f
-        ) return baseArgb
+        ) return sourced
 
         val hsv = FloatArray(3)
-        Color.colorToHSV(baseArgb, hsv)
+        Color.colorToHSV(sourced, hsv)
         hsv[0] = ((hsv[0] + dab.hueShiftDeg) % 360f + 360f) % 360f
         hsv[1] = (hsv[1] * dab.saturationMultiplier).coerceIn(0f, 1f)
         hsv[2] = (hsv[2] * dab.valueMultiplier).coerceIn(0f, 1f)
-        return Color.HSVToColor(Color.alpha(baseArgb), hsv)
+        return Color.HSVToColor(Color.alpha(sourced), hsv)
+    }
+
+    private fun lerpArgb(a: Int, b: Int, amount: Float): Int {
+        val t = amount.coerceIn(0f, 1f)
+        fun channel(ca: Int, cb: Int): Int = (ca + (cb - ca) * t).roundToInt().coerceIn(0, 255)
+        return Color.argb(
+            channel(Color.alpha(a), Color.alpha(b)),
+            channel(Color.red(a), Color.red(b)),
+            channel(Color.green(a), Color.green(b)),
+            channel(Color.blue(a), Color.blue(b)),
+        )
     }
 
     private class DabScratch {

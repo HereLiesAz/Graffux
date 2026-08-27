@@ -95,6 +95,8 @@ data class StrokeCommand(
     val tool: Tool,
     val brushSize: Float,
     val brushColor: Int,
+    /** Background/secondary brush colour snapshotted for Krita Source/Mix replay. */
+    val secondaryBrushColor: Int = android.graphics.Color.BLACK,
     val intensity: Float,
     val feathering: Float = 0f,
     // Stroke-level opacity ceiling for [Tool.BRUSH] (0..1, default fully opaque — every other tool
@@ -2905,6 +2907,7 @@ class EditorViewModel @Inject constructor(
                 // copy, not on the main thread. A null/failed engine just means every dab this
                 // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
                 val gpuCompatibleBrush = stampShapeForStroke == null &&
+                    stampBrush.colorSource == com.hereliesaz.graffitixr.common.azphalt.BrushColorSource.PLAIN &&
                     stampGrainForStroke == null &&
                     stampMaskShapeForStroke == null &&
                     stampBrush.maskedBrush == null &&
@@ -3260,6 +3263,7 @@ class EditorViewModel @Inject constructor(
                     StampBrushRenderer.paintDabs(
                         canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
                         stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke, stampSeed,
+                        _uiState.value.secondaryColor.toArgb(),
                     )
                 }
                 stampStampedCount = dabs.size
@@ -3826,6 +3830,7 @@ class EditorViewModel @Inject constructor(
             tool = Tool.BRUSH,
             brushSize = brushSize,
             brushColor = color,
+            secondaryBrushColor = state.secondaryColor.toArgb(),
             intensity = 0.5f,
             feathering = state.brushFeathering,
             layerScale = scale,
@@ -6404,6 +6409,10 @@ class EditorViewModel @Inject constructor(
             }
         }
     }
+
+    override fun setSecondaryColor(color: Color) = dispatch(EditorIntent.SetSecondaryColor(color))
+
+    override fun swapBrushColors() = dispatch(EditorIntent.SwapBrushColors)
 
     override fun setActiveColor(color: Color) {
         dispatch(EditorIntent.SetActiveColor(color))
