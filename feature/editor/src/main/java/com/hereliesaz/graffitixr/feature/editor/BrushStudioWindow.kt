@@ -245,7 +245,7 @@ private fun BrushPreview(brush: AzphaltBrush, color: Color) {
                     )
                 }
             }
-            BrushStamps.dabs(samples, diameter, brush, seed = PREVIEW_SEED)
+            BrushStamps.dynamicDabs(samples, diameter, brush, seed = PREVIEW_SEED)
         }
 
         dabs.forEach { dab ->
