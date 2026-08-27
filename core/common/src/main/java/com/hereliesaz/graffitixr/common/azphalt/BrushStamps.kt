@@ -137,8 +137,11 @@ object BrushStamps {
      * Spacing itself may be dynamic. The next dab's arc target is advanced by the spacing multiplier
      * resolved at the current dab, so speed→spacing and pressure→spacing behave continuously rather
      * than changing input-event density. Other mapped targets alter the concrete dab directly.
+     *
+     * Named separately from [dabs] because JVM generic erasure makes `List<Float>` and
+     * `List<BrushSample>` the same method signature.
      */
-    fun dabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
+    fun dynamicDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
         val real = samples.filterNot { it.predicted }
         val diameter = diameterPx.coerceAtLeast(0f)
         if (real.isEmpty() || diameter <= 0f) return emptyList()
@@ -210,7 +213,7 @@ object BrushStamps {
         return out
     }
 
-    /** Geometric cumulative distance; independent of whatever coordinate space the samples came from. */
+    /** Geometric cumulative distance used only for locating dabs in the current render space. */
     private fun cumulativeArc(samples: List<BrushSample>): FloatArray {
         val out = FloatArray(samples.size)
         for (i in 1 until samples.size) {
@@ -219,16 +222,19 @@ object BrushStamps {
         return out
     }
 
-    /** Interpolate telemetry at geometric arc distance [target]. */
+    /**
+     * Interpolate telemetry at geometric arc distance [target]. Position follows render-space arc;
+     * recorded speed/distance/time remain sensor-space values so bitmap scaling cannot change how the
+     * hand motion is interpreted.
+     */
     private fun interpolateSample(samples: List<BrushSample>, arc: FloatArray, target: Float): BrushSample {
         if (samples.size == 1 || target <= 0f) {
-            return samples.first().copy(distancePx = 0f, predicted = false)
+            return samples.first().copy(predicted = false)
         }
         if (target >= arc.last()) {
             val last = samples.last()
             val prev = samples[samples.lastIndex - 1]
             return last.copy(
-                distancePx = arc.last(),
                 drawingAngleDeg = headingDeg(prev.x, prev.y, last.x, last.y, last.drawingAngleDeg),
                 predicted = false,
             )
@@ -250,7 +256,7 @@ object BrushStamps {
             pressure = lerp(a.pressure, b.pressure, t),
             tiltRadians = lerp(a.tiltRadians, b.tiltRadians, t),
             orientationRadians = lerp(a.orientationRadians, b.orientationRadians, t),
-            distancePx = target,
+            distancePx = lerp(a.distancePx, b.distancePx, t),
             speedPxPerMs = lerp(a.speedPxPerMs, b.speedPxPerMs, t),
             drawingAngleDeg = heading,
             predicted = false,
