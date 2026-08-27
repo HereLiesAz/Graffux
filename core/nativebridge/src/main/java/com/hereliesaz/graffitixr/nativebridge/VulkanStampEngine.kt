@@ -4,22 +4,22 @@ package com.hereliesaz.graffitixr.nativebridge
 import android.graphics.Bitmap
 import android.hardware.HardwareBuffer
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
+import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Kotlin bridge to the native Vulkan compute dab compositor (Phase 3 of
- * `docs/Native Rendering Engine Design.md` §9) — VulkanStampEngine.cpp/.h and stamp.comp,
- * bridged via the `nativeVulkan*` JNI exports appended to GraffitiJNI.cpp.
+ * `docs/Native Rendering Engine Design.md` §9) — VulkanStampEngine.cpp/.h and stamp.comp.
  *
- * A [VulkanStampEngine] instance owns exactly one GPU-side layer image, created by [init] and
- * released by [destroy]. Not thread-safe on the Kotlin side either — matches the native class's
- * own contract; callers own serializing their use of one instance (e.g. from a single drawing
- * coroutine/thread), the same way [SlamManager] callers already serialize AR-session calls.
+ * A wrapper instance owns one checked-out native engine at a time. [destroy] returns a healthy
+ * engine to a tiny process-local pool instead of tearing down the Vulkan instance/device/pipeline
+ * after every brush stroke. The next wrapper requesting the same dimensions/backing mode checks
+ * that engine out, clears its layer to transparent, and reuses it. The pool is deliberately bounded
+ * to two entries: enough for the editor's round/stamp preview paths without turning old canvas sizes
+ * into immortal GPU allocations. Eviction performs the real native destruction.
  *
- * [init] can legitimately fail — no compute-capable Vulkan device, a storage-image format the
- * driver rejects, or (this being new, unshipped code) a device/driver combination this hasn't
- * been validated against yet. Callers MUST treat a `false` return as "fall back to the CPU
- * (ImageProcessor/StampBrushRenderer) path for this stroke", not as fatal — this class provides
- * no CPU fallback itself.
+ * The class remains not thread-safe per instance. Pool checkout/check-in is synchronized; callers
+ * still serialize operations on each checked-out wrapper.
  */
 class VulkanStampEngine {
 
@@ -27,81 +27,151 @@ class VulkanStampEngine {
         NativeLibLoader.loadAll()
     }
 
-    // The native graffux::VulkanStampEngine*, opaque to Kotlin, 0 when none exists. Each Kotlin
-    // instance owns exactly one — nativeInit allocates a fresh native object and hands back its
-    // address rather than reaching into a shared global, so two VulkanStampEngine instances never
-    // fight over one native engine (a prior version did exactly that: initializing a second
-    // instance destroyed the first's layer, and destroying either invalidated the other while its
-    // `initialized` flag stayed true).
-    private var nativeHandle: Long = 0L
+    private data class PoolKey(
+        val width: Int,
+        val height: Int,
+        val hardwareBufferBacked: Boolean,
+    )
 
-    /**
-     * Creates the layer image at [width]x[height] and the compute pipeline. Returns false (engine
-     * left unusable — call [destroy] before retrying) if the device has no usable Vulkan compute
-     * queue or resource creation otherwise fails.
-     */
-    fun init(width: Int, height: Int): Boolean {
-        if (nativeHandle != 0L) destroy()  // guard against leaking a live handle on re-init.
-        nativeHandle = nativeInit(width, height)
-        return nativeHandle != 0L
+    private data class CachedHandle(
+        val key: PoolKey,
+        val handle: Long,
+    )
+
+    companion object {
+        private const val MAX_POOLED_HANDLES = 2
+        private val poolLock = Any()
+        private val pooledHandles = ArrayDeque<CachedHandle>()
+        private val nativeCreationCount = AtomicInteger(0)
+
+        /**
+         * Immediately releases every idle pooled native engine. Active checked-out wrappers are not
+         * touched. Useful for explicit memory-pressure handling and instrumentation-test cleanup.
+         */
+        @JvmStatic
+        fun trimPool() {
+            val handles = synchronized(poolLock) {
+                if (pooledHandles.isEmpty()) return
+                buildList {
+                    while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst().handle)
+                }
+            }
+            // nativeDestroy is an instance JNI method only because the original bridge was; it does
+            // not use jobject. A handle-less wrapper is therefore sufficient to invoke it here.
+            val destroyer = VulkanStampEngine()
+            handles.forEach(destroyer::nativeDestroy)
+        }
+
+        internal fun nativeCreationCountForTesting(): Int = nativeCreationCount.get()
+
+        private fun takePooled(key: PoolKey): Long {
+            synchronized(poolLock) {
+                val iterator = pooledHandles.iterator()
+                while (iterator.hasNext()) {
+                    val cached = iterator.next()
+                    if (cached.key == key) {
+                        iterator.remove()
+                        return cached.handle
+                    }
+                }
+            }
+            return 0L
+        }
+
+        private fun putPooled(cached: CachedHandle): Long {
+            synchronized(poolLock) {
+                var evicted = 0L
+                if (pooledHandles.size >= MAX_POOLED_HANDLES) {
+                    evicted = pooledHandles.removeFirst().handle
+                }
+                pooledHandles.addLast(cached)
+                return evicted
+            }
+        }
     }
+
+    // Opaque graffux::VulkanStampEngine* while checked out, 0 when this wrapper owns none.
+    private var nativeHandle: Long = 0L
+    private var poolKey: PoolKey? = null
+    private var healthy: Boolean = true
+    // An exported Java HardwareBuffer keeps an independent ref to the AHB. Do not recycle that
+    // native engine into another drawing session after export: callers are entitled to keep reading
+    // the old buffer contents until they close their Java object.
+    private var hardwareBufferExported: Boolean = false
 
     val isInitialized: Boolean get() = nativeHandle != 0L
 
-    /**
-     * Alternative to [init]: the layer's memory is a freshly-allocated `AHardwareBuffer` imported
-     * into Vulkan (docs/Native Rendering Engine Design.md §2's zero-copy interop) instead of
-     * engine-private device memory. On success, [hardwareBuffer] returns that same memory — a
-     * [stampDabs] write is visible through it directly, no [readback] copy needed to display it
-     * (e.g. via `Bitmap.wrapHardwareBuffer`, API 29+). [upload]/[readback] still work afterward too,
-     * for the cases (seeding a session with a document's existing pixels; a hardware bitmap can't
-     * itself be drawn into directly) that still need a CPU-visible round trip.
-     *
-     * Returns false — the caller should fall back to [init] — if the device/driver combination
-     * doesn't support AHardwareBuffer import for this format/usage, same failure modes [init] has.
-     */
-    fun initHardwareBufferBacked(width: Int, height: Int): Boolean {
-        if (nativeHandle != 0L) destroy()
-        nativeHandle = nativeInitHardwareBuffer(width, height)
-        return nativeHandle != 0L
+    /** Creates or reuses a plain device-memory layer, cleared to transparent black. */
+    fun init(width: Int, height: Int): Boolean = initialize(width, height, hardwareBufferBacked = false)
+
+    /** Creates or reuses an AHardwareBuffer-backed layer, cleared to transparent black. */
+    fun initHardwareBufferBacked(width: Int, height: Int): Boolean =
+        initialize(width, height, hardwareBufferBacked = true)
+
+    private fun initialize(width: Int, height: Int, hardwareBufferBacked: Boolean): Boolean {
+        if (width <= 0 || height <= 0) {
+            destroy()
+            return false
+        }
+
+        // Re-init is a checkout transition too: return the current healthy engine to the pool first.
+        destroy()
+        val key = PoolKey(width, height, hardwareBufferBacked)
+
+        val cached = takePooled(key)
+        if (cached != 0L) {
+            nativeHandle = cached
+            poolKey = key
+            healthy = true
+            hardwareBufferExported = false
+            // Pool reuse must preserve init()'s long-standing contract: a newly initialized layer is
+            // transparent, never whatever pixels the previous stroke left behind.
+            if (nativeClear(cached)) return true
+
+            // A failed clear means the cached engine is suspect. Do not circulate it again.
+            nativeDestroy(cached)
+            nativeHandle = 0L
+            poolKey = null
+            healthy = false
+        }
+
+        nativeCreationCount.incrementAndGet()
+        val created = if (hardwareBufferBacked) {
+            nativeInitHardwareBuffer(width, height)
+        } else {
+            nativeInit(width, height)
+        }
+        nativeHandle = created
+        poolKey = if (created != 0L) key else null
+        healthy = created != 0L
+        hardwareBufferExported = false
+        return created != 0L
     }
 
     /**
-     * The `AHardwareBuffer` backing the layer when [initHardwareBufferBacked] was used, wrapped as
-     * a Java `HardwareBuffer` — or null after plain [init], or if the engine isn't initialized.
-     * Each call returns a distinct `HardwareBuffer` object holding its own reference (matching
-     * `AHardwareBuffer_toHardwareBuffer`'s contract): it stays valid independent of this engine's
-     * lifetime once obtained, and the caller is responsible for eventually calling `close()` on it.
+     * Returns the AHardwareBuffer backing an AHB-created layer. Each successful call exports an
+     * independent Java reference; that engine will be destroyed, not pooled, when this wrapper is
+     * released so the exported buffer cannot silently become another stroke's canvas.
      */
     fun getHardwareBuffer(): HardwareBuffer? {
         if (!isInitialized) return null
-        return nativeGetHardwareBuffer(nativeHandle)
+        val buffer = nativeGetHardwareBuffer(nativeHandle)
+        if (buffer != null) hardwareBufferExported = true
+        return buffer
     }
 
-    /**
-     * Seeds the layer image with [bitmap]'s current pixels, replacing whatever it currently holds
-     * — [stampDabs] never clears the layer, so a fresh [init] starts transparent, and a live
-     * painting session needs the document's existing pixels underneath the new dabs. [bitmap] MUST
-     * be `ARGB_8888`, non-hardware, and exactly the width/height passed to [init] — the same
-     * requirement [readback] has, since this engine assumes its layer image and the bitmap it
-     * round-trips through always agree on dimensions.
-     */
+    /** Replaces the layer contents with [bitmap]. */
     fun upload(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) {
             "VulkanStampEngine.upload requires an ARGB_8888 bitmap, got ${bitmap.config}"
         }
-        return nativeUpload(nativeHandle, bitmap)
+        val ok = nativeUpload(nativeHandle, bitmap)
+        if (!ok) healthy = false
+        return ok
     }
 
-    /**
-     * Stamps [dabs] onto the layer image, in submission order, using [colorArgb] (standard
-     * Android ARGB int — its own alpha channel combines multiplicatively with each dab's own
-     * [BrushDab.alpha], matching `StampBrushRenderer.paintDabs`'s `baseAlpha * d.alpha`) and
-     * [hardness] (`brush.hardness`, 0..1). Returns false if the engine isn't initialized or
-     * [dabs] is empty; the call is otherwise synchronous (blocks until the GPU dispatch
-     * completes) so a subsequent [readback] always sees this call's result.
-     */
+    /** Stamps [dabs] onto the current layer in submission order. */
     fun stampDabs(dabs: List<BrushDab>, colorArgb: Int, hardness: Float): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         val flat = FloatArray(dabs.size * 5)
@@ -114,30 +184,50 @@ class VulkanStampEngine {
             flat[base + 3] = d.alpha
             flat[base + 4] = d.angleDeg
         }
-        return nativeStampDabs(nativeHandle, flat, colorArgb, hardness)
+        val ok = nativeStampDabs(nativeHandle, flat, colorArgb, hardness)
+        if (!ok) healthy = false
+        return ok
     }
 
-    /**
-     * Reads the current layer contents into [bitmap], which MUST be `ARGB_8888`, non-hardware,
-     * and exactly the width/height passed to [init]. Returns false (leaving [bitmap] untouched)
-     * if the engine isn't initialized or the bitmap doesn't meet those requirements.
-     */
+    /** Reads the current layer contents into [bitmap]. */
     fun readback(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) {
             "VulkanStampEngine.readback requires an ARGB_8888 bitmap, got ${bitmap.config}"
         }
-        return nativeReadback(nativeHandle, bitmap)
+        val ok = nativeReadback(nativeHandle, bitmap)
+        if (!ok) healthy = false
+        return ok
     }
 
-    /** Releases the GPU layer image and pipeline. Safe to call even if [init] was never called or failed. */
+    /**
+     * Releases this wrapper's ownership. Healthy, non-exported engines are cached for reuse;
+     * unhealthy engines and engines whose HardwareBuffer escaped to Java are destroyed immediately.
+     * Safe to call repeatedly.
+     */
     fun destroy() {
-        if (nativeHandle != 0L) nativeDestroy(nativeHandle)
+        val handle = nativeHandle
+        if (handle == 0L) return
+        val key = poolKey
+
         nativeHandle = 0L
+        poolKey = null
+        val mayPool = healthy && key != null && !hardwareBufferExported
+        healthy = true
+        hardwareBufferExported = false
+
+        if (!mayPool) {
+            nativeDestroy(handle)
+            return
+        }
+
+        val evicted = putPooled(CachedHandle(key!!, handle))
+        if (evicted != 0L) nativeDestroy(evicted)
     }
 
     private external fun nativeInit(width: Int, height: Int): Long
     private external fun nativeInitHardwareBuffer(width: Int, height: Int): Long
+    private external fun nativeClear(handle: Long): Boolean
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
@@ -145,12 +235,7 @@ class VulkanStampEngine {
     private external fun nativeDestroy(handle: Long)
 }
 
-/**
- * One dab, mirroring `BrushStamps.Dab` (`core/common/.../azphalt/BrushStamps.kt`) — kept as a
- * separate type here rather than depending on `core:common`'s `azphalt` package directly, since
- * `core:nativebridge` otherwise has no dependency on that module; callers on the app side map
- * `BrushStamps.Dab` to this 1:1.
- */
+/** One dab, mirroring the native shader's input fields. */
 data class BrushDab(
     val x: Float,
     val y: Float,

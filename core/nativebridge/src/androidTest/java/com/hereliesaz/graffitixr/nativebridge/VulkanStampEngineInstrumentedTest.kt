@@ -20,6 +20,7 @@ class VulkanStampEngineInstrumentedTest {
     fun tearDown() {
         engines.forEach { it.destroy() }
         engines.clear()
+        VulkanStampEngine.trimPool()
     }
 
     private fun engine(): VulkanStampEngine = VulkanStampEngine().also { engines += it }
@@ -128,6 +129,52 @@ class VulkanStampEngineInstrumentedTest {
         val output = Bitmap.createBitmap(SIZE / 2, SIZE / 2, Bitmap.Config.ARGB_8888)
         assertTrue(engine.readback(output))
         assertEquals(COLOR_GREEN, output.getPixel(1, 1))
+    }
+
+    @Test
+    fun destroyThenSameSizeInitReusesNativeEngineAndClearsLayer() {
+        VulkanStampEngine.trimPool()
+        val before = VulkanStampEngine.nativeCreationCountForTesting()
+
+        val first = initializedEngine()
+        val afterFirstInit = VulkanStampEngine.nativeCreationCountForTesting()
+        assertTrue("The first init did not create a native engine", afterFirstInit > before)
+
+        val red = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(COLOR_RED) }
+        assertTrue(first.upload(red))
+        first.destroy()
+
+        val second = engine()
+        assertTrue(second.init(SIZE, SIZE))
+        assertEquals(
+            "Same-size engine recreation reached native Vulkan init instead of the reuse pool",
+            afterFirstInit,
+            VulkanStampEngine.nativeCreationCountForTesting(),
+        )
+
+        val cleared = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(second.readback(cleared))
+        assertEquals("Pooled layer leaked pixels from its previous owner", 0x00000000, cleared.getPixel(SIZE / 2, SIZE / 2))
+    }
+
+    @Test
+    fun hardwareBufferBackedEngineIsAlsoReusedWhenSupported() {
+        VulkanStampEngine.trimPool()
+        val first = engine()
+        assumeTrue(
+            "Device does not support the AHardwareBuffer-backed Vulkan path",
+            first.initHardwareBufferBacked(SIZE, SIZE),
+        )
+        val afterFirstInit = VulkanStampEngine.nativeCreationCountForTesting()
+        first.destroy()
+
+        val second = engine()
+        assertTrue(second.initHardwareBufferBacked(SIZE, SIZE))
+        assertEquals(
+            "AHardwareBuffer-backed engine was recreated instead of reused",
+            afterFirstInit,
+            VulkanStampEngine.nativeCreationCountForTesting(),
+        )
     }
 
     companion object {
