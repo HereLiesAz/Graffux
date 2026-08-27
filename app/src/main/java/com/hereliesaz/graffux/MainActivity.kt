@@ -248,6 +248,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // in the ViewModel, for the same reason.
     var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
     var showFigmaWindow by remember { mutableStateOf(false) }
+    // Non-base workspaces get their own independent FLOATING AzNavRail hosts. The second title
+    // dropdown below merely decides which of these toolboxes are present; AzNavRail 11.26 owns
+    // their drag, screen-edge snap, rail-to-rail docking and group-drag behaviour.
+    var showAnimationRail by remember { mutableStateOf(false) }
+    var showModelRail by remember { mutableStateOf(false) }
+    var showReferenceRail by remember { mutableStateOf(false) }
+    var showFigmaRail by remember { mutableStateOf(false) }
+    var showExtensionsRail by remember { mutableStateOf(false) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -454,7 +462,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val activeClassifiers = activeRailClassifiers(
         uiState, brushes, customBrushes,
         modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
-    )
+    ).toMutableSet().apply {
+        if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
+        if (showModelDialog) add("area.model")
+        if (showReferenceWindow) add("area.reference")
+        if (showFigmaWindow) add("area.figma")
+        if (uiState.activePanel == EditorPanel.EXTENSIONS || showStoreDialog) add("area.extensions")
+    }.toSet()
 
     val navItemColor = Color.White
 
@@ -558,6 +572,142 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
             )
 
+            if (showAnimationRail) {
+                azUnattachedHostItem(
+                    id = "area.animation", text = "Animation",
+                    anchor = AzUnattachedAnchor.FLOATING,
+                    content = GraffuxIcons.MotionTween, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.animation"),
+                )
+                azRailSubItem(
+                    id = "tool.animation", hostId = "area.animation",
+                    text = if (uiState.isAnimationMode) "Close Animation Assist" else "Animation Assist",
+                    content = GraffuxIcons.MotionTween, color = navItemColor,
+                    classifiers = setOf("tool.animation"),
+                    onClick = { vm.onToggleAnimationMode() },
+                )
+                if (uiState.isAnimationMode) {
+                    azRailSubItem(
+                        id = "animation.play", hostId = "area.animation",
+                        text = if (uiState.isAnimationPlaying) "Pause" else "Play",
+                        content = GraffuxIcons.MotionTween, color = navItemColor,
+                        onClick = { vm.onToggleAnimationPlayback() },
+                    )
+                    azRailSubItem(
+                        id = "animation.previous", hostId = "area.animation", text = "Previous Frame",
+                        content = GraffuxIcons.Undo, color = navItemColor,
+                        onClick = { vm.onPreviousFrame() },
+                    )
+                    azRailSubItem(
+                        id = "animation.next", hostId = "area.animation", text = "Next Frame",
+                        content = GraffuxIcons.Redo, color = navItemColor,
+                        onClick = { vm.onNextFrame() },
+                    )
+                    azRailSubItem(
+                        id = "animation.add", hostId = "area.animation", text = "Add Frame",
+                        content = GraffuxIcons.LayerAdd, color = navItemColor,
+                        onClick = { vm.onAddFrame() },
+                    )
+                    azRailSubItem(
+                        id = "animation.onion", hostId = "area.animation",
+                        text = if (uiState.onionSkinEnabled) "Onion Skin Off" else "Onion Skin On",
+                        content = GraffuxIcons.LayerOpacity, color = navItemColor,
+                        onClick = { vm.onToggleOnionSkin() },
+                    )
+                    azRailSubItem(
+                        id = "animation.export", hostId = "area.animation", text = "Export Animation",
+                        content = GraffuxIcons.MotionTween, color = navItemColor,
+                        onClick = { vm.exportAnimation() },
+                    )
+                    azRailSubItem(
+                        id = "animation.timelapse", hostId = "area.animation",
+                        text = if (uiState.isTimeLapseRecording) "Stop Time-lapse" else "Start Time-lapse",
+                        content = GraffuxIcons.MotionTween, color = navItemColor,
+                        onClick = { vm.onToggleTimeLapseRecording() },
+                    )
+                }
+            }
+
+            if (showModelRail) {
+                azUnattachedHostItem(
+                    id = "area.model", text = "3D", anchor = AzUnattachedAnchor.FLOATING,
+                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.model"),
+                )
+                azRailSubItem(
+                    id = "tool.model", hostId = "area.model", text = "3D Model",
+                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
+                    classifiers = setOf("tool.model"), onClick = { showModelDialog = true },
+                )
+                azRailSubItem(
+                    id = "model.choose", hostId = "area.model", text = "Choose Model",
+                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
+                    onClick = { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
+                )
+            }
+
+            if (showReferenceRail) {
+                azUnattachedHostItem(
+                    id = "area.reference", text = "Reference", anchor = AzUnattachedAnchor.FLOATING,
+                    content = GraffuxIcons.LayerReference, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.reference"),
+                )
+                azRailSubItem(
+                    id = "reference.open", hostId = "area.reference", text = "Reference Image",
+                    content = GraffuxIcons.LayerReference, color = navItemColor,
+                    onClick = { showReferenceWindow = true },
+                )
+                azRailSubItem(
+                    id = "reference.choose", hostId = "area.reference", text = "Choose Reference",
+                    content = GraffuxIcons.LayerReference, color = navItemColor,
+                    onClick = {
+                        showReferenceWindow = true
+                        referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
+            }
+
+            if (showFigmaRail) {
+                azUnattachedHostItem(
+                    id = "area.figma", text = "Figma", anchor = AzUnattachedAnchor.FLOATING,
+                    content = GraffuxIcons.Artboard, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.figma"),
+                )
+                azRailSubItem(
+                    id = "figma.open", hostId = "area.figma", text = "Import from Figma",
+                    content = GraffuxIcons.Artboard, color = navItemColor,
+                    onClick = { showFigmaWindow = true },
+                )
+                azRailSubItem(
+                    id = "figma.export", hostId = "area.figma", text = "Export for Figma",
+                    content = GraffuxIcons.Artboard, color = navItemColor,
+                    onClick = { vm.exportForFigma() },
+                )
+            }
+
+            if (showExtensionsRail) {
+                azUnattachedHostItem(
+                    id = "area.extensions", text = "Extensions", anchor = AzUnattachedAnchor.FLOATING,
+                    content = GraffuxIcons.FilterGallery, color = navItemColor,
+                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.extensions"),
+                )
+                azRailSubItem(
+                    id = "adj.extensions", hostId = "area.extensions", text = "Run Extension",
+                    content = GraffuxIcons.FilterGallery, color = navItemColor,
+                    classifiers = setOf("adj.extensions"), onClick = { vm.onExtensionsClicked() },
+                )
+                azRailSubItem(
+                    id = "extensions.manage", hostId = "area.extensions", text = "Manage Extensions",
+                    content = GraffuxIcons.FilterGallery, color = navItemColor,
+                    onClick = { showStoreDialog = true },
+                )
+                azRailSubItem(
+                    id = "extensions.get", hostId = "area.extensions", text = "Get Extensions",
+                    content = GraffuxIcons.FilterGallery, color = navItemColor,
+                    onClick = { openAzphaltStore() },
+                )
+            }
+
             // The tools you actually reach for, one swipe from the bottom edge. The rail holds every
             // tool this app has, which is what makes it complete and also what makes it somewhere
             // you have to navigate; this is the flat row of the ones that matter to you.
@@ -601,8 +751,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         
             // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
             onscreen(alignment = Alignment.TopEnd) {
-                if (!uiState.hideUiForCapture) AzDropdownMenu(navController = navController) {
-                    azConfig(design = AzDropdownDesign.MENU, dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT)
+                if (!uiState.hideUiForCapture) {
+                    AzDropdownMenu(navController = navController) {
+                        azConfig(
+                            design = AzDropdownDesign.MENU,
+                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
+                            trigger = AzDropdownTrigger.MoreVert,
+                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
+                        )
                     // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
                     // to say so once — so it was said twenty-one times over. An entry added without
                     // it falls back to Color.Unspecified rather than to the other twenty, which is a
@@ -621,15 +777,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // the UI at all. AddContentDialog, ShapeKind and onAddShapeLayer/
                     // onAddPolygonLayer never stopped working — nothing pointed at them any more.
                     menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
-                    menuItem(text = "Reference Image…", onClick = { showReferenceWindow = true })
-                    menuItem(text = "Import from Figma…", onClick = { showFigmaWindow = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
                     // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
                     // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
                     // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
                     // never stopped working, it just had no menu item pointing at it any more.
-                    menuItem(text = "Export for Figma", onClick = { vm.exportForFigma() })
                     menuItem(text = strings.nav.share, onClick = {
                         scope.launch {
                             try {
@@ -659,8 +812,31 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         }
                     })
                     azDivider()
-                    menuItem(text = "Extensions", onClick = { showStoreDialog = true })
-                    menuItem(text = "Settings", onClick = { showSettings = true })
+                        menuItem(text = "Settings", onClick = { showSettings = true })
+                    }
+
+                    AzDropdownMenu(navController = navController) {
+                        azConfig(
+                            design = AzDropdownDesign.MENU,
+                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
+                            showFooter = false,
+                            trigger = AzDropdownTrigger.Hamburger,
+                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
+                        )
+                        fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
+                            azToggle(
+                                isChecked = checked,
+                                toggleOnText = label,
+                                toggleOffText = label,
+                                color = menuItemColor,
+                                onToggle = onToggle,
+                            )
+                        areaToggle("Animation rail", showAnimationRail) { showAnimationRail = it }
+                        areaToggle("3D rail", showModelRail) { showModelRail = it }
+                        areaToggle("Reference rail", showReferenceRail) { showReferenceRail = it }
+                        areaToggle("Figma rail", showFigmaRail) { showFigmaRail = it }
+                        areaToggle("Extensions rail", showExtensionsRail) { showExtensionsRail = it }
+                    }
                 }
             }
 
@@ -1165,29 +1341,40 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
     }
 }
 
-/**
- * The colour item's content: [color] shown inside a painter's-palette silhouette rather than a
- * plain square chip — a shape that reads as "this is the paint you're about to use" the way a flat
- * colour-filled square doesn't, and one Procreate's own colour puck deliberately isn't a square
- * either. Solid, not an outline: the whole body is filled with [color], the way a loaded palette
- * actually looks, with a thin pale stroke so the silhouette stays legible when [color] is close to
- * the rail's own near-black background.
- */
+/** A real painter's-palette glyph: silhouette + thumb hole + separate paint wells. */
 @Composable
 private fun PaletteSwatch(color: Color) {
     Canvas(Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        val body = Path().apply { addOval(Rect(0f, 0f, w, h * 0.86f)) }
-        // The thumb notch: a smaller circle overlapping the body's lower edge. Unioned in first, it
-        // bulges the silhouette outward there before the hole below is cut from that same bulge —
-        // exactly where a real palette's thumb rests.
-        val notch = Path().apply { addOval(Rect(w * 0.30f, h * 0.58f, w * 0.70f, h * 0.98f)) }
-        val bodyWithNotch = Path().apply { op(body, notch, PathOperation.Union) }
-        val hole = Path().apply { addOval(Rect(w * 0.41f, h * 0.70f, w * 0.59f, h * 0.90f)) }
-        val silhouette = Path().apply { op(bodyWithNotch, hole, PathOperation.Difference) }
-        drawPath(silhouette, color = color)
-        drawPath(silhouette, color = Color.White.copy(alpha = 0.25f), style = Stroke(width = 1.dp.toPx()))
+        val body = Path().apply {
+            moveTo(w * 0.88f, h * 0.42f)
+            cubicTo(w * 0.88f, h * 0.16f, w * 0.67f, h * 0.05f, w * 0.43f, h * 0.07f)
+            cubicTo(w * 0.18f, h * 0.09f, w * 0.06f, h * 0.28f, w * 0.08f, h * 0.52f)
+            cubicTo(w * 0.10f, h * 0.78f, w * 0.30f, h * 0.94f, w * 0.52f, h * 0.84f)
+            cubicTo(w * 0.64f, h * 0.78f, w * 0.59f, h * 0.66f, w * 0.72f, h * 0.63f)
+            cubicTo(w * 0.82f, h * 0.61f, w * 0.88f, h * 0.54f, w * 0.88f, h * 0.42f)
+            close()
+        }
+        val thumb = Path().apply { addOval(Rect(w * 0.55f, h * 0.62f, w * 0.72f, h * 0.80f)) }
+        val silhouette = Path().apply { op(body, thumb, PathOperation.Difference) }
+        drawPath(silhouette, color = Color.White.copy(alpha = 0.10f))
+        drawPath(silhouette, color = Color.White.copy(alpha = 0.88f), style = Stroke(width = 1.5.dp.toPx()))
+
+        fun paintWell(center: Offset, radius: Float, paint: Color) {
+            drawCircle(Color.Black.copy(alpha = 0.72f), radius = radius + 1.dp.toPx(), center = center)
+            drawCircle(paint, radius = radius, center = center)
+            drawCircle(
+                Color.White.copy(alpha = 0.55f), radius = radius, center = center,
+                style = Stroke(width = 0.7.dp.toPx()),
+            )
+        }
+
+        val r = minOf(w, h) * 0.085f
+        paintWell(Offset(w * 0.31f, h * 0.29f), r, Cyan)
+        paintWell(Offset(w * 0.51f, h * 0.23f), r, Color(0xFFFF2DAA))
+        paintWell(Offset(w * 0.68f, h * 0.34f), r, Color(0xFFFFC107))
+        paintWell(Offset(w * 0.34f, h * 0.56f), r * 1.35f, color)
     }
 }
 
@@ -1231,6 +1418,7 @@ private val VECTOR_TOOLS: List<Tool> = listOf(
 /** Each group's nested-rail id, which is also its classifier. */
 private const val SELECT_ID = "grp.select"
 private const val VECTOR_ID = "grp.vector"
+private const val TRANSFORM_ID = "grp.transform"
 
 /**
  * Every rail item that is currently *active*, by item id.
@@ -1295,7 +1483,10 @@ internal fun activeRailClassifiers(
     // are opened from a layer's hidden menu now, and a hidden-menu row has no persistent state to
     // show: the menu is closed by the time the panel is up. The panel itself is the indication.
     when (uiState.activePanel) {
-        EditorPanel.TRANSFORM -> add("adj.transform")
+        EditorPanel.TRANSFORM -> {
+            add("adj.transform")
+            add(TRANSFORM_ID)
+        }
         EditorPanel.EXTENSIONS -> add("adj.extensions")
         else -> Unit
     }
@@ -1416,7 +1607,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = setOf(id)) =
         azRailHostItem(
             id = id, text = text, content = content, classifiers = classifiers,
-            color = railColor(id), shape = AzButtonShape.SQUARE,
+            color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
         )
 
     /**
@@ -1490,33 +1681,48 @@ private fun AzNavHostScope.ConfigureRailItems(
     // ── Transform · Selection ──────────────────────────────────────────────────────────────────────
     // Transform leads the rest of the strip; the Selection nested rail sits below it.
 
-    stateItem("adj.transform", "Transform", GraffuxIcons.Move) { vm.onTransformClicked() }
-    TransformMode.entries.forEach { mode ->
-        stateItem(
-            id = "transform.${mode.name}", text = mode.label,
-            content = when (mode) {
-                TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
-                TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
-                TransformMode.WARP -> GraffuxIcons.PuppetWarp
-            },
-        ) { vm.onSetTransformMode(mode) }
-    }
-    if (uiState.transformMode != TransformMode.FREEFORM) {
+    azNestedRail(
+        id = TRANSFORM_ID, classifiers = setOf(TRANSFORM_ID),
+        text = "Crop & Transform", content = GraffuxIcons.Crop,
+        color = railColor(TRANSFORM_ID), shape = AzButtonShape.NONE_SQUARE,
+        keepNestedRailOpen = true,
+    ) {
         azRailItem(
-            id = "transform.apply", text = "Apply",
-            content = GraffuxIcons.Success, color = activeColor,
-            onClick = { vm.onApplyWarp() },
+            id = "adj.transform", classifiers = setOf("adj.transform"),
+            text = "Move / Transform", content = GraffuxIcons.Move,
+            color = railColor("adj.transform"), shape = AzButtonShape.NONE_SQUARE,
+            onClick = { vm.onTransformClicked() },
         )
-        azRailItem(
-            id = "transform.cancel", text = "Cancel",
-            content = GraffuxIcons.Close, color = navItemColor,
-            onClick = { vm.onCancelWarp() },
-        )
+        TransformMode.entries.forEach { mode ->
+            val id = "transform.${mode.name}"
+            azRailItem(
+                id = id, classifiers = setOf(id), text = mode.label,
+                content = when (mode) {
+                    TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
+                    TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
+                    TransformMode.WARP -> GraffuxIcons.PuppetWarp
+                },
+                color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
+                onClick = { vm.onSetTransformMode(mode) },
+            )
+        }
+        if (uiState.transformMode != TransformMode.FREEFORM) {
+            azRailItem(
+                id = "transform.apply", text = "Apply",
+                content = GraffuxIcons.Success, color = activeColor, shape = AzButtonShape.NONE_SQUARE,
+                onClick = { vm.onApplyWarp() },
+            )
+            azRailItem(
+                id = "transform.cancel", text = "Cancel",
+                content = GraffuxIcons.Close, color = navItemColor, shape = AzButtonShape.NONE_SQUARE,
+                onClick = { vm.onCancelWarp() },
+            )
+        }
     }
 
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
-        color = railColor(SELECT_ID), shape = AzButtonShape.SQUARE,
+        color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
         reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
@@ -1615,8 +1821,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     stateItem(
         id = "tool.color", text = navStrings.color,
         content = AzComposableContent { PaletteSwatch(uiState.activeColor) },
-        // Bordered: it opens the colour picker rather than selecting a tool.
-        shape = AzButtonShape.SQUARE,
+        // The active ring now supplies the state; no permanent border pretending to be selection.
+        shape = AzButtonShape.NONE_SQUARE,
     ) { vm.onColorClicked() }
 
     // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
@@ -1645,7 +1851,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // than the editing controls living twenty items further down the rail as they used to.
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
-        color = railColor(VECTOR_ID), shape = AzButtonShape.SQUARE,
+        color = railColor(VECTOR_ID), shape = AzButtonShape.NONE_SQUARE,
         reflectSelectionInParent = true,
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
@@ -1715,11 +1921,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     // drop-down between "Export for Figma" and "Install brush…". Everything it opens has always been
     // collected — ModelWindow holds the viewport, the model picker, paint mode, clear, and add-to-
     // canvas — but nothing in the rail admitted the feature existed.
-    stateItem("tool.animation", "Animation", GraffuxIcons.MotionTween) { vm.onToggleAnimationMode() }
     // GuideIsometric rather than a cube: the Graffux set has no cube, and this is the one glyph in
     // it that draws a solid in three dimensions. Better a near-miss from the app's own set than a
     // stray icon from a library, which is how the rail ended up with a broom for the eraser.
-    stateItem("tool.model", "3D Model", GraffuxIcons.GuideIsometric) { onModelClicked() }
     // (No sliders on the rail. Still none, and this is the standing rule rather than an omission: a
     // rail of round buttons is the wrong place for a control that needs a length to be usable and a
     // read-out to be meaningful, and `azRailSlider` has no "you let go" event — which is why the two
@@ -1793,10 +1997,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     azUnattachedHostItem(
         id = "grp.layers",
         text = strings.editor.layers,
-        anchor = AzUnattachedAnchor.OPPOSITE,
+        anchor = AzUnattachedAnchor.FLOATING,
         content = GraffuxIcons.Layers,
         color = navItemColor,
-        shape = AzButtonShape.SQUARE,
+        shape = AzButtonShape.NONE_SQUARE,
     )
     uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
         renderLayerRailItem(
@@ -1818,6 +2022,17 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = navItemColor,
         onClick = { vm.onAddBlankLayer() },
     )
+    uiState.activeLayerId?.let { activeId ->
+        azRailSubItem(
+            id = "layer.deleteActive", hostId = "grp.layers", text = "Delete Active Layer",
+            content = GraffuxIcons.LayerDelete, color = navItemColor,
+            onClick = {
+                val active = uiState.layers.firstOrNull { it.id == activeId }
+                if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
+                else vm.onLayerRemoved(activeId)
+            },
+        )
+    }
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
@@ -1826,9 +2041,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
     // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
     // windows under one name is how a user ends up in the wrong one.
-    stateItem("adj.extensions", "Run Extension", GraffuxIcons.FilterGallery, AzButtonShape.SQUARE) {
-        vm.onExtensionsClicked()
-    }
 
     // The `?`. It opens the library's help overlay, which draws a card for every item currently in
     // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
@@ -1920,17 +2132,6 @@ private fun AzNavHostScope.renderLayerRailItem(
             vm.onLayerReordered(ids.reversed())
         },
         keepNestedRailOpen = isGroup,
-        // KNOWN LIBRARY LIMITATION (AzNavRail, not fixable from this repo): a child rendered here
-        // ends up in the parent's `nestedRailItems`, drawn by NestedRail.kt's `NestedItemWrapper`
-        // rather than the top-level `RailContent`. Only `RailContent` wires the long-press gesture
-        // that opens a hidden menu (see RailItems.kt's `dragModifier`, gated on `item.isRelocItem`);
-        // `NestedItemWrapper` wires nothing but a plain `onClick`. So every listItem/inputItem below
-        // — Adjust, Rename, Merge Down, Delete, and the rest — is unreachable on a layer that is
-        // currently inside a group; tapping it only activates it. The one way back to those actions
-        // today is "Ungroup" on the group's own menu (reachable — the group container is a top-level
-        // item, not a nested one). Filed upstream against HereLiesAz/aznavrail; fixing it here would
-        // mean bypassing the rail DSL this whole screen is built on, which is a bigger change than
-        // this limitation warrants.
         nestedContent = if (isGroup) {
             {
                 children.reversed().forEach { child ->
