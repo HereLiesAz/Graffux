@@ -3247,7 +3247,9 @@ class EditorViewModel @Inject constructor(
                             radius = dab.radius,
                             alpha = dab.alpha,
                             angleDeg = dab.angleDeg,
-                            colorArgb = StampBrushRenderer.resolvedColor(colorArgb, dab),
+                            colorArgb = StampBrushRenderer.resolvedColor(
+                                colorArgb, _uiState.value.secondaryColor.toArgb(), stampBrush, dab,
+                            ),
                             flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                         )
                     }
