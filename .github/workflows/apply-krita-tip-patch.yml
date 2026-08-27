@@ -1,0 +1,34 @@
+name: Apply Krita tip asset patch
+
+on:
+  push:
+    branches: [feat/krita-tip-texture-mask]
+    paths:
+      - scripts/krita_tip_asset_patch.py
+      - .github/workflows/apply-krita-tip-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/krita-tip-texture-mask
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Apply deterministic source edits
+        run: python scripts/krita_tip_asset_patch.py
+      - name: Remove temporary patch machinery
+        run: rm scripts/krita_tip_asset_patch.py .github/workflows/apply-krita-tip-patch.yml
+      - name: Commit source edits
+        run: |
+          git config user.name "Az"
+          git config user.email "103241502+HereLiesAz@users.noreply.github.com"
+          git add -A
+          git commit -m "Wire Krita tip grain and masked brush assets"
+          git push origin HEAD:feat/krita-tip-texture-mask
