@@ -1,21 +1,13 @@
 #version 450
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// First five fields are the original Vulkan dab ABI. `resolved` selects the widened per-dab paint
-// values; legacy JNI leaves it zero, so existing callers still use the push-constant colour/alpha.
+// Explicit 3×vec4 std430 layout: exactly 48 bytes per dab, matching GpuDab's twelve floats.
+// This avoids relying on compiler-specific intuition about the array stride of a scalar-only struct.
+// Legacy JNI leaves paint1.z (`resolved`) zero, so existing callers keep using push-constant paint.
 struct Dab {
-    float x;
-    float y;
-    float radius;
-    float alpha;
-    float angleDeg;
-    float colorR;
-    float colorG;
-    float colorB;
-    float colorA;
-    float flow;
-    float resolved;
-    float _pad0;
+    vec4 geometry; // x, y, radius, alpha
+    vec4 paint0;   // angleDeg, colorR, colorG, colorB
+    vec4 paint1;   // colorA, flow, resolved, padding
 };
 
 layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
@@ -51,16 +43,18 @@ void main() {
 
     for (uint i = 0u; i < pc.dabCount; i++) {
         Dab d = dabs[i];
-        float radius = max(d.radius, 0.5);
-        if (abs(p.x - d.x) > radius || abs(p.y - d.y) > radius) continue;
-        float coverage = stampCoverage(distance(p, vec2(d.x, d.y)), radius, pc.hardness);
+        vec2 center = d.geometry.xy;
+        float radius = max(d.geometry.z, 0.5);
+        float dabAlpha = d.geometry.w;
+        if (abs(p.x - center.x) > radius || abs(p.y - center.y) > radius) continue;
+        float coverage = stampCoverage(distance(p, center), radius, pc.hardness);
         if (coverage <= 0.0) continue;
 
-        bool hasResolvedPaint = d.resolved >= 0.5;
-        vec3 srcRgb = hasResolvedPaint ? vec3(d.colorR, d.colorG, d.colorB) : vec3(pc.colorR, pc.colorG, pc.colorB);
-        float baseAlpha = hasResolvedPaint ? d.colorA : pc.baseAlpha;
-        float dabFlow = hasResolvedPaint ? max(d.flow, 0.0) : 1.0;
-        float srcA = baseAlpha * d.alpha * dabFlow * coverage;
+        bool hasResolvedPaint = d.paint1.z >= 0.5;
+        vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);
+        float baseAlpha = hasResolvedPaint ? d.paint1.x : pc.baseAlpha;
+        float dabFlow = hasResolvedPaint ? max(d.paint1.y, 0.0) : 1.0;
+        float srcA = baseAlpha * dabAlpha * dabFlow * coverage;
         if (srcA <= 0.0) continue;
 
         dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
