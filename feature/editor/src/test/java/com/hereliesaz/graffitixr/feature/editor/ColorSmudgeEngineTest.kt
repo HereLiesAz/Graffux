@@ -1,18 +1,42 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
+import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.BeforeClass
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34])
 class ColorSmudgeEngineTest {
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun setUp() = RenderTestBase.stubNativeLibs()
+    }
 
     private fun redBlock(width: Int = 64, height: Int = 32): IntArray =
         IntArray(width * height) { i ->
             val x = i % width
             if (x < 16) Color.RED else Color.WHITE
+        }
+
+    private fun redBlockBitmap(width: Int = 64, height: Int = 32): Bitmap =
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            bitmap.setPixels(redBlock(width, height), 0, width, 0, 0, width, height)
         }
 
     private fun redReach(px: IntArray, width: Int, y: Int): Int {
@@ -22,6 +46,50 @@ class ColorSmudgeEngineTest {
             if (Color.red(p) - Color.green(p) > 20) reach = x
         }
         return reach
+    }
+
+    @Test
+    fun `smear compatibility preset is pixel-identical to original Graffux smudge`() = runBlocking {
+        val width = 64
+        val height = 32
+        val source = redBlockBitmap(width, height)
+        val stroke = List(40) { Offset((8 + it).toFloat(), 16f) }
+        val intensity = 0.73f
+        val feathering = 0.35f
+
+        val legacy = ImageProcessor.applyToolToBitmap(
+            source,
+            stroke,
+            Tool.SMUDGE,
+            brushSize = 12f,
+            intensity = intensity,
+            feathering = feathering,
+        )
+
+        val extracted = redBlock(width, height)
+        ColorSmudgeEngine.apply(
+            extracted,
+            width,
+            height,
+            stroke,
+            ColorSmudgeEngine.Settings(
+                mode = ColorSmudgeEngine.Mode.SMEAR,
+                radiusPx = 6f,
+                smudgeRate = 0.35f + intensity * 0.6f,
+                colorRate = 0f,
+                opacity = 1f,
+                feathering = feathering,
+                smearAlpha = true,
+            ),
+        )
+
+        val legacyPixels = IntArray(width * height)
+        legacy.getPixels(legacyPixels, 0, width, 0, 0, width, height)
+        assertArrayEquals(
+            "extracting Smear from ImageProcessor must not change a single pixel",
+            legacyPixels,
+            extracted,
+        )
     }
 
     @Test
