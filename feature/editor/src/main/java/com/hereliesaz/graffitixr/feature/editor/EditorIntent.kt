@@ -119,9 +119,14 @@ internal sealed interface EditorIntent {
      */
     data class SetActiveFrameIndex(val index: Int, val followActiveLayer: Boolean = false) : EditorIntent
     data object ToggleOnionSkin : EditorIntent
-    data class SetOnionSkinFrameCount(val count: Int) : EditorIntent
+    data class SetOnionSkinPastCount(val count: Int) : EditorIntent
+    data class SetOnionSkinFutureCount(val count: Int) : EditorIntent
     data class SetAnimationFrameDurationMs(val ms: Int) : EditorIntent
     data class SetAnimationLoopMode(val mode: AnimationLoopMode) : EditorIntent
+    /** Krita's playback range: Play and export cycle [start, end] rather than every frame. */
+    data class SetAnimationRange(val start: Int, val end: Int) : EditorIntent
+    /** Krita's hold frame: how many ticks the frame rooted at [frameId] stays before advancing. */
+    data class SetFrameHoldCount(val frameId: String, val count: Int) : EditorIntent
     /**
      * Opens Brush Studio on [draft] (null closes it). [editingId] is the saved-brush id being
      * edited, or null for a brand-new brush.

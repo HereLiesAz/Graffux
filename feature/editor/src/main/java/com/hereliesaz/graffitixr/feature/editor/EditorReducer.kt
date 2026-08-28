@@ -302,9 +302,21 @@ internal object EditorReducer {
             state.copy(activeFrameIndex = index, activeLayerId = activeId)
         }
         EditorIntent.ToggleOnionSkin -> state.copy(onionSkinEnabled = !state.onionSkinEnabled)
-        is EditorIntent.SetOnionSkinFrameCount -> state.copy(onionSkinFrameCount = intent.count.coerceIn(1, 5))
+        is EditorIntent.SetOnionSkinPastCount -> state.copy(onionSkinPastCount = intent.count.coerceIn(0, 5))
+        is EditorIntent.SetOnionSkinFutureCount -> state.copy(onionSkinFutureCount = intent.count.coerceIn(0, 5))
         is EditorIntent.SetAnimationFrameDurationMs -> state.copy(animationFrameDurationMs = intent.ms.coerceIn(20, 2000))
         is EditorIntent.SetAnimationLoopMode -> state.copy(animationLoopMode = intent.mode)
+        // end < start collapses to a single-frame range rather than being rejected — e.g. dragging
+        // both handles to the same frame is a legitimate "just this frame" range, not an error.
+        is EditorIntent.SetAnimationRange -> state.copy(
+            animationRangeStart = intent.start.coerceAtLeast(0),
+            animationRangeEnd = intent.end,
+        )
+        is EditorIntent.SetFrameHoldCount -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.frameId) {
+                it.copy(frameHoldCount = intent.count.coerceIn(1, 60))
+            },
+        )
         is EditorIntent.SetBrushStudioDraft -> state.copy(
             brushStudioDraft = intent.draft?.sanitized(),
             brushStudioEditingId = intent.editingId,

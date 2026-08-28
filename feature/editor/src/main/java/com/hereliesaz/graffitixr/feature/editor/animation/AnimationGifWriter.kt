@@ -15,24 +15,30 @@ import java.io.FileOutputStream
 object AnimationGifWriter {
 
     /**
+     * @param range the frame indices to export, in Animation Assist's own frame numbering — Krita's
+     *   playback range, so a subrange can be exported without touching the layer stack. Ping-pong
+     *   bounces within this range rather than the full frame set.
+     * @param holdCountAt Krita's hold frame: a per-frame multiple of [frameDurationMs] to hold that
+     *   frame for, e.g. 3 to hold three ticks instead of one. Defaults to no hold (every frame 1x).
      * @param frameAt produces the frame at an index, or null to skip it. Ownership transfers to the
      *   encoder, which recycles each frame as the next arrives — callers must not reuse the bitmap.
      * @return the number of frames actually written (0 if nothing could be encoded).
      */
     fun write(
         file: File,
-        frameCount: Int,
+        range: IntRange,
         frameDurationMs: Int,
         loopMode: AnimationLoopMode,
+        holdCountAt: (Int) -> Int = { 1 },
         frameAt: (Int) -> Bitmap?,
     ): Int {
-        if (frameCount <= 0) return 0
+        if (range.isEmpty()) return 0
+        val indices = range.toList()
         // Ping-pong plays forward then back without repeating the two endpoints, which is what makes
         // the bounce read as continuous rather than stuttering on the ends.
         val order = when (loopMode) {
-            AnimationLoopMode.PING_PONG ->
-                (0 until frameCount) + ((frameCount - 2) downTo 1)
-            else -> (0 until frameCount).toList()
+            AnimationLoopMode.PING_PONG -> indices + indices.reversed().drop(1).dropLast(1)
+            else -> indices
         }
         var written = 0
         FileOutputStream(file).use { stream ->
@@ -45,6 +51,9 @@ object AnimationGifWriter {
             if (!gif.start(stream)) return 0
             for (index in order) {
                 val frame = frameAt(index) ?: continue
+                // setDelay changes it "for subsequent frames" (see AnimatedGifEncoder), so calling it
+                // right before each addFrame gives this one frame its own hold-adjusted duration.
+                gif.setDelay(frameDurationMs * holdCountAt(index).coerceAtLeast(1))
                 if (gif.addFrame(frame)) written++
             }
             gif.finish()

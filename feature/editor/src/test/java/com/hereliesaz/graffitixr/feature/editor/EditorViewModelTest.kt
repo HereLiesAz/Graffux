@@ -598,6 +598,41 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `resolvedPlaybackRange resolves the -1 end sentinel to the last frame and clamps a stale range`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a"), lyr("b"), lyr("c")))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Untouched default (0..-1) resolves to the whole frame set.
+        assertEquals(0, viewModel.resolvedPlaybackRange().first)
+        assertEquals(2, viewModel.resolvedPlaybackRange().last)
+
+        // A range that outlived a frame count drop clamps into what's left rather than throwing.
+        viewModel.onSetAnimationRange(1, 50)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, viewModel.resolvedPlaybackRange().first)
+        assertEquals(2, viewModel.resolvedPlaybackRange().last)
+    }
+
+    @Test
+    fun `onSetFrameHoldCount sets the hold count on the current frame only`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a"), lyr("b")))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onSelectFrame(0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.currentFrameHoldCount())
+        viewModel.onSetFrameHoldCount(4)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(4, viewModel.currentFrameHoldCount())
+        assertEquals(4, viewModel.uiState.value.layers.first { it.id == "a" }.frameHoldCount)
+        assertEquals(1, viewModel.uiState.value.layers.first { it.id == "b" }.frameHoldCount)
+    }
+
+    @Test
     fun `onRotateLayerHandle rotates active layer on Z axis`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val l = lyr("a").copy(rotationZ = 15f)

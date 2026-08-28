@@ -43,18 +43,27 @@ fun AnimationWindow(
     activeFrameIndex: Int,
     isPlaying: Boolean,
     onionSkinEnabled: Boolean,
-    onionSkinFrameCount: Int,
+    onionSkinPastCount: Int,
+    onionSkinFutureCount: Int,
     loopMode: AnimationLoopMode,
     frameDurationMs: Int,
+    // The playback range, already resolved to real frame numbers (see
+    // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields.
+    rangeStart: Int,
+    rangeEnd: Int,
+    currentFrameHoldCount: Int,
     isTimeLapseRecording: Boolean,
     onTogglePlayback: () -> Unit,
     onPreviousFrame: () -> Unit,
     onNextFrame: () -> Unit,
     onAddFrame: () -> Unit,
     onToggleOnionSkin: () -> Unit,
-    onSetOnionSkinFrameCount: (Int) -> Unit,
+    onSetOnionSkinPastCount: (Int) -> Unit,
+    onSetOnionSkinFutureCount: (Int) -> Unit,
     onSetLoopMode: (AnimationLoopMode) -> Unit,
     onSetFrameDurationMs: (Int) -> Unit,
+    onSetRange: (start: Int, end: Int) -> Unit,
+    onSetFrameHoldCount: (Int) -> Unit,
     onExport: () -> Unit,
     onToggleTimeLapse: () -> Unit,
     onDismiss: () -> Unit,
@@ -82,6 +91,19 @@ fun AnimationWindow(
             }
             AzButton(text = "Add Frame", onClick = onAddFrame, shape = AzButtonShape.RECTANGLE)
 
+            // Krita's hold frame: this frame plays for a multiple of the base frame duration
+            // instead of one tick, without needing a duplicate layer to eat the extra ticks.
+            Text(
+                "Hold this frame  ${currentFrameHoldCount}×",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Slider(
+                value = currentFrameHoldCount.toFloat(),
+                onValueChange = { onSetFrameHoldCount(it.roundToInt()) },
+                valueRange = 1f..10f,
+                steps = 8,
+            )
+
             Text("Playback", style = MaterialTheme.typography.labelMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AnimationLoopMode.entries.forEach { mode ->
@@ -103,24 +125,63 @@ fun AnimationWindow(
                 valueRange = 20f..500f,
             )
 
-            // Onion skin. The depth slider is only shown while it is on — a count of ghost frames
-            // means nothing when no ghosts are being drawn.
+            // Krita's playback range: Play and Export GIF cycle only [rangeStart, rangeEnd],
+            // independent of which frames exist — a subrange can be previewed or exported without
+            // touching the layer stack. Frame stepping (Prev/Next/Add) always reaches every frame.
+            val lastFrame = (frameCount - 1).coerceAtLeast(0)
+            Text(
+                "Play range  ${rangeStart + 1}–${rangeEnd + 1}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Start", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = rangeStart.toFloat(),
+                        onValueChange = { onSetRange(it.roundToInt().coerceAtMost(rangeEnd), rangeEnd) },
+                        valueRange = 0f..lastFrame.toFloat(),
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("End", style = MaterialTheme.typography.labelSmall)
+                    Slider(
+                        value = rangeEnd.toFloat(),
+                        onValueChange = { onSetRange(rangeStart, it.roundToInt().coerceAtLeast(rangeStart)) },
+                        valueRange = 0f..lastFrame.toFloat(),
+                    )
+                }
+            }
+
+            // Onion skin. Krita-style asymmetric: past and future neighbours fade in
+            // independently, so e.g. history can show behind a clean line with nothing ahead of it.
+            // The depth sliders are only shown while it's on — a ghost-frame count means nothing
+            // when no ghosts are being drawn.
             AzButton(
                 text = if (onionSkinEnabled) "● Onion Skin" else "Onion Skin",
                 onClick = onToggleOnionSkin,
                 shape = AzButtonShape.RECTANGLE,
             )
             if (onionSkinEnabled) {
-                Text(
-                    "Ghost frames  $onionSkinFrameCount",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Slider(
-                    value = onionSkinFrameCount.toFloat(),
-                    onValueChange = { onSetOnionSkinFrameCount(it.roundToInt()) },
-                    valueRange = 1f..5f,
-                    steps = 3,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Past  $onionSkinPastCount", style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = onionSkinPastCount.toFloat(),
+                            onValueChange = { onSetOnionSkinPastCount(it.roundToInt()) },
+                            valueRange = 0f..5f,
+                            steps = 4,
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("Future  $onionSkinFutureCount", style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = onionSkinFutureCount.toFloat(),
+                            onValueChange = { onSetOnionSkinFutureCount(it.roundToInt()) },
+                            valueRange = 0f..5f,
+                            steps = 4,
+                        )
+                    }
+                }
             }
 
             AzButton(text = "Export GIF", onClick = onExport, shape = AzButtonShape.RECTANGLE)
