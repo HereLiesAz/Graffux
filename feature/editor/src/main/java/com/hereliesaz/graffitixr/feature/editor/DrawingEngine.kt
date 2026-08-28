@@ -172,7 +172,17 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
-            val gpuPainted = runCatching {
+            //
+            // Dilution forces the CPU path: ColorSmudgeDab has no dilution field, and
+            // color_smudge.comp always blends toward the raw paint push-constant with strength
+            // colorRate -- it never premixes with the pixel already under the brush the way
+            // ColorSmudgeEngine.dilutedPigment() does. Attempting the GPU path here would silently
+            // render a different (undiluted) result on Vulkan-capable devices than on the CPU
+            // fallback for the exact same StrokeCommand, breaking the CPU/GPU parity every other
+            // dab primitive in this engine holds to. chargeDecayRate needs no such gate: it's
+            // already folded into the per-dab colorRate by resolve() before reaching either path,
+            // so the flat colorRate blend below already reproduces it correctly.
+            val gpuPainted = settings.dilution <= 0f && runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false

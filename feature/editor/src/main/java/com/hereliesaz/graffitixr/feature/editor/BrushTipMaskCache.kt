@@ -88,7 +88,11 @@ internal object BrushTipMaskCache {
             val modeFactor = when (mode) {
                 GrainBlendMode.MULTIPLY -> g
                 GrainBlendMode.SUBTRACT -> (2f * g - 1f).coerceIn(0f, 1f)
-                GrainBlendMode.DARKEN -> g
+                // Quadratic rather than MULTIPLY's linear pass-through: suppresses the texture's
+                // lighter (higher-g) areas more aggressively while still mapping 0->0 and 1->1, so
+                // Darken reads as "more of the grain gets removed" relative to Multiply instead of
+                // being pixel-identical to it.
+                GrainBlendMode.DARKEN -> (g * g).coerceIn(0f, 1f)
                 GrainBlendMode.OVERLAY -> (0.5f + 0.5f * g).coerceIn(0f, 1f)
             }
             val pass = (1f - s) + s * modeFactor
