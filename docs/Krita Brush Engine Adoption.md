@@ -179,31 +179,35 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **UI exposure:** Real foreground/secondary color wired through `EditorViewModel` (`secondaryColor` in ui state), `BrushStudioWindow` mix preview, and color-source picker controls in `SketchToolsDialog`.
 
-**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`.
+**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`. `ColorSourceMixTest` now also covers: `UNIFORM_RANDOM` determinism under sensor-driven `dynamicDabs` placement (not just the static `dabs` path), sensor HSV shift composing correctly on top of an already-resolved `GRADIENT`/`UNIFORM_RANDOM` color, and the masked/dual-brush pipeline (`paintDabs` with `maskedBrush` set) painting the same resolved color source as the primary tip.
 
 **Dependencies:** Items 4-6 (shares the resolved-dab pipeline).
 
-**Completion state:** IMPLEMENTED (CPU). Validation is in its final pass; GPU parity is deferred to item 14.
+**Completion state:** IMPLEMENTED (CPU), validation complete. GPU parity remains deferred to item 14 — `gpuCompatibleBrush` gating in `EditorViewModel` (live-preview GPU eligibility) correctly requires `colorSource == PLAIN`, so a non-plain color source falls back to the CPU path exactly as documented, confirmed by reading that gate directly rather than inferring it.
 
 ## 9. Taper / Fade / Lift-off
 
-**Krita behavior adopted:** start/end size and opacity taper over the first/last portion of a stroke, plus time/distance-based fade, and (Graffux-specific) synthetic pressure derived from finger lift velocity where no real pressure sensor exists.
+**Krita behavior adopted:** start/end size and opacity taper over the first/last portion of a stroke, plus (Graffux-specific) synthetic pressure derived from finger lift velocity where no real pressure sensor exists.
 
-**Graffux contract:** not yet defined for the general brush model. Note: `feature/editor/.../util/ImageProcessor.kt` (`BrushDynamics`) contains a pre-existing, unrelated velocity-based start/end taper for the legacy path/stroke round-brush renderer; it predates this adoption effort and is not the general per-`AzphaltBrush` taper/fade/lift-off primitive this item calls for (no start/end size+opacity taper field on `AzphaltBrush`, no time/distance fade field, no phone finger-lift synthetic-pressure module).
+**Graffux contract:** `BrushTaper` (`AzphaltBrush.kt`) is a new primitive alongside `MaskedBrushConfig`/grain, distinct from the pre-existing, unrelated velocity-based taper in `feature/editor/.../util/ImageProcessor.kt` (`BrushDynamics`) that only serves the legacy path/stroke round-brush renderer. `BrushTaper` carries `startLengthPx`/`endLengthPx` (distance in canvas px over which each end ramps), `minSize`/`minOpacity` (the multiplier at the very start/end of a zone), and `liftOffSynthesizesPressure`. `BrushStamps.dynamicDabs` resolves a per-dab taper factor from the dab's arc-length position relative to the stroke start and end (using the smaller — more tapered — of the two zones when they overlap on a short stroke), and applies it multiplicatively to the same `resolvedDiameter`/`radius`/`alpha` terms sensor dynamics already modify, so it composes with pressure/speed routes rather than overriding them. Because `resolvedDiameter` also feeds the spacing-step calculation, a taper naturally narrows dab spacing as it shrinks, the same way sensor-driven size dynamics already did before this item.
 
-**Determinism/replay:** To be defined — taper/fade parameters and lift-off-derived synthetic pressure must be recorded per stroke like other resolved dab fields (per the architecture rules in item 18).
+Distance-only taper (`liftOffSynthesizesPressure = false`) is a pure function of recorded stroke geometry, so it works identically for stylus and finger input. When `liftOffSynthesizesPressure` is enabled, the end-taper factor is additionally scaled by each tail dab's interpolated recorded speed relative to the stroke's peak speed — a slow, deliberate lift fades out harder than a fast one cut off mid-motion, approximating what a real pressure sensor would have produced on a device whose touchscreen reports no usable pressure axis.
 
-**CPU reference:** Not started.
+A taper alone (with no sensor `dynamics` and no `maskedBrush`) is enough to route a stroke through `dynamicDabs`'s sensor-aware placement instead of silently falling back to the legacy `dabs()` path, which would otherwise ignore it entirely — this is verified directly by test.
 
-**Vulkan target:** Not started.
+**Determinism/replay:** Purely a function of recorded arc-length position and (when lift-off is enabled) recorded interpolated speed — both already-deterministic replay inputs per item 1. `BrushTaper` is a field on `AzphaltBrush`, which is already snapshotted wholesale onto `StrokeCommand` (see item 3's snapshotting precedent), so taper settings replay from the recorded stroke rather than from whatever Brush Studio contains later, with no extra plumbing required.
 
-**UI exposure:** Not started.
+**CPU reference:** Yes — `BrushStamps.dynamicDabs`, CPU-only.
 
-**Tests:** None.
+**Vulkan target:** None — taper is resolved into `resolvedDiameter`/`radius`/`alpha` before any renderer runs, the same as other sensor dynamics; static (Vulkan-eligible) brushes are unaffected since `BrushTaper()`'s default is inactive.
+
+**UI exposure:** Collapsed "Taper" section in Brush Studio (start/end length in px, min size, min opacity, and a "Finger lift-off" toggle), following the same progressive-disclosure pattern as Texture/Masked Tip/Color Source.
+
+**Tests:** `BrushTaperTest.kt` — default-inactive compatibility, start-only taper, end-only taper, overlapping start/end zones taking the more-tapered factor, lift-off producing a stronger tail fade for a decelerating stroke than a constant-speed one (and no difference at all with lift-off disabled), taper alone forcing the sensor-aware placement path, and determinism for identical input. `AzphaltBrushTest.kt` — default-inactive/sanitize-is-a-no-op, extension-params parsing, and out-of-range clamping.
 
 **Dependencies:** Items 1-2, 4.
 
-**Completion state:** NOT STARTED.
+**Completion state:** IMPLEMENTED (CPU).
 
 ## 10. Scatter / rotation refinement
 
@@ -388,13 +392,13 @@ Color Smudge follows the same rule: its Smear/Dulling mode, Smudge, Color Rate, 
 
 **CPU/Vulkan:** N/A — UI layer only.
 
-**UI exposure:** This item *is* the UI-exposure story for items 1-8. Items 9-16 have no corresponding UI yet because their underlying engine work has not been built — there is nothing in Brush Studio today for taper/lift-off, refined scatter, overlay sampling, impasto, airbrush/wash, preset import, or GPU-resident toggles, since none of those primitives exist to expose.
+**UI exposure:** This item *is* the UI-exposure story for items 1-9. Items 10-16 have no corresponding UI yet because their underlying engine work has not been built — there is nothing in Brush Studio today for refined scatter, overlay sampling, impasto, airbrush/wash, preset import, or GPU-resident toggles, since none of those primitives exist to expose.
 
 **Tests:** No automated UI tests recorded here; verified by the merge-gate requirement stated at the top of this document (no permanent desktop-style panels, no reduction in default drawing area).
 
 **Dependencies:** Every item above that ships a control.
 
-**Completion state:** IMPLEMENTED for items 1-8's surface; N/A (nothing yet to expose) for items 9-16.
+**Completion state:** IMPLEMENTED for items 1-9's surface; N/A (nothing yet to expose) for items 10-16.
 
 ## 19. Non-negotiable architecture rules
 

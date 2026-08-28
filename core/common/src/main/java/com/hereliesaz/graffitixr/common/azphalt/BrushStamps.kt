@@ -146,7 +146,8 @@ object BrushStamps {
         val diameter = diameterPx.coerceAtLeast(0f)
         if (real.isEmpty() || diameter <= 0f) return emptyList()
         val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
-        if (brush.dynamics.isEmpty() && !hasMaskDynamics) {
+        val taper = brush.taper
+        if (brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive()) {
             val points = ArrayList<Float>(real.size * 2)
             real.forEach { points.add(it.x); points.add(it.y) }
             return dabs(points, diameter, brush, seed)
@@ -161,6 +162,10 @@ object BrushStamps {
         val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
+        // Only needed for lift-off's velocity-derived synthetic pressure; harmless when unused.
+        val peakSpeed = if (taper.liftOffSynthesizesPressure) {
+            real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
+        } else 1f
         var at = 0f
         var index = 0
 
@@ -172,10 +177,22 @@ object BrushStamps {
             val scatR = rng.nextFloat()
             val longR = longRng.nextFloat()
 
-            val resolvedDiameter = diameter * dynamic.sizeMultiplier
-            val radius = baseRadius * dynamic.sizeMultiplier * (1f - brush.sizeJitter * sizeR)
+            val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
+            var endTaperT = if (taper.endLengthPx > 0f) {
+                ((total - at) / taper.endLengthPx).coerceIn(0f, 1f)
+            } else 1f
+            if (taper.liftOffSynthesizesPressure && endTaperT < 1f) {
+                val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
+                endTaperT *= liftFactor
+            }
+            val taperT = minOf(startTaperT, endTaperT)
+            val taperSize = lerp(taper.minSize, 1f, taperT)
+            val taperOpacity = lerp(taper.minOpacity, 1f, taperT)
+
+            val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize
+            val radius = baseRadius * dynamic.sizeMultiplier * taperSize * (1f - brush.sizeJitter * sizeR)
             val alpha = (
-                brush.opacity * dynamic.opacityMultiplier * (1f - brush.opacityJitter * opacR)
+                brush.opacity * dynamic.opacityMultiplier * taperOpacity * (1f - brush.opacityJitter * opacR)
                 ).coerceIn(0f, 1f)
             val headingDeg = sample.drawingAngleDeg
 

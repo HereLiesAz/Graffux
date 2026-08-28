@@ -115,4 +115,44 @@ class AzphaltBrushTest {
         val ok = AzphaltBrush(name = "Inker", spacing = 0.05f, opacity = 0.9f, hardness = 0.8f)
         assertEquals(ok, ok.sanitized())
     }
+
+    // ── Taper ──────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun defaultTaperIsInactiveAndUnchangedBySanitize() {
+        val brush = AzphaltBrush(name = "no taper")
+        assertFalse(brush.taper.isActive())
+        assertEquals(brush.taper, brush.sanitized().taper)
+    }
+
+    @Test
+    fun taperFieldsParseFromExtensionParams() {
+        val b = AzphaltBrush.fromParams(
+            "Tapered",
+            params(
+                """{"taper":{"startLengthPx":40,"endLengthPx":80,"minSize":0.2,"minOpacity":0.3,"liftOffSynthesizesPressure":true}}""",
+            ),
+        )
+        assertEquals(40f, b.taper.startLengthPx, 1e-6f)
+        assertEquals(80f, b.taper.endLengthPx, 1e-6f)
+        assertEquals(0.2f, b.taper.minSize, 1e-6f)
+        assertEquals(0.3f, b.taper.minOpacity, 1e-6f)
+        assertTrue(b.taper.liftOffSynthesizesPressure)
+        assertTrue(b.taper.isActive())
+    }
+
+    @Test
+    fun taperClampsOutOfRangeValues() {
+        val taper = BrushTaper(
+            startLengthPx = -10f,
+            endLengthPx = -5f,
+            minSize = 4f,
+            minOpacity = -2f,
+        ).sanitized()
+        assertEquals(0f, taper.startLengthPx, 0f)
+        assertEquals(0f, taper.endLengthPx, 0f)
+        assertEquals(1f, taper.minSize, 0f)
+        assertEquals(0f, taper.minOpacity, 0f)
+        assertFalse(taper.isActive())
+    }
 }

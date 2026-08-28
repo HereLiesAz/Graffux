@@ -55,6 +55,7 @@ fun BrushStudioWindow(
     var showColorSource by remember { mutableStateOf(false) }
     var showTexture by remember { mutableStateOf(false) }
     var showMaskedTip by remember { mutableStateOf(false) }
+    var showTaper by remember { mutableStateOf(false) }
 
     if (confirmingDelete) {
         ConfirmDialog(
@@ -198,6 +199,33 @@ fun BrushStudioWindow(
                         shape = AzButtonShape.RECTANGLE,
                     )
                 }
+            }
+
+            AzButton(
+                text = if (showTaper) "Taper ▴" else "Taper ▾",
+                onClick = { showTaper = !showTaper },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showTaper) {
+                val taper = draft.taper
+                ParamSlider("Start length", taper.startLengthPx, 0f..600f, unit = "px") { v ->
+                    onEdit { it.copy(taper = taper.copy(startLengthPx = v)) }
+                }
+                ParamSlider("End length", taper.endLengthPx, 0f..600f, unit = "px") { v ->
+                    onEdit { it.copy(taper = taper.copy(endLengthPx = v)) }
+                }
+                ParamSlider("Min size", taper.minSize, 0f..1f) { v -> onEdit { it.copy(taper = taper.copy(minSize = v)) } }
+                ParamSlider("Min opacity", taper.minOpacity, 0f..1f) { v -> onEdit { it.copy(taper = taper.copy(minOpacity = v)) } }
+                AzButton(
+                    text = if (taper.liftOffSynthesizesPressure) "Finger lift-off ✓" else "Finger lift-off",
+                    onClick = { onEdit { it.copy(taper = taper.copy(liftOffSynthesizesPressure = !taper.liftOffSynthesizesPressure)) } },
+                    shape = AzButtonShape.RECTANGLE,
+                )
+                Text(
+                    "Fades size/opacity near the start and end of a stroke. Finger lift-off additionally " +
+                        "slows the end fade with recorded speed, so a slow lift tapers more than a fast one.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
 
             AzButton(text = "Save Brush", onClick = onSave, shape = AzButtonShape.RECTANGLE)

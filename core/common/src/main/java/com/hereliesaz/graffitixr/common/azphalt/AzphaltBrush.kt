@@ -37,6 +37,36 @@ enum class MaskedBrushBlendMode {
     @SerialName("subtract") SUBTRACT,
 }
 
+/**
+ * Start/end stroke taper. Distances are measured in canvas pixels along the stroke path from
+ * whichever end is closer; a dab inside both zones uses the smaller (more tapered) factor.
+ *
+ * [liftOffSynthesizesPressure] is the phone-first addition Krita has no direct equivalent for:
+ * finger input usually reports a constant/absent pressure axis, so a fixed-distance end taper
+ * looks the same whether the stroke was yanked away or lifted gently. When enabled, the end
+ * taper is additionally scaled by how slow the recorded speed was at each dab relative to the
+ * stroke's peak speed, so a slow, deliberate lift fades out and a fast one stays closer to full
+ * size/opacity until it is cut off — approximating what a real pressure sensor would have done.
+ */
+@Serializable
+data class BrushTaper(
+    val startLengthPx: Float = 0f,
+    val endLengthPx: Float = 0f,
+    /** Size/opacity multiplier at the very start/end of a taper zone. 1 disables that taper. */
+    val minSize: Float = 0f,
+    val minOpacity: Float = 0f,
+    val liftOffSynthesizesPressure: Boolean = false,
+) {
+    fun sanitized(): BrushTaper = copy(
+        startLengthPx = startLengthPx.coerceAtLeast(0f),
+        endLengthPx = endLengthPx.coerceAtLeast(0f),
+        minSize = minSize.coerceIn(0f, 1f),
+        minOpacity = minOpacity.coerceIn(0f, 1f),
+    )
+
+    fun isActive(): Boolean = startLengthPx > 0f || endLengthPx > 0f
+}
+
 @Serializable
 data class MaskedBrushConfig(
     val shapePath: String? = null,
@@ -105,6 +135,8 @@ data class AzphaltBrush(
     val colorMix: Float = 0f,
     val maskedBrush: MaskedBrushConfig? = null,
     val dynamics: List<BrushSensorBinding> = emptyList(),
+    /** Default disables both zones, so existing brushes render exactly as before. */
+    val taper: BrushTaper = BrushTaper(),
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -121,6 +153,7 @@ data class AzphaltBrush(
         colorMix = colorMix.coerceIn(0f, 1f),
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
+        taper = taper.sanitized(),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -151,6 +184,9 @@ data class AzphaltBrush(
             val colorSource = params?.get("colorSource")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<BrushColorSource>(element) }.getOrNull()
             } ?: BrushColorSource.PLAIN
+            val taper = params?.get("taper")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<BrushTaper>(element) }.getOrNull()
+            }?.sanitized() ?: BrushTaper()
 
             return AzphaltBrush(
                 name = name,
@@ -179,6 +215,7 @@ data class AzphaltBrush(
                 colorMix = (f("colorMix") ?: f("mix") ?: 0f).coerceIn(0f, 1f),
                 maskedBrush = maskedBrush,
                 dynamics = dynamics,
+                taper = taper,
             ).sanitized()
         }
     }
