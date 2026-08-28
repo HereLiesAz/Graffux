@@ -3,18 +3,16 @@ package com.hereliesaz.graffitixr.common.azphalt
 /**
  * Captures and replays per-tile pixel deltas between two ARGB pixel buffers of the same canvas
  * (roadmap item 16's tile-based undo storage). This is the third and final foundational piece of
- * item 16's dirty-region tracking, after [DirtyRegion] and [TileGrid] -- like both of those, it is
- * a read-only, well-tested utility with NO consumer yet: `EditHistory`/`LayerStore` remain
- * entirely whole-bitmap-snapshot based, unchanged by this file. Wiring an actual undo-storage
- * strategy on top of this (deciding when a tile-delta entry is safe/beneficial vs. falling back to
- * a whole-bitmap snapshot, and threading that decision through every `pushDraw`/undo/redo call
- * site) is a materially larger, correctness-sensitive change to how every stroke's undo/redo
- * works -- real user data at stake if it's wrong -- and is explicitly NOT attempted here; see the
- * roadmap doc for why. What this file provides is the primitive a future pass would build that on:
- * given a "before" and "after" pixel buffer and the tile range [DirtyRegion.fromDabs] +
- * [TileGrid.tilesTouching] already narrow a stroke down to, capture only those tiles' before/after
- * pixels (a small, bounded copy) instead of the whole canvas, and be able to losslessly restore
- * either side later.
+ * item 16's dirty-region tracking, after [DirtyRegion] and [TileGrid].
+ *
+ * Given a "before" and "after" pixel buffer and the tile range [DirtyRegion.fromDabs] +
+ * [TileGrid.tilesTouching] narrow a stroke down to, [capture] records only those tiles'
+ * before/after pixels (a small, bounded copy) instead of the whole canvas, and [applyBefore]/
+ * [applyAfter] losslessly restore either side later. `EditorViewModel.applyTileDeltaFastPath`
+ * is the actual consumer: `EditHistory.attachTileDeltas`'s own invariant (a `Draw` command still
+ * reachable by undo/redo is always the layer's most recent stroke, or, for redo, the next one to
+ * reapply) is what makes patching the live bitmap in place with these deltas safe, letting a
+ * fast undo/redo skip a full-stroke replay onto a whole-bitmap snapshot.
  */
 object TileDelta {
 
