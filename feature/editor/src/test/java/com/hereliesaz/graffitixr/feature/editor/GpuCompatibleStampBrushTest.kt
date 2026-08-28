@@ -11,20 +11,24 @@ import org.junit.Test
 
 /**
  * [gpuCompatibleStampBrush] decides whether the azphalt stamp-brush live-preview path can hand a
- * stroke to `stamp.comp` instead of the CPU renderer (item 15 of the roadmap doc). `stamp.comp`
- * only draws a generated round dab, so a custom tip/grain/mask or a non-round [AzphaltBrush]
- * still forces CPU -- but color source is resolved to a final per-dab RGB on the CPU before a dab
- * ever reaches the GPU, so it was never actually a shader limitation and must NOT gate this.
+ * stroke to a GPU shader instead of the CPU renderer (item 15 of the roadmap doc). Grain texture
+ * or a masked/dual (second) tip still force CPU -- neither `stamp.comp` nor `stamp_masked.comp`
+ * samples a grain tile or composites a second tip. A shaped tip and a non-round tipRatio no
+ * longer force CPU: [gpuPipelineUsesMaskedShader] routes those two specifically to
+ * `stamp_masked.comp` instead of the round-only `stamp.comp`. Color source is resolved to a final
+ * per-dab RGB on the CPU before a dab ever reaches either shader, so it was never actually a
+ * shader limitation and must NOT gate this.
  */
 class GpuCompatibleStampBrushTest {
 
     private val bitmap = mockk<Bitmap>(relaxed = true)
 
     @Test
-    fun `a plain round brush with no shape, grain, or mask is GPU-compatible`() {
+    fun `a plain round brush with no shape, grain, or mask is GPU-compatible via the round pipeline`() {
         val brush = AzphaltBrush(name = "Round")
 
         assertTrue(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
+        assertFalse(gpuPipelineUsesMaskedShader(brush, shape = null))
     }
 
     @Test
@@ -37,10 +41,19 @@ class GpuCompatibleStampBrushTest {
     }
 
     @Test
-    fun `a shaped tip forces the CPU path`() {
+    fun `a shaped tip is GPU-compatible via the masked pipeline`() {
         val brush = AzphaltBrush(name = "Shaped")
 
-        assertFalse(gpuCompatibleStampBrush(brush, shape = bitmap, grain = null, maskShape = null))
+        assertTrue(gpuCompatibleStampBrush(brush, shape = bitmap, grain = null, maskShape = null))
+        assertTrue(gpuPipelineUsesMaskedShader(brush, shape = bitmap))
+    }
+
+    @Test
+    fun `a non-round tip ratio is GPU-compatible via the masked pipeline`() {
+        val brush = AzphaltBrush(name = "Flat", tipRatio = 0.5f)
+
+        assertTrue(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
+        assertTrue(gpuPipelineUsesMaskedShader(brush, shape = null))
     }
 
     @Test
@@ -56,13 +69,6 @@ class GpuCompatibleStampBrushTest {
 
         assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = bitmap))
         // Even without an actual mask bitmap loaded yet, the config itself commits to the masked pipeline.
-        assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
-    }
-
-    @Test
-    fun `a non-round tip ratio forces the CPU path`() {
-        val brush = AzphaltBrush(name = "Flat", tipRatio = 0.5f)
-
         assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
     }
 }
