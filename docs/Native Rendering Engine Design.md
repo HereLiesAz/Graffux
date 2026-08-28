@@ -214,38 +214,61 @@ dependent). Add the other two as selectable modes on the same `stabilizerLevel`-
 All three stay pure Kotlin (like today's `StrokeStabilizer`), not GPU work — this is CPU-side
 point-stream math regardless of where the rasterization ends up.
 
-## 7. Wet Mix: the genuinely new capability
+## 7. Wet Mix: reconciled into Color Smudge, not a second engine
 
-Nothing in the current codebase does this — it's the one piece of the companion doc with no
-existing analogue to extend, and the best argument for GPU compute over incrementally patching the
-CPU path (a CPU implementation of per-dab wet blending, sampling and displacing existing pixels at
-every dab, would be far too slow for a live stroke).
+**Revised from this document's first draft.** The original version of this section proposed Wet
+Mix as an entirely new system — new `AzphaltBrush` fields (`dilution`, `charge0`,
+`chargeDecayRate`, `pull`, `attack`, `grade`), with "nothing in the current codebase does this" as
+the justification for building it from scratch. That framing was wrong on both counts, and both
+have since been corrected directly in `docs/Krita Brush Engine Adoption.md` item 3 (read that
+entry for the full parameter-mapping rationale; this section only covers what changes for the GPU
+plan below):
 
-Per-stroke state (`Charge`, decaying per `BrushStamps.length()`-style arc distance already
-computed for dab placement):
+- **Wrong home.** `AzphaltBrush` models a *stamp brush shape* (`Tool.BRUSH`); Wet Mix, like Color
+  Smudge, is a *per-stroke wet-paint operation* (`Tool.SMUDGE`'s `ColorSmudgeEngine.Settings`,
+  snapshotted onto `StrokeCommand` the same way every other Color Smudge setting already is). It
+  was never going to compose cleanly as brush-shape fields.
+- **Not a clean-slate capability.** Krita's Color Smudge (Smear/Dulling/Color Rate, item 3) is the
+  *same* read/modify/write operation Wet Mix describes, expressed in a different product's
+  vocabulary — Pull is Smear's existing `smudgeRate`, Charge is a decaying `colorRate`, Dilution is
+  new. `ColorSmudgeEngine.Settings` now carries two new fields, `chargeDecayRate` and `dilution`,
+  both defaulting to `0` (flat/undiluted — historical Krita behaviour, byte-identical), that
+  generalize the existing engine into Wet Mix rather than replacing it. **Implemented and tested on
+  CPU** (`ColorSmudgeEngine.kt`, `ColorSmudgeWetMixTest.kt`); a UI for it already exists (Tool
+  Options' collapsed "Wet Mix" section while Smudge is active).
+
+What §2's Vulkan-compute argument still needs, unchanged by the reconciliation: the *live-preview
+GPU path* for this operation is still unbuilt. `VulkanColorSmudge.cpp`/`color_smudge.comp` today
+implement Smear/Dulling/flat Color Rate only — `chargeDecayRate`/`dilution` resolve correctly on
+CPU (`ColorSmudgeEngine.resolve()`, shared by the raster path and `resolvePlans()`, the plan the
+Vulkan path is meant to consume) but have no shader-side implementation yet. Porting them is the
+same kind of work already done for flat Color Rate, extended with the decay/dilution formulas
+below — not a new read-your-own-write hazard beyond what Color Smudge's Vulkan path already solves.
+
+Per-stroke state (`Charge`, decaying per arc distance — already computed on CPU in
+`ColorSmudgeEngine.resolve()`; the shader needs the equivalent per-dispatch):
 
 ```
-charge(t) = charge0 * exp(-decayRate * t)      // t = arc length travelled
+charge(t) = colorRate * exp(-chargeDecayRate * t)      // t = arc length travelled, in bitmap px
 ```
 
 Per-dab compute shader step, sampling the layer texture at the dab's leading edge and blending
-toward it, gated by `charge(t)`:
+toward it, gated by `charge(t)` — the CPU reference this must match is
+`ColorSmudgeEngine.dilutedPigment()` plus its caller's `colorRate`-weighted blend:
 
 ```
 effectiveColor = mix(canvasColorAtLeadingEdge, brushPigment, 1 - dilution)
-outputColor    = mix(canvasColorAtCentre, effectiveColor, pull * charge(t))
+outputColor    = mix(canvasColorAtCentre, effectiveColor, smudgeRate /* Pull */ * charge(t))
 // charge == 0 -> outputColor == canvasColorAtCentre: pure smudge, no new pigment,
-// matching the companion doc's "dry brush" end state exactly.
+// matching the companion doc's "dry brush" end state exactly — already verified on the CPU
+// reference by ColorSmudgeWetMixTest's "depleted charge settles into a pure smudge" case.
 ```
 
 This needs image load/store (read a neighbourhood of the *same* texture the shader is about to
 write) — the concrete reason this can't be a `Canvas.drawCircle` loop and has to be a real compute
-shader with an explicit memory barrier between dabs that overlap in the same dispatch.
-
-`AzphaltBrush` (`core/common/.../azphalt/AzphaltBrush.kt`) is the natural home for the new fields
-(`dilution`, `charge0`, `chargeDecayRate`, `pull`, `attack`, `grade` — all `0f` default, so every
-existing brush stays bit-identical until authored otherwise), the same pattern `sizeJitter`/
-`scatter`/`followStroke` already established there.
+shader with an explicit memory barrier between dabs that overlap in the same dispatch. That part of
+the original argument for Vulkan compute over GLES stands unchanged; only "build a new engine" is
+retracted.
 
 ## 8. Device capability tiers
 
@@ -258,7 +281,7 @@ Not every Android device in `minSdk 26`'s range can do all of this. Rather than 
 | `AHardwareBuffer` GPU interop (§2) | API 26+ (`AHardwareBuffer` itself), API 29+ for the GL/Vulkan external-memory extensions this design actually needs | Same as above — no interop, no GPU path |
 | Front-buffer presentation (§3) | API 29+ (`SurfaceControl`); best on 34+ (`HardwareBufferRenderer`) | Persistent-texture render + normal Compose frame |
 | Touch prediction (§4) | `androidx.input.motionprediction` — works on any API level, quality varies by digitizer | No prediction; historical-only, as today |
-| Wet Mix (§7) | GPU compute (same as §2) | Feature hidden on brushes that use it, or CPU-approximated at a coarser dab rate |
+| Wet Mix GPU port (§7) | GPU compute (same as §2) | Already the shipped behaviour: the full, non-approximated `ColorSmudgeEngine` CPU path, same as every device runs today — not a degraded fallback |
 
 Net effect of the Vulkan-compute revision on this table: the GPU path's floor moved from "GLES
 3.1, essentially every device" to "API 29+, `AHardwareBuffer` interop present" — a real reduction
@@ -372,9 +395,12 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
 5. **Touch prediction (§4)** — can land any time after step 1, independent of the GPU work;
    slots into the same `DrawingCanvas.kt` pointerInput boundary the pressure work this session
    already touched.
-6. **Wet Mix (§7)** — last, because it's genuinely new surface area (new `AzphaltBrush` fields,
-   new UI in Brush Studio, new compute shader with real GPU-side complexity) rather than a port of
-   something that already exists.
+6. **Wet Mix (§7) GPU port** — last among the GPU phases, though its CPU half (the `chargeDecayRate`/
+   `dilution` reconciliation into `ColorSmudgeEngine`, with Tool Options UI) has already landed —
+   see §7's revision note. What remains is porting `ColorSmudgeEngine.resolve()`'s decay/dilution
+   formulas into `color_smudge.comp`, a real compute-shader change with the same read-your-own-write
+   complexity as the rest of Color Smudge's Vulkan path, but a port of an existing, tested CPU
+   reference rather than new surface area invented at the shader layer.
 
 Each phase keeps the *other* two paths (commit-time and undo/redo replay) correct by construction:
 until a tool is ported, `DrawingEngine`/`ImageProcessor` keep being the single source of truth for

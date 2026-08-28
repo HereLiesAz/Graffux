@@ -7,6 +7,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
@@ -36,6 +40,8 @@ fun ToolOptionsWindow(
     onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -> Unit,
     onSetColorSmudgeRate: (Float) -> Unit,
     onSetColorSmudgeColorRate: (Float) -> Unit,
+    onSetColorSmudgeChargeDecayRate: (Float) -> Unit,
+    onSetColorSmudgeDilution: (Float) -> Unit,
     onSetColorSmudgeRadius: (Float) -> Unit,
     onSetColorSmudgeOpacity: (Float) -> Unit,
     onSetColorSmudgeAlphaCarry: (Boolean) -> Unit,
@@ -43,6 +49,7 @@ fun ToolOptionsWindow(
     onSetSymmetryMode: (SymmetryMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var showWetMix by remember { mutableStateOf(false) }
     FloatingWindow(title = "Tool Options", onDismiss = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (brushOpacity != null) {
@@ -73,6 +80,35 @@ fun ToolOptionsWindow(
                 Text("Color rate  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
                 Text("Adds the active colour independently of how much existing paint is moved.", style = MaterialTheme.typography.labelSmall)
                 Slider(value = smudge.colorRate, onValueChange = onSetColorSmudgeColorRate, valueRange = 0f..1f)
+                AzButton(
+                    text = if (showWetMix) "Wet Mix ▴" else "Wet Mix ▾",
+                    onClick = { showWetMix = !showWetMix },
+                    shape = AzButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (showWetMix) {
+                    Text(
+                        "Charge decay  ${"%.2f".format(smudge.chargeDecayRate)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "0 keeps Color rate flat for the whole stroke. Above 0, the brush runs out of paint " +
+                            "with distance and settles into a pure smudge, like a real brush drying out.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Slider(
+                        value = smudge.chargeDecayRate,
+                        onValueChange = onSetColorSmudgeChargeDecayRate,
+                        valueRange = 0f..0.2f,
+                    )
+                    Text("Dilution  ${(smudge.dilution * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "How much the deposited colour pre-mixes with what's already there before landing, " +
+                            "instead of laying down pure Color.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Slider(value = smudge.dilution, onValueChange = onSetColorSmudgeDilution, valueRange = 0f..1f)
+                }
                 if (smudge.mode == ColorSmudgeEngine.Mode.DULLING) {
                     Text("Sample radius  ${"%.2f".format(smudge.smudgeRadius)}×", style = MaterialTheme.typography.bodySmall)
                     Slider(value = smudge.smudgeRadius, onValueChange = onSetColorSmudgeRadius, valueRange = 0.25f..3f)
