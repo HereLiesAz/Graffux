@@ -353,6 +353,15 @@ class EditorViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState = _uiState.asStateFlow()
 
+    /**
+     * Live brush-stroke preview — see [com.hereliesaz.graffitixr.common.model.LiveStroke]'s doc
+     * comment for why this is a separate StateFlow rather than fields on [EditorUiState]: publishing
+     * it there recomposed every layer in the stack on every stroke sample instead of just the one
+     * being painted, and a stroke of any length visibly lagged the finger as the backlog grew.
+     */
+    private val _liveStroke = MutableStateFlow(com.hereliesaz.graffitixr.common.model.LiveStroke())
+    val liveStroke = _liveStroke.asStateFlow()
+
     private val _colorSmudgeSettings = MutableStateFlow(ColorSmudgeEngine.Settings())
     val colorSmudgeSettings = _colorSmudgeSettings.asStateFlow()
 
@@ -3200,7 +3209,7 @@ class EditorViewModel @Inject constructor(
             // doesn't start, which beats an NPE inside prepareLiquify on the main thread.
             liquifyOriginalBitmap = SafeBitmap.copy(originalBitmap, mutable = false) ?: return
             slamManager.prepareLiquify(originalBitmap)
-            _uiState.update { it.copy(liveStrokeLayerId = layerId) }
+            _liveStroke.update { it.copy(layerId = layerId) }
             return
         }
 
@@ -3320,11 +3329,11 @@ class EditorViewModel @Inject constructor(
                         stampGpuHasDualBrush = gpuReady && hasDualBrush
                         stampGpuSecondaryMaskAlpha8 = if (gpuReady) secondaryMaskAlpha8 else null
                         stampGpuSecondaryMaskSize = if (gpuReady && hasDualBrush) GPU_MASK_REFERENCE_SIZE else 0
-                        _uiState.update {
+                        _liveStroke.update {
                             it.copy(
-                                liveStrokeLayerId = layerId,
-                                liveStrokeBitmap = shadedBitmapSeed ?: work,
-                                liveStrokeVersion = it.liveStrokeVersion + 1,
+                                layerId = layerId,
+                                bitmap = shadedBitmapSeed ?: work,
+                                version = it.version + 1,
                             )
                         }
                     } else {
@@ -3523,10 +3532,10 @@ class EditorViewModel @Inject constructor(
                 strokeWorkingCanvas = workCanvas
                 strokePaint = paint
                 strokePrevBitmapPoint = lastMapped
-                _uiState.update { it.copy(
-                    liveStrokeLayerId = layerId,
-                    liveStrokeBitmap = workBitmap,
-                    liveStrokeVersion = it.liveStrokeVersion + catchUpPoints.size
+                _liveStroke.update { it.copy(
+                    layerId = layerId,
+                    bitmap = workBitmap,
+                    version = it.version + catchUpPoints.size
                 )}
             }
         }
@@ -3608,9 +3617,9 @@ class EditorViewModel @Inject constructor(
 
                 if (isActive) {
                     withContext(dispatchers.main) {
-                        _uiState.update { it.copy(
-                            liveStrokeBitmap = warpBitmap,
-                            liveStrokeVersion = it.liveStrokeVersion + 1
+                        _liveStroke.update { it.copy(
+                            bitmap = warpBitmap,
+                            version = it.version + 1
                         )}
                     }
                 }
@@ -3832,7 +3841,7 @@ class EditorViewModel @Inject constructor(
                         }
                     }
                 }
-                _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
+                _liveStroke.update { it.copy(version = it.version + 1) }
             }
             return
         }
@@ -3895,7 +3904,7 @@ class EditorViewModel @Inject constructor(
         }
         strokePrevBitmapPoint = mapped
 
-        _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
+        _liveStroke.update { it.copy(version = it.version + 1) }
     }
 
     /** Called when the user lifts their finger. Finalizes the stroke into the layer and undo history. */
@@ -3982,10 +3991,9 @@ class EditorViewModel @Inject constructor(
                         _uiState.update { s ->
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
-                                liveStrokeLayerId = null,
-                                liveStrokeBitmap = null,
                             )
                         }
+                        _liveStroke.update { it.copy(layerId = null, bitmap = null) }
                         scheduleDiskSave(layerId, resampled, layer.uri)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3993,7 +4001,7 @@ class EditorViewModel @Inject constructor(
                 } catch (e: Throwable) {
                     android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke", e)
                     withContext(dispatchers.main) {
-                        _uiState.update { s -> s.copy(liveStrokeLayerId = null, liveStrokeBitmap = null) }
+                        _liveStroke.update { s -> s.copy(layerId = null, bitmap = null) }
                     }
                 }
             }
@@ -4057,10 +4065,9 @@ class EditorViewModel @Inject constructor(
                     _uiState.update { s ->
                         s.copy(
                             layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = cloned) else it },
-                            liveStrokeLayerId = null,
-                            liveStrokeBitmap = null,
                         )
                     }
+                    _liveStroke.update { it.copy(layerId = null, bitmap = null) }
                     scheduleDiskSave(layerId, cloned, layer.uri)
                 }
                 if (opEmitter.isActive) {
@@ -4110,10 +4117,9 @@ class EditorViewModel @Inject constructor(
                     _uiState.update { s ->
                         s.copy(
                             layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it },
-                            liveStrokeLayerId = null,
-                            liveStrokeBitmap = null,
                         )
                     }
+                    _liveStroke.update { it.copy(layerId = null, bitmap = null) }
                     scheduleDiskSave(layerId, warped, layer.uri)
                 }
             }
@@ -4256,10 +4262,9 @@ class EditorViewModel @Inject constructor(
             _uiState.update { s ->
                 s.copy(
                     layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = finalBitmap) else it },
-                    liveStrokeLayerId = null,
-                    liveStrokeBitmap = null
                 )
             }
+            _liveStroke.update { it.copy(layerId = null, bitmap = null) }
             scheduleDiskSave(layerId, finalBitmap, layer.uri)
         } else {
             // Real-time path: the working bitmap already contains the complete stroke.
@@ -4321,13 +4326,14 @@ class EditorViewModel @Inject constructor(
                     val committed = drawingEngine.applySingleStroke(base, command)
                     withContext(dispatchers.main) {
                         _uiState.update { s ->
-                            val ours = s.liveStrokeBitmap === preview
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
-                                liveStrokeLayerId = if (ours) null else s.liveStrokeLayerId,
-                                liveStrokeBitmap = if (ours) null else s.liveStrokeBitmap,
                             )
                         }
+                        // Only clear the live-stroke preview if it's still ours -- a newer stroke may
+                        // have already started by the time this async rebuild finishes, and clearing
+                        // its preview here would flash the wrong (or no) bitmap for that new stroke.
+                        _liveStroke.update { s -> if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
                         scheduleDiskSave(layerId, committed, layer.uri)
                     }
                 }
@@ -4336,10 +4342,9 @@ class EditorViewModel @Inject constructor(
                 _uiState.update { s ->
                     s.copy(
                         layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
-                        liveStrokeLayerId = null,
-                        liveStrokeBitmap = null
                     )
                 }
+                _liveStroke.update { it.copy(layerId = null, bitmap = null) }
                 scheduleDiskSave(layerId, workBitmap, layer.uri)
             }
         }
@@ -4485,15 +4490,13 @@ class EditorViewModel @Inject constructor(
             }.getOrNull()
             withContext(dispatchers.main) {
                 _uiState.update { s ->
-                    val clearPreview = s.liveStrokeBitmap === previewBitmap
                     s.copy(
                         layers = s.layers.map {
                             if (it.id == layerId) it.copy(bitmap = target, heightMap = heightWorking) else it
                         },
-                        liveStrokeLayerId = if (clearPreview) null else s.liveStrokeLayerId,
-                        liveStrokeBitmap = if (clearPreview) null else s.liveStrokeBitmap,
                     )
                 }
+                _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
                 scheduleDiskSave(layerId, target, layer.uri)
                 // Attached only after the bitmap publish above, on this same main-dispatcher
                 // continuation -- so by the time `command.tileDeltas` is non-null, this stroke's
@@ -4521,7 +4524,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onStrokeCancel() {
         liquifyJob?.cancel()
-        _uiState.update { it.copy(liveStrokeLayerId = null, liveStrokeBitmap = null) }
+        _liveStroke.update { it.copy(layerId = null, bitmap = null) }
         clearTransientStrokeState()
     }
 

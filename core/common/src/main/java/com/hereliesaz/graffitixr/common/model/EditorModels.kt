@@ -206,6 +206,29 @@ enum class RotationAxis {
 }
 
 /**
+ * Real-time stroke rendering: the mutable bitmap being actively drawn into, and which layer it
+ * belongs to. [version] is incremented after each stroke segment so the one composable displaying it
+ * re-reads the modified pixels.
+ *
+ * Deliberately its **own** [StateFlow][kotlinx.coroutines.flow.StateFlow]
+ * (`EditorViewModel.liveStroke`), not a field on [EditorUiState]: a brush stroke updates this at up to
+ * the input sample rate (60+ Hz) while the finger is down, and `EditorUiState` is one big data class
+ * threaded through most of the editor's composables as a single parameter. Publishing every stroke
+ * segment through *that* StateFlow made every composable holding a `uiState: EditorUiState` parameter
+ * — every layer in the stack, not just the one being painted — recompose on every sample, because
+ * Compose's skip check is `uiState == previousUiState`, and a changed [version] makes that false for
+ * the whole object regardless of which layer actually changed. On a stroke of any real length the
+ * per-sample work fell behind the incoming touch samples and the visible line lagged the finger by as
+ * much as a second. Splitting this out means only the specific layer whose id equals [layerId]
+ * observes a change; everything else keeps the same, skippable value.
+ */
+data class LiveStroke(
+    val layerId: String? = null,
+    val bitmap: Bitmap? = null,
+    val version: Int = 0,
+)
+
+/**
  * The global state for the Editor UI.
  */
 data class EditorUiState(
@@ -374,12 +397,6 @@ data class EditorUiState(
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,
 
-    // Real-time stroke rendering: the mutable bitmap being actively drawn into.
-    // Non-null only while a brush stroke is in progress (non-Liquify tools).
-    val liveStrokeLayerId: String? = null,
-    val liveStrokeBitmap: Bitmap? = null,
-    // Incremented after each stroke segment so Compose re-reads the modified pixels.
-    val liveStrokeVersion: Int = 0,
     val canvasBackground: Color = Color.Black,
     // Artboard / document dimensions in pixels (the fixed design/output size).
     val documentWidth: Int = 1080,
