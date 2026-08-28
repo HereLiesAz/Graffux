@@ -102,14 +102,6 @@ interface SettingsRepository {
     val adaptiveRateEnabled: Flow<Boolean>
     suspend fun setAdaptiveRateEnabled(on: Boolean)
 
-    /** Set of tutorial keys the user has completed. Keys: "tut_ar", "tut_overlay", "tut_mockup", "tut_trace", "tut_design", "tut_project". */
-    val completedTutorials: Flow<Set<String>>
-
-    suspend fun markTutorialComplete(key: String)
-
-    /** Clears every completed-tutorial key, allowing first-run flows to fire again. */
-    suspend fun clearCompletedTutorials()
-
     /**
      * The user's saved colour swatches, as ARGB ints, in the order they arranged them. Ordered, so
      * it is stored as one encoded string rather than on a string-set preference.
