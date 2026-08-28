@@ -165,7 +165,12 @@ object SelectionGeometry {
         )
         val base = current?.takeIf { it.isUsable && it.canvasSize == canvasSize }
         return when (op) {
-            SelectionOp.NEW -> fresh
+            // A genuinely fresh, un-inverted, hard-edged region -- NOT `fresh` above, which exists
+            // only to carry ADD/REMOVE's own base selection's invert/feather into a lone new ring.
+            // Reusing it here used to leak whatever the *previous* selection's invert/feather were
+            // into an unrelated new one: invert+feather a region, then draw a brand-new NEW-op
+            // lasso elsewhere without deselecting first, and the new region silently inherited both.
+            SelectionOp.NEW -> Selection(listOf(ring), canvasSize)
             SelectionOp.ADD -> base?.let {
                 it.copy(rings = it.rings + ring.copy(additive = !it.inverted))
             } ?: fresh

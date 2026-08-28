@@ -280,6 +280,20 @@ class SelectionGeometryTest {
     }
 
     @Test
+    fun `NEW does not inherit the previous selection's invert or feather`() {
+        // A glee audit found NEW reused the same `fresh` Selection that ADD/REMOVE build to carry a
+        // *loaded* selection's invert/feather into a lone new ring -- so an unrelated new NEW-op
+        // lasso, drawn after inverting and feathering a previous selection without deselecting
+        // first, silently inherited both. This pins the fix: NEW must always be a clean, un-inverted,
+        // hard-edged region.
+        val invertedFeathered = SelectionGeometry.compose(null, poly, canvas, SelectionOp.NEW)!!
+            .copy(inverted = true, featherPx = 20f)
+        val second = SelectionGeometry.compose(invertedFeathered, other, canvas, SelectionOp.NEW)!!
+        assertFalse("NEW must not inherit the previous selection's inverted flag", second.inverted)
+        assertEquals("NEW must not inherit the previous selection's feather radius", 0f, second.featherPx)
+    }
+
+    @Test
     fun `ADD with nothing selected is just a new selection`() {
         // So Add works as the first stroke of a multi-part selection without having to start in
         // New and switch modes part-way.
