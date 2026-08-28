@@ -150,6 +150,15 @@ class VulkanStampEngine {
      * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
      * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
      * draw), same as the CPU path resolves them once per stroke.
+     *
+     * [secondaryDabs] (item 15's masked/dual-brush follow-up) is an optional second tip composited
+     * onto each primary dab -- the GPU counterpart to `StampBrushRenderer.paintMaskedDabs`'
+     * DST_IN/DST_OUT secondary-tip compositing. When non-empty it must be exactly `dabs.size()`
+     * long (same index, parallel arrays -- a per-STROKE feature, matching how
+     * `AzphaltBrush.maskedBrush` attaches a `MaskDab` to every dab or none). [secondaryMaskAlpha8]/
+     * [secondaryMaskWidth]/[secondaryMaskHeight] are the secondary tip's own R8 mask texture, same
+     * convention as [maskAlpha8]. An empty [secondaryDabs] (the default) disables dual-brush
+     * compositing entirely.
      */
     fun stampMaskedDabs(
         dabs: List<MaskedBrushDab>,
@@ -164,6 +173,10 @@ class VulkanStampEngine {
         grainScale: Float = 1f,
         grainPhaseX: Float = 0f,
         grainPhaseY: Float = 0f,
+        secondaryDabs: List<SecondaryBrushDab> = emptyList(),
+        secondaryMaskAlpha8: ByteArray? = null,
+        secondaryMaskWidth: Int = 0,
+        secondaryMaskHeight: Int = 0,
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         require(maskWidth > 0 && maskHeight > 0) { "maskWidth/maskHeight must be positive" }
@@ -174,6 +187,17 @@ class VulkanStampEngine {
             require(grainWidth > 0 && grainHeight > 0) { "grainWidth/grainHeight must be positive when grainAlpha8 is supplied" }
             require(grainAlpha8.size >= grainWidth * grainHeight) {
                 "grainAlpha8 too small: need ${grainWidth * grainHeight}, got ${grainAlpha8.size}"
+            }
+        }
+        if (secondaryDabs.isNotEmpty()) {
+            require(secondaryDabs.size == dabs.size) {
+                "secondaryDabs must be exactly dabs.size() long: got ${secondaryDabs.size}, expected ${dabs.size}"
+            }
+            require(secondaryMaskAlpha8 != null && secondaryMaskWidth > 0 && secondaryMaskHeight > 0) {
+                "secondaryMaskAlpha8/secondaryMaskWidth/secondaryMaskHeight must be supplied when secondaryDabs is non-empty"
+            }
+            require(secondaryMaskAlpha8.size >= secondaryMaskWidth * secondaryMaskHeight) {
+                "secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"
             }
         }
         val flat = FloatArray(dabs.size * 11)
@@ -192,9 +216,26 @@ class VulkanStampEngine {
             flat[base + 9] = d.flow
             flat[base + 10] = d.tipRatio
         }
+        val secondaryFlat = if (secondaryDabs.isNotEmpty()) {
+            FloatArray(secondaryDabs.size * 8).also { out ->
+                for (i in secondaryDabs.indices) {
+                    val sd = secondaryDabs[i]
+                    val base = i * 8
+                    out[base] = sd.x
+                    out[base + 1] = sd.y
+                    out[base + 2] = sd.radius
+                    out[base + 3] = sd.tipRatio
+                    out[base + 4] = sd.alpha
+                    out[base + 5] = sd.angleDeg
+                    out[base + 6] = sd.flowMultiplier
+                    out[base + 7] = if (sd.keepInside) 1f else 0f
+                }
+            }
+        } else null
         return nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
+            secondaryFlat, secondaryMaskAlpha8, secondaryMaskWidth, secondaryMaskHeight,
         ).also { if (!it) healthy = false }
     }
 
@@ -281,6 +322,10 @@ class VulkanStampEngine {
         grainScale: Float,
         grainPhaseX: Float,
         grainPhaseY: Float,
+        secondaryDabData: FloatArray?,
+        secondaryMaskAlpha8: ByteArray?,
+        secondaryMaskWidth: Int,
+        secondaryMaskHeight: Int,
     ): Boolean
     private external fun nativeColorSmudge(
         handle: Long,
@@ -335,4 +380,24 @@ data class MaskedBrushDab(
     val colorArgb: Int,
     val flow: Float,
     val tipRatio: Float,
+)
+
+/**
+ * Item 15's masked/dual-brush follow-up: the secondary tip [VulkanStampEngine.stampMaskedDabs]
+ * composites onto a primary [MaskedBrushDab] at the same list index -- mirrors
+ * `com.hereliesaz.graffitixr.common.azphalt.MaskDab`, the CPU-side equivalent, except
+ * [keepInside] is pre-resolved from `MaskedBrushBlendMode` + `invert` into a single flag rather
+ * than shipping the enum across the JNI boundary (`true` = `DST_IN`/keep-inside, `false` =
+ * `DST_OUT`/cut -- see `StampBrushRenderer.paintMaskedDabs`' `keepInside` local for the exact
+ * resolution rule this must match).
+ */
+data class SecondaryBrushDab(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val tipRatio: Float,
+    val alpha: Float,
+    val angleDeg: Float,
+    val flowMultiplier: Float,
+    val keepInside: Boolean,
 )

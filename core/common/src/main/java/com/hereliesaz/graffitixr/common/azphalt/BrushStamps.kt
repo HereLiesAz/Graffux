@@ -24,7 +24,17 @@ data class MaskDab(
     val flowMultiplier: Float = 1f,
     val invert: Boolean = false,
     val blendMode: MaskedBrushBlendMode = MaskedBrushBlendMode.MULTIPLY,
-)
+) {
+    /** Krita's Porter-Duff-style secondary-tip compositing rule: `true` = keep primary coverage
+     *  only where this tip is present (DST_IN), `false` = cut it there instead (DST_OUT). Shared
+     *  by the CPU compositor ([com.hereliesaz.graffitixr.feature.editor.StampBrushRenderer]) and
+     *  item 15's GPU dual-brush follow-up so the two never resolve `blendMode`/`invert` differently. */
+    val keepInside: Boolean
+        get() = when (blendMode) {
+            MaskedBrushBlendMode.MULTIPLY -> !invert
+            MaskedBrushBlendMode.SUBTRACT -> invert
+        }
+}
 
 /**
  * A concrete render instruction. [radius] is half the primary tip width; [tipRatio] is height/width.
