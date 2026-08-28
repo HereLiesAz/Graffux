@@ -286,21 +286,25 @@ What this pass actually adds is the CPU engine primitive, not the full end-to-en
 
 **Krita behavior adopted:** continuous paint deposit while the stylus/finger is held stationary (airbrush), and distinguishable build-up/wash accumulation curves for opacity over repeated passes.
 
-**Graffux contract:** only a low-level primitive exists today — `BrushStamps.buildUp(current, flow)` implements simple per-dab alpha accumulation (`c + flow * (1 - c)`), and `EditorViewModel` has a per-dab "flow build-up" concept. There is no airbrush continuous-deposit-while-held timer, no distinct wash mode, and no UI toggle for airbrush behavior — the Krita-style tranche built on top of `buildUp` has not been started.
+**Graffux contract:** `AirbrushEngine.heldDabs` (`core/common/.../azphalt/AirbrushEngine.kt`) is a new, renderer-neutral dab-producing primitive, following the same scoping strategy as items 11-12: implement and thoroughly test the CPU primitive, without wiring it into the live paint pipeline yet. `BrushStamps.dabs`/`dynamicDabs` are arc-length driven and never revisit the same position twice, so a held-still pointer alone produces at most one dab there — `AirbrushEngine.heldDabs` walks the recorded sample stream, detects runs where consecutive samples stay within a configurable radius of a "held" anchor position, and synthesizes additional dabs at a fixed cadence (`dabsPerSecond`) for the duration of each such run, resolving each synthetic dab's size/opacity through the same `BrushSensorEngine`/jitter machinery as ordinary dabs (held constant at the anchor's sensor values, since there is no new telemetry while the pointer isn't moving). A caller is meant to concatenate this output with `dynamicDabs`'s own movement-driven dabs. `BrushStamps.buildUp(current, flow)` (pre-existing) remains the separate low-level alpha-accumulation primitive both paths already share via ordinary alpha-over compositing — repeated dabs (real or synthetic) build up density the same way regardless of source.
 
-**Determinism/replay:** Any held-still timer driving airbrush deposit must be derived from recorded telemetry (event time), not wall-clock/frame-rate, to stay deterministic under replay.
+Distinct "wash" accumulation curves (Krita's Wet/dry-brush-style behavior beyond plain alpha build-up) are not addressed by this primitive and remain unstarted — `heldDabs` only adds Krita's *airbrush* half of this item.
 
-**CPU reference:** Only the `buildUp` primitive; no airbrush/wash logic on top of it.
+**What is deliberately not done in this pass, same rationale as items 11-12:** nothing here calls `heldDabs` from `StampBrushRenderer`/`EditorViewModel`/`DrawingEngine`, and no UI toggle exists. Two specific integration risks make full wiring more than a small addition: (1) `EditorViewModel`'s live stamp-stroke preview repaints incrementally using a dab-count bookkeeping scheme (`stampStampedCount`) to avoid re-painting already-drawn dabs each frame — concatenating a second, independently-indexed dab source into that scheme needs a design decision this pass didn't make; and (2) the Vulkan live-preview GPU-eligibility gate (`gpuCompatibleBrush` in `EditorViewModel`, see item 8's note on `colorSource`) would need to also exclude airbrush brushes, the same way it already excludes non-plain color sources, masked tips, and non-trivial `tipRatio`. Both are concrete, identified blockers to full wiring, not just "didn't get to it" — and are the item's actual remaining scope, alongside a wash-curve primitive and UI.
+
+**Determinism/replay:** `heldDabs` is a pure function of the recorded sample stream (event time, not wall-clock/frame-rate), `brush`, and `seed` — satisfying the determinism rule this item's doc entry already called for, with no additional plumbing needed once a caller wires it in.
+
+**CPU reference:** Yes, for the primitive itself — `AirbrushEngine.heldDabs`, CPU-only, pure Kotlin.
 
 **Vulkan target:** Not started.
 
-**UI exposure:** Not started.
+**UI exposure:** Not started, deliberately (see above).
 
-**Tests:** None beyond whatever exercises `buildUp` incidentally.
+**Tests:** `AirbrushEngineTest.kt` — non-positive `dabsPerSecond` disables airbrush entirely, fewer than two real samples produces nothing, a held run deposits dabs at a fixed cadence starting one interval after the anchor (never re-dabbing the anchor's own instant, which the movement path already covers), movement past the stillness radius resets the run without emitting mid-move dabs, a sample just inside vs. just outside the stillness radius extends vs. resets a run, held dab size responds to sensor dynamics resolved at the anchor, and output is deterministic for identical input.
 
 **Dependencies:** Items 2-3.
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS — CPU engine primitive implemented and tested; wiring into the live/commit paint pipeline (with the two identified integration points), a wash-curve primitive, and UI exposure remain outstanding.
 
 ## 14. Brush preset schema and Krita preset interoperability
 
