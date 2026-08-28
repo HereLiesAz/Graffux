@@ -111,6 +111,7 @@ import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.SizePickerDialog
+import com.hereliesaz.graffitixr.feature.editor.BrowseStoreWindow
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
@@ -241,6 +242,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     var showStoreDialog by remember { mutableStateOf(false) }
     var showStoreChooser by remember { mutableStateOf(false) }
+    var showBrowseStore by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -1159,11 +1161,51 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
 
                 if (showStoreDialog) {
+                    LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
                     StoreWindow(
                         installed = allInstalledExtensions,
-                        onBrowse = openAzphaltStore,
+                        updatesAvailable = uiState.storeUpdatesAvailable,
+                        onBrowse = { showStoreDialog = false; showBrowseStore = true },
+                        onUpdate = { ext ->
+                            uiState.storeUpdatesAvailable[ext.id]?.let { latest ->
+                                vm.installFromRepository(ext.id, latest)
+                            }
+                        },
                         onUninstall = { vm.uninstallExtension(it) },
                         onDismiss = { showStoreDialog = false },
+                    )
+                }
+
+                // In-app azphalt store browse (spec/repository-api.md): the primary way to get
+                // extensions now — search, view and install straight from the Repository API, no
+                // separate store app required. "Other sources…" still reaches the delegated handoff
+                // (StoreChooserDialog) below, for what only a real store app can do (Play Billing).
+                if (showBrowseStore) {
+                    BrowseStoreWindow(
+                        query = uiState.storeBrowseQuery,
+                        results = uiState.storeBrowseResults,
+                        loading = uiState.storeBrowseLoading,
+                        error = uiState.storeBrowseError,
+                        installedIds = allInstalledExtensions.map { it.id }.toSet(),
+                        updatesAvailable = uiState.storeUpdatesAvailable,
+                        installingIds = uiState.storeInstallingIds,
+                        onQueryChanged = { vm.onStoreBrowseQueryChanged(it) },
+                        onSearch = { vm.onStoreSearch() },
+                        onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
+                        onBuy = { pkg ->
+                            val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/${pkg.id}"
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            }.onFailure {
+                                alerts.show(
+                                    kind = AzPopupKind.WARNING,
+                                    title = "No browser",
+                                    message = "Nothing on this device can open $url.",
+                                )
+                            }
+                        },
+                        onOtherSources = { showBrowseStore = false; showStoreChooser = true },
+                        onDismiss = { showBrowseStore = false },
                     )
                 }
 

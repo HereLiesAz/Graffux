@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -102,6 +103,11 @@ fun EditorScreen(
     hostStrokeGate: StrokeGate? = null,
 ) {
     val uiState by vm.uiState.collectAsState()
+    // Deliberately NOT `by` here -- see LayerStackNode's doc comment. Reading `.value` at this scope
+    // would recompose this entire (very large) composable on every brush-stroke sample; passing the
+    // State object itself down lets each layer decide, via derivedStateOf, whether IT actually
+    // changed.
+    val liveStrokeState = vm.liveStroke.collectAsState()
     val strings = rememberAppStrings()
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
@@ -211,7 +217,7 @@ fun EditorScreen(
                             )
                         }
                         layerTree.forEach { node ->
-                            LayerStackNode(node, uiState, frameAlpha = frameAlphas[node.layer.id] ?: 1f)
+                            LayerStackNode(node, liveStrokeState, frameAlpha = frameAlphas[node.layer.id] ?: 1f)
                         }
                     }
                 }
@@ -677,7 +683,11 @@ fun EditorScreen(
 @Composable
 private fun LayerStackNode(
     node: LayerNode,
-    uiState: EditorUiState,
+    // A Compose State, not the live LiveStroke value itself: reading `.value` only inside the
+    // derivedStateOf below (not here, at this composable's own top level) is what keeps a stroke's
+    // ~60/sec updates from recomposing every layer in the stack instead of just the one being
+    // painted — see LiveStroke's doc comment for the recomposition-storm this replaced.
+    liveStroke: androidx.compose.runtime.State<com.hereliesaz.graffitixr.common.model.LiveStroke>,
     modifier: Modifier = Modifier,
     // Animation Assist's per-frame opacity override, applied on top of the layer's own opacity.
     // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha
@@ -711,7 +721,7 @@ private fun LayerStackNode(
                     }
             ) {
                 node.children.forEach { child ->
-                    LayerStackNode(child, uiState)
+                    LayerStackNode(child, liveStroke)
                 }
             }
         } else {
@@ -720,11 +730,20 @@ private fun LayerStackNode(
             if (layer.shapes.isNotEmpty()) {
                 VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha)
             }
-            val isLive = layer.id == uiState.liveStrokeLayerId
-            val bmp = if (isLive) uiState.liveStrokeBitmap ?: layer.bitmap else layer.bitmap
+            // Derived rather than a direct `liveStroke.value` read: the underlying State changes on
+            // every stroke sample regardless of which layer is being painted, but this derived value
+            // only changes for the one layer whose id actually matches -- every other layer's Image
+            // below sees the same `null` before and after, so Compose skips recomposing it.
+            val myLiveStroke by remember(layer.id) {
+                derivedStateOf {
+                    liveStroke.value.takeIf { it.layerId == layer.id }
+                }
+            }
+            val isLive = myLiveStroke != null
+            val bmp = if (isLive) myLiveStroke?.bitmap ?: layer.bitmap else layer.bitmap
             bmp?.let { displayBmp ->
                 val imageBitmap = if (isLive) {
-                    val version = uiState.liveStrokeVersion
+                    val version = myLiveStroke?.version
                     remember(version) { displayBmp.asImageBitmap() }
                 } else {
                     remember(displayBmp) { displayBmp.asImageBitmap() }

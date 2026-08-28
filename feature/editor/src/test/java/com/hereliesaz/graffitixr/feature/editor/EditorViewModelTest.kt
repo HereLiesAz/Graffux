@@ -132,7 +132,8 @@ class EditorViewModelTest {
 
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
-            slamManager, testDispatcherProvider, opEmitter, extensionRepository, customBrushRepository,
+            slamManager, testDispatcherProvider, opEmitter, extensionRepository,
+            mockk(relaxed = true), customBrushRepository,
             figmaRepository, projectFileScanner,
         )
     }
@@ -395,9 +396,9 @@ class EditorViewModelTest {
         viewModel.onStrokePoint(Offset(40f, 40f))
         testDispatcher.scheduler.advanceUntilIdle()
 
-        val state = viewModel.uiState.value
-        assertNotNull(state.liveStrokeBitmap)
-        assertTrue("Expected liveStrokeVersion >= 1, got ${state.liveStrokeVersion}", state.liveStrokeVersion >= 1)
+        val live = viewModel.liveStroke.value
+        assertNotNull(live.bitmap)
+        assertTrue("Expected liveStroke.version >= 1, got ${live.version}", live.version >= 1)
     }
 
     @Test

@@ -91,15 +91,16 @@ object AzphaltStoreHandoff {
     fun installStoreAppIntent(): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$STORE_APP_ID"))
 
-    /** The media domains this host can actually use (spec/repository-api.md § Media domains), so the
-     *  store never offers what Graffux structurally can't run — a pure audio or font pack doesn't
-     *  match. Mirrors the filter [ExtensionRepository] used to pass its own catalog search. */
-    private val mediaDomains = arrayOf("image", "3d", "video")
+    /** The media domains this host can actually use (spec/repository-api.md § Media domains), so a
+     *  store — the delegated one, or [RepositoryApiClient]'s own in-app search — never offers what
+     *  Graffux structurally can't run: a pure audio or font pack doesn't match. Shared rather than
+     *  declared twice, so the delegated and in-app routes can never quietly disagree about it. */
+    val mediaDomains: List<String> = listOf("image", "3d", "video")
 
     /** The package kinds this host does something with: ASSET/MIXED contribute LUTs and brushes
      *  ([ExtensionRepository.installedLuts]/[installedBrushes]), CODE/MIXED run in the sandbox
      *  ([ExtensionRepository.executeCodeExtension]). `app`/`mcp`/`pack` have no consumer here yet. */
-    private val kinds = arrayOf("asset", "code", "mixed")
+    val kinds: List<String> = listOf("asset", "code", "mixed")
 
     /**
      * Builds the browse request (spec § The request) for this host's applicationId.
@@ -116,8 +117,8 @@ object AzphaltStoreHandoff {
         inventory: List<ExtensionStateEntry> = emptyList(),
     ): Intent = Intent(ACTION_BROWSE).apply {
         putExtra(EXTRA_APP, appId)
-        putExtra(EXTRA_MEDIA_DOMAINS, mediaDomains)
-        putExtra(EXTRA_KINDS, kinds)
+        putExtra(EXTRA_MEDIA_DOMAINS, mediaDomains.toTypedArray())
+        putExtra(EXTRA_KINDS, kinds.toTypedArray())
         putExtra(EXTRA_COMPAT, AZPHALT_SPEC_VERSION)
         if (inventory.isNotEmpty()) {
             // Gate on what the document actually carries, not on what went in. Trimming can empty a

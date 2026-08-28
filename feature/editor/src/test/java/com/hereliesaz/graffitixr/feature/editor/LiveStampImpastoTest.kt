@@ -104,6 +104,7 @@ class LiveStampImpastoTest {
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
+            repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes,
             figmaRepository = figma,
             projectFileScanner = mockk(relaxed = true),
@@ -132,7 +133,7 @@ class LiveStampImpastoTest {
         vm.onStrokePoint(BrushSample(36f, 32f, uptimeMillis = 32L))
         vm.onStrokePoint(BrushSample(44f, 32f, uptimeMillis = 48L))
 
-        val live = vm.uiState.value.liveStrokeBitmap!!
+        val live = vm.liveStroke.value.bitmap!!
         val pixels = IntArray(canvasSize.width * canvasSize.height)
         live.getPixels(pixels, 0, canvasSize.width, 0, 0, canvasSize.width, canvasSize.height)
         vm.onStrokeEnd()

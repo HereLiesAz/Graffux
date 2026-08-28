@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
+import com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient
 import com.hereliesaz.graffitixr.data.brush.CustomBrushRepository
 import com.hereliesaz.graffitixr.data.figma.FigmaRepository
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -67,6 +68,7 @@ internal object EditorViewModelFixture {
             dispatchers = dispatchers(d),
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
+            repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes,
             figmaRepository = figma,
             projectFileScanner = mockk(relaxed = true),

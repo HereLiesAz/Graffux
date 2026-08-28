@@ -110,6 +110,7 @@ class LiveStampAirbrushTest {
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
+            repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes,
             figmaRepository = figma,
             projectFileScanner = mockk(relaxed = true),
@@ -124,7 +125,7 @@ class LiveStampAirbrushTest {
 
     /** Opacity actually deposited at [x],[y] on the live preview, 0 if there's none yet. */
     private fun liveAlphaAt(x: Int, y: Int): Int =
-        Color.alpha(vm.uiState.value.liveStrokeBitmap!!.getPixel(x, y))
+        Color.alpha(vm.liveStroke.value.bitmap!!.getPixel(x, y))
 
     private fun holdStillAndReturnPeakAlpha(brushSelectorId: String): Int {
         // Transparent, not opaque white: painting onto an already-opaque destination leaves its
