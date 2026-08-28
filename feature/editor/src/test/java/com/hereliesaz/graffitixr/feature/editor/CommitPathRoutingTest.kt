@@ -10,6 +10,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -436,6 +437,97 @@ class CommitPathRoutingTest {
         assertTrue("nothing was recorded, so there is no replay to compare", strokes.isNotEmpty())
         val replayed = DrawingEngine(stampVm.slamManager).composite(before, strokes)
         assertSamePixels(published(), replayed, "stamp brush with pressure dynamics")
+    }
+
+    /**
+     * Roadmap gap found by a glee audit: every live-drawing call site for a plain (Round) brush
+     * stroke reduced every non-NONE `SymmetryMode` to a single hardcoded vertical mirror --
+     * `if (symmetry != NONE) drawOneMirroredCopy()` -- so a user who picked Quadrant (4 copies) or
+     * Radial-6 (6 copies) only ever saw a 2-copy vertical mirror while dragging, and (since the
+     * non-feathered commit path bakes the working bitmap verbatim) that wrong 2-copy result is
+     * what got saved too. Only replay (`DrawingEngine` -&gt; `ImageProcessor.symmetryTransforms`)
+     * ever applied the full transform set. This asserts commit-equals-replay for a mode the old
+     * code could not have gotten right by construction.
+     */
+    @Test
+    fun `quadrant symmetry commits what it replays`() = runTest(dispatcher) {
+        val before = seed()
+        vm.onSetSymmetryMode(SymmetryMode.QUADRANT)
+        vm.setActiveTool(Tool.BRUSH)
+        // Small enough (radius 3) that the primary stroke and its three mirrored copies stay
+        // spatially separate on a 48x48 canvas -- a bigger default radius could let the primary
+        // paint alone reach the "third copy" assertion point below and pass even if mirroring
+        // were broken, which would defeat the guard-the-guard check.
+        vm.setBrushSize(6f)
+        vm.onStrokeStart(Offset(15f, 15f), canvas)
+        vm.onStrokePoint(Offset(20f, 18f))
+        advanceUntilIdle()
+        vm.onStrokeEnd()
+        advanceUntilIdle()
+        awaitCommit { publishedBitmap().getPixel(15, 15) != before.getPixel(15, 15) }
+        assertCommitEqualsReplay(before, "quadrant symmetry")
+
+        // Guard the guard: a passing agreement test would also pass if Quadrant painted nothing
+        // extra beyond a single vertical mirror -- prove the third/fourth copies are real by
+        // checking the horizontally-and-vertically mirrored point actually changed too.
+        val committed = publishedBitmap()
+        assertTrue(
+            "quadrant symmetry's third copy (mirrored on both axes) never painted",
+            committed.getPixel(canvas.width - 15, canvas.height - 15) != before.getPixel(canvas.width - 15, canvas.height - 15),
+        )
+    }
+
+    /**
+     * Roadmap gap found by a glee audit: `StrokeCommand` had no field for Wrap Around at all, so
+     * a wrapped stroke's edge-tiling -- correctly drawn live -- vanished the instant a feathered
+     * selection forced a re-render through `DrawingEngine`, and unconditionally on the next
+     * undo/redo/auto-bake even without a selection. This asserts commit-equals-replay under a
+     * feathered selection (the case that broke immediately, not just eventually).
+     */
+    @Test
+    fun `wrap-around tiling commits what it replays under a feathered selection`() = runTest(dispatcher) {
+        // A whole-canvas feathered selection, not `seed()`'s narrow (12,12)-(36,36) one -- that
+        // would clip away the near-edge paint this test needs to observe wrap-around's tiled
+        // copy at the opposite edge, while still forcing the same feathered re-render commit
+        // path (through DrawingEngine) `seed()`'s selection exists to exercise.
+        val base = RenderTestBase.filled(48, 48, Color.WHITE)
+        val layer = Layer(id = "L", name = "Layer", bitmap = base)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvas))
+        vm.dispatchForTest(
+            EditorIntent.SetSelection(
+                Selection(
+                    rings = listOf(SelectionRing(SelectionGeometry.rectangle(Offset(0f, 0f), Offset(48f, 48f)))),
+                    canvasSize = canvas,
+                    featherPx = 4f,
+                )
+            )
+        )
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        val before = base.copy(Bitmap.Config.ARGB_8888, false)
+
+        vm.toggleWrapAroundMode()
+        vm.setActiveTool(Tool.BRUSH)
+        // Radius 10 (brush size 20): big enough that the dx=+1 wrapped copy, centered just past
+        // the right edge at canvas.width + 2, spills back onto the visible pixel at
+        // canvas.width - 2 checked below, but small enough that the primary on-canvas paint near
+        // x=2..6 (radius reaches to about x=16) can't reach that same pixel on its own -- so the
+        // assertion can only pass via the wrapped copy, not the stroke's own paint.
+        vm.setBrushSize(20f)
+        vm.onStrokeStart(Offset(2f, 24f), canvas)
+        vm.onStrokePoint(Offset(6f, 24f))
+        advanceUntilIdle()
+        vm.onStrokeEnd()
+        advanceUntilIdle()
+        awaitCommit { publishedBitmap().getPixel(2, 24) != before.getPixel(2, 24) }
+        assertCommitEqualsReplay(before, "wrap-around tiling")
+
+        val committed = publishedBitmap()
+        assertTrue(
+            "wrap-around's tiled copy at the opposite edge never painted",
+            committed.getPixel(canvas.width - 2, 24) != before.getPixel(canvas.width - 2, 24),
+        )
     }
 
     /**
