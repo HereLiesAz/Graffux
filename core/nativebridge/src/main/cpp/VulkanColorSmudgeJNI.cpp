@@ -6,7 +6,8 @@
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeColorSmudge(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jint mode, jfloat radiusPx,
-        jfloat feathering, jboolean smearAlpha, jint paintColorArgb, jfloat dilution) {
+        jfloat feathering, jboolean smearAlpha, jint paintColorArgb, jfloat dilution,
+        jbyteArray sampleSourceRgba8, jint sampleSourceWidth, jint sampleSourceHeight) {
     auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !dabData) return JNI_FALSE;
     const jsize length = env->GetArrayLength(dabData);
@@ -22,9 +23,33 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeColorSmudge(
         });
     }
     env->ReleaseFloatArrayElements(dabData, ptr, JNI_ABORT);
-    return engine->colorSmudge(
+
+    // Item 11 (Sample Merged): a null sampleSourceRgba8 (or non-positive dims, or too few bytes)
+    // disables it for this call, same "null disables" optionality every other optional-array JNI
+    // entry point in this codebase follows -- see VulkanStampDynamicsJNI.cpp's grain/secondary-tip
+    // handling for the fuller precedent this mirrors.
+    jbyte* sampleSourceData = nullptr;
+    bool hasSampleSource =
+        sampleSourceRgba8 != nullptr && sampleSourceWidth > 0 && sampleSourceHeight > 0;
+    if (hasSampleSource) {
+        const jsize sampleSourceLen = env->GetArrayLength(sampleSourceRgba8);
+        const jlong required = static_cast<jlong>(sampleSourceWidth) * sampleSourceHeight * 4;
+        if (static_cast<jlong>(sampleSourceLen) < required) {
+            hasSampleSource = false;
+        } else {
+            sampleSourceData = env->GetByteArrayElements(sampleSourceRgba8, nullptr);
+            if (!sampleSourceData) hasSampleSource = false;
+        }
+    }
+
+    bool ok = engine->colorSmudge(
         dabs, mode, radiusPx, feathering, smearAlpha == JNI_TRUE,
-        static_cast<uint32_t>(paintColorArgb), dilution) ? JNI_TRUE : JNI_FALSE;
+        static_cast<uint32_t>(paintColorArgb), dilution,
+        hasSampleSource ? reinterpret_cast<const uint8_t*>(sampleSourceData) : nullptr,
+        hasSampleSource ? sampleSourceWidth : 0, hasSampleSource ? sampleSourceHeight : 0);
+
+    if (sampleSourceData) env->ReleaseByteArrayElements(sampleSourceRgba8, sampleSourceData, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL

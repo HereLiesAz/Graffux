@@ -46,6 +46,121 @@ class VulkanColorSmudgeInstrumentedTest {
         compareMode(ColorSmudgeEngine.Mode.DULLING, colorRate = 0.4f, dilution = 0.6f)
     }
 
+    @Test
+    fun smear_matchesCpuReference_withSampleMerged() {
+        // Sample Merged reads pickup from a second RGBA texture (color_smudge.comp's
+        // sampleSourceTex) instead of the layer image being painted -- a distinct code path from
+        // every case above, none of which supply a sampleSource at all, so it needs its own
+        // CPU/GPU parity case.
+        compareSampleMerged(ColorSmudgeEngine.Mode.SMEAR)
+    }
+
+    @Test
+    fun dulling_matchesCpuReference_withSampleMerged() {
+        compareSampleMerged(ColorSmudgeEngine.Mode.DULLING)
+    }
+
+    private fun compareSampleMerged(mode: ColorSmudgeEngine.Mode) {
+        val width = 96
+        val height = 64
+        // The active layer starts fully transparent -- any colour Smudge picks up must come from
+        // the sample-merged composite of the other layers, not from the (empty) active layer
+        // itself. This makes a Sample-Merged bug (silently falling back to the active layer, e.g. a
+        // shader branch that never actually reads sampleSourceTex) impossible to pass by accident,
+        // the same discipline DrawingEngineSampleMergedTest.kt already established for the CPU path.
+        val basePixels = IntArray(width * height) { Color.TRANSPARENT }
+        val source = Bitmap.createBitmap(basePixels, width, height, Bitmap.Config.ARGB_8888)
+        val expected = basePixels.copyOf()
+
+        // The "other layers" composite: a solid colour field distinct from paintColor, so any
+        // pigment deposited under colorRate is unambiguously attributable to the sampled pickup,
+        // not to paint.
+        val sampleSourcePixels = IntArray(width * height) { index ->
+            val x = index % width
+            when {
+                x < 28 -> Color.rgb(20, 160, 220)
+                x < 56 -> Color.rgb(220, 190, 30)
+                else -> Color.rgb(90, 220, 130)
+            }
+        }
+
+        val stroke = List(52) { i -> Offset(20f + i, 32f + (i % 5 - 2) * 0.35f) }
+        val settings = ColorSmudgeEngine.Settings(
+            mode = mode,
+            smudgeRate = 0.72f,
+            colorRate = 0.4f,
+            opacity = 0.83f,
+            radiusPx = 7f,
+            smudgeRadius = 1.4f,
+            feathering = 0.25f,
+            smearAlpha = true,
+            paintColor = Color.rgb(20, 210, 90),
+            sampleMerged = true,
+        )
+        ColorSmudgeEngine.apply(
+            expected, width, height, stroke, settings, strokeSeed = 77L,
+            sampleSource = sampleSourcePixels,
+        )
+
+        val engine = VulkanStampEngine()
+        assumeTrue("Vulkan compute unavailable on this device", engine.init(width, height))
+        try {
+            assertTrue(engine.upload(source))
+            val plans = ColorSmudgeEngine.resolvePlans(
+                stroke, width, height, settings, strokeSeed = 77L,
+            )
+            val nativeMode = if (mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+            for (plan in plans) {
+                if (plan.dabs.size < 2) continue
+                assertTrue(
+                    engine.colorSmudge(
+                        plan.dabs.map {
+                            ColorSmudgeDab(
+                                it.x, it.y, it.smudgeRate, it.colorRate, it.opacity, it.smudgeRadius,
+                            )
+                        },
+                        nativeMode,
+                        settings.radiusPx,
+                        settings.feathering,
+                        settings.smearAlpha,
+                        settings.paintColor,
+                        settings.dilution,
+                        sampleSource = sampleSourcePixels,
+                        sampleSourceWidth = width,
+                        sampleSourceHeight = height,
+                    )
+                )
+            }
+            val actual = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            assertTrue(engine.readback(actual))
+            val actualPixels = IntArray(width * height)
+            actual.getPixels(actualPixels, 0, width, 0, 0, width, height)
+
+            var maxDelta = 0
+            for (i in expected.indices) {
+                val a = expected[i]
+                val b = actualPixels[i]
+                maxDelta = maxOf(
+                    maxDelta,
+                    abs(Color.alpha(a) - Color.alpha(b)),
+                    abs(Color.red(a) - Color.red(b)),
+                    abs(Color.green(a) - Color.green(b)),
+                    abs(Color.blue(a) - Color.blue(b)),
+                )
+            }
+            assertTrue("CPU/GPU channel delta was $maxDelta", maxDelta <= 2)
+
+            // Sanity: some pixel actually changed from fully transparent, proving the GPU path
+            // really picked up colour from the sample-merged composite rather than silently
+            // no-opping (which would also, wrongly, satisfy the delta check above).
+            assertTrue(actualPixels.any { Color.alpha(it) > 0 })
+        } finally {
+            engine.destroy()
+            VulkanStampEngine.trimPool()
+            source.recycle()
+        }
+    }
+
     private fun compareMode(mode: ColorSmudgeEngine.Mode, colorRate: Float, dilution: Float = 0f) {
         val width = 96
         val height = 64
