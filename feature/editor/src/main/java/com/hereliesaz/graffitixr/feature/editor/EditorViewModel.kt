@@ -6985,27 +6985,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    override fun adjustColorLightness(delta: Float) {
-        adjustColorHSV(lightnessDelta = delta, saturationDelta = 0f)
-    }
-
-    override fun adjustColorHSV(lightnessDelta: Float, saturationDelta: Float) {
-        _uiState.update { state ->
-            val c = state.activeColor
-            val hsv = FloatArray(3)
-            android.graphics.Color.RGBToHSV(
-                (c.red * 255).toInt(),
-                (c.green * 255).toInt(),
-                (c.blue * 255).toInt(),
-                hsv
-            )
-            hsv[1] = (hsv[1] + saturationDelta).coerceIn(0f, 1f)
-            hsv[2] = (hsv[2] + lightnessDelta).coerceIn(0f, 1f)
-            val newArgb = android.graphics.Color.HSVToColor(hsv)
-            state.copy(activeColor = Color(newArgb).copy(alpha = c.alpha))
-        }
-    }
-
     override fun onColorPickerDismissed() {
         dispatch(EditorIntent.DismissColorPicker)
     }
