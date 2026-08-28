@@ -184,15 +184,15 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **CPU reference:** Yes, complete — `resolvedColor()` is CPU-only.
 
-**Vulkan target:** None — `stamp.comp` has no color-source/gradient/mix logic today (tracked as item 15).
+**Vulkan target:** No new shader logic needed. `stamp.comp` itself has no color-source/gradient/mix math, but it never needs any: `StampBrushRenderer.resolvedColor()` already resolves `PLAIN`/`GRADIENT`/`UNIFORM_RANDOM` (plus any HSV sensor shift) to a final per-dab RGB on the CPU before the dab is packed into a `ResolvedBrushDab` and sent to the GPU via `VulkanStampEngine.stampResolvedDabs()` — the shader just paints whatever resolved RGB it's given, the same "resolve before renderer-specific code" contract every other item in this document follows. `EditorViewModel`'s live-preview GPU-eligibility gate (`gpuCompatibleStampBrush()`, extracted as its own testable function) previously required `colorSource == PLAIN` to enable that path; that condition was a leftover restriction with nothing backing it in the shader, and has been removed — the gate now depends only on the properties that genuinely are GPU-unsupported (a shaped tip, grain texture, a masked/dual brush, or `tipRatio != 1f`, tracked as item 15).
 
 **UI exposure:** Real foreground/secondary color wired through `EditorViewModel` (`secondaryColor` in ui state), `BrushStudioWindow` mix preview, and color-source picker controls in `SketchToolsDialog`.
 
-**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`. `ColorSourceMixTest` now also covers: `UNIFORM_RANDOM` determinism under sensor-driven `dynamicDabs` placement (not just the static `dabs` path), sensor HSV shift composing correctly on top of an already-resolved `GRADIENT`/`UNIFORM_RANDOM` color, and the masked/dual-brush pipeline (`paintDabs` with `maskedBrush` set) painting the same resolved color source as the primary tip.
+**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`. `ColorSourceMixTest` now also covers: `UNIFORM_RANDOM` determinism under sensor-driven `dynamicDabs` placement (not just the static `dabs` path), sensor HSV shift composing correctly on top of an already-resolved `GRADIENT`/`UNIFORM_RANDOM` color, and the masked/dual-brush pipeline (`paintDabs` with `maskedBrush` set) painting the same resolved color source as the primary tip. `GpuCompatibleStampBrushTest.kt` (new) covers the live-preview GPU-eligibility gate directly: a plain round brush is GPU-compatible, `GRADIENT`/`UNIFORM_RANDOM` color sources are too (the fix this item made), and a shaped tip/grain/masked-brush/non-round `tipRatio` each still force CPU.
 
 **Dependencies:** Items 4-6 (shares the resolved-dab pipeline).
 
-**Completion state:** IMPLEMENTED (CPU), validation complete. GPU parity remains deferred to item 14 — `gpuCompatibleBrush` gating in `EditorViewModel` (live-preview GPU eligibility) correctly requires `colorSource == PLAIN`, so a non-plain color source falls back to the CPU path exactly as documented, confirmed by reading that gate directly rather than inferring it.
+**Completion state:** IMPLEMENTED (CPU and GPU), validation complete. Color source has full GPU parity for the live-preview path — it never needed shader work, only an unnecessarily conservative gate removed. What item 15 still covers (shaped tips, texture/grain, masked/dual brush) is unrelated and remains CPU-only.
 
 ## 9. Taper / Fade / Lift-off
 
@@ -337,23 +337,25 @@ What it deliberately does **not** do: map those `param` keys onto Graffux's own 
 
 **Completion state:** IN PROGRESS. Container format (PNG/XML) IMPLEMENTED (CPU) and tested. Semantic mapping from Krita's per-paintop `param` names to Graffux's brush primitives — the part that makes this actually useful — NOT STARTED, blocked on sourcing real per-paintop parameter names (e.g. from a real exported `.kpp` file or the relevant `KisColorSmudgeOpSettingsWidget`-style source) rather than guessing them.
 
-## 15. GPU-resident mask/texture/dual-brush/source pipeline
+## 15. GPU-resident mask/texture/dual-brush pipeline
 
-**Krita behavior adopted:** N/A directly — this is a Graffux performance tranche to bring items 5-8 (tip/mask caching, texture/grain, masked/dual brush, color source) onto Vulkan, matching the per-dab paint path already used for flow/H/S/V dynamics (item 3).
+**Krita behavior adopted:** N/A directly — this is a Graffux performance tranche to bring items 5-7 (tip/mask caching, texture/grain, masked/dual brush) onto Vulkan, matching the per-dab paint path already used for flow/H/S/V dynamics (item 3).
 
-**Graffux contract:** not yet started. `core/nativebridge/src/main/cpp/shaders/stamp.comp` is a 65-line shader with no mask, texture, grain, secondary-tip, or color-source logic. This confirms the "deliberately CPU-first" statement already made in items 5-8: any brush using masks, texture, a masked/dual tip, or a non-plain color source currently falls back to the CPU correctness renderer, with no equivalent GPU path yet.
+**Scope correction:** this item originally also listed item 8 (color source). It doesn't belong here: color source turned out to need no shader work at all, since it's fully resolved to a per-dab RGB on the CPU before a dab reaches the GPU — see item 8's Vulkan target for the actual fix (removing an unnecessarily conservative gate, not adding shader logic). This item's real scope is only the three capabilities that genuinely require sampling something in the shader a dab's geometry alone doesn't carry: a tip-mask/shape texture, grain, and a second (dual/masked) tip.
+
+**Graffux contract:** not yet started. `core/nativebridge/src/main/cpp/shaders/stamp.comp` is a 65-line shader with no mask, texture, grain, or secondary-tip logic — only a generated round dab. This confirms the "deliberately CPU-first" statement already made in items 5-7: any brush using a shaped tip, texture/grain, or a masked/dual tip currently falls back to the CPU correctness renderer (`gpuCompatibleStampBrush()` in `EditorViewModel`, added/extracted alongside item 8's fix, is the actual gate — a shaped tip, non-null grain/mask bitmap, a set `maskedBrush` config, or `tipRatio != 1f` all still force CPU), with no equivalent GPU path yet.
 
 **Determinism/replay:** GPU path must reproduce CPU output for the same resolved dab record (per the architecture rule that CPU and GPU paths must produce equivalent visible behavior).
 
-**CPU reference:** Already required and already implemented per items 5-8; this item is specifically about adding the missing GPU path.
+**CPU reference:** Already required and already implemented per items 5-7; this item is specifically about adding the missing GPU path.
 
 **Vulkan target:** Not started — this item's entire scope.
 
-**UI exposure:** None new; existing controls from items 5-8 would simply stop falling back to CPU once this ships.
+**UI exposure:** None new; existing controls from items 5-7 would simply stop falling back to CPU once this ships.
 
-**Tests:** None yet; would need CPU/GPU parity tests analogous to the existing Color Smudge parity/benchmark instrumentation (item 3).
+**Tests:** None yet for texture/mask/dual-brush; would need CPU/GPU parity tests analogous to the existing Color Smudge parity/benchmark instrumentation (item 3). `GpuCompatibleStampBrushTest.kt` (item 8) already covers the gate itself — that a shaped tip/grain/masked-brush/non-round `tipRatio` correctly stay CPU-only, which is this item's dependency surface.
 
-**Dependencies:** Items 3, 5-8.
+**Dependencies:** Items 3, 5-7.
 
 **Completion state:** NOT STARTED.
 
