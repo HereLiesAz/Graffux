@@ -526,11 +526,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             azAdvanced(
                 helpList = RAIL_HELP,
                 onDismissHelp = { },
-                onTitleClick = { _ ->
-                    val shapes = SelectionShape.entries
-                    val next = shapes[(shapes.indexOf(uiState.selectionShape) + 1) % shapes.size]
-                    vm.onSetSelectionShape(next)
-                },
             )
             azConfig(
                 // What the rail should render as active. Without this only a transient last-tap
@@ -1857,8 +1852,10 @@ private fun AzNavHostScope.ConfigureRailItems(
         shape = AzButtonShape.NONE_SQUARE,
     ) { vm.onColorClicked() }
 
-    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour.
-    toolItem(Tool.FILL, "Fill", GraffuxIcons.Colordrop)
+    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour. The icon must
+    // match TOOL_CATALOG's (GraffuxIcons.Fill) -- the shortcuts sheet reads that catalogue, so a
+    // different glyph here would show the tool differently depending on where you find it.
+    toolItem(Tool.FILL, "Fill", GraffuxIcons.Fill)
 
     toolItem(Tool.TEXT, "Text", GraffuxIcons.Type)
 
@@ -1916,10 +1913,15 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
         nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
         nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
-        if (uiState.activeTool == Tool.CLONE) {
+        // Setting the source is a canvas gesture (EditorScreen's pickingCloneSource/
+        // onPickCloneSource), not this button -- while cloneSource is null the canvas itself is
+        // already in aiming mode, so a "Tap to aim" item here had nothing to do when tapped (its
+        // own onClick just reset an already-null source). Show this only once a source exists,
+        // when it has a real job: clearing it so the next canvas tap can re-aim.
+        if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) {
             azRailItem(
                 id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
-                text = if (uiState.cloneSource == null) "Tap to aim" else "Re-aim",
+                text = "Re-aim",
                 content = GraffuxIcons.FilterCloneSource, color = railColor("tool.cloneSource"),
                 shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.cloneSource"),
                 onClick = { vm.onResetCloneSource() },
