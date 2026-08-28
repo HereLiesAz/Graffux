@@ -81,21 +81,68 @@ class LayerStoreTest {
     }
 
     @Test
-    fun `remove drops both base and strokes for the layer`() {
+    fun `remove drops base, strokes, and height base for the layer`() {
         store.putBase("a", bmp())
         store.addStroke("a", stroke())
+        store.heightBase("a", 9)[0] = 1f
         store.remove("a")
         assertNull(store.base("a"))
         assertTrue(store.strokes("a").isEmpty())
+        assertEquals(0f, store.heightBase("a", 9)[0], 0f) // fresh zero array, not the mutated one
     }
 
     @Test
-    fun `clear empties every layer's caches`() {
+    fun `clear empties every layer's caches, including height bases`() {
         store.putBase("a", bmp())
         store.addStroke("b", stroke())
+        store.heightBase("c", 4)[0] = 1f
         store.clear()
         assertNull(store.base("a"))
         assertTrue(store.strokes("b").isEmpty())
+        assertEquals(0f, store.heightBase("c", 4)[0], 0f)
+    }
+
+    // ── Impasto height base (item 12) ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `heightBase lazily allocates a zero array of the requested size`() {
+        val h = store.heightBase("a", 12)
+        assertEquals(12, h.size)
+        assertTrue(h.all { it == 0f })
+    }
+
+    @Test
+    fun `heightBase returns the same instance on repeated calls with the same size`() {
+        val first = store.heightBase("a", 12)
+        first[0] = 0.5f
+        val second = store.heightBase("a", 12)
+        assertSame(first, second)
+        assertEquals(0.5f, second[0], 0f)
+    }
+
+    @Test
+    fun `heightBase reallocates a fresh zero array when the requested size changes`() {
+        val first = store.heightBase("a", 12)
+        first[0] = 0.5f
+        val resized = store.heightBase("a", 20)
+        assertEquals(20, resized.size)
+        assertTrue("a size change must not carry over stale data", resized.all { it == 0f })
+    }
+
+    @Test
+    fun `putHeightBase replaces the cached array`() {
+        val replacement = FloatArray(4) { 0.25f }
+        store.putHeightBase("a", replacement)
+        assertSame(replacement, store.heightBase("a", 4))
+    }
+
+    @Test
+    fun `retainOnly evicts height bases for ids no longer live`() {
+        store.heightBase("a", 4)[0] = 1f
+        store.heightBase("b", 4)[0] = 1f
+        store.retainOnly(setOf("a"))
+        assertEquals(1f, store.heightBase("a", 4)[0], 0f)
+        assertEquals(0f, store.heightBase("b", 4)[0], 0f) // evicted, so this re-allocates fresh
     }
 
     @Test

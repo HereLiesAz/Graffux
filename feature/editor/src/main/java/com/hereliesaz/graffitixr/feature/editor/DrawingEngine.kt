@@ -3,6 +3,9 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.Dab
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
+import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
@@ -12,6 +15,12 @@ import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
+
+/** Fixed top-left bevel light for Impasto shading (roadmap item 12) -- not yet user-adjustable;
+ *  see [DrawingEngine]'s stamp-brush branch for where it's applied. */
+private const val IMPASTO_LIGHT_AZIMUTH_DEG = 315f
+private const val IMPASTO_LIGHT_ELEVATION_DEG = 45f
+private const val IMPASTO_LIGHT_STRENGTH = 0.6f
 
 /**
  * The stroke-compositing pipeline, extracted from EditorViewModel: turns a base bitmap plus
@@ -43,32 +52,45 @@ internal class DrawingEngine(
      * and undo/redo replay through this same function should agree with a live draw at the same
      * document state rather than resurrecting whatever those layers looked like when the stroke
      * was first recorded.
+     *
+     * [heightMap], when supplied, must already be sized `base.width * base.height` and is
+     * mutated in place as stamp-brush strokes with a positive `impastoThicknessRate` (roadmap
+     * item 12) are replayed — a fresh copy of a layer's height base, so callers can discard it on
+     * failure exactly like [base] itself. `null` means Impasto is off for this call; it is never
+     * allocated on the caller's behalf, since most strokes never touch it.
      */
     suspend fun composite(
         base: Bitmap,
         strokes: List<StrokeCommand>,
         otherLayers: () -> List<Layer> = { emptyList() },
+        heightMap: FloatArray? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
         for (stroke in strokes) {
             val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
-            else applyTool(current, stroke, replaceExisting = true, otherLayers = otherLayers)
+            else applyTool(current, stroke, replaceExisting = true, otherLayers = otherLayers, heightMap = heightMap)
             if (next !== current && current !== base) current.recycle()
             current = next
         }
         return current
     }
 
-    suspend fun applySingleStroke(base: Bitmap, command: StrokeCommand, otherLayers: List<Layer> = emptyList()): Bitmap =
+    suspend fun applySingleStroke(
+        base: Bitmap,
+        command: StrokeCommand,
+        otherLayers: List<Layer> = emptyList(),
+        heightMap: FloatArray? = null,
+    ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
-        else applyTool(base, command, replaceExisting = false, otherLayers = { otherLayers })
+        else applyTool(base, command, replaceExisting = false, otherLayers = { otherLayers }, heightMap = heightMap)
 
     private suspend fun applyTool(
         bitmap: Bitmap,
         stroke: StrokeCommand,
         replaceExisting: Boolean,
         otherLayers: () -> List<Layer> = { emptyList() },
+        heightMap: FloatArray? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -143,6 +165,7 @@ internal class DrawingEngine(
             } else {
                 emptyList()
             }
+            val paintedDabs: List<Dab>
             if (brush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
                 // Airbrush (roadmap item 13): only reachable here, the one-shot commit/replay
                 // render, never from EditorViewModel's live incremental preview. That path repaints
@@ -169,6 +192,7 @@ internal class DrawingEngine(
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
                     stroke.secondaryBrushColor,
                 )
+                paintedDabs = allDabs
             } else {
                 StampBrushRenderer.paintStroke(
                     stampCanvas, pts, brush, stroke.brushColor,
@@ -176,6 +200,33 @@ internal class DrawingEngine(
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
                     stroke.secondaryBrushColor,
                 )
+                // Only materialized when Impasto is actually active (see below) -- paintStroke
+                // already resolves the identical dab list internally (via the same
+                // CatmullRom.densify + BrushStamps.dabs path) to paint, so this is redundant work
+                // only when a stamp brush has impastoThicknessRate > 0, never on the historical
+                // path every other stamp brush still takes.
+                paintedDabs = if (brush.impastoThicknessRate > 0f && heightMap != null) {
+                    BrushStamps.dabs(CatmullRom.densify(pts), stroke.brushSize * brushScale, brush, stroke.seed)
+                } else {
+                    emptyList()
+                }
+            }
+
+            // Impasto (roadmap item 12): raises the layer's persistent height map under this
+            // stroke's dabs, then re-shades the just-painted pixels against it -- same commit/
+            // replay-only scoping as Airbrush (item 13) above, for the same reason: no live-
+            // preview integration risk was worth taking on in this pass.
+            if (brush.impastoThicknessRate > 0f && heightMap != null && heightMap.size == target.width * target.height) {
+                ImpastoEngine.depositStroke(
+                    heightMap, target.width, target.height, paintedDabs, brush.hardness, brush.impastoThicknessRate,
+                )
+                val colorPixels = IntArray(target.width * target.height)
+                target.getPixels(colorPixels, 0, target.width, 0, 0, target.width, target.height)
+                val shaded = ImpastoEngine.shade(
+                    colorPixels, heightMap, target.width, target.height,
+                    IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+                )
+                target.setPixels(shaded, 0, target.width, 0, 0, target.width, target.height)
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }

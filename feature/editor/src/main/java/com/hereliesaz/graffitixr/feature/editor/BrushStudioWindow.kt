@@ -57,6 +57,7 @@ fun BrushStudioWindow(
     var showMaskedTip by remember { mutableStateOf(false) }
     var showTaper by remember { mutableStateOf(false) }
     var showAirbrush by remember { mutableStateOf(false) }
+    var showImpasto by remember { mutableStateOf(false) }
 
     if (confirmingDelete) {
         ConfirmDialog(
@@ -251,6 +252,23 @@ fun BrushStudioWindow(
                     "0 disables airbrush. Above 0, holding the pointer roughly still keeps depositing paint " +
                         "at this rate, on top of ordinary movement dabs. Only shows up once the stroke is " +
                         "released, not in the live preview while dragging.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            AzButton(
+                text = if (showImpasto) "Impasto ▴" else "Impasto ▾",
+                onClick = { showImpasto = !showImpasto },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showImpasto) {
+                ParamSlider("Thickness", draft.impastoThicknessRate, 0f..1f, asFraction = true) { v ->
+                    onEdit { it.copy(impastoThicknessRate = v) }
+                }
+                Text(
+                    "0 disables Impasto. Above 0, each dab raises the layer's paint-thickness map, " +
+                        "shaded with a fixed light so ridges catch highlight and shadow. Only shows up " +
+                        "once the stroke is released, not in the live preview while dragging.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

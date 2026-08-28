@@ -750,7 +750,9 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun pushHistory() {
-        history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null) })
+        // heightMap stripped alongside bitmap for the same reason: a large runtime-only array with
+        // no business sitting in every property-change undo entry (Impasto, item 12).
+        history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null, heightMap = null) })
         updateHistoryCounts()
         val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
         layerStore.retainOnly(liveIds)
@@ -900,11 +902,18 @@ class EditorViewModel @Inject constructor(
         val stale = layerStore.strokes(layerId).take(excess)
         if (stale.isEmpty()) return
 
+        // Impasto (item 12): the height base needs the same fold-old-strokes-in treatment as the
+        // bitmap base, on a defensive copy so a failed/discarded bake never corrupts the pristine
+        // base other in-flight rebuilds may still be reading.
+        val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+
         viewModelScope.launch(dispatchers.default) {
             try {
-                val baked = drawingEngine.composite(base, stale) {
-                    _uiState.value.layers.filterNot { it.id == layerId }
-                }
+                val baked = drawingEngine.composite(
+                    base, stale,
+                    otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
+                    heightMap = heightWorking,
+                )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
                     // layer's caches wholesale while this ran, and baking onto a stale base would
@@ -915,6 +924,7 @@ class EditorViewModel @Inject constructor(
                     }
                     layerStore.takeOldestStrokes(layerId, stale.size)
                     layerStore.putBase(layerId, baked)
+                    layerStore.putHeightBase(layerId, heightWorking)
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -957,6 +967,10 @@ class EditorViewModel @Inject constructor(
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
         val base = layerStore.base(layerId) ?: return
         val strokes = layerStore.strokes(layerId)
+        // Impasto (item 12): a fresh copy of the height base, replayed the same way the bitmap
+        // itself is -- undo/redo should read the layer's persistent height as it stood *before*
+        // this rebuild's strokes, not whatever the live layer.heightMap held a moment ago.
+        val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -964,9 +978,11 @@ class EditorViewModel @Inject constructor(
             // failure during undo/redo logs instead of taking down the app — the stroke list and
             // base are unchanged, so the next edit re-renders cleanly.
             try {
-                val currentBitmap = drawingEngine.composite(base, strokes) {
-                    _uiState.value.layers.filterNot { it.id == layerId }
-                }
+                val currentBitmap = drawingEngine.composite(
+                    base, strokes,
+                    otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
+                    heightMap = heightWorking,
+                )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
                 // push the whole baked bitmap — but only if something is actually listening. This
@@ -978,7 +994,11 @@ class EditorViewModel @Inject constructor(
 
                 withContext(dispatchers.main) {
                     _uiState.update { state ->
-                        state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = currentBitmap) else it })
+                        state.copy(
+                            layers = state.layers.map {
+                                if (it.id == layerId) it.copy(bitmap = currentBitmap, heightMap = heightWorking) else it
+                            },
+                        )
                     }
                     val layer = _uiState.value.layers.find { it.id == layerId } ?: return@withContext
                     scheduleDiskSave(layerId, currentBitmap, layer.uri)
@@ -998,13 +1018,24 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
+        // Impasto (item 12): continue building on the layer's current live height map (already
+        // reflecting every stroke since the last full rebuild, same relationship activeBitmap has
+        // to the layer's own base+strokes), falling back to the baked height base on this layer's
+        // first live paint since a rebuild/load. A defensive copy, same reasoning as heightWorking
+        // elsewhere in this file: applySingleStroke mutates in place.
+        val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()
+
         viewModelScope.launch(dispatchers.default) {
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers)
+            val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers, heightWorking)
 
             withContext(dispatchers.main) {
                 _uiState.update { state ->
-                    state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = newBitmap) else it })
+                    state.copy(
+                        layers = state.layers.map {
+                            if (it.id == layerId) it.copy(bitmap = newBitmap, heightMap = heightWorking) else it
+                        },
+                    )
                 }
                 // Painting on a main component has to reach its instances. Idempotent and a no-op
                 // when the document has no components, so it can run on every stroke unconditionally.

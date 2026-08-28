@@ -40,6 +40,14 @@ data class Layer(
     val uri: Uri? = null,
     @Transient
     val bitmap: Bitmap? = null,
+    /**
+     * Row-major paint-thickness map (roadmap item 12, `ImpastoEngine`), same dimensions as
+     * [bitmap]. Runtime-only like [bitmap] itself -- not yet persisted to disk or across app
+     * restarts, an explicit, documented limitation rather than a silent gap. `null` means no
+     * stamp-brush stroke with a positive `impastoThicknessRate` has painted on this layer yet.
+     */
+    @Transient
+    val heightMap: FloatArray? = null,
     val isVisible: Boolean = true,
     val opacity: Float = 1.0f,
     val brightness: Float = 0.0f,
