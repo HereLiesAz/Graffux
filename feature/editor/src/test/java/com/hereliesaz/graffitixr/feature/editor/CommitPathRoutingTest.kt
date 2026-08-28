@@ -4,12 +4,21 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
+import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
+import com.hereliesaz.graffitixr.data.brush.CustomBrushRepository
+import io.mockk.every
+import io.mockk.mockk
 import io.mockk.unmockkAll
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -367,5 +376,65 @@ class CommitPathRoutingTest {
             "the command must carry the selection, or the replay cannot confine the warp",
             strokes.single().selection,
         )
+    }
+
+    /**
+     * The bug this whole file exists to catch, but for the tool most users actually paint with.
+     * `commitStampStroke` used to hand-roll a bare `StampBrushRenderer.paintStroke` call that never
+     * consulted `brush.dynamics` at all: a pressure-driven brush tapered correctly in the live
+     * preview, then lost the taper entirely the instant the stroke committed, because the commit
+     * render used static (non-dynamic) dab placement while replay (through `DrawingEngine`, which
+     * does honor `dynamics`) reproduces the tapered stroke correctly. That drift is exactly what
+     * `assertCommitEqualsReplay` is built to catch for every other tool in this file -- the stamp
+     * brush was the one path nobody had driven through it.
+     */
+    @Test
+    fun `a stamp brush with pressure dynamics commits what it replays`() = runTest(dispatcher) {
+        val brush = AzphaltBrush(
+            name = "Taper",
+            hardness = 1f,
+            opacity = 1f,
+            dynamics = listOf(
+                BrushSensorBinding(
+                    sensor = BrushSensor.PRESSURE,
+                    parameter = BrushParameter.SIZE,
+                    outputMin = 0.2f,
+                    outputMax = 1f,
+                ),
+            ),
+        )
+        val brushes = mockk<CustomBrushRepository>(relaxed = true) {
+            every { this@mockk.brushes } returns MutableStateFlow(emptyList())
+            every { load("taper") } returns brush
+        }
+        val stampVm = EditorViewModelFixture.build(dispatcher, brushes)
+        val base = RenderTestBase.filled(48, 48, Color.WHITE)
+        val layer = Layer(id = "L", name = "Layer", bitmap = base)
+        stampVm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        stampVm.onLayerActivated("L")
+        stampVm.dispatchForTest(EditorIntent.SetCanvasSize(canvas))
+        stampVm.selectCustomBrush("taper")
+        stampVm.setActiveTool(Tool.BRUSH)
+        // A colour that contrasts with the white base -- painting the default white-on-white would
+        // commit real pixels with no visible change, and awaitCommit would never see it.
+        stampVm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        val before = base.copy(Bitmap.Config.ARGB_8888, false)
+
+        // Varying pressure across the drag so a dynamics-aware render (dynamicDabs) actually
+        // produces different dab sizes than a static one (BrushStamps.dabs) would.
+        stampVm.onStrokeStart(BrushSample(12f, 24f, pressure = 0.1f, uptimeMillis = 0L), canvas)
+        stampVm.onStrokePoint(BrushSample(24f, 24f, pressure = 0.6f, uptimeMillis = 16L))
+        stampVm.onStrokePoint(BrushSample(36f, 24f, pressure = 1f, uptimeMillis = 32L))
+        stampVm.onStrokeEnd()
+
+        fun published(): Bitmap = stampVm.uiState.value.layers.single { it.id == "L" }.bitmap!!
+        awaitCommit(message = "stamp stroke published no change") {
+            published().getPixel(24, 24) != before.getPixel(24, 24)
+        }
+
+        val strokes = stampVm.recordedStrokesForTest("L")
+        assertTrue("nothing was recorded, so there is no replay to compare", strokes.isNotEmpty())
+        val replayed = DrawingEngine(stampVm.slamManager).composite(before, strokes)
+        assertSamePixels(published(), replayed, "stamp brush with pressure dynamics")
     }
 }

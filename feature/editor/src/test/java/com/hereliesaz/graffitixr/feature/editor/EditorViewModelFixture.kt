@@ -33,7 +33,7 @@ internal object EditorViewModelFixture {
         override val unconfined = d
     }
 
-    fun build(d: CoroutineDispatcher): EditorViewModel {
+    fun build(d: CoroutineDispatcher, customBrushRepository: CustomBrushRepository? = null): EditorViewModel {
         val settings = mockk<SettingsRepository>(relaxed = true) {
             every { backgroundColor } returns MutableStateFlow(0)
             every { inputSampleRateHz } returns MutableStateFlow(120)
@@ -50,7 +50,7 @@ internal object EditorViewModelFixture {
         val extensions = mockk<ExtensionRepository>(relaxed = true) {
             every { installed } returns MutableStateFlow(emptyList())
         }
-        val brushes = mockk<CustomBrushRepository>(relaxed = true) {
+        val brushes = customBrushRepository ?: mockk<CustomBrushRepository>(relaxed = true) {
             every { this@mockk.brushes } returns MutableStateFlow(emptyList())
         }
         val figma = mockk<FigmaRepository>(relaxed = true) {
