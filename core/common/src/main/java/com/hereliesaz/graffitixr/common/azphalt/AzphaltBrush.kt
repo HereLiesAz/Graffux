@@ -146,8 +146,10 @@ data class AzphaltBrush(
     /** Airbrush build-up (roadmap item 13, [AirbrushEngine.heldDabs]): additional dabs deposited
      *  at this cadence while the pointer is held roughly still. 0 (the default) disables it
      *  entirely, matching [AirbrushEngine.heldDabs]'s own "non-positive disables" contract, so
-     *  existing brushes are unaffected. Only takes effect on stroke commit/replay, not the live
-     *  preview -- see the call site in `DrawingEngine.kt` for why. */
+     *  existing brushes are unaffected. Live in both the drag preview (`EditorViewModel`'s
+     *  `stampHeldStampedCount`-tracked incremental repaint) and stroke commit/replay
+     *  (`DrawingEngine.kt`), and both call sites are seeded from the same recorded timestamps so
+     *  they agree. */
     val airbrushDabsPerSecond: Float = 0f,
     /** A sample within this radius of the current held run's anchor still counts as "held";
      *  movement past it resets the run. Irrelevant while [airbrushDabsPerSecond] is 0. */
@@ -155,9 +157,10 @@ data class AzphaltBrush(
     /** Paint-thickness build-up (roadmap item 12, `ImpastoEngine.deposit`): how much each dab
      *  raises the layer's height map, in the same units as `ImpastoEngine`'s `thicknessRate`.
      *  0 (the default) disables it entirely, matching `ImpastoEngine.deposit`'s own
-     *  "non-positive rate is a no-op" contract, so existing brushes are unaffected. Only takes
-     *  effect on stroke commit/replay, not the live preview -- see the call site in
-     *  `DrawingEngine.kt` for why (same reasoning as [airbrushDabsPerSecond]). */
+     *  "non-positive rate is a no-op" contract, so existing brushes are unaffected. Live in both
+     *  the drag preview (`EditorViewModel`'s `stampLiveHeightMap`-backed regional reshade) and
+     *  stroke commit/replay (`DrawingEngine.kt`), which persists the height-map contribution onto
+     *  the layer. */
     val impastoThicknessRate: Float = 0f,
 ) {
     fun sanitized(): AzphaltBrush = copy(
