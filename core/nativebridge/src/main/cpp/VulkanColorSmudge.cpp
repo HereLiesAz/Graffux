@@ -30,8 +30,9 @@ struct SmudgePush {
     float paintG;
     float paintB;
     float paintA;
+    float dilution;
 };
-static_assert(sizeof(SmudgePush) == 64);
+static_assert(sizeof(SmudgePush) == 68);
 
 std::mutex gBenchmarkMutex;
 std::unordered_map<uint64_t, ColorSmudgeBenchmarkInfo> gBenchmarkCache;
@@ -206,7 +207,8 @@ bool VulkanStampEngine::runColorSmudgePlan(
         bool smearAlpha,
         uint32_t paintColorArgb,
         VkPipeline pipeline,
-        uint32_t tileSize) {
+        uint32_t tileSize,
+        float dilution) {
     if (dabs.size() < 2 || pipeline == VK_NULL_HANDLE) return true;
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
@@ -251,6 +253,7 @@ bool VulkanStampEngine::runColorSmudgePlan(
         pc.colorRate = std::clamp(d.colorRate, 0.0f, 1.0f);
         pc.opacity = std::clamp(d.opacity, 0.0f, 1.0f);
         pc.paintR = paintR; pc.paintG = paintG; pc.paintB = paintB; pc.paintA = paintA;
+        pc.dilution = std::clamp(dilution, 0.0f, 1.0f);
         vkCmdPushConstants(commandBuffer_, smudgePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(pc), &pc);
     };
@@ -347,7 +350,8 @@ bool VulkanStampEngine::colorSmudge(
         float radiusPx,
         float feathering,
         bool smearAlpha,
-        uint32_t paintColorArgb) {
+        uint32_t paintColorArgb,
+        float dilution) {
     if (!isInitialized() || dabs.size() < 2) return false;
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
@@ -356,7 +360,7 @@ bool VulkanStampEngine::colorSmudge(
     const uint32_t tile = smudgeBenchmark_.selectedTileSize;
     const VkPipeline pipeline = tile == 8 ? smudgePipeline8_ : smudgePipeline16_;
     return runColorSmudgePlan(
-        dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile);
+        dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile, dilution);
 }
 
 void VulkanStampEngine::destroyColorSmudgeResources() {

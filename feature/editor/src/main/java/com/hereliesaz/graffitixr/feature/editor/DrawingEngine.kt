@@ -266,20 +266,17 @@ internal class DrawingEngine(
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
             //
-            // Dilution forces the CPU path: ColorSmudgeDab has no dilution field, and
-            // color_smudge.comp always blends toward the raw paint push-constant with strength
-            // colorRate -- it never premixes with the pixel already under the brush the way
-            // ColorSmudgeEngine.dilutedPigment() does. Attempting the GPU path here would silently
-            // render a different (undiluted) result on Vulkan-capable devices than on the CPU
-            // fallback for the exact same StrokeCommand, breaking the CPU/GPU parity every other
-            // dab primitive in this engine holds to. chargeDecayRate needs no such gate: it's
-            // already folded into the per-dab colorRate by resolve() before reaching either path,
-            // so the flat colorRate blend below already reproduces it correctly.
+            // Dilution and chargeDecayRate both need no gate: chargeDecayRate is already folded into
+            // the per-dab colorRate by resolve() before reaching either path, and dilution's GPU
+            // mix now reads the same in-shader source (the destination pixel for Smear, the weighted-
+            // average carrier for Dulling) ColorSmudgeEngine.dilutedPigment() reads on the CPU for the
+            // non-Sample-Merged case -- see color_smudge.comp's dilutedPigment().
             // Sample Merged (item 11) has no GPU/color_smudge.comp equivalent -- VulkanColorSmudge
-            // always reads the same texture it's writing into, with no second "read-from" source.
-            // Same discipline as the dilution gate just above: force CPU rather than silently
-            // ignoring the setting and diverging from what the toggle promises.
-            val gpuPainted = settings.dilution <= 0f && !settings.sampleMerged && runCatching {
+            // always reads the same texture it's writing into, with no second "read-from" source, and
+            // that's also what the CPU dilution/colorRate math above reads from when sampleMerged is
+            // off. Force CPU rather than silently ignoring the setting and diverging from what the
+            // toggle promises.
+            val gpuPainted = !settings.sampleMerged && runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
@@ -294,7 +291,7 @@ internal class DrawingEngine(
                         }
                         if (!engine.colorSmudge(
                                 nativeDabs, mode, settings.radiusPx, settings.feathering,
-                                settings.smearAlpha, settings.paintColor,
+                                settings.smearAlpha, settings.paintColor, settings.dilution,
                             )) return@runCatching false
                     }
                     engine.readback(target)

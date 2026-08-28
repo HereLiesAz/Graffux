@@ -184,7 +184,8 @@ public:
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
     bool colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
-                     float feathering, bool smearAlpha, uint32_t paintColorArgb);
+                     float feathering, bool smearAlpha, uint32_t paintColorArgb,
+                     float dilution = 0.0f);
     ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const { return smudgeBenchmark_; }
 
     // Blocks until all dispatched work completes, then reads the layer image back into
@@ -237,7 +238,7 @@ private:
     bool benchmarkColorSmudge(float radiusPx);
     bool runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
                             float feathering, bool smearAlpha, uint32_t paintColorArgb,
-                            VkPipeline pipeline, uint32_t tileSize);
+                            VkPipeline pipeline, uint32_t tileSize, float dilution = 0.0f);
     void destroyColorSmudgeResources();
 
     int32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const;

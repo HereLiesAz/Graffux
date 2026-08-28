@@ -31,7 +31,22 @@ class VulkanColorSmudgeInstrumentedTest {
         compareMode(ColorSmudgeEngine.Mode.DULLING, colorRate = 0.35f)
     }
 
-    private fun compareMode(mode: ColorSmudgeEngine.Mode, colorRate: Float) {
+    @Test
+    fun smear_matchesCpuReference_withDilution() {
+        // Dilution premixes the deposited pigment with the destination pixel already under the
+        // brush (color_smudge.comp's dilutedPigment(), mirroring
+        // ColorSmudgeEngine.dilutedPigment()) -- a separate GPU code path from flat colorRate
+        // alone, so it needs its own CPU/GPU parity case rather than relying on the colorRate=0.2
+        // case above to exercise it.
+        compareMode(ColorSmudgeEngine.Mode.SMEAR, colorRate = 0.4f, dilution = 0.6f)
+    }
+
+    @Test
+    fun dulling_matchesCpuReference_withDilution() {
+        compareMode(ColorSmudgeEngine.Mode.DULLING, colorRate = 0.4f, dilution = 0.6f)
+    }
+
+    private fun compareMode(mode: ColorSmudgeEngine.Mode, colorRate: Float, dilution: Float = 0f) {
         val width = 96
         val height = 64
         val basePixels = IntArray(width * height) { index ->
@@ -55,6 +70,7 @@ class VulkanColorSmudgeInstrumentedTest {
             feathering = 0.25f,
             smearAlpha = true,
             paintColor = Color.rgb(20, 210, 90),
+            dilution = dilution,
         )
         ColorSmudgeEngine.apply(expected, width, height, stroke, settings, strokeSeed = 77L)
 
@@ -80,6 +96,7 @@ class VulkanColorSmudgeInstrumentedTest {
                         settings.feathering,
                         settings.smearAlpha,
                         settings.paintColor,
+                        settings.dilution,
                     )
                 )
             }
