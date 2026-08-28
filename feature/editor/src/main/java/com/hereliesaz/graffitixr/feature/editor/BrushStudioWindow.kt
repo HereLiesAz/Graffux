@@ -250,8 +250,8 @@ fun BrushStudioWindow(
                 }
                 Text(
                     "0 disables airbrush. Above 0, holding the pointer roughly still keeps depositing paint " +
-                        "at this rate, on top of ordinary movement dabs. Only shows up once the stroke is " +
-                        "released, not in the live preview while dragging.",
+                        "at this rate, on top of ordinary movement dabs -- visible live while dragging, not " +
+                        "just once the stroke is released.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -267,8 +267,8 @@ fun BrushStudioWindow(
                 }
                 Text(
                     "0 disables Impasto. Above 0, each dab raises the layer's paint-thickness map, " +
-                        "shaded with a fixed light so ridges catch highlight and shadow. Only shows up " +
-                        "once the stroke is released, not in the live preview while dragging.",
+                        "shaded with a fixed light so ridges catch highlight and shadow -- visible live " +
+                        "while dragging, not just once the stroke is released.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
