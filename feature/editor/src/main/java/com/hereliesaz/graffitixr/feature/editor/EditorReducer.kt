@@ -71,8 +71,10 @@ internal object EditorReducer {
                 colorBalanceG = intent.props.colorBalanceG,
                 colorBalanceB = intent.props.colorBalanceB,
                 isImageLocked = intent.props.isImageLocked,
+                alphaLock = intent.props.alphaLock,
                 isInverted = intent.props.isInverted,
                 blendMode = intent.props.blendMode,
+                clipToLayerBelow = intent.props.clipToLayerBelow,
             )
         })
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {

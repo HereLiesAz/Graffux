@@ -142,7 +142,8 @@ data class LayerProps(
     val alphaLock: Boolean = false,
     val isInverted: Boolean = false,
     @Serializable(with = BlendModeSerializer::class)
-    val blendMode: BlendMode = BlendMode.SrcOver
+    val blendMode: BlendMode = BlendMode.SrcOver,
+    val clipToLayerBelow: Boolean = false,
 )
 
 /**

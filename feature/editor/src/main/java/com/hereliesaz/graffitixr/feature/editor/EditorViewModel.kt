@@ -2977,8 +2977,10 @@ class EditorViewModel @Inject constructor(
         colorBalanceG = colorBalanceG,
         colorBalanceB = colorBalanceB,
         isImageLocked = isImageLocked,
+        alphaLock = alphaLock,
         isInverted = isInverted,
-        blendMode = blendMode
+        blendMode = blendMode,
+        clipToLayerBelow = clipToLayerBelow,
     )
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
