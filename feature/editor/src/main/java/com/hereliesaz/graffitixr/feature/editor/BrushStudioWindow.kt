@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
@@ -59,6 +60,25 @@ fun BrushStudioWindow(
     var showAirbrush by remember { mutableStateOf(false) }
     var showImpasto by remember { mutableStateOf(false) }
 
+    // A glee audit found FloatingWindow's drag-almost-offscreen auto-dismiss (and, before this fix,
+    // the header's own dismiss control) had no save-guard here, asymmetric with Delete's
+    // ConfirmDialog just below: a brush's edits -- new or on top of an already-saved one -- could
+    // vanish by dragging the window's edge past the screen border, with no prompt at all. `onEdit`
+    // is shadowed below (every call site in this file keeps calling `onEdit { ... }` unmodified) so
+    // marking dirty needs no changes anywhere else.
+    var hasUnsavedEdits by remember { mutableStateOf(false) }
+    var confirmingDiscard by remember { mutableStateOf(false) }
+    val onDraftEdited = onEdit
+    val onEdit: ((AzphaltBrush) -> AzphaltBrush) -> Unit = { edit ->
+        hasUnsavedEdits = true
+        onDraftEdited(edit)
+    }
+    val onDraftSaved = onSave
+    val onSave: () -> Unit = { hasUnsavedEdits = false; onDraftSaved() }
+    val guardedDismiss: () -> Unit = {
+        if (hasUnsavedEdits) confirmingDiscard = true else onDismiss()
+    }
+
     if (confirmingDelete) {
         ConfirmDialog(
             title = "Delete brush?",
@@ -68,8 +88,17 @@ fun BrushStudioWindow(
             onDismiss = { confirmingDelete = false },
         )
     }
+    if (confirmingDiscard) {
+        ConfirmDialog(
+            title = "Discard unsaved changes?",
+            message = "\"${draft.name}\" has edits that haven't been saved. Closing now will lose them.",
+            confirmLabel = "Discard",
+            onConfirm = { confirmingDiscard = false; onDismiss() },
+            onDismiss = { confirmingDiscard = false },
+        )
+    }
 
-    FloatingWindow(title = "Brush Studio", onDismiss = onDismiss) {
+    FloatingWindow(title = "Brush Studio", onDismiss = guardedDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -250,8 +279,8 @@ fun BrushStudioWindow(
                 }
                 Text(
                     "0 disables airbrush. Above 0, holding the pointer roughly still keeps depositing paint " +
-                        "at this rate, on top of ordinary movement dabs. Only shows up once the stroke is " +
-                        "released, not in the live preview while dragging.",
+                        "at this rate, on top of ordinary movement dabs -- visible live while dragging, not " +
+                        "just once the stroke is released.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -267,8 +296,8 @@ fun BrushStudioWindow(
                 }
                 Text(
                     "0 disables Impasto. Above 0, each dab raises the layer's paint-thickness map, " +
-                        "shaded with a fixed light so ridges catch highlight and shadow. Only shows up " +
-                        "once the stroke is released, not in the live preview while dragging.",
+                        "shaded with a fixed light so ridges catch highlight and shadow -- visible live " +
+                        "while dragging, not just once the stroke is released.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -326,39 +355,50 @@ private fun ParamSlider(
     Slider(value = value, onValueChange = onChange, valueRange = range)
 }
 
+/**
+ * A glee audit found this preview didn't reflect Hardness (flat-alpha ovals, no falloff) or Taper
+ * unless Dynamics was also configured (see the dynamicDabs() comment below) -- both fixed here.
+ *
+ * Masked Tip and Texture (grain) remain unreflected: both need the brush's actual tip/grain
+ * bitmaps decoded from disk (StampBrushRenderer.paintMaskedDabs's stamp/grain/maskStamp
+ * parameters), which requires Context and async IO that this stateless, synchronously-composed
+ * preview has neither of -- EditorViewModel.selectBrushExtension shows the real decode path, gated
+ * on an installed extension id a draft-in-progress brush doesn't necessarily have yet. Wiring that
+ * through is a real feature addition (plumbing an extension/asset resolver down through
+ * BrushStudioWindow), not a one-line fix, so it's left as a known gap rather than guessed at here.
+ */
 @Composable
 private fun BrushPreview(brush: AzphaltBrush, color: Color, secondaryColor: Color) {
     Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
         val diameter = canvasHeight / 3f
-        val dabs = if (brush.dynamics.isEmpty()) {
-            val path = ArrayList<Float>(SAMPLES * 2)
+        // Always route through dynamicDabs(), which itself falls back to the plain dabs() path
+        // when nothing dynamic is configured (see its own doc comment) -- picking between the two
+        // here by brush.dynamics.isEmpty() alone missed brush.taper and brush.maskedBrush's own
+        // dynamics, both of which dynamicDabs() also gates on. A taper-only brush (no sensor
+        // dynamics) hit the dabs() branch and never saw its taper reflected in this preview.
+        val builder = BrushSampleBuilder()
+        val samples = buildList {
             for (i in 0 until SAMPLES) {
                 val t = i / (SAMPLES - 1f)
-                path.add(diameter + t * (canvasWidth - diameter * 2f))
-                path.add(canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f)
-            }
-            BrushStamps.dabs(path, diameter, brush, seed = PREVIEW_SEED)
-        } else {
-            val builder = BrushSampleBuilder()
-            val samples = buildList {
-                for (i in 0 until SAMPLES) {
-                    val t = i / (SAMPLES - 1f)
-                    add(
-                        builder.add(
-                            x = diameter + t * (canvasWidth - diameter * 2f),
-                            y = canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f,
-                            uptimeMillis = i * 8L,
-                            pressure = 0.15f + 0.85f * t,
-                            tiltRadians = HALF_PI_F * t,
-                            orientationRadians = -PI_F + 2f * PI_F * t,
-                        )
+                add(
+                    builder.add(
+                        x = diameter + t * (canvasWidth - diameter * 2f),
+                        y = canvasHeight / 2f + sin(t * 2f * PI_F) * canvasHeight / 5f,
+                        uptimeMillis = i * 8L,
+                        pressure = 0.15f + 0.85f * t,
+                        tiltRadians = HALF_PI_F * t,
+                        orientationRadians = -PI_F + 2f * PI_F * t,
                     )
-                }
+                )
             }
-            BrushStamps.dynamicDabs(samples, diameter, brush, seed = PREVIEW_SEED)
         }
+        val dabs = BrushStamps.dynamicDabs(samples, diameter, brush, seed = PREVIEW_SEED)
+        // Same falloff StampBrushRenderer's own "historical generated-round path" applies for the
+        // real render (identical stop layout: solid core out to `hardness`, then fades to
+        // transparent at the edge) -- a flat-alpha oval made Hardness invisible here.
+        val hardness = brush.hardness.coerceIn(0f, 0.999f)
 
         dabs.forEach { dab ->
             val width = dab.radius * 2f
@@ -368,8 +408,13 @@ private fun BrushPreview(brush: AzphaltBrush, color: Color, secondaryColor: Colo
                 BrushColorSource.GRADIENT -> mixPreviewColor(color, secondaryColor, dab.colorMix)
                 BrushColorSource.UNIFORM_RANDOM -> mixPreviewColor(color, secondaryColor, dab.sourceRandom)
             }
+            val core = sourced.copy(alpha = sourced.alpha * dab.alpha)
             drawOval(
-                color = sourced.copy(alpha = sourced.alpha * dab.alpha),
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(0f to core, hardness to core, 1f to core.copy(alpha = 0f)),
+                    center = Offset(dab.x, dab.y),
+                    radius = dab.radius.coerceAtLeast(0.5f),
+                ),
                 topLeft = Offset(dab.x - width / 2f, dab.y - height / 2f),
                 size = Size(width, height),
             )
