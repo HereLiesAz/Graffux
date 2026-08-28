@@ -4881,6 +4881,10 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 // Composed through the same path a drawn region takes, so Add and Remove work on a
                 // wand selection exactly as they do on a lasso — including wand-then-lasso mixes.
+                // No `?: wand` fallback: compose() returning null (Remove with nothing selected)
+                // must stay a no-op, per its own documented contract -- a fallback here used to
+                // substitute the whole freshly-traced wand region instead, silently turning a
+                // Remove-from-nothing into a de facto New.
                 dispatch(EditorIntent.SetSelection(
                     if (op == SelectionOp.NEW) wand
                     else wand.rings.fold(current) { acc, ring ->
@@ -4890,7 +4894,7 @@ class EditorViewModel @Inject constructor(
                             // this region", and the region includes its holes.
                             if (ring.additive) op else SelectionOp.REMOVE,
                         )
-                    } ?: wand
+                    }
                 ))
             }
         }
@@ -5271,13 +5275,16 @@ class EditorViewModel @Inject constructor(
         if (state.selectionOp == SelectionOp.NEW) {
             dispatch(EditorIntent.SetSelection(saved.selection))
         } else {
+            // No `?: saved.selection` fallback -- same reasoning as onAutoSelect: compose()
+            // returning null (Remove with nothing selected) must stay a no-op, not silently load
+            // the whole saved selection as if New had been picked.
             val composed = saved.selection.rings.fold(state.selection) { acc, ring ->
                 SelectionGeometry.compose(
                     acc, ring.path, saved.selection.canvasSize,
                     if (ring.additive) state.selectionOp else SelectionOp.REMOVE,
                 )
             }
-            dispatch(EditorIntent.SetSelection(composed ?: saved.selection))
+            dispatch(EditorIntent.SetSelection(composed))
         }
     }
 
