@@ -411,6 +411,15 @@ class EditorViewModel @Inject constructor(
     // only the most recent rebuild's result lands in the UI state.
     private val rebuildJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
+    // Per-layer text rasterize jobs: a glee audit found rerasterizeTextLayer() launched an
+    // unserialized coroutine on every keystroke (onTextContentChanged fires per character), each
+    // one racing to both rasterize a bitmap AND overwrite the same PNG file on disk -- an older,
+    // still-in-flight write landing after a newer one silently reverted the on-disk layer to a
+    // stale rasterization, and interleaved FileOutputStream writes to the same file could corrupt
+    // it outright. Cancelling whatever was previously in flight for a layer before starting a new
+    // rasterize is the same discipline rebuildJobs above already follows for paint layers.
+    private val textRasterizeJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
     // Debounced project-preview thumbnail generation. saveProject() fires on nearly every edit,
     // so the thumbnail is regenerated at most once the edits settle, off the main thread.
     private var thumbnailJob: kotlinx.coroutines.Job? = null
@@ -3011,6 +3020,10 @@ class EditorViewModel @Inject constructor(
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
+    /** The job currently registered in [textRasterizeJobs] for [layerId], if any -- see its own doc. */
+    @androidx.annotation.VisibleForTesting
+    internal fun textRasterizeJobForTest(layerId: String): kotlinx.coroutines.Job? = textRasterizeJobs[layerId]
 
     /** Whether item 16's tile-delta fast path actually got attached to the most recent undoable
      *  stroke -- null if there's no undoable Draw entry at all. */
@@ -7121,7 +7134,8 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun rerasterizeTextLayer(layerId: String, params: TextLayerParams) {
-        viewModelScope.launch(dispatchers.io) {
+        textRasterizeJobs[layerId]?.cancel()
+        textRasterizeJobs[layerId] = viewModelScope.launch(dispatchers.io) {
             val metrics = context.resources.displayMetrics
             val widthPx = metrics.widthPixels.takeIf { it > 0 } ?: 1080
             val heightPx = metrics.heightPixels.takeIf { it > 0 } ?: 1920

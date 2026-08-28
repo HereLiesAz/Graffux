@@ -32,6 +32,7 @@ import org.junit.Assert.assertNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -578,5 +579,33 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(60f, viewModel.uiState.value.layers.first().rotationZ, 0.01f)
+    }
+
+    @Test
+    fun `rapid text edits cancel the previous rasterize job instead of racing it`() = runTest {
+        // A glee audit found rerasterizeTextLayer() launched an unserialized coroutine on every
+        // keystroke, each one racing to rasterize AND overwrite the same on-disk PNG -- an older,
+        // still-in-flight write landing after a newer one could silently revert the layer on disk.
+        // Pins the fix: a second edit before the first has run must cancel the first's job.
+        val layer = lyr("text1").copy(textParams = TextLayerParams(text = "a"))
+        viewModel.setLayers(listOf(layer))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onTextContentChanged("text1", "ab")
+        val firstJob = viewModel.textRasterizeJobForTest("text1")
+        assertNotNull("the first edit's rasterize coroutine must be tracked", firstJob)
+        assertFalse("the first job must not already be cancelled", firstJob!!.isCancelled)
+
+        viewModel.onTextContentChanged("text1", "abc")
+        assertTrue(
+            "a second edit arriving before the first one ran must cancel the first job",
+            firstJob.isCancelled,
+        )
+        val secondJob = viewModel.textRasterizeJobForTest("text1")
+        assertNotNull(secondJob)
+        assertNotEquals(firstJob, secondJob)
+        assertFalse(secondJob!!.isCancelled)
+
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 }
