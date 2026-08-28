@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.ArScanMode
@@ -62,7 +61,6 @@ class SettingsRepositoryImpl @Inject constructor(
     private val THROTTLE_ON_LOW_BATTERY = booleanPreferencesKey("throttle_on_low_battery")
     private val THROTTLE_ON_LAG = booleanPreferencesKey("throttle_on_lag")
     private val ADAPTIVE_RATE_ENABLED = booleanPreferencesKey("adaptive_rate_enabled")
-    private val COMPLETED_TUTORIALS = stringSetPreferencesKey("completed_tutorials")
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
     private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
     private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
@@ -226,23 +224,6 @@ class SettingsRepositoryImpl @Inject constructor(
     override val adaptiveRateEnabled: Flow<Boolean> = throttleFlow(ADAPTIVE_RATE_ENABLED)
     override suspend fun setAdaptiveRateEnabled(on: Boolean) {
         context.dataStore.edit { it[ADAPTIVE_RATE_ENABLED] = on }
-    }
-
-    override val completedTutorials: Flow<Set<String>> = context.dataStore.data
-        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
-        .map { preferences -> preferences[COMPLETED_TUTORIALS] ?: emptySet() }
-
-    override suspend fun markTutorialComplete(key: String) {
-        context.dataStore.edit { preferences ->
-            val current = preferences[COMPLETED_TUTORIALS] ?: emptySet()
-            preferences[COMPLETED_TUTORIALS] = current + key
-        }
-    }
-
-    override suspend fun clearCompletedTutorials() {
-        context.dataStore.edit { preferences ->
-            preferences[COMPLETED_TUTORIALS] = emptySet()
-        }
     }
 
     override val savedPalette: Flow<List<Int>> = context.dataStore.data

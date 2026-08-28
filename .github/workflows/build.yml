@@ -10,12 +10,19 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   patch-empty-stroke:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # This job commits and pushes the empty-stroke patch straight to main -- the only step in this
+    # workflow that needs contents: write. A glee audit found that grant sitting at the workflow
+    # level instead, handing it to the build job below too even though build only checks out and
+    # compiles/tests, matching neither of this repo's other multi-job workflows (merged-build.yml,
+    # release-aab.yml), which both scope contents: write to only the job(s) that actually push.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
