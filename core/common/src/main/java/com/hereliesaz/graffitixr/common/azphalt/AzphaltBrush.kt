@@ -81,8 +81,14 @@ data class AzphaltBrush(
     val hardness: Float = 1f,
     val sizeJitter: Float = 0f,
     val opacityJitter: Float = 0f,
+    /** Perpendicular-to-heading scatter, as a fraction of the resolved diameter. */
     val scatter: Float = 0f,
+    /** Along-heading scatter, as a fraction of the resolved diameter. Independent random stream. */
+    val scatterLongitudinal: Float = 0f,
     val angle: Float = 0f,
+    /** Degrees of extra rotation per pixel of cumulative stroke distance (Krita's Distance rotation
+     * sensor). Additive with [followStroke]'s heading-based rotation and any ROTATION sensor route. */
+    val rotationPerPx: Float = 0f,
     val shapePath: String? = null,
     val grainPath: String? = null,
     val grainScale: Float = 1f,
@@ -109,6 +115,7 @@ data class AzphaltBrush(
         sizeJitter = sizeJitter.coerceIn(0f, 1f),
         opacityJitter = opacityJitter.coerceIn(0f, 1f),
         scatter = scatter.coerceAtLeast(0f),
+        scatterLongitudinal = scatterLongitudinal.coerceAtLeast(0f),
         grainScale = grainScale.coerceIn(0.05f, 16f),
         grainStrength = grainStrength.coerceIn(0f, 1f),
         colorMix = colorMix.coerceIn(0f, 1f),
@@ -155,7 +162,9 @@ data class AzphaltBrush(
                 sizeJitter = (f("sizeJitter") ?: 0f).coerceIn(0f, 1f),
                 opacityJitter = (f("opacityJitter") ?: 0f).coerceIn(0f, 1f),
                 scatter = (f("scatter") ?: 0f).coerceAtLeast(0f),
+                scatterLongitudinal = (f("scatterLongitudinal") ?: 0f).coerceAtLeast(0f),
                 angle = f("angle") ?: 0f,
+                rotationPerPx = f("rotationPerPx") ?: 0f,
                 shapePath = s("shape") ?: s("shapePath"),
                 grainPath = s("grain") ?: s("grainPath"),
                 grainScale = (f("grainScale") ?: 1f).coerceIn(0.05f, 16f),

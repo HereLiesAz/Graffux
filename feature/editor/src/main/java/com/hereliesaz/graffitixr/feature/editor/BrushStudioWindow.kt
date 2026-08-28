@@ -93,6 +93,10 @@ fun BrushStudioWindow(
             ParamSlider("Size jitter", draft.sizeJitter, 0f..1f) { v -> onEdit { it.copy(sizeJitter = v) } }
             ParamSlider("Opacity jitter", draft.opacityJitter, 0f..1f) { v -> onEdit { it.copy(opacityJitter = v) } }
             ParamSlider("Scatter", draft.scatter, 0f..2f, asFraction = true) { v -> onEdit { it.copy(scatter = v) } }
+            ParamSlider("Longitudinal scatter", draft.scatterLongitudinal, 0f..2f, asFraction = true) { v ->
+                onEdit { it.copy(scatterLongitudinal = v) }
+            }
+            ParamSlider("Spin per px", draft.rotationPerPx, -10f..10f, unit = "°") { v -> onEdit { it.copy(rotationPerPx = v) } }
 
             AzButton(
                 text = if (showDynamics) "Dynamics ▴" else "Dynamics ▾",
@@ -237,9 +241,14 @@ private fun ParamSlider(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     asFraction: Boolean = false,
+    unit: String? = null,
     onChange: (Float) -> Unit,
 ) {
-    val shown = if (asFraction) "${(value * 100).roundToInt() / 100f}×" else "${(value * 100).roundToInt()}%"
+    val shown = when {
+        unit != null -> "${value.roundToInt()}$unit"
+        asFraction -> "${(value * 100).roundToInt() / 100f}×"
+        else -> "${(value * 100).roundToInt()}%"
+    }
     Text("$label  $shown", style = MaterialTheme.typography.bodySmall)
     Slider(value = value, onValueChange = onChange, valueRange = range)
 }

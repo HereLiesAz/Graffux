@@ -209,21 +209,26 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **Krita behavior adopted:** independently tunable longitudinal (along-heading) and perpendicular (cross-heading) scatter axes, and rotation driven by accumulated distance rather than only instantaneous heading.
 
-**Graffux contract:** current scatter (`BrushStamps.kt`) is a single perpendicular-to-heading offset (`mag * cos(perpRad)`, `perpRad = heading + 90°`), applied identically to primary and secondary tips — this is the baseline scatter already covered by item 4/7, not the richer semantics this item calls for. Current rotation is `brush.angle + followStroke * headingDeg` plus a sensor `rotationOffsetDeg`; there is no distance-based rotation accumulator distinct from instantaneous heading, and no separate longitudinal scatter axis.
+**Graffux contract:** the pre-existing perpendicular-only scatter (`brush.scatter`, `mag * cos(perpRad)` with `perpRad = heading + 90°`) is unchanged and remains the baseline covered by items 4/7. Two new independent primitives sit alongside it on `AzphaltBrush`:
 
-**Determinism/replay:** To be defined for any new axis/accumulator; must reuse the existing deterministic per-dab random streams rather than introduce new unseeded randomness.
+- `scatterLongitudinal` offsets each dab along the *heading* direction (`mag * cos(headingRad)`/`sin(headingRad)`, no `+90°`) rather than across it, using its own deterministic RNG stream (`LONGITUDINAL_SEED_SALT`) so enabling it never perturbs the existing size/opacity/perpendicular-scatter draw sequence — verified directly by test. Both axes multiply the same sensor `SCATTER` route (`dynamic.scatterMultiplier`) so a single Scatter sensor binding scales them together, matching how Krita treats scatter amount as one sensor-routable quantity regardless of axis.
+- `rotationPerPx` adds `rotationPerPx * distance` to a dab's angle, where `distance` is cumulative arc length from the stroke's start (`at` in the sensor-aware path, `index * step` in the legacy path — exactly equivalent for a fixed-step stroke). This is Krita's Distance rotation sensor: rotation driven by how far the stroke has travelled, independent of instantaneous heading, and additive with `followStroke`'s heading-based rotation and any sensor `ROTATION` route rather than replacing them.
 
-**CPU reference:** Not started (beyond the existing baseline scatter/rotation, which is already covered by items 4 and 7).
+Both fields are implemented in *both* `BrushStamps.dabs` (the legacy/static path) and `BrushStamps.dynamicDabs` (the sensor-aware path) — unlike taper (item 9), which only works through `dynamicDabs`, scatter/rotation refinement needed no change to `dynamicDabs`'s fallback gate because `dabs()` itself now supports them directly.
 
-**Vulkan target:** Not started.
+**Determinism/replay:** Longitudinal scatter's RNG stream and rotation's arc-length term are both pure functions of the existing deterministic seed/telemetry inputs from item 1; no new randomness source or replay dependency introduced.
 
-**UI exposure:** Not started.
+**CPU reference:** Yes — `BrushStamps.dabs` and `BrushStamps.dynamicDabs`, CPU-only.
 
-**Tests:** None beyond the existing baseline scatter/rotation coverage under items 4/7.
+**Vulkan target:** None — resolved into dab `x`/`y`/`angleDeg` before any renderer runs, same as existing scatter/rotation.
+
+**UI exposure:** "Longitudinal scatter" and "Spin per px" sliders alongside the existing top-level "Scatter" slider in Brush Studio (no new collapsed section needed, matching how perpendicular scatter is already exposed at the top level rather than behind a toggle).
+
+**Tests:** `BrushScatterRotationTest.kt` — default fields are a no-op, longitudinal scatter perturbs only the along-heading axis (verified against the existing perpendicular-only baseline), longitudinal scatter is deterministic and does not perturb perpendicular scatter or size/opacity jitter, distance rotation accumulates linearly on both the static and sensor-aware paths, distance rotation composes additively with a static `angle` rather than overriding it, and extension-param round-tripping/clamping.
 
 **Dependencies:** Items 4, 7.
 
-**Completion state:** NOT STARTED.
+**Completion state:** IMPLEMENTED (CPU). Not addressed in this pass: propagating either primitive to the secondary/masked tip (`MaskedBrushConfig` keeps its own simpler independent `scatter`/`angle` fields, unchanged) — the roadmap's "richer angle sensors shared by primary and secondary tips" phrasing is only partially met; extending `MaskedBrushConfig` with the same two primitives is a reasonable, separately-scoped follow-up.
 
 ## 11. Overlay / all-layer Color Smudge sampling
 
