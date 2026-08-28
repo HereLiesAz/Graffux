@@ -445,13 +445,13 @@ Color Smudge follows the same rule: its Smear/Dulling mode, Smudge, Color Rate, 
 
 **CPU/Vulkan:** N/A — UI layer only.
 
-**UI exposure:** This item *is* the UI-exposure story for items 1-9. Items 10-16 have no corresponding UI yet because their underlying engine work has not been built — there is nothing in Brush Studio today for refined scatter, overlay sampling, impasto, airbrush/wash, preset import, or GPU-resident toggles, since none of those primitives exist to expose.
+**UI exposure:** This item *is* the UI-exposure story for items 1-9, now joined by items 11-12: `ToolOptionsWindow`'s transient Tool Options window gained a "Sample Merged" toggle for Color Smudge (item 11), and `BrushStudioWindow` gained a collapsed "Impasto" section with a thickness slider (item 12), following the same collapsed-by-default pattern as the rest of Brush Studio. Items 10, 13-16 still have no corresponding UI — there is nothing in Brush Studio today for refined scatter, airbrush/wash controls beyond what item 14 already exposes, preset import, or GPU-resident toggles (items 15's GPU path is a transparent live-preview accelerator with no user-facing control, by design — see item 15's UI exposure note).
 
 **Tests:** No automated UI tests recorded here; verified by the merge-gate requirement stated at the top of this document (no permanent desktop-style panels, no reduction in default drawing area).
 
 **Dependencies:** Every item above that ships a control.
 
-**Completion state:** IMPLEMENTED for items 1-9's surface; N/A (nothing yet to expose) for items 10-16.
+**Completion state:** IMPLEMENTED for items 1-9, 11-12's surface; N/A (nothing yet to expose) for items 10, 13, 16.
 
 ## 19. Non-negotiable architecture rules
 
