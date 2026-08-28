@@ -65,9 +65,6 @@ interface EditorActions {
     fun setActiveColor(color: Color)
     fun setSecondaryColor(color: Color)
     fun swapBrushColors()
-    fun adjustColorLightness(delta: Float)
-    /** Adjusts both HSV value (lightness) and saturation simultaneously in one atomic update. */
-    fun adjustColorHSV(lightnessDelta: Float, saturationDelta: Float)
     fun onColorPickerDismissed()
 
     fun onFlattenAllLayers()

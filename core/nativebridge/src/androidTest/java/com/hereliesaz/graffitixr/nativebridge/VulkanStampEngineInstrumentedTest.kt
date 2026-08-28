@@ -95,6 +95,59 @@ class VulkanStampEngineInstrumentedTest {
     }
 
     @Test
+    fun secondMaskWithSameDimensionsButDifferentContentIsNotStale() {
+        // A glee audit found stampMaskedDabs()'s mask/grain/secondary-mask staleness checks used
+        // only width/height, not content -- so a pooled engine reused across strokes/brushes could
+        // silently keep stamping with a previous tip's texture whenever the new one happened to
+        // share dimensions (common: built-in tips and grain tiles are normalized to a handful of
+        // standard sizes). This pins the fix: a same-size mask with genuinely different content
+        // must actually re-upload and take effect.
+        val engine = initializedEngine()
+        val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        blank.eraseColor(0x00000000)
+        assertTrue(engine.upload(blank))
+
+        val maskSize = 8
+        val opaqueMask = ByteArray(maskSize * maskSize) { 0xFF.toByte() }
+        val firstDab = MaskedBrushDab(
+            x = 16f, y = 16f, radius = 10f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, tipRatio = 1f,
+        )
+        assertTrue(
+            engine.stampMaskedDabs(
+                listOf(firstDab), hardness = 1f, maskAlpha8 = opaqueMask, maskWidth = maskSize, maskHeight = maskSize,
+            ),
+        )
+
+        val afterFirst = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(afterFirst))
+        assertNotEquals("The opaque mask should have painted its dab", 0x00000000, afterFirst.getPixel(16, 16))
+
+        // Same dimensions (8x8) as the first mask, but fully transparent content -- a staleness
+        // check that only compares width/height would wrongly reuse the first (opaque) mask
+        // texture here and paint this dab anyway.
+        val transparentMask = ByteArray(maskSize * maskSize) { 0 }
+        val secondDab = MaskedBrushDab(
+            x = 48f, y = 48f, radius = 10f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_GREEN, flow = 1f, tipRatio = 1f,
+        )
+        assertTrue(
+            engine.stampMaskedDabs(
+                listOf(secondDab), hardness = 1f, maskAlpha8 = transparentMask, maskWidth = maskSize, maskHeight = maskSize,
+            ),
+        )
+
+        val afterSecond = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(afterSecond))
+        assertEquals(
+            "A fully-transparent mask must not paint anything, even when it shares dimensions " +
+                "with the previously-uploaded mask",
+            0x00000000,
+            afterSecond.getPixel(48, 48),
+        )
+    }
+
+    @Test
     fun separateEngineInstancesDoNotShareNativeState() {
         val first = initializedEngine()
         val second = initializedEngine()

@@ -27,7 +27,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # OpenCV (Java + native via Prefab) is a plain Maven Central dependency now — Gradle resolves
       # it during the build, so there is no library-fetch step here anymore.
@@ -35,21 +35,19 @@ jobs:
       - name: Inject Google Services
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-          ARCORE_API_KEY: ${{ secrets.ARCORE_API_KEY }}
         run: |
           if [ -n "$GOOGLE_SERVICES" ]; then
             echo "$GOOGLE_SERVICES" > app/google-services.json
           fi
-          echo "ARCORE_API_KEY=$ARCORE_API_KEY" >> local.properties
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
         with:
           cache-read-only: false
           dependency-graph: generate-submit-and-upload
@@ -61,7 +59,7 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unit-test-reports
           path: '**/build/reports/tests/'
@@ -78,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -88,16 +86,21 @@ jobs:
       - name: Inject Google Services
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-          ARCORE_API_KEY: ${{ secrets.ARCORE_API_KEY }}
         run: |
           if [ -n "$GOOGLE_SERVICES" ]; then
             echo "$GOOGLE_SERVICES" > app/google-services.json
           fi
 
-          # Inject ARCore API Key into local.properties for build.gradle.kts to pick up
-          echo "ARCORE_API_KEY=$ARCORE_API_KEY" >> local.properties
-
+      # A glee audit of the CI pipeline found this step ran unconditionally -- on every push to
+      # every branch and every pull_request (this workflow's own `on:` trigger), decoding the
+      # signing key to disk for runs that will never publish anything and don't need it at all:
+      # a PR/branch build works fine falling back to the default debug key (see the comment on
+      # the exit-0 branch below). Scoped to the same "push to main" condition the release steps
+      # further down already use, matching release-aab.yml's own signing-only-on-release pattern
+      # and narrowing how often the decoded key sits on a CI runner's disk to the one case that
+      # actually needs it.
       - name: Decode signing keystore
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           KEYSTORE_RAW: ${{ secrets.KEYSTORE_RAW }}
         run: |
@@ -115,13 +118,13 @@ jobs:
           echo "Keystore decoded to app/keystore.jks ($(stat -c%s app/keystore.jks) bytes)"
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
@@ -166,7 +169,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Report Failure to Jules
         if: failure() && steps.gradle-build.outcome == 'failure'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
