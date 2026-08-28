@@ -57,4 +57,52 @@ class CustomBrushRepositoryTest {
         // The real file must survive: an unsafe id must never resolve to a real one's path.
         assertTrue(File(tempFilesDir, "brushes/$id.json").exists())
     }
+
+    @Test
+    fun `save leaves no stray temp file behind`() {
+        // A glee audit found save() wrote "$id.json" in place with a truncating writeText, unlike
+        // the write-then-rename this repository now uses -- pin that the rename actually happens
+        // and doesn't leave the intermediate ".tmp" file sitting in the brushes directory.
+        val id = "3fa1c2b0-1234-4abc-9def-0123456789ab"
+        assertTrue(repository.save(id, brush))
+        val files = File(tempFilesDir, "brushes").listFiles()!!.map { it.name }
+        assertTrue("only the final file must remain", files == listOf("$id.json"))
+    }
+
+    @Test
+    fun `concurrent save and delete from different threads never corrupt the observed brush list`() {
+        // A glee audit found refresh() unsynchronized: a save's directory scan (listFiles, then
+        // decode each file) could still be in flight when an unrelated delete's own refresh()
+        // finishes, and the earlier scan's stale, still-includes-the-deleted-brush result could
+        // then overwrite _brushes.value afterward -- a last-writer-wins loss. This hammers save/
+        // delete from real parallel threads (not a single-threaded dispatcher, which wouldn't
+        // exercise the race at all) and asserts the final state is self-consistent: every id still
+        // reported in `brushes` has a real file on disk, and every id NOT reported has none.
+        val ids = (1..12).map { "id$it-3fa1c2b0-1234-4abc-9def-0123456789ab" }
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            val tasks = ids.map { id ->
+                java.util.concurrent.Callable {
+                    repository.save(id, brush)
+                    repository.delete(id)
+                    repository.save(id, brush)
+                }
+            }
+            executor.invokeAll(tasks).forEach { it.get() }
+            repository.refresh()
+
+            val reported = repository.brushes.value.map { it.id }.toSet()
+            val onDisk = File(tempFilesDir, "brushes").listFiles()
+                ?.map { it.nameWithoutExtension }
+                ?.toSet()
+                ?: emptySet()
+            assertTrue(
+                "every id CustomBrushRepository reports must have a real file on disk: " +
+                    "reported=$reported onDisk=$onDisk",
+                reported == onDisk,
+            )
+        } finally {
+            executor.shutdown()
+        }
+    }
 }
