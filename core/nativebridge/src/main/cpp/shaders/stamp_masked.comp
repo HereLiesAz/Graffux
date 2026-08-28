@@ -27,6 +27,22 @@ layout(binding = 2) uniform sampler2D tipMask;
 // there is no separate "grain enabled" flag.
 layout(binding = 3) uniform sampler2D grainTex;
 
+// Item 15's masked/dual-brush follow-up: a second tip composited onto the primary one, the GPU
+// counterpart to StampBrushRenderer.paintMaskedDabs' secondary-tip DST_IN/DST_OUT compositing.
+// `secondaryDabs[i]` corresponds 1:1 with `dabs[i]` (same index) -- this is a per-STROKE feature
+// (AzphaltBrush.maskedBrush, not per-dab), so every dab in a stroke either has one or none do.
+// `keepInside` is pre-resolved on the host from MaskedBrushBlendMode+invert (see
+// EditorViewModel's `MaskedBrushBlendMode.MULTIPLY && !invert || SUBTRACT && invert` logic)
+// into a single float rather than re-deriving an enum+bool combination in the shader.
+struct SecondaryDab {
+    vec4 geometry; // x, y, radius, tipRatio
+    vec4 paint;    // alpha, angleDeg, flowMultiplier, keepInside (>0.5 = keep-inside/DST_IN, else DST_OUT)
+};
+layout(std430, binding = 5) readonly buffer SecondaryDabBuffer { SecondaryDab secondaryDabs[]; };
+// Single-channel tip mask for the secondary tip, same convention as `tipMask`. Only sampled when
+// `pc.hasSecondary > 0.5`; a stroke with no secondary tip binds a 1x1 dummy here (unread).
+layout(binding = 4) uniform sampler2D secondaryMask;
+
 layout(push_constant) uniform PushConstants {
     uint dabCount;
     float hardness; // unused by this shader -- the mask texture already encodes the tip's falloff.
@@ -44,6 +60,10 @@ layout(push_constant) uniform PushConstants {
     float grainScale;
     float grainPhaseX;
     float grainPhaseY;
+    // Masked/dual-brush (item 15 follow-up). > 0.5 means secondaryDabs[]/secondaryMask are
+    // populated for this dispatch; otherwise they're skipped entirely (and may hold stale/dummy
+    // data from a previous call).
+    float hasSecondary;
 } pc;
 
 void main() {
@@ -83,6 +103,33 @@ void main() {
         );
         coverage *= texture(grainTex, grainUv).r;
         if (coverage <= 0.0) continue;
+
+        if (pc.hasSecondary > 0.5) {
+            SecondaryDab sd = secondaryDabs[i];
+            vec2 sCenter = sd.geometry.xy;
+            float sRadius = max(sd.geometry.z, 0.5);
+            float sTipRatio = clamp(sd.geometry.w, 0.05, 1.0);
+            float sAlpha = sd.paint.x;
+            float sAngleRad = radians(-sd.paint.y);
+            float sFlow = max(sd.paint.z, 0.0);
+            float sKeepInside = sd.paint.w;
+
+            vec2 sLocal = p - sCenter;
+            float sca = cos(sAngleRad);
+            float ssa = sin(sAngleRad);
+            vec2 sRotated = vec2(sLocal.x * sca - sLocal.y * ssa, sLocal.x * ssa + sLocal.y * sca);
+            float sHalfW = sRadius;
+            float sHalfH = sRadius * sTipRatio;
+
+            float secondaryCoverage = 0.0;
+            if (abs(sRotated.x) <= sHalfW && abs(sRotated.y) <= sHalfH) {
+                vec2 sUv = vec2(sRotated.x / (2.0 * sHalfW) + 0.5, sRotated.y / (2.0 * sHalfH) + 0.5);
+                secondaryCoverage = texture(secondaryMask, sUv).r;
+            }
+            float secondaryFactor = clamp(secondaryCoverage * sAlpha * sFlow, 0.0, 1.0);
+            coverage *= (sKeepInside > 0.5) ? secondaryFactor : (1.0 - secondaryFactor);
+            if (coverage <= 0.0) continue;
+        }
 
         bool hasResolvedPaint = d.paint1.z >= 0.5;
         vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);

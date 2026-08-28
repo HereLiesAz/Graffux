@@ -11,13 +11,14 @@ import org.junit.Test
 
 /**
  * [gpuCompatibleStampBrush] decides whether the azphalt stamp-brush live-preview path can hand a
- * stroke to a GPU shader instead of the CPU renderer (item 15 of the roadmap doc). Only a
- * masked/dual (second) tip still forces CPU -- neither `stamp.comp` nor `stamp_masked.comp`
- * composites a second tip. A shaped tip, a non-round tipRatio, and (as of this pass) a grain
- * texture no longer force CPU: [gpuPipelineUsesMaskedShader] routes all three to
- * `stamp_masked.comp` instead of the round-only `stamp.comp`, which has no grain sampler at all.
- * Color source is resolved to a final per-dab RGB on the CPU before a dab ever reaches either
- * shader, so it was never actually a shader limitation and must NOT gate this.
+ * stroke to a GPU shader instead of the CPU renderer (item 15 of the roadmap doc). Every stamp
+ * brush configuration is GPU-compatible now: a masked/dual (second) tip is composited by
+ * `stamp_masked.comp`'s secondary-dab sampling path (see stampMaskedDabs()'s secondaryDabs
+ * arguments), same as the shaped-tip, non-round-tipRatio, and grain cases. [gpuPipelineUsesMaskedShader]
+ * still decides which of the two shaders a stroke uses: `stamp.comp` (round-only, no optional
+ * bindings) vs `stamp_masked.comp` (shape/tipRatio/grain/dual-brush). Color source is resolved to
+ * a final per-dab RGB on the CPU before a dab ever reaches either shader, so it was never actually
+ * a shader limitation and must NOT gate this.
  */
 class GpuCompatibleStampBrushTest {
 
@@ -68,11 +69,13 @@ class GpuCompatibleStampBrushTest {
     }
 
     @Test
-    fun `a masked second tip forces the CPU path`() {
+    fun `a masked second tip is GPU-compatible via the masked pipeline's secondary-dab sampling`() {
         val brush = AzphaltBrush(name = "Dual", maskedBrush = MaskedBrushConfig())
 
-        assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = bitmap))
+        assertTrue(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = bitmap))
         // Even without an actual mask bitmap loaded yet, the config itself commits to the masked pipeline.
-        assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
+        assertTrue(gpuCompatibleStampBrush(brush, shape = null, grain = null, maskShape = null))
+        // A dual-brush config alone routes to stamp_masked.comp even with no shape/grain/tipRatio ask.
+        assertTrue(gpuPipelineUsesMaskedShader(brush, shape = null))
     }
 }

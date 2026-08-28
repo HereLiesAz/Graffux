@@ -40,6 +40,25 @@ struct GpuDab {
 };
 static_assert(sizeof(GpuDab) == 48, "GpuDab must match the shader's 3xvec4 std430 record");
 
+// Item 15's masked/dual-brush follow-up: the secondary tip stampMaskedDabs() composites onto a
+// primary dab's coverage, one entry per primary dab (same index, parallel arrays) -- see
+// shaders/stamp_masked.comp's SecondaryDab struct, which this must stay binary-identical to.
+// `keepInside` is pre-resolved on the host from Krita's MaskedBrushBlendMode + invert into a
+// single float (>0.5 = DST_IN/keep-inside, else DST_OUT/cut) rather than re-deriving that logic
+// in the shader -- see StampBrushRenderer.paintMaskedDabs' `keepInside` local for the CPU
+// reference this mirrors.
+struct GpuSecondaryDab {
+    float x;
+    float y;
+    float radius;
+    float tipRatio;
+    float alpha;
+    float angleDeg;
+    float flowMultiplier;
+    float keepInside;
+};
+static_assert(sizeof(GpuSecondaryDab) == 32, "GpuSecondaryDab must match the shader's 2xvec4 std430 record");
+
 struct ColorSmudgeDab {
     float x;
     float y;
@@ -146,11 +165,21 @@ public:
     // already-resolved per-stroke phase (grainOffsetX/Y plus any grainRandomOffsetPerStroke draw).
     // Passing `grainAlpha8 = nullptr` disables grain for this call (a 1x1 all-white dummy texture
     // is bound instead, making the shader's multiply a no-op).
+    //
+    // Item 15's masked/dual-brush follow-up: `secondaryDabs`, when non-empty, must be exactly
+    // `dabs.size()` long (one entry per primary dab, same index -- a per-STROKE feature, not
+    // per-dab optional, matching how AzphaltBrush.maskedBrush attaches a MaskDab to every dab or
+    // none). `secondaryMaskAlpha8`/`secondaryMaskWidth`/`secondaryMaskHeight` are the secondary
+    // tip's own R8_UNORM mask texture, same convention as `maskAlpha8`. An empty `secondaryDabs`
+    // disables dual-brush compositing entirely for this call.
     bool stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
                          const uint8_t* maskAlpha8, int maskWidth, int maskHeight,
                          const uint8_t* grainAlpha8 = nullptr, int grainWidth = 0, int grainHeight = 0,
                          bool grainCanvasLocked = false, float grainScale = 1.0f,
-                         float grainPhaseX = 0.0f, float grainPhaseY = 0.0f);
+                         float grainPhaseX = 0.0f, float grainPhaseY = 0.0f,
+                         const std::vector<GpuSecondaryDab>& secondaryDabs = {},
+                         const uint8_t* secondaryMaskAlpha8 = nullptr, int secondaryMaskWidth = 0,
+                         int secondaryMaskHeight = 0);
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
@@ -194,6 +223,13 @@ private:
     // (binding 3) and tracked independently so mask/grain re-uploads are decided separately.
     bool ensureGrainTexture(int width, int height);
     bool uploadGrainTexture(const uint8_t* alpha8, int width, int height);
+    // Item 15 masked/dual-brush follow-up. ensureSecondaryMaskTexture()/uploadSecondaryMaskTexture()
+    // mirror ensureMaskTexture()/uploadMaskTexture() exactly (binding 4 instead of 2).
+    // ensureSecondaryDabBuffer() mirrors ensureMaskedDabBuffer() (binding 5, GpuSecondaryDab
+    // instead of GpuDab, its own staging buffer).
+    bool ensureSecondaryMaskTexture(int width, int height);
+    bool uploadSecondaryMaskTexture(const uint8_t* alpha8, int width, int height);
+    bool ensureSecondaryDabBuffer(size_t dabCount);
     void destroyMaskedResources();
 
     bool ensureColorSmudgePipelines();
@@ -316,6 +352,28 @@ private:
     int grainWidth_ = 0;
     int grainHeight_ = 0;
     VkImageLayout grainImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // Masked/dual-brush secondary tip (item 15 follow-up). secondaryDabBuffer_/staging mirror
+    // maskedDabBuffer_/staging (binding 5, GpuSecondaryDab instead of GpuDab); secondaryMaskImage_
+    // etc. mirror maskImage_ (binding 4). A call with no dual-brush config uploads a 1x1 dummy mask
+    // and a single dummy dab (keepInside doesn't matter -- the shader never reads index >= dabCount
+    // and pc.hasSecondary gates whether secondaryDabs[] is read at all), so these bindings are
+    // never left pointing at nothing once the pipeline exists.
+    VkBuffer secondaryDabBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+    size_t secondaryDabBufferCapacity_ = 0;
+    VkBuffer secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory secondaryDabStagingBufferMemory_ = VK_NULL_HANDLE;
+
+    VkImage secondaryMaskImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+    VkImageView secondaryMaskImageView_ = VK_NULL_HANDLE;
+    VkSampler secondaryMaskSampler_ = VK_NULL_HANDLE;
+    VkBuffer secondaryMaskStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory secondaryMaskStagingBufferMemory_ = VK_NULL_HANDLE;
+    int secondaryMaskWidth_ = 0;
+    int secondaryMaskHeight_ = 0;
+    VkImageLayout secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 }  // namespace graffux
