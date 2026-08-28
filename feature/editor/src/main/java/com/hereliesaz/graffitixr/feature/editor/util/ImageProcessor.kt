@@ -616,7 +616,7 @@ object ImageProcessor {
      * both reflections plus their combination (4-fold total including the original);
      * [RADIAL_6] rotates the stroke five more times at 60° steps around the canvas centre.
      */
-    private fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
+    internal fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
         val cx = w / 2f
         val cy = h / 2f
         return when (mode) {

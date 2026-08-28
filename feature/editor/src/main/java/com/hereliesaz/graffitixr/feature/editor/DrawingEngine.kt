@@ -342,6 +342,7 @@ internal class DrawingEngine(
                 bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
                 replaceExisting && featherRadius <= 0f, stroke.feathering,
                 alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
+                wrapAroundMode = stroke.wrapAroundMode,
                 clipPath = paintClip,
                 opacity = stroke.opacity,
                 pressures = stroke.pressures,
