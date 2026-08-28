@@ -1,0 +1,134 @@
+package com.hereliesaz.graffitixr.feature.editor.util
+
+import org.w3c.dom.Element
+import org.xml.sax.InputSource
+import java.io.StringReader
+import javax.xml.parsers.DocumentBuilderFactory
+
+/**
+ * Reads Krita's `.kpp` brush preset container: a PNG whose `tEXt`/`iTXt`
+ * chunks carry the preset XML under the "preset" keyword. Confirmed against
+ * Krita's own `KisPaintOpPreset::saveToDevice()`/`loadFromDevice()` (PNG text
+ * chunk keywords "version"/"preset", root element `<Preset paintopid name
+ * embedded_resources>`) and `KisPropertiesConfiguration::toXML()`/`fromXML()`
+ * (child `<param name="..." type="...">value</param>` elements), read from
+ * the KDE/krita source directly rather than guessed.
+ *
+ * This is a read-only *container* parser: it recovers the `<Preset>` element
+ * and its `param` children as raw key/value pairs. It deliberately does NOT
+ * map those keys onto Graffux's own primitives (`AzphaltBrush` /
+ * `ColorSmudgeEngine.Settings` / `MaskedBrushConfig`) -- Krita's per-paintop
+ * -engine parameter names (e.g. what the Color Smudge settings widget calls
+ * its own rate/dilution keys) have not been verified from source, so
+ * semantic mapping is left for a follow-up rather than guessed.
+ */
+object KritaPresetParser {
+
+    data class Preset(
+        val paintopId: String,
+        val name: String,
+        val embeddedResourceCount: Int,
+        val params: Map<String, Param>,
+    )
+
+    data class Param(val type: String?, val value: String)
+
+    class ParseException(message: String) : Exception(message)
+
+    /** Parses a `.kpp` file's raw bytes. Throws [ParseException] if there's no "preset" text chunk or the XML is malformed. */
+    fun parse(bytes: ByteArray): Preset {
+        val presetXml = readTextChunk(bytes, "preset")
+            ?: throw ParseException("No \"preset\" text chunk found in PNG")
+        return parsePresetXml(presetXml)
+    }
+
+    internal fun parsePresetXml(xml: String): Preset {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.isNamespaceAware = false
+        val doc = try {
+            factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+        } catch (e: Exception) {
+            throw ParseException("Malformed preset XML: ${e.message}")
+        }
+        val root = doc.documentElement
+            ?: throw ParseException("Preset XML has no root element")
+        if (root.tagName != "Preset") {
+            throw ParseException("Expected root element <Preset>, found <${root.tagName}>")
+        }
+        val params = mutableMapOf<String, Param>()
+        val children = root.getElementsByTagName("param")
+        for (i in 0 until children.length) {
+            val node = children.item(i) as Element
+            val name = node.getAttribute("name")
+            val type = node.getAttribute("type").ifEmpty { null }
+            params[name] = Param(type, node.textContent)
+        }
+        return Preset(
+            paintopId = root.getAttribute("paintopid"),
+            name = root.getAttribute("name"),
+            embeddedResourceCount = root.getAttribute("embedded_resources").toIntOrNull() ?: 0,
+            params = params,
+        )
+    }
+
+    private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+    /** Walks PNG chunks looking for a `tEXt`/`iTXt` chunk with the given keyword. Returns null if absent or the file isn't a PNG. */
+    internal fun readTextChunk(bytes: ByteArray, keyword: String): String? {
+        if (bytes.size < 8 || !bytes.copyOfRange(0, 8).contentEquals(PNG_SIGNATURE)) return null
+
+        var offset = 8
+        while (offset + 8 <= bytes.size) {
+            val length = readInt32BE(bytes, offset)
+            val type = String(bytes, offset + 4, 4, Charsets.US_ASCII)
+            val dataStart = offset + 8
+            if (length < 0 || dataStart + length + 4 > bytes.size) break
+            val data = bytes.copyOfRange(dataStart, dataStart + length)
+            when (type) {
+                "tEXt" -> readLatin1TextChunk(data, keyword)?.let { return it }
+                "iTXt" -> readInternationalTextChunk(data, keyword)?.let { return it }
+                "IEND" -> return null
+            }
+            offset = dataStart + length + 4 // + CRC
+        }
+        return null
+    }
+
+    private fun readLatin1TextChunk(data: ByteArray, keyword: String): String? {
+        val nul = data.indexOfByte(0)
+        if (nul < 0) return null
+        val kw = String(data, 0, nul, Charsets.ISO_8859_1)
+        if (kw != keyword) return null
+        return String(data, nul + 1, data.size - nul - 1, Charsets.ISO_8859_1)
+    }
+
+    private fun readInternationalTextChunk(data: ByteArray, keyword: String): String? {
+        val nul = data.indexOfByte(0)
+        if (nul < 0) return null
+        val kw = String(data, 0, nul, Charsets.ISO_8859_1)
+        if (kw != keyword) return null
+        var p = nul + 1
+        if (p >= data.size) return null
+        val compressionFlag = data[p].toInt()
+        p += 2 // compression flag + compression method
+        val langEnd = data.indexOfByte(0, p).takeIf { it >= 0 } ?: return null
+        p = langEnd + 1
+        val transEnd = data.indexOfByte(0, p).takeIf { it >= 0 } ?: return null
+        p = transEnd + 1
+        if (compressionFlag != 0) {
+            throw ParseException("Compressed iTXt \"$keyword\" chunk is not supported")
+        }
+        return String(data, p, data.size - p, Charsets.UTF_8)
+    }
+
+    private fun readInt32BE(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
+
+    private fun ByteArray.indexOfByte(byte: Int, from: Int = 0): Int {
+        for (i in from until size) if (this[i].toInt() == byte) return i
+        return -1
+    }
+}

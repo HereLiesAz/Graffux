@@ -124,7 +124,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **CPU reference:** Yes, CPU-only.
 
-**Vulkan target:** None yet — `stamp.comp` has no mask/texture logic; masked/textured brushes fall back to the CPU correctness renderer (tracked as item 14).
+**Vulkan target:** None yet — `stamp.comp` has no mask/texture logic; masked/textured brushes fall back to the CPU correctness renderer (tracked as item 15).
 
 **UI exposure:** Masked Tip section in Brush Studio, collapsed by default (see item 18).
 
@@ -144,7 +144,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **CPU reference:** Yes, CPU-only.
 
-**Vulkan target:** None — not referenced by `stamp.comp` (tracked as item 14).
+**Vulkan target:** None — not referenced by `stamp.comp` (tracked as item 15).
 
 **UI exposure:** Texture section in Brush Studio, collapsed by default (see item 18).
 
@@ -164,7 +164,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **CPU reference:** Yes, CPU-only.
 
-**Vulkan target:** None (tracked as item 14).
+**Vulkan target:** None (tracked as item 15).
 
 **UI exposure:** Masked Tip section in Brush Studio; a generated second tip can be enabled without first selecting an external bitmap.
 
@@ -184,7 +184,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **CPU reference:** Yes, complete — `resolvedColor()` is CPU-only.
 
-**Vulkan target:** None — `stamp.comp` has no color-source/gradient/mix logic today (tracked as item 14).
+**Vulkan target:** None — `stamp.comp` has no color-source/gradient/mix logic today (tracked as item 15).
 
 **UI exposure:** Real foreground/secondary color wired through `EditorViewModel` (`secondaryColor` in ui state), `BrushStudioWindow` mix preview, and color-source picker controls in `SketchToolsDialog`.
 
@@ -319,21 +319,23 @@ Distinct "wash" accumulation curves (Krita's Wet/dry-brush-style behavior beyond
 
 **Krita behavior adopted:** Krita's `.kpp` preset format bundles brush-engine settings plus tip/texture/mask assets into a portable, versioned package.
 
-**Graffux contract:** Graffux has its own package format (`spec/package-format.md`, the Azphalt/`.azp` format) which is unrelated to Krita's `.kpp`. No `.kpp`, `KritaPreset`, or `BrushPreset` symbols exist anywhere in the codebase. A Krita-interoperable schema (import at minimum; export is a separate, larger decision) has not been designed.
+**Graffux contract:** Graffux has its own package format (`spec/package-format.md`, the Azphalt/`.azp` format) which is unrelated to Krita's `.kpp`. `KritaPresetParser` (`feature/editor/.../util/KritaPresetParser.kt`) reads the `.kpp` *container*: a `.kpp` is a PNG whose `tEXt`/`iTXt` chunks carry a `"preset"` keyword holding an XML document, confirmed directly from Krita's own source (`KisPaintOpPreset::saveToDevice()`/`loadFromDevice()` in `libs/brushengine/kis_paintop_preset.cpp`, and `KisPropertiesConfiguration::toXML()`/`fromXML()` in `libs/image/kis_properties_configuration.cc`, fetched from the KDE/krita repository rather than guessed): root element `<Preset paintopid="..." name="..." embedded_resources="...">` with `<param name="..." type="...">value</param>` children. The parser recovers `paintopId`/`name`/`embeddedResourceCount` and the full `param` map as raw strings.
 
-**Determinism/replay:** N/A until designed; imported presets must resolve to the same `AzphaltBrush`/`MaskedBrushConfig`/`BrushColorSource` primitives already used elsewhere in this document so replay guarantees are inherited rather than reinvented.
+What it deliberately does **not** do: map those `param` keys onto Graffux's own primitives (`AzphaltBrush` / `ColorSmudgeEngine.Settings` / `MaskedBrushConfig`). Krita's per-paintop-engine parameter names (e.g. what the Color Smudge settings widget actually calls its rate/dilution keys in a real exported `.kpp`) have not been verified against a real preset file or the relevant settings-widget source, so semantic mapping is deliberately left for a follow-up rather than guessed — writing a mapping from invented key names would silently corrupt every imported preset. No `import` UI or pipeline exists yet; this item currently produces a `KritaPresetParser.Preset` value and nothing consumes it.
 
-**CPU reference:** Not started.
+**Determinism/replay:** N/A until the semantic mapping exists; imported presets must resolve to the same `AzphaltBrush`/`MaskedBrushConfig`/`BrushColorSource` primitives already used elsewhere in this document so replay guarantees are inherited rather than reinvented.
+
+**CPU reference:** `KritaPresetParser.parse()` — container format only (PNG text-chunk extraction + XML parsing), tested.
 
 **Vulkan target:** N/A (schema/import concern, not a renderer).
 
-**UI exposure:** Not started.
+**UI exposure:** None yet.
 
-**Tests:** None.
+**Tests:** `KritaPresetParserTest.kt` — parses `paintopid`/`name`/`embedded_resources` and `param` entries (including a param with no `type` attribute) from a hand-built `tEXt` chunk; the same via `iTXt`; throws on a `.kpp`-shaped PNG with no `"preset"` chunk, on malformed XML, and on a non-`Preset` root element; returns null (not a crash) for non-PNG bytes.
 
-**Dependencies:** Items 4-8 (a preset must be able to faithfully represent every primitive those items define before interoperability is meaningful).
+**Dependencies:** Items 4-8 (a preset must be able to faithfully represent every primitive those items define before interoperability is meaningful) — still blocking, since the container parser alone doesn't touch those primitives.
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS. Container format (PNG/XML) IMPLEMENTED (CPU) and tested. Semantic mapping from Krita's per-paintop `param` names to Graffux's brush primitives — the part that makes this actually useful — NOT STARTED, blocked on sourcing real per-paintop parameter names (e.g. from a real exported `.kpp` file or the relevant `KisColorSmudgeOpSettingsWidget`-style source) rather than guessing them.
 
 ## 15. GPU-resident mask/texture/dual-brush/source pipeline
 
