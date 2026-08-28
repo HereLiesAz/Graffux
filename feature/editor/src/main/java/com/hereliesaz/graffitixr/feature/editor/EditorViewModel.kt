@@ -2827,12 +2827,6 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    override fun onLayerWarpChanged(layerId: String, mesh: List<Float>) {
-        pushHistory()
-        dispatch(EditorIntent.SetLayerWarp(layerId, mesh))
-        saveProject()
-    }
-
     /**
      * Whether [copyLayerModifications] has anything on its clipboard, so a menu can hide "Paste"
      * rather than offer a row that returns immediately.

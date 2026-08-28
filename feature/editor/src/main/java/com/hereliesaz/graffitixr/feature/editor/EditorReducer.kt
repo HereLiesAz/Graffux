@@ -397,7 +397,6 @@ internal object EditorReducer {
                 },
             ),
         )
-        is EditorIntent.SetLayerWarp -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(warpMesh = intent.mesh) })
         is EditorIntent.SetLayerShapes -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(shapes = intent.shapes) })
         is EditorIntent.RenderTextLayer -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(bitmap = intent.bitmap, textParams = intent.params) })
         else -> null
