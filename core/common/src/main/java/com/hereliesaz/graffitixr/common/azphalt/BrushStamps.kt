@@ -10,6 +10,7 @@ private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
+private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
 
 /** Resolved secondary-tip instruction attached to a primary dab. */
 data class MaskDab(
@@ -79,13 +80,15 @@ object BrushStamps {
         val diameter = diameterPx.coerceAtLeast(0f)
         if (diameter <= 0f) return emptyList()
         val baseRadius = diameter / 2f
-        val centres = place(points, brush.spacing * brush.spacingReferencePx(diameter))
+        val step = brush.spacing * brush.spacingReferencePx(diameter)
+        val centres = place(points, step)
         val count = centres.size / 2
         if (count == 0) return emptyList()
 
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
         val colorRng = Random(seed xor COLOR_SEED_SALT)
+        val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val out = ArrayList<Dab>(count)
         for (i in 0 until count) {
             val cx = centres[2 * i]; val cy = centres[2 * i + 1]
@@ -93,6 +96,7 @@ object BrushStamps {
             val sizeR = rng.nextFloat()
             val opacR = rng.nextFloat()
             val scatR = rng.nextFloat()
+            val longR = longRng.nextFloat()
 
             val radius = baseRadius * (1f - brush.sizeJitter * sizeR)
             val alpha = (brush.opacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
@@ -103,7 +107,15 @@ object BrushStamps {
                 x += mag * cos(perpRad)
                 y += mag * sin(perpRad)
             }
-            val angle = brush.angle + if (brush.followStroke) headingDeg else 0f
+            if (brush.scatterLongitudinal > 0f && diameter > 0f) {
+                val mag = brush.scatterLongitudinal * diameter * (longR * 2f - 1f)
+                val headingRad = headingDeg * DEG_TO_RAD
+                x += mag * cos(headingRad)
+                y += mag * sin(headingRad)
+            }
+            val angle = brush.angle +
+                (if (brush.followStroke) headingDeg else 0f) +
+                brush.rotationPerPx * (i * step)
             val mask = resolveStaticMask(
                 brush.maskedBrush, x, y, diameter, headingDeg, maskRng,
             )
@@ -147,6 +159,7 @@ object BrushStamps {
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
         val colorRng = Random(seed xor COLOR_SEED_SALT)
+        val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
         // Only needed for lift-off's velocity-derived synthetic pressure; harmless when unused.
@@ -162,6 +175,7 @@ object BrushStamps {
             val sizeR = rng.nextFloat()
             val opacR = rng.nextFloat()
             val scatR = rng.nextFloat()
+            val longR = longRng.nextFloat()
 
             val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
             var endTaperT = if (taper.endLengthPx > 0f) {
@@ -191,10 +205,18 @@ object BrushStamps {
                 x += mag * cos(perpRad)
                 y += mag * sin(perpRad)
             }
+            val longitudinalScatter = brush.scatterLongitudinal * dynamic.scatterMultiplier
+            if (longitudinalScatter > 0f) {
+                val mag = longitudinalScatter * resolvedDiameter * (longR * 2f - 1f)
+                val headingRad = headingDeg * DEG_TO_RAD
+                x += mag * cos(headingRad)
+                y += mag * sin(headingRad)
+            }
 
             val angle = brush.angle +
                 (if (brush.followStroke) headingDeg else 0f) +
-                dynamic.rotationOffsetDeg
+                dynamic.rotationOffsetDeg +
+                brush.rotationPerPx * at
             val mask = resolveDynamicMask(
                 brush.maskedBrush,
                 sample,
