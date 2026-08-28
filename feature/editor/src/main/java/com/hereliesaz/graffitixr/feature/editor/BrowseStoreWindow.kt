@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hereliesaz.aznavrail.AzButton
@@ -87,7 +88,7 @@ fun BrowseStoreWindow(
             error?.let {
                 Text(
                     "Couldn't reach the store: $it",
-                    color = Color(0xFFE53935),
+                    color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
                 AzButton(text = "Retry", onClick = onSearch, shape = AzButtonShape.RECTANGLE)
@@ -200,11 +201,15 @@ private fun PackageCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                installed -> AzButton(
+                // A plain label, not a button: AzButton has no confirmed "disabled" styling in this
+                // codebase, and a full-opacity button that looks exactly like "Get"/"Buy" next to it
+                // but silently no-ops on tap reads as broken, not as "already installed".
+                installed -> Text(
                     text = "Installed",
-                    onClick = {},
-                    shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.Gray,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 )
 
                 pkg.priceStatus.isPaid -> AzButton(

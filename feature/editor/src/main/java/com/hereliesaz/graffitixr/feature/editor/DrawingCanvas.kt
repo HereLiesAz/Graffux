@@ -182,12 +182,21 @@ fun DrawingCanvas(
                     var eyedrop = false
                     var cancelled = false
                     var last = down.position
+                    // A fixed deadline from the down event, not a timeout re-armed every loop
+                    // iteration: a real finger is never perfectly stationary, and a sub-slop jitter
+                    // (or a pressure-only update) that reaches this loop as its own pointer event
+                    // used to restart a fresh EYEDROP_HOLD_MS wait -- on hardware that reports such
+                    // events during a hold, the countdown could keep resetting and the eyedropper
+                    // would never trigger no matter how long the finger stayed still.
+                    val eyedropDeadlineMs = android.os.SystemClock.uptimeMillis() + EYEDROP_HOLD_MS
 
                     while (true) {
-                        // While nothing has started yet, wait with a timeout: a still finger
-                        // produces no events, and the timeout is what flips into the eyedropper.
+                        // While nothing has started yet, wait only for what's left of the fixed
+                        // hold window: a still finger produces no events, and reaching the deadline
+                        // (not a fresh per-iteration timeout) is what flips into the eyedropper.
                         val event = if (!began && !eyedrop) {
-                            withTimeoutOrNull(EYEDROP_HOLD_MS) { awaitPointerEvent() }
+                            val remainingMs = eyedropDeadlineMs - android.os.SystemClock.uptimeMillis()
+                            if (remainingMs <= 0L) null else withTimeoutOrNull(remainingMs) { awaitPointerEvent() }
                         } else {
                             awaitPointerEvent()
                         }
