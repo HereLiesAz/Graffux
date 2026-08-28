@@ -18,9 +18,11 @@ import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
 /** Fixed top-left bevel light for Impasto shading (roadmap item 12) -- not yet user-adjustable;
  *  see [DrawingEngine]'s stamp-brush branch for where it's applied. */
-private const val IMPASTO_LIGHT_AZIMUTH_DEG = 315f
-private const val IMPASTO_LIGHT_ELEVATION_DEG = 45f
-private const val IMPASTO_LIGHT_STRENGTH = 0.6f
+// internal, not private: EditorViewModel's live-preview Impasto shading (item 12) must use the
+// exact same light so the preview and the commit never diverge.
+internal const val IMPASTO_LIGHT_AZIMUTH_DEG = 315f
+internal const val IMPASTO_LIGHT_ELEVATION_DEG = 45f
+internal const val IMPASTO_LIGHT_STRENGTH = 0.6f
 
 /**
  * The stroke-compositing pipeline, extracted from EditorViewModel: turns a base bitmap plus

@@ -134,4 +134,71 @@ class ImpastoEngineTest {
         val shadedB = ImpastoEngine.shade(colors, b, w, h, 60f, 25f, 2f)
         assertArrayEquals(shadedA, shadedB)
     }
+
+    @Test
+    fun `shadeInto over the full canvas matches shade exactly`() {
+        val w = 24; val h = 24
+        val height = FloatArray(w * h)
+        for (y in 0 until h) for (x in 6..16) {
+            val t = (x - 6) / 10f
+            height[y * w + x] = if (t <= 0.5f) t * 2f else (1f - t) * 2f
+        }
+        val colors = IntArray(w * h) { 0xFF808080.toInt() }
+        val expected = ImpastoEngine.shade(colors, height, w, h, 0f, 20f, 4f)
+
+        val out = IntArray(w * h)
+        ImpastoEngine.shadeInto(out, colors, height, w, h, 0, 0, w, h, 0f, 20f, 4f)
+
+        assertArrayEquals(expected, out)
+    }
+
+    @Test
+    fun `shadeInto only writes within the requested region, leaving the rest of out untouched`() {
+        val w = 20; val h = 20
+        val height = FloatArray(w * h) { i -> if (i == 10 * w + 10) 1f else 0f }
+        val colors = IntArray(w * h) { 0xFF808080.toInt() }
+        val out = IntArray(w * h) { -1 } // sentinel: anything still -1 was never written
+
+        ImpastoEngine.shadeInto(out, colors, height, w, h, 8, 8, 13, 13, 45f, 30f, 3f)
+
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                val inRegion = x in 8 until 13 && y in 8 until 13
+                if (inRegion) {
+                    assertNotEquals("expected ($x,$y) to be written", -1, out[idx])
+                } else {
+                    assertEquals("expected ($x,$y) to be left untouched", -1, out[idx])
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `shadeInto with non-positive strength copies raw colours only within the region`() {
+        val w = 16; val h = 16
+        val height = FloatArray(w * h) { i -> if (i == 8 * w + 8) 1f else 0f }
+        val colors = IntArray(w * h) { i -> 0xFF000000.toInt() or i }
+        val out = IntArray(w * h) { -1 }
+
+        ImpastoEngine.shadeInto(out, colors, height, w, h, 4, 4, 12, 12, 45f, 30f, strength = 0f)
+
+        for (y in 4 until 12) for (x in 4 until 12) {
+            assertEquals(colors[y * w + x], out[y * w + x])
+        }
+        assertEquals(-1, out[0]) // outside the region, still untouched
+    }
+
+    @Test
+    fun `shadeInto clamps an out-of-bounds region to the canvas instead of crashing`() {
+        val w = 10; val h = 10
+        val height = FloatArray(w * h)
+        val colors = IntArray(w * h) { 0xFF808080.toInt() }
+        val out = IntArray(w * h)
+
+        // Should not throw despite the region extending past every edge.
+        ImpastoEngine.shadeInto(out, colors, height, w, h, -5, -5, 20, 20, 45f, 30f, 2f)
+
+        assertArrayEquals(colors, out) // flat height -> unchanged, but exercises the full clamped range
+    }
 }
