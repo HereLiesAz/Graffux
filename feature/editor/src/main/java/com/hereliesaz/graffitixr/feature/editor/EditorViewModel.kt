@@ -39,6 +39,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
+import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
@@ -172,18 +173,17 @@ private const val MAX_IMPORT_DOCUMENT_BYTES = 512 * 1024 * 1024
 private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 
 /**
- * Whether the azphalt stamp-brush live-preview path can use the GPU compute stamp shader instead
- * of the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). `stamp.comp` only draws a
- * generated round dab -- it has no tip-mask, texture, or dual-brush sampling -- so a custom
- * [shape], [grain], [maskShape], a masked/dual brush, or a non-round [AzphaltBrush.tipRatio] all
- * still force the CPU path.
+ * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
+ * the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). Grain texture, a masked/dual
+ * (second) tip, or a full `maskedBrush` config all still force the CPU path -- neither
+ * `stamp.comp` nor `stamp_masked.comp` samples a grain tile or composites a second tip. A [shape]
+ * or a non-round [AzphaltBrush.tipRatio] no longer force CPU: see [gpuPipelineUsesMaskedShader],
+ * which routes exactly those two cases to `stamp_masked.comp` instead.
  *
- * Color source (plain/gradient/uniform-random) and any HSV sensor shift are NOT part of that
- * restriction: [StampBrushRenderer.resolvedColor] already resolves the final per-dab RGB on the
- * CPU before a dab ever reaches the GPU (see the `stampResolvedDabs` call site in
- * `onStrokeStart`), and the shader already renders whatever resolved RGB it's given. A non-PLAIN
- * [AzphaltBrush.colorSource] therefore needs no shader change and is GPU-eligible exactly like
- * PLAIN is -- unlike a shaped tip, it was never actually blocked by anything in `stamp.comp`.
+ * Color source (plain/gradient/uniform-random) and any HSV sensor shift are NOT part of this
+ * restriction either: [StampBrushRenderer.resolvedColor] already resolves the final per-dab RGB
+ * on the CPU before a dab ever reaches the GPU (see the `stampResolvedDabs`/`stampMaskedDabs` call
+ * sites in `onStrokeStart`), and both shaders already render whatever resolved RGB they're given.
  */
 internal fun gpuCompatibleStampBrush(
     brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
@@ -191,11 +191,38 @@ internal fun gpuCompatibleStampBrush(
     grain: Bitmap?,
     maskShape: Bitmap?,
 ): Boolean =
-    shape == null &&
-        grain == null &&
+    grain == null &&
         maskShape == null &&
-        brush.maskedBrush == null &&
-        brush.tipRatio == 1f
+        brush.maskedBrush == null
+
+/**
+ * Given a GPU-compatible stroke (see [gpuCompatibleStampBrush]), whether it needs
+ * `stamp_masked.comp` (a real [shape] bitmap, or a non-round [AzphaltBrush.tipRatio] that
+ * `stamp.comp`'s round-only `stampCoverage()` can't represent) rather than the long-proven
+ * generated-round-tip-only `stamp.comp` path.
+ */
+internal fun gpuPipelineUsesMaskedShader(
+    brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+    shape: Bitmap?,
+): Boolean = shape != null || brush.tipRatio != 1f
+
+/** Reference resolution the masked GPU pipeline's tip mask is rasterized at, once per stroke,
+ *  independent of any individual dab's radius -- `stamp_masked.comp` scales it per dab via UV
+ *  sampling using that dab's own radius/tipRatio, the same way [BrushTipMaskCache]'s square
+ *  [BrushTipMaskCache.tipMask] source is scaled into a non-square CPU dab bitmap per call. */
+private const val GPU_MASK_REFERENCE_SIZE = 128
+
+/** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
+ *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
+internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val out = ByteArray(pixels.size)
+    for (i in pixels.indices) out[i] = ((pixels[i] ushr 24) and 0xFF).toByte()
+    return out
+}
 
 /**
  * Reads [input] fully, but bails out and returns null the moment more than [maxBytes] have been
@@ -477,17 +504,29 @@ class EditorViewModel @Inject constructor(
     private val stampMappedPoints = ArrayList<Float>()
 
     // GPU live-preview compositor for the CURRENT stamp stroke (docs/Native Rendering Engine
-    // Design.md §9 Phase 3) — only ever set for a generated-round-tip stroke (stampShapeForStroke
-    // == null; the shader has no textured-tip path), and only while it's actually kept in sync
-    // with [stampLiveBitmap]. [stampGpuActive] is the single source of truth for whether new dabs
-    // should be attempted on the GPU this stroke; a failure at any point (init/upload/stamp/
-    // readback) clears it for the REST of the stroke and every dab from then on falls back to
-    // [StampBrushRenderer.paintDabs] on the same, already-correct [stampLiveCanvas] — never a
-    // partial GPU composite silently left stale. The one-shot commit (`commitStampStroke`) never
-    // touches this: it always re-renders the whole stroke on the CPU from scratch, so a live
-    // preview that fell back partway through never affects what's actually saved.
+    // Design.md §9 Phase 3), and only while it's actually kept in sync with [stampLiveBitmap].
+    // [stampGpuActive] is the single source of truth for whether new dabs should be attempted on
+    // the GPU this stroke; a failure at any point (init/upload/stamp/readback) clears it for the
+    // REST of the stroke and every dab from then on falls back to [StampBrushRenderer.paintDabs]
+    // on the same, already-correct [stampLiveCanvas] — never a partial GPU composite silently left
+    // stale. The one-shot commit (`commitStampStroke`) never touches this: it always re-renders the
+    // whole stroke on the CPU from scratch, so a live preview that fell back partway through never
+    // affects what's actually saved.
+    //
+    // [stampGpuUsesMaskedPipeline] picks which shader this stroke dispatches to: false is the
+    // long-proven generated-round-tip-only `stamp.comp`/`stampResolvedDabs` path (untouched by
+    // item 15's masked-tip addition); true is the newer `stamp_masked.comp`/`stampMaskedDabs` path
+    // (docs/Krita Brush Engine Adoption.md item 15), used only when a shaped tip or non-round
+    // tipRatio actually needs it — see [gpuCompatibleStampBrush]. When true,
+    // [stampGpuMaskAlpha8]/[stampGpuMaskSize] hold the stroke's tip mask pre-rasterized once (at a
+    // fixed reference resolution, independent of any individual dab's radius — the shader scales
+    // per dab via its own tipRatio field) as an R8 byte buffer ready for
+    // `VulkanStampEngine.stampMaskedDabs()`.
     private var stampGpuEngine: VulkanStampEngine? = null
     private var stampGpuActive: Boolean = false
+    private var stampGpuUsesMaskedPipeline: Boolean = false
+    private var stampGpuMaskAlpha8: ByteArray? = null
+    private var stampGpuMaskSize: Int = 0
 
     // Same contract as stampGpuEngine/stampGpuActive above, for the round brush's live path
     // instead of azphalt stamp brushes — both now stamp dabs (see ROUND_BRUSH_DAB_SPACING_FRACTION),
@@ -2923,18 +2962,33 @@ class EditorViewModel @Inject constructor(
             stampGpuEngine?.destroy()
             stampGpuEngine = null
             stampGpuActive = false
+            stampGpuUsesMaskedPipeline = false
+            stampGpuMaskAlpha8 = null
+            stampGpuMaskSize = 0
             stampMappedPoints.clear()
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
-                // GPU live-preview compositor: only for a generated round tip (the shader has no
-                // textured-tip path) — init the layer at this stroke's bitmap size and seed it with
-                // the document's current pixels before any dab is stamped. Both native calls block
-                // on GPU work, hence doing this here on Dispatchers.Default alongside the bitmap
-                // copy, not on the main thread. A null/failed engine just means every dab this
-                // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
+                // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
+                // it with the document's current pixels before any dab is stamped. Both native calls
+                // block on GPU work, hence doing this here on Dispatchers.Default alongside the
+                // bitmap copy, not on the main thread. A null/failed engine just means every dab
+                // this stroke draws through the existing CPU path — see stampGpuActive's doc comment.
                 val gpuCompatibleBrush = gpuCompatibleStampBrush(
                     stampBrush, stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke,
                 )
+                val usesMaskedPipeline = gpuCompatibleBrush &&
+                    gpuPipelineUsesMaskedShader(stampBrush, stampShapeForStroke)
+                // Rasterized once per stroke at a fixed reference size (see GPU_MASK_REFERENCE_SIZE's
+                // doc comment) — cheap CPU bitmap work, safe alongside the bitmap copy on this same
+                // background dispatcher.
+                val maskAlpha8 = if (usesMaskedPipeline) {
+                    alphaChannelBytes(
+                        BrushTipMaskCache.tipMask(
+                            stampShapeForStroke, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE,
+                            stampBrush.hardness,
+                        ),
+                    )
+                } else null
                 val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
                 val gpuReady = gpuEngine != null
                 withContext(dispatchers.main) {
@@ -2954,6 +3008,9 @@ class EditorViewModel @Inject constructor(
                         }
                         stampGpuEngine = if (gpuReady) gpuEngine else null
                         stampGpuActive = gpuReady
+                        stampGpuUsesMaskedPipeline = gpuReady && usesMaskedPipeline
+                        stampGpuMaskAlpha8 = if (gpuReady) maskAlpha8 else null
+                        stampGpuMaskSize = if (gpuReady && usesMaskedPipeline) GPU_MASK_REFERENCE_SIZE else 0
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
@@ -3288,36 +3345,62 @@ class EditorViewModel @Inject constructor(
             if (dabs.size > stampStampedCount) {
                 val newDabs = dabs.subList(stampStampedCount, dabs.size)
                 val colorArgb = _uiState.value.activeColor.toArgb()
-                // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — only ever
-                // attempted for a generated round tip; see stampGpuActive's doc comment for the
-                // fallback contract. A failure here disables it for the rest of THIS stroke only —
-                // work is already correctly up to date through the last successful GPU readback
-                // (or, if GPU was never active, was always drawn by the CPU branch below), so
-                // continuing straight into the CPU branch for just `newDabs` is exactly correct,
-                // no re-render of earlier dabs needed either way.
+                // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
+                // stampGpuActive's doc comment for the fallback contract, and
+                // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke uses. A
+                // failure here disables it for the rest of THIS stroke only — work is already
+                // correctly up to date through the last successful GPU readback (or, if GPU was
+                // never active, was always drawn by the CPU branch below), so continuing straight
+                // into the CPU branch for just `newDabs` is exactly correct, no re-render of
+                // earlier dabs needed either way.
                 val gpuHandled = stampGpuActive && stampGpuEngine?.let { engine ->
                     val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
-                    val gpuDabs = newDabs.map { dab ->
-                        ResolvedBrushDab(
-                            x = dab.x,
-                            y = dab.y,
-                            radius = dab.radius,
-                            alpha = dab.alpha,
-                            angleDeg = dab.angleDeg,
-                            colorArgb = StampBrushRenderer.resolvedColor(
-                                colorArgb, _uiState.value.secondaryColor.toArgb(), stampBrush, dab,
-                            ),
-                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                        )
+                    if (stampGpuUsesMaskedPipeline) {
+                        val maskAlpha8 = stampGpuMaskAlpha8 ?: return@let false
+                        val gpuDabs = newDabs.map { dab ->
+                            MaskedBrushDab(
+                                x = dab.x,
+                                y = dab.y,
+                                radius = dab.radius,
+                                alpha = dab.alpha,
+                                angleDeg = dab.angleDeg,
+                                colorArgb = StampBrushRenderer.resolvedColor(
+                                    colorArgb, _uiState.value.secondaryColor.toArgb(), stampBrush, dab,
+                                ),
+                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                tipRatio = dab.tipRatio,
+                            )
+                        }
+                        engine.stampMaskedDabs(
+                            gpuDabs, stampBrush.hardness.coerceIn(0f, 1f), maskAlpha8,
+                            stampGpuMaskSize, stampGpuMaskSize,
+                        ) && engine.readback(work)
+                    } else {
+                        val gpuDabs = newDabs.map { dab ->
+                            ResolvedBrushDab(
+                                x = dab.x,
+                                y = dab.y,
+                                radius = dab.radius,
+                                alpha = dab.alpha,
+                                angleDeg = dab.angleDeg,
+                                colorArgb = StampBrushRenderer.resolvedColor(
+                                    colorArgb, _uiState.value.secondaryColor.toArgb(), stampBrush, dab,
+                                ),
+                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                            )
+                        }
+                        engine.stampResolvedDabs(gpuDabs, stampBrush.hardness.coerceIn(0f, 1f)) &&
+                            engine.readback(work)
                     }
-                    engine.stampResolvedDabs(gpuDabs, stampBrush.hardness.coerceIn(0f, 1f)) &&
-                        engine.readback(work)
                 } == true
                 if (!gpuHandled) {
                     if (stampGpuActive) {
                         stampGpuActive = false
                         stampGpuEngine?.destroy()
                         stampGpuEngine = null
+                        stampGpuUsesMaskedPipeline = false
+                        stampGpuMaskAlpha8 = null
+                        stampGpuMaskSize = 0
                     }
                     StampBrushRenderer.paintDabs(
                         canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
@@ -5401,6 +5484,9 @@ class EditorViewModel @Inject constructor(
         stampGpuEngine?.destroy()
         stampGpuEngine = null
         stampGpuActive = false
+        stampGpuUsesMaskedPipeline = false
+        stampGpuMaskAlpha8 = null
+        stampGpuMaskSize = 0
 
         // Shares liveCurveLock with onStrokeStart's publish and drawCurveRun's read/fallback-
         // disable of these same two fields — see onStrokeStart's GPU live-preview comment for why:
