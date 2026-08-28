@@ -452,6 +452,16 @@ object ColorSmudgeEngine {
         return iy * width + ix
     }
 
+    /**
+     * A glee audit found this averaged RGB in straight-alpha space: a fully-transparent sample's
+     * (often meaningless leftover-black) RGB was weighted purely by its spatial distance, the same
+     * as an opaque neighbour's — so Dulling's colour pickup near any transparent edge (an erased
+     * patch, the edge of the artwork) darkened towards black regardless of how little that sample
+     * should actually have contributed. RGB is now weighted by spatial weight *times* the sample's
+     * own alpha (i.e. averaged in premultiplied space, then un-premultiplied by the alpha-weighted
+     * sum), which is what correctly blending colours of differing opacity requires; alpha itself is
+     * still a plain spatially-weighted average, unaffected.
+     */
     private fun weightedAverage(
         pixels: IntArray,
         width: Int,
@@ -466,6 +476,7 @@ object ColorSmudgeEngine {
         var sumG = 0.0
         var sumB = 0.0
         var sumW = 0.0
+        var sumAlphaWeight = 0.0
         val rr = radius.toFloat()
         for (dy in -radius..radius) {
             for (dx in -radius..radius) {
@@ -476,22 +487,37 @@ object ColorSmudgeEngine {
                 val weight = (1f - distance / rr).coerceIn(0f, 1f)
                 if (weight <= 0f) continue
                 val p = pixels[idx]
-                sumA += (p ushr 24 and 0xFF) * weight
-                sumR += (p shr 16 and 0xFF) * weight
-                sumG += (p shr 8 and 0xFF) * weight
-                sumB += (p and 0xFF) * weight
+                val alpha = (p ushr 24 and 0xFF)
+                val alphaWeight = weight * (alpha / 255.0)
+                sumA += alpha * weight
+                sumR += (p shr 16 and 0xFF) * alphaWeight
+                sumG += (p shr 8 and 0xFF) * alphaWeight
+                sumB += (p and 0xFF) * alphaWeight
                 sumW += weight
+                sumAlphaWeight += alphaWeight
             }
         }
         if (sumW <= 0.0) {
             val idx = indexOf(cx, cy, width, height, wrapAround)
             return if (idx >= 0) pixels[idx] else Color.TRANSPARENT
         }
+        // Every sample in range was fully transparent: there's no colour to un-premultiply from,
+        // so fall back to reading the centre pixel's RGB rather than dividing by zero.
+        if (sumAlphaWeight <= 0.0) {
+            val idx = indexOf(cx, cy, width, height, wrapAround)
+            val centre = if (idx >= 0) pixels[idx] else 0
+            return Color.argb(
+                (sumA / sumW).roundToInt().coerceIn(0, 255),
+                (centre shr 16 and 0xFF),
+                (centre shr 8 and 0xFF),
+                (centre and 0xFF),
+            )
+        }
         return Color.argb(
             (sumA / sumW).roundToInt().coerceIn(0, 255),
-            (sumR / sumW).roundToInt().coerceIn(0, 255),
-            (sumG / sumW).roundToInt().coerceIn(0, 255),
-            (sumB / sumW).roundToInt().coerceIn(0, 255),
+            (sumR / sumAlphaWeight).roundToInt().coerceIn(0, 255),
+            (sumG / sumAlphaWeight).roundToInt().coerceIn(0, 255),
+            (sumB / sumAlphaWeight).roundToInt().coerceIn(0, 255),
         )
     }
 
