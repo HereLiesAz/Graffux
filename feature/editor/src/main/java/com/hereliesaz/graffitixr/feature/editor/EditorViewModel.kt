@@ -6833,6 +6833,27 @@ class EditorViewModel @Inject constructor(
 
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
 
+    /**
+     * Stamp-brush presets that ship with the app, with no extension install and no Brush Studio
+     * setup required -- see [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes] for why
+     * these exist: without them, a fresh install's only paintable options were the legacy Round
+     * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
+     * brush built before there's anything to paint with).
+     */
+    val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+
+    /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
+    fun selectBuiltInBrush(name: String) {
+        val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        activeStampBrush = brush
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
     /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
     val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
         customBrushRepository.brushes
@@ -6973,27 +6994,6 @@ class EditorViewModel @Inject constructor(
             }
             // Bracketed: the rail's Opacity slider drives this, once per emitted sample.
             continuousEdit { dispatch(EditorIntent.SetLayerShapes(active.id, recoloured)) }
-        }
-    }
-
-    override fun adjustColorLightness(delta: Float) {
-        adjustColorHSV(lightnessDelta = delta, saturationDelta = 0f)
-    }
-
-    override fun adjustColorHSV(lightnessDelta: Float, saturationDelta: Float) {
-        _uiState.update { state ->
-            val c = state.activeColor
-            val hsv = FloatArray(3)
-            android.graphics.Color.RGBToHSV(
-                (c.red * 255).toInt(),
-                (c.green * 255).toInt(),
-                (c.blue * 255).toInt(),
-                hsv
-            )
-            hsv[1] = (hsv[1] + saturationDelta).coerceIn(0f, 1f)
-            hsv[2] = (hsv[2] + lightnessDelta).coerceIn(0f, 1f)
-            val newArgb = android.graphics.Color.HSVToColor(hsv)
-            state.copy(activeColor = Color(newArgb).copy(alpha = c.alpha))
         }
     }
 
