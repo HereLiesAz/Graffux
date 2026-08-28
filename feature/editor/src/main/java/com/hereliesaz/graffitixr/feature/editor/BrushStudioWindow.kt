@@ -82,7 +82,7 @@ fun BrushStudioWindow(
 
             BrushPreview(draft, brushColor, secondaryColor)
 
-            ParamSlider("Spacing", draft.spacing, 0.01f..2f, asFraction = true) { v -> onEdit { it.copy(spacing = v) } }
+            ParamSlider("Spacing", draft.spacing, 0.01f..4f, asFraction = true) { v -> onEdit { it.copy(spacing = v) } }
             ParamSlider("Tip ratio", draft.tipRatio, 0.05f..1f, asFraction = true) { v -> onEdit { it.copy(tipRatio = v) } }
             AzButton(
                 text = if (draft.isotropicSpacing) "Spacing: diameter" else "Spacing: ratio-aware",
@@ -155,7 +155,7 @@ fun BrushStudioWindow(
                     Text("No grain asset in this brush. Installed brush packages can provide one.", style = MaterialTheme.typography.labelSmall)
                 } else {
                     ParamSlider("Strength", draft.grainStrength, 0f..1f) { v -> onEdit { it.copy(grainStrength = v) } }
-                    ParamSlider("Scale", draft.grainScale, 0.1f..4f, asFraction = true) { v -> onEdit { it.copy(grainScale = v) } }
+                    ParamSlider("Scale", draft.grainScale, 0.1f..16f, asFraction = true) { v -> onEdit { it.copy(grainScale = v) } }
                     EnumButtons("Movement", GrainBehavior.entries, draft.grainBehavior) { value -> onEdit { it.copy(grainBehavior = value) } }
                     EnumButtons("Mode", GrainBlendMode.entries, draft.grainBlendMode) { value -> onEdit { it.copy(grainBlendMode = value) } }
                     AzButton(
@@ -181,7 +181,7 @@ fun BrushStudioWindow(
                         shape = AzButtonShape.RECTANGLE,
                     )
                 } else {
-                    ParamSlider("Mask size", mask.sizeRatio, 0.1f..3f, asFraction = true) { v -> onEdit { it.copy(maskedBrush = mask.copy(sizeRatio = v)) } }
+                    ParamSlider("Mask size", mask.sizeRatio, 0.1f..8f, asFraction = true) { v -> onEdit { it.copy(maskedBrush = mask.copy(sizeRatio = v)) } }
                     ParamSlider("Mask ratio", mask.tipRatio, 0.05f..1f, asFraction = true) { v -> onEdit { it.copy(maskedBrush = mask.copy(tipRatio = v)) } }
                     ParamSlider("Mask hardness", mask.hardness, 0f..1f) { v -> onEdit { it.copy(maskedBrush = mask.copy(hardness = v)) } }
                     ParamSlider("Mask opacity", mask.opacity, 0f..1f) { v -> onEdit { it.copy(maskedBrush = mask.copy(opacity = v)) } }
