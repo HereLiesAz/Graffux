@@ -139,8 +139,8 @@ class VulkanStampEngine {
      * (an R8 alpha-only tip texture, [maskWidth]x[maskHeight], white=full coverage) in its own
      * rotated/scaled local space instead of using the round coverage falloff -- the GPU-side
      * counterpart to StampBrushRenderer's masked-tip CPU path (docs/Krita Brush Engine Adoption.md
-     * item 15). The mask texture is only re-uploaded natively when its dimensions change from the
-     * previous call, so repeated calls with the same tip within one stroke are cheap.
+     * item 15). The mask texture is only re-uploaded natively when its dimensions or content differ
+     * from the previous call, so repeated calls with the same tip within one stroke are cheap.
      *
      * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
      * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
