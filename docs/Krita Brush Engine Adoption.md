@@ -192,7 +192,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilu
 
 **Dependencies:** Items 4-6 (shares the resolved-dab pipeline).
 
-**Completion state:** IMPLEMENTED (CPU and GPU), validation complete. Color source has full GPU parity for the live-preview path — it never needed shader work, only an unnecessarily conservative gate removed. What item 15 still covers (shaped tips, texture/grain, masked/dual brush) is unrelated and remains CPU-only.
+**Completion state:** IMPLEMENTED (CPU and GPU), pending hardware verification -- same caveat as every other GPU-touching item in this document (see item 17). Color source has full GPU parity for the live-preview path — it never needed shader work, only an unnecessarily conservative gate removed — but "parity" here means the CPU and GPU code paths agree by construction (color resolves to a per-dab RGBA value before either path consumes it), not that this has been confirmed with a physical-device measurement. "Validation complete" was written here in an earlier pass; that was wrong; item 17 is the single tracking item for GPU hardware validation across this whole document, and it says plainly that no GPU-touching item has been run on real Adreno/Mali hardware yet. What item 15 still covers (shaped tips, texture/grain, masked/dual brush) is unrelated and remains CPU-only.
 
 ## 9. Taper / Fade / Lift-off
 

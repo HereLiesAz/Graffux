@@ -169,16 +169,13 @@ internal class DrawingEngine(
             }
             val paintedDabs: List<Dab>
             if (brush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
-                // Airbrush (roadmap item 13): only reachable here, the one-shot commit/replay
-                // render, never from EditorViewModel's live incremental preview. That path repaints
-                // by tracking how many of a freshly-recomputed dab list have already been drawn
-                // (stampStampedCount) and gates GPU eligibility per brush -- both would need a real
-                // design decision to accommodate a second, time-driven (not just movement-driven)
-                // dab source, which this pass deliberately doesn't make. So a stroke with airbrush
-                // enabled previews as an ordinary stroke while dragging, and only gains its held-still
-                // build-up once committed (and identically on every undo/redo replay, since this
-                // path is what replay already uses). heldDabs needs real recorded timestamps, so it
-                // only applies in this telemetry-present branch, same as sensor dynamics above it.
+                // Airbrush (roadmap item 13): this is the commit/replay render. EditorViewModel's
+                // live incremental preview has its own, separate integration (tracked by
+                // `stampHeldStampedCount`) that computes the same heldDabs while dragging, so the
+                // build-up is visible during the drag, not just once committed -- the two call
+                // sites are seeded from the same recorded timestamps so they agree. heldDabs needs
+                // real recorded timestamps, so it only applies in this telemetry-present branch,
+                // same as sensor dynamics above it.
                 val diameterPx = stroke.brushSize * brushScale
                 val movementDabs = BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)
                 val allDabs = if (brush.airbrushDabsPerSecond > 0f) {
@@ -215,9 +212,10 @@ internal class DrawingEngine(
             }
 
             // Impasto (roadmap item 12): raises the layer's persistent height map under this
-            // stroke's dabs, then re-shades the just-painted pixels against it -- same commit/
-            // replay-only scoping as Airbrush (item 13) above, for the same reason: no live-
-            // preview integration risk was worth taking on in this pass.
+            // stroke's dabs, then re-shades the just-painted pixels against it. This is the
+            // commit/replay render, which is what actually persists the height-map contribution
+            // onto the layer; EditorViewModel's live preview has its own separate, regional-reshade
+            // integration (`stampLiveHeightMap`) so the shading is visible while dragging too.
             if (brush.impastoThicknessRate > 0f && heightMap != null && heightMap.size == target.width * target.height) {
                 ImpastoEngine.depositStroke(
                     heightMap, target.width, target.height, paintedDabs, brush.hardness, brush.impastoThicknessRate,
