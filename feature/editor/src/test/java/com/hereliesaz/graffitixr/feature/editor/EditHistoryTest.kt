@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
+import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import org.junit.Assert.assertEquals
@@ -110,6 +112,63 @@ class EditHistoryTest {
         assertTrue(redone is EditCommand.Draw)
         assertEquals(1, h.undoCount)
         assertEquals(0, h.redoCount)
+    }
+
+    private fun snapshot() = TileDelta.TileSnapshot(
+        tx = 0, ty = 0, bounds = DirtyRegion(0, 0, 1, 1),
+        before = intArrayOf(0), after = intArrayOf(1),
+    )
+
+    @Test
+    fun `attachTileDeltas fills in the matching undo-stack entry, matched by command identity`() {
+        val h = EditHistory()
+        val cmd = stroke()
+        h.pushDraw("layer-1", cmd)
+
+        h.attachTileDeltas(cmd, listOf(snapshot()), canvasWidth = 10, canvasHeight = 10)
+
+        val popped = h.popUndo { it } as EditCommand.Draw
+        assertEquals(1, popped.tileDeltas?.size)
+        assertEquals(10, popped.tileDeltaCanvasWidth)
+        assertEquals(10, popped.tileDeltaCanvasHeight)
+    }
+
+    @Test
+    fun `attachTileDeltas matches by object identity, not structural equality`() {
+        val h = EditHistory()
+        val cmd = stroke()
+        val lookalike = stroke() // structurally equal StrokeCommand, different instance
+        h.pushDraw("layer-1", cmd)
+
+        h.attachTileDeltas(lookalike, listOf(snapshot()), canvasWidth = 10, canvasHeight = 10)
+
+        val popped = h.popUndo { it } as EditCommand.Draw
+        assertNull("a lookalike command must not attach to the real entry", popped.tileDeltas)
+    }
+
+    @Test
+    fun `attachTileDeltas is a safe no-op once the entry has been trimmed away`() {
+        val h = EditHistory(maxStackSize = 1)
+        val cmd = stroke()
+        h.pushDraw("layer-1", cmd)
+        h.pushDraw("layer-1", stroke()) // trims `cmd` off the bottom of a 1-deep stack
+
+        // Must not throw, and must not resurrect `cmd` or corrupt the stack that remains.
+        h.attachTileDeltas(cmd, listOf(snapshot()), canvasWidth = 10, canvasHeight = 10)
+        assertEquals(1, h.undoCount)
+    }
+
+    @Test
+    fun `attachTileDeltas finds an entry that moved to the redo stack`() {
+        val h = EditHistory()
+        val cmd = stroke()
+        h.pushDraw("layer-1", cmd)
+        h.popUndo { it } // cmd is now on the redo stack
+
+        h.attachTileDeltas(cmd, listOf(snapshot()), canvasWidth = 10, canvasHeight = 10)
+
+        val redone = h.popRedo { it } as EditCommand.Draw
+        assertEquals(1, redone.tileDeltas?.size)
     }
 
     @Test

@@ -9,12 +9,6 @@ import kotlin.math.min
  * Axis-aligned pixel bounds a set of dabs could have painted, in bitmap space (roadmap item 16:
  * dirty-region tracking). [left]/[top] are inclusive, [right]/[bottom] exclusive -- the same
  * convention `android.graphics.Rect` uses.
- *
- * This is a foundational, read-only utility: it computes bounds only, and nothing in the app
- * consumes it yet. It does NOT touch undo storage -- [com.hereliesaz.graffitixr.feature.editor
- * .EditHistory]/`LayerStore` remain whole-bitmap-snapshot based, unchanged by this. Tile-based
- * undo storage (the other half of item 16) is a much larger, correctness-sensitive rewrite of
- * that storage layer and is NOT started; see the roadmap doc for why that wasn't attempted here.
  */
 data class DirtyRegion(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width: Int get() = right - left
@@ -72,6 +66,42 @@ data class DirtyRegion(val left: Int, val top: Int, val right: Int, val bottom: 
                 ceil(right).toInt(),
                 ceil(bottom).toInt(),
             )
+        }
+
+        /**
+         * The bounding box of every pixel where [before] and [after] differ -- tool-agnostic,
+         * unlike [fromDabs]: works for any stroke (smudge, fill, liquify, ...), not just stamp
+         * brushes with a resolved dab list, at the cost of an O(width*height) scan. Both arrays
+         * must be exactly `width * height` ARGB ints, row-major, same layout as
+         * `android.graphics.Bitmap.getPixels`; a size mismatch is a defensive null (nothing to
+         * safely compare), not a crash. Null when nothing differs.
+         *
+         * Meant for a one-time, per-commit cost (e.g. undo fast-path tile-delta capture -- see
+         * `EditorViewModel.commitStampStroke`), not a per-frame one; [fromDabs] stays the cheap
+         * choice wherever a resolved dab list is already on hand.
+         */
+        fun fromPixelDiff(before: IntArray, after: IntArray, width: Int, height: Int): DirtyRegion? {
+            if (width <= 0 || height <= 0) return null
+            val size = width * height
+            if (before.size < size || after.size < size) return null
+            var left = Int.MAX_VALUE
+            var top = Int.MAX_VALUE
+            var right = Int.MIN_VALUE
+            var bottom = Int.MIN_VALUE
+            for (y in 0 until height) {
+                val row = y * width
+                for (x in 0 until width) {
+                    val idx = row + x
+                    if (before[idx] != after[idx]) {
+                        if (x < left) left = x
+                        if (x + 1 > right) right = x + 1
+                        if (y < top) top = y
+                        if (y + 1 > bottom) bottom = y + 1
+                    }
+                }
+            }
+            if (left > right) return null
+            return DirtyRegion(left, top, right, bottom)
         }
     }
 }

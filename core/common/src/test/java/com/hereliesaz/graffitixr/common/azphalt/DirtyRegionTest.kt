@@ -77,4 +77,41 @@ class DirtyRegionTest {
         assertEquals(10, region.height)
         assertTrue(!region.isEmpty)
     }
+
+    @Test
+    fun `fromPixelDiff is null when the two buffers are identical`() {
+        val w = 8; val h = 8
+        val a = IntArray(w * h) { 0xFF000000.toInt() }
+        val b = a.copyOf()
+
+        assertNull(DirtyRegion.fromPixelDiff(a, b, w, h))
+    }
+
+    @Test
+    fun `fromPixelDiff bounds exactly the differing pixels`() {
+        val w = 10; val h = 10
+        val before = IntArray(w * h) { 0 }
+        val after = before.copyOf()
+        // A single differing pixel at (3,4) and another at (6,7) -- the bounding box of both.
+        after[4 * w + 3] = 1
+        after[7 * w + 6] = 1
+
+        val region = DirtyRegion.fromPixelDiff(before, after, w, h)
+
+        assertEquals(DirtyRegion(3, 4, 7, 8), region)
+    }
+
+    @Test
+    fun `fromPixelDiff is null for a size mismatch instead of crashing`() {
+        val w = 8; val h = 8
+        val before = IntArray(w * h)
+        val after = IntArray(4) // too small
+
+        assertNull(DirtyRegion.fromPixelDiff(before, after, w, h))
+    }
+
+    @Test
+    fun `fromPixelDiff is null for non-positive dimensions`() {
+        assertNull(DirtyRegion.fromPixelDiff(IntArray(0), IntArray(0), 0, 0))
+    }
 }

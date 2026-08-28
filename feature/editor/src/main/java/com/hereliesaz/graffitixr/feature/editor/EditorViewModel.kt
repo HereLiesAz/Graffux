@@ -38,6 +38,8 @@ import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
+import com.hereliesaz.graffitixr.common.azphalt.TileGrid
+import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
@@ -161,6 +163,13 @@ data class StrokeCommand(
  * deeper than the strokes kept, an undo would silently restore the wrong pixels.
  */
 internal const val HISTORY_DEPTH = 20
+
+// Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
+// a stroke's before/after tile deltas. 64 matches Krita's own hardcoded tile dimension
+// (`libs/image/tiles3/kis_tile_data_interface.h`'s WIDTH/HEIGHT constants, confirmed from source
+// this session) -- Krita maps cleanly here, unlike Procreate, whose `tileSize` is a per-document
+// file-format field with no single confirmed value to copy (see the roadmap doc's item 16 entry).
+internal const val UNDO_TILE_SIZE = 64
 
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
@@ -298,7 +307,24 @@ internal const val ROUND_BRUSH_DAB_SPACING_FRACTION = 0.15f
 
 sealed class EditCommand {
     data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
-    data class Draw(val layerId: String, val command: StrokeCommand) : EditCommand()
+
+    /**
+     * [tileDeltas] (roadmap item 16's undo fast path) is attached *after* this command is pushed
+     * — a stroke commits synchronously (see [EditorViewModel.commitStampStroke]), but the
+     * authoritative pixels it needs to diff against only exist once that commit's async recompute
+     * finishes — so this starts `null` (meaning "no fast path yet, fall back to full replay") and
+     * is filled in later via [EditHistory.attachTileDeltas], matched by [command]'s own object
+     * identity so a stroke that's already been undone by the time attachment runs is a safe no-op.
+     * [tileDeltaCanvasWidth]/[tileDeltaCanvasHeight] must match the layer bitmap's current
+     * dimensions before [tileDeltas] is trusted — see [EditorViewModel.onUndoClicked]'s guard.
+     */
+    data class Draw(
+        val layerId: String,
+        val command: StrokeCommand,
+        val tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>? = null,
+        val tileDeltaCanvasWidth: Int = 0,
+        val tileDeltaCanvasHeight: Int = 0,
+    ) : EditCommand()
 }
 
 @HiltViewModel
@@ -863,7 +889,12 @@ class EditorViewModel @Inject constructor(
                     updateHistoryCounts()
                     return
                 }
-                rebuildLayerBitmap(command.layerId, emitOp = true)
+                val deltas = command.tileDeltas
+                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                    command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                    useAfter = false, emitOp = true,
+                )
+                if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -894,7 +925,12 @@ class EditorViewModel @Inject constructor(
         when (command) {
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
-                rebuildLayerBitmap(command.layerId, emitOp = true)
+                val deltas = command.tileDeltas
+                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                    command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                    useAfter = true, emitOp = true,
+                )
+                if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Redo re-applies the move, so the marquee moves forward with it again.
                 val delta = command.command.moveDelta
                 if (command.command.tool == Tool.SELECT && delta != null) {
@@ -1056,6 +1092,60 @@ class EditorViewModel @Inject constructor(
                 android.util.Log.e("EditorViewModel", "Failed to rebuild layer $layerId on undo/redo", e)
             }
         }
+    }
+
+    /**
+     * Item 16's undo fast path: applies [tileDeltas] directly onto the layer's *current* live
+     * bitmap instead of [rebuildLayerBitmap]'s full stroke-list replay. [useAfter] selects which
+     * side of the delta to apply -- `false` for undo ("before"), `true` for redo ("after").
+     *
+     * Returns `false` (caller falls back to [rebuildLayerBitmap]) when the fast path isn't usable:
+     * the layer has no live bitmap to patch, or that bitmap's dimensions don't match what the
+     * deltas were captured against (defensive -- not an expected case for a layer, whose
+     * dimensions don't change after creation, but cheap to check and refuse rather than assume).
+     *
+     * Safe by construction from [EditHistory.attachTileDeltas]'s own invariant: a `Draw` command
+     * still reachable by undo/redo is guaranteed to be the layer's most recent stroke (or, for
+     * redo, the next one to reapply) — see that doc comment — so applying its deltas onto whatever
+     * bitmap is currently live is always correct, never stale, regardless of how many other
+     * strokes exist beyond it in the layer's full history.
+     */
+    private fun applyTileDeltaFastPath(
+        layerId: String,
+        tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        useAfter: Boolean,
+        emitOp: Boolean,
+    ): Boolean {
+        val layer = _uiState.value.layers.find { it.id == layerId } ?: return false
+        val current = layer.bitmap ?: return false
+        if (current.width != canvasWidth || current.height != canvasHeight) return false
+        val patched = SafeBitmap.copy(current) ?: return false
+        val pixels = IntArray(canvasWidth * canvasHeight)
+        patched.getPixels(pixels, 0, canvasWidth, 0, 0, canvasWidth, canvasHeight)
+        if (useAfter) {
+            TileDelta.applyAfter(pixels, canvasWidth, tileDeltas)
+        } else {
+            TileDelta.applyBefore(pixels, canvasWidth, tileDeltas)
+        }
+        patched.setPixels(pixels, 0, canvasWidth, 0, 0, canvasWidth, canvasHeight)
+
+        // A prior undo/redo on this same layer may still have a full-replay rebuild in flight;
+        // this fast path is about to publish a newer, correct bitmap synchronously, so that stale
+        // job must not be allowed to overwrite it later -- same discipline rebuildLayerBitmap
+        // itself already applies before launching its own replacement job.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs.remove(layerId)
+
+        _uiState.update { state ->
+            state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = patched) else it })
+        }
+        if (emitOp && opEmitter.isActive) {
+            opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(patched)))
+        }
+        scheduleDiskSave(layerId, patched, layer.uri)
+        return true
     }
 
     fun processNewStroke(layerId: String, activeBitmap: Bitmap, command: StrokeCommand, layer: Layer) {
@@ -2922,6 +3012,11 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
 
+    /** Whether item 16's tile-delta fast path actually got attached to the most recent undoable
+     *  stroke -- null if there's no undoable Draw entry at all. */
+    internal fun topUndoTileDeltaCountForTest(): Int? =
+        (history.undoStackTopForTest() as? EditCommand.Draw)?.tileDeltas?.size
+
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -4249,6 +4344,27 @@ class EditorViewModel @Inject constructor(
                 commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
             )
             val target = SelectionMask.feather(base, work, hard, radius)
+            // Item 16's undo fast path: diff `base` against `target` once, here, while both are
+            // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
+            // it doesn't need a resolved dab list this call site doesn't otherwise construct, and
+            // stays correct regardless of exactly how paintStroke/feather resolved the final
+            // pixels. A capture failure (e.g. an OOM building the pixel buffers) is caught and
+            // degrades to `null` -- no fast path attached, this stroke's future undo/redo just
+            // falls back to the existing full-replay path, same as any stroke this pass doesn't
+            // cover.
+            val tileDeltas = runCatching {
+                val beforePixels = IntArray(base.width * base.height)
+                base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
+                val afterPixels = IntArray(target.width * target.height)
+                target.getPixels(afterPixels, 0, target.width, 0, 0, target.width, target.height)
+                val dirty = DirtyRegion.fromPixelDiff(beforePixels, afterPixels, base.width, base.height)
+                if (dirty == null) {
+                    emptyList()
+                } else {
+                    val grid = TileGrid(base.width, base.height, UNDO_TILE_SIZE)
+                    TileDelta.capture(beforePixels, afterPixels, grid, grid.tilesTouching(dirty))
+                }
+            }.getOrNull()
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     val clearPreview = s.liveStrokeBitmap === previewBitmap
@@ -4259,6 +4375,14 @@ class EditorViewModel @Inject constructor(
                     )
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
+                // Attached only after the bitmap publish above, on this same main-dispatcher
+                // continuation -- so by the time `command.tileDeltas` is non-null, this stroke's
+                // own bitmap is guaranteed already live, closing the one ordering race that would
+                // otherwise matter for the fast path (see EditHistory.attachTileDeltas's doc
+                // comment for what's still a pre-existing, unrelated race this doesn't fix).
+                if (tileDeltas != null) {
+                    history.attachTileDeltas(command, tileDeltas, base.width, base.height)
+                }
             }
         }
     }

@@ -45,6 +45,36 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
     }
 
     /**
+     * Attaches a tile-delta fast path (roadmap item 16) to the [EditCommand.Draw] entry matching
+     * [command] by object identity — never by [StrokeCommand] equality, since two independently
+     * drawn strokes could otherwise compare equal. Searches both stacks: the entry may have moved
+     * to the redo stack (a fast undo before this attachment runs) or moved back again by the time
+     * a slow attachment finally happens, and either still benefits from the fast path. A no-op if
+     * the entry isn't found on either stack — e.g. it was trimmed by [trim] or is a
+     * [EditCommand.PropertyChange] — which correctly leaves that stroke on the slow (full replay)
+     * path rather than attaching stale/misdirected data.
+     */
+    fun attachTileDeltas(
+        command: StrokeCommand,
+        tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+    ) {
+        fun attachIn(stack: ArrayDeque<EditCommand>): Boolean {
+            val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
+            if (idx < 0) return false
+            val entry = stack[idx] as EditCommand.Draw
+            stack[idx] = entry.copy(
+                tileDeltas = tileDeltas,
+                tileDeltaCanvasWidth = canvasWidth,
+                tileDeltaCanvasHeight = canvasHeight,
+            )
+            return true
+        }
+        if (!attachIn(undoStack)) attachIn(redoStack)
+    }
+
+    /**
      * Pops the most recent undoable command, recording [counterEntry] of it on the redo stack.
      * Returns null (and records nothing) when there is nothing to undo.
      */
@@ -69,6 +99,10 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
      * redo it onto.
      */
     fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()
+
+    /** The most recent undoable entry, or null if the undo stack is empty. Test-only visibility
+     *  into whether item 16's tile-delta fast path actually got attached to a given stroke. */
+    internal fun undoStackTopForTest(): EditCommand? = undoStack.lastOrNull()
 
     fun clear() {
         undoStack.clear()
