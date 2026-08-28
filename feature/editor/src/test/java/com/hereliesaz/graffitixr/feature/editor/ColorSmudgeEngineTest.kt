@@ -228,4 +228,45 @@ class ColorSmudgeEngineTest {
 
         assertTrue(px.all { it == color })
     }
+
+    @Test
+    fun `dulling pickup near a transparent edge does not darken the opaque colour`() {
+        // A glee audit found weightedAverage() (Dulling's colour pickup) mixed RGB in straight-
+        // alpha space: a fully-transparent neighbour's RGB pulled the average towards black at the
+        // same weight as an opaque one, purely from spatial distance, ignoring that a transparent
+        // pixel has no real colour to contribute. Fixed by weighting RGB by alpha too (premultiplied
+        // averaging); alpha itself is still a plain spatial average, so it correctly still drops.
+        val width = 3
+        val height = 1
+        val px = intArrayOf(Color.RED, Color.RED, Color.TRANSPARENT)
+
+        ColorSmudgeEngine.apply(
+            px,
+            width,
+            height,
+            listOf(Offset(1f, 0f), Offset(1f, 0f)),
+            ColorSmudgeEngine.Settings(
+                mode = ColorSmudgeEngine.Mode.DULLING,
+                radiusPx = 2f,
+                smudgeRadius = 1f,
+                smudgeRate = 1f,
+                colorRate = 0f,
+                opacity = 1f,
+                feathering = 0f,
+                smearAlpha = true,
+            ),
+        )
+
+        val painted = px[1]
+        assertEquals(
+            "the opaque neighbour's red must stay fully saturated, not be dragged towards black " +
+                "by an adjacent transparent pixel's meaningless RGB",
+            255,
+            Color.red(painted),
+        )
+        assertTrue(
+            "alpha must still drop towards the transparent neighbour -- only RGB should be immune",
+            Color.alpha(painted) < 255,
+        )
+    }
 }
