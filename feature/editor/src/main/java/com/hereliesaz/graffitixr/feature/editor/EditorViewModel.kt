@@ -172,6 +172,32 @@ private const val MAX_IMPORT_DOCUMENT_BYTES = 512 * 1024 * 1024
 private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 
 /**
+ * Whether the azphalt stamp-brush live-preview path can use the GPU compute stamp shader instead
+ * of the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). `stamp.comp` only draws a
+ * generated round dab -- it has no tip-mask, texture, or dual-brush sampling -- so a custom
+ * [shape], [grain], [maskShape], a masked/dual brush, or a non-round [AzphaltBrush.tipRatio] all
+ * still force the CPU path.
+ *
+ * Color source (plain/gradient/uniform-random) and any HSV sensor shift are NOT part of that
+ * restriction: [StampBrushRenderer.resolvedColor] already resolves the final per-dab RGB on the
+ * CPU before a dab ever reaches the GPU (see the `stampResolvedDabs` call site in
+ * `onStrokeStart`), and the shader already renders whatever resolved RGB it's given. A non-PLAIN
+ * [AzphaltBrush.colorSource] therefore needs no shader change and is GPU-eligible exactly like
+ * PLAIN is -- unlike a shaped tip, it was never actually blocked by anything in `stamp.comp`.
+ */
+internal fun gpuCompatibleStampBrush(
+    brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+    shape: Bitmap?,
+    grain: Bitmap?,
+    maskShape: Bitmap?,
+): Boolean =
+    shape == null &&
+        grain == null &&
+        maskShape == null &&
+        brush.maskedBrush == null &&
+        brush.tipRatio == 1f
+
+/**
  * Reads [input] fully, but bails out and returns null the moment more than [maxBytes] have been
  * read — the bounded-read pattern used everywhere in this app that decodes an untrusted archive
  * (see ProjectManager.streamEntryBounded, AzpInstaller's MAX_PACKAGE_BYTES), applied here for the
@@ -2906,12 +2932,9 @@ class EditorViewModel @Inject constructor(
                 // on GPU work, hence doing this here on Dispatchers.Default alongside the bitmap
                 // copy, not on the main thread. A null/failed engine just means every dab this
                 // stroke draws through the existing CPU path — see stampGpuActive's doc comment.
-                val gpuCompatibleBrush = stampShapeForStroke == null &&
-                    stampBrush.colorSource == com.hereliesaz.graffitixr.common.azphalt.BrushColorSource.PLAIN &&
-                    stampGrainForStroke == null &&
-                    stampMaskShapeForStroke == null &&
-                    stampBrush.maskedBrush == null &&
-                    stampBrush.tipRatio == 1f
+                val gpuCompatibleBrush = gpuCompatibleStampBrush(
+                    stampBrush, stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke,
+                )
                 val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
                 val gpuReady = gpuEngine != null
                 withContext(dispatchers.main) {
