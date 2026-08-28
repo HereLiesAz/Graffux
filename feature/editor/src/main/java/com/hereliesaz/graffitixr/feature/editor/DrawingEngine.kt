@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
+import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
+import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
@@ -121,10 +123,29 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
                 emptyList()
             }
             if (brush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
-                StampBrushRenderer.paintDynamicStroke(
-                    stampCanvas, mappedSamples, brush, stroke.brushColor,
-                    stroke.brushSize * brushScale, stroke.flow, stroke.seed,
-                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
+                // Airbrush (roadmap item 13): only reachable here, the one-shot commit/replay
+                // render, never from EditorViewModel's live incremental preview. That path repaints
+                // by tracking how many of a freshly-recomputed dab list have already been drawn
+                // (stampStampedCount) and gates GPU eligibility per brush -- both would need a real
+                // design decision to accommodate a second, time-driven (not just movement-driven)
+                // dab source, which this pass deliberately doesn't make. So a stroke with airbrush
+                // enabled previews as an ordinary stroke while dragging, and only gains its held-still
+                // build-up once committed (and identically on every undo/redo replay, since this
+                // path is what replay already uses). heldDabs needs real recorded timestamps, so it
+                // only applies in this telemetry-present branch, same as sensor dynamics above it.
+                val diameterPx = stroke.brushSize * brushScale
+                val movementDabs = BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)
+                val allDabs = if (brush.airbrushDabsPerSecond > 0f) {
+                    movementDabs + AirbrushEngine.heldDabs(
+                        mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
+                        brush.airbrushStillnessRadiusPx, stroke.seed,
+                    )
+                } else {
+                    movementDabs
+                }
+                StampBrushRenderer.paintDabs(
+                    stampCanvas, allDabs, brush, stroke.brushColor, stroke.flow,
+                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
                     stroke.secondaryBrushColor,
                 )
             } else {

@@ -137,6 +137,15 @@ data class AzphaltBrush(
     val dynamics: List<BrushSensorBinding> = emptyList(),
     /** Default disables both zones, so existing brushes render exactly as before. */
     val taper: BrushTaper = BrushTaper(),
+    /** Airbrush build-up (roadmap item 13, [AirbrushEngine.heldDabs]): additional dabs deposited
+     *  at this cadence while the pointer is held roughly still. 0 (the default) disables it
+     *  entirely, matching [AirbrushEngine.heldDabs]'s own "non-positive disables" contract, so
+     *  existing brushes are unaffected. Only takes effect on stroke commit/replay, not the live
+     *  preview -- see the call site in `DrawingEngine.kt` for why. */
+    val airbrushDabsPerSecond: Float = 0f,
+    /** A sample within this radius of the current held run's anchor still counts as "held";
+     *  movement past it resets the run. Irrelevant while [airbrushDabsPerSecond] is 0. */
+    val airbrushStillnessRadiusPx: Float = 3f,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -154,6 +163,8 @@ data class AzphaltBrush(
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
         taper = taper.sanitized(),
+        airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
+        airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -216,6 +227,8 @@ data class AzphaltBrush(
                 maskedBrush = maskedBrush,
                 dynamics = dynamics,
                 taper = taper,
+                airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
+                airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
             ).sanitized()
         }
     }
