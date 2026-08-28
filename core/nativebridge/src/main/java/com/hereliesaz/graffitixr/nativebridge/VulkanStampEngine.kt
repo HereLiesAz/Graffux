@@ -239,7 +239,20 @@ class VulkanStampEngine {
         ).also { if (!it) healthy = false }
     }
 
-    /** Persistent Color Smudge pass. The image must already be seeded with [upload]. */
+    /**
+     * Persistent Color Smudge pass. The image must already be seeded with [upload].
+     *
+     * [sampleSource] (item 11's Sample Merged follow-up) is an optional composite of the other
+     * visible layers, ARGB ints in the same layout [android.graphics.Bitmap.getPixels] produces --
+     * the GPU counterpart to `ColorSmudgeEngine.apply`'s `sampleSource` parameter. When supplied
+     * (with matching positive [sampleSourceWidth]/[sampleSourceHeight]), every dab in this call
+     * reads pickup from it instead of the active layer, matching the CPU reference's `readSource`
+     * vs `pixels` split exactly. It is converted to RGBA byte order here -- R,G,B,A per pixel, the
+     * same native layout [upload]/`nativeReadback` already use for the layer image itself (see
+     * `GraffitiJNI.cpp`'s `nativeReadback` doc comment) -- so the GPU texture this seeds is byte-
+     * identical to what [upload] would produce for the same pixels. `null` (the default) disables
+     * it for this call.
+     */
     fun colorSmudge(
         dabs: List<ColorSmudgeDab>,
         mode: Int,
@@ -248,6 +261,9 @@ class VulkanStampEngine {
         smearAlpha: Boolean,
         paintColorArgb: Int,
         dilution: Float = 0f,
+        sampleSource: IntArray? = null,
+        sampleSourceWidth: Int = 0,
+        sampleSourceHeight: Int = 0,
     ): Boolean {
         if (!isInitialized || dabs.size < 2) return false
         val flat = FloatArray(dabs.size * 6)
@@ -261,8 +277,25 @@ class VulkanStampEngine {
             flat[base + 4] = d.opacity
             flat[base + 5] = d.smudgeRadius
         }
+        val sampleSourceRgba8 = if (
+            sampleSource != null && sampleSourceWidth > 0 && sampleSourceHeight > 0 &&
+            sampleSource.size >= sampleSourceWidth * sampleSourceHeight
+        ) {
+            val pixelCount = sampleSourceWidth * sampleSourceHeight
+            val bytes = ByteArray(pixelCount * 4)
+            for (i in 0 until pixelCount) {
+                val argb = sampleSource[i]
+                val base = i * 4
+                bytes[base] = ((argb shr 16) and 0xFF).toByte()
+                bytes[base + 1] = ((argb shr 8) and 0xFF).toByte()
+                bytes[base + 2] = (argb and 0xFF).toByte()
+                bytes[base + 3] = ((argb shr 24) and 0xFF).toByte()
+            }
+            bytes
+        } else null
         val ok = nativeColorSmudge(
             nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
+            sampleSourceRgba8, sampleSourceWidth, sampleSourceHeight,
         )
         if (!ok) healthy = false
         return ok
@@ -337,6 +370,9 @@ class VulkanStampEngine {
         smearAlpha: Boolean,
         paintColorArgb: Int,
         dilution: Float,
+        sampleSourceRgba8: ByteArray?,
+        sampleSourceWidth: Int,
+        sampleSourceHeight: Int,
     ): Boolean
     private external fun nativeColorSmudgeBenchmarkInfo(handle: Long): LongArray?
     private external fun nativeReadback(handle: Long, outBitmap: Bitmap): Boolean

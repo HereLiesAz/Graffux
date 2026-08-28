@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 
@@ -31,8 +32,9 @@ struct SmudgePush {
     float paintB;
     float paintA;
     float dilution;
+    float hasSampleMerged;
 };
-static_assert(sizeof(SmudgePush) == 68);
+static_assert(sizeof(SmudgePush) == 72);
 
 std::mutex gBenchmarkMutex;
 std::unordered_map<uint64_t, ColorSmudgeBenchmarkInfo> gBenchmarkCache;
@@ -49,7 +51,7 @@ bool VulkanStampEngine::ensureColorSmudgePipelines() {
     if (smudgePipeline8_ != VK_NULL_HANDLE && smudgePipeline16_ != VK_NULL_HANDLE) return true;
     if (!isInitialized()) return false;
 
-    VkDescriptorSetLayoutBinding bindings[2]{};
+    VkDescriptorSetLayoutBinding bindings[3]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
@@ -58,10 +60,16 @@ bool VulkanStampEngine::ensureColorSmudgePipelines() {
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    // Item 11 (Sample Merged): the pre-composited "what the artist can see" RGBA8 texture,
+    // color_smudge.comp's sampleSourceTex.
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 2;
+    layoutInfo.bindingCount = 3;
     layoutInfo.pBindings = bindings;
     if (!vkOk(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &smudgeDescriptorSetLayout_))) {
         destroyColorSmudgeResources();
@@ -84,13 +92,14 @@ bool VulkanStampEngine::ensureColorSmudgePipelines() {
         return false;
     }
 
-    VkDescriptorPoolSize poolSizes[2]{};
+    VkDescriptorPoolSize poolSizes[3]{};
     poolSizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1};
     poolSizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+    poolSizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 2;
+    poolInfo.poolSizeCount = 3;
     poolInfo.pPoolSizes = poolSizes;
     if (!vkOk(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &smudgeDescriptorPool_))) {
         destroyColorSmudgeResources();
@@ -146,6 +155,224 @@ bool VulkanStampEngine::ensureColorSmudgePipelines() {
         destroyColorSmudgeResources();
         return false;
     }
+
+    // Item 11 (Sample Merged): NEAREST/CLAMP sampler for descriptor-type consistency (the shader
+    // itself only ever reads this texture via texelFetch, which ignores the sampler's filter/wrap
+    // state -- see color_smudge.comp's sampleSourceTex doc comment). Binding 2 must reference a
+    // valid image once the pipeline is used, so a 1x1 transparent-black dummy is bound here,
+    // exactly like the masked-stamp pipeline's grain/secondary-mask dummies.
+    VkSamplerCreateInfo sampleSourceSamplerInfo{};
+    sampleSourceSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampleSourceSamplerInfo.magFilter = VK_FILTER_NEAREST;
+    sampleSourceSamplerInfo.minFilter = VK_FILTER_NEAREST;
+    sampleSourceSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampleSourceSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampleSourceSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampleSourceSamplerInfo.unnormalizedCoordinates = VK_FALSE;
+    if (!vkOk(vkCreateSampler(device_, &sampleSourceSamplerInfo, nullptr, &smudgeSampleSourceSampler_))) {
+        destroyColorSmudgeResources();
+        return false;
+    }
+    if (!ensureSampleSourceTexture(1, 1)) {
+        destroyColorSmudgeResources();
+        return false;
+    }
+    const uint8_t dummySampleSource[4] = {0, 0, 0, 0};
+    if (!uploadSampleSourceTexture(dummySampleSource, 1, 1)) {
+        destroyColorSmudgeResources();
+        return false;
+    }
+    return true;
+}
+
+bool VulkanStampEngine::ensureSampleSourceTexture(int w, int h) {
+    if (smudgeSampleSourceImage_ != VK_NULL_HANDLE && w == smudgeSampleSourceWidth_ &&
+        h == smudgeSampleSourceHeight_) {
+        return true;
+    }
+
+    if (smudgeSampleSourceImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, smudgeSampleSourceStagingBuffer_, nullptr); smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, smudgeSampleSourceStagingBufferMemory_, nullptr); smudgeSampleSourceStagingBufferMemory_ = VK_NULL_HANDLE; }
+    smudgeSampleSourceImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    smudgeSampleSourceWidth_ = 0;
+    smudgeSampleSourceHeight_ = 0;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!vkOk(vkCreateImage(device_, &imageInfo, nullptr, &smudgeSampleSourceImage_))) return false;
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, smudgeSampleSourceImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!vkOk(vkAllocateMemory(device_, &allocInfo, nullptr, &smudgeSampleSourceImageMemory_))) {
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!vkOk(vkBindImageMemory(device_, smudgeSampleSourceImage_, smudgeSampleSourceImageMemory_, 0))) {
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = smudgeSampleSourceImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!vkOk(vkCreateImageView(device_, &viewInfo, nullptr, &smudgeSampleSourceImageView_))) {
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(w) * h * 4;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!vkOk(vkCreateBuffer(device_, &bufferInfo, nullptr, &smudgeSampleSourceStagingBuffer_))) {
+        vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, smudgeSampleSourceStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        vkDestroyBuffer(device_, smudgeSampleSourceStagingBuffer_, nullptr); smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!vkOk(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &smudgeSampleSourceStagingBufferMemory_))) {
+        vkDestroyBuffer(device_, smudgeSampleSourceStagingBuffer_, nullptr); smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!vkOk(vkBindBufferMemory(device_, smudgeSampleSourceStagingBuffer_, smudgeSampleSourceStagingBufferMemory_, 0))) {
+        vkDestroyBuffer(device_, smudgeSampleSourceStagingBuffer_, nullptr); smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceStagingBufferMemory_, nullptr); smudgeSampleSourceStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    smudgeSampleSourceWidth_ = w;
+    smudgeSampleSourceHeight_ = h;
+
+    VkDescriptorImageInfo samplerImageInfo{};
+    samplerImageInfo.sampler = smudgeSampleSourceSampler_;
+    samplerImageInfo.imageView = smudgeSampleSourceImageView_;
+    samplerImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = smudgeDescriptorSet_;
+    samplerWrite.dstBinding = 2;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerImageInfo;
+    vkUpdateDescriptorSets(device_, 1, &samplerWrite, 0, nullptr);
+    return true;
+}
+
+bool VulkanStampEngine::uploadSampleSourceTexture(const uint8_t* rgba8, int w, int h) {
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = static_cast<VkDeviceSize>(w) * h * 4;
+    if (!vkOk(vkMapMemory(device_, smudgeSampleSourceStagingBufferMemory_, 0, uploadSize, 0, &mapped))) {
+        return false;
+    }
+    std::memcpy(mapped, rgba8, uploadSize);
+    vkUnmapMemory(device_, smudgeSampleSourceStagingBufferMemory_);
+
+    if (!vkOk(vkResetCommandBuffer(commandBuffer_, 0))) return false;
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!vkOk(vkBeginCommandBuffer(commandBuffer_, &beginInfo))) return false;
+
+    VkImageMemoryBarrier toTransferDst{};
+    toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferDst.oldLayout = smudgeSampleSourceImageLayout_;
+    toTransferDst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferDst.srcAccessMask = 0;
+    toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = smudgeSampleSourceImage_;
+    toTransferDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransferDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+    vkCmdCopyBufferToImage(commandBuffer_, smudgeSampleSourceStagingBuffer_, smudgeSampleSourceImage_,
+                            VK_IMAGE_LAYOUT_GENERAL, 1, &region);
+
+    VkImageMemoryBarrier toShaderRead{};
+    toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.image = smudgeSampleSourceImage_;
+    toShaderRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderRead);
+
+    if (!vkOk(vkEndCommandBuffer(commandBuffer_))) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!vkOk(vkQueueSubmit(queue_, 1, &submitInfo, fence_))) return false;
+    if (!vkOk(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX))) return false;
+    smudgeSampleSourceImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
     return true;
 }
 
@@ -208,7 +435,8 @@ bool VulkanStampEngine::runColorSmudgePlan(
         uint32_t paintColorArgb,
         VkPipeline pipeline,
         uint32_t tileSize,
-        float dilution) {
+        float dilution,
+        bool hasSampleMerged) {
     if (dabs.size() < 2 || pipeline == VK_NULL_HANDLE) return true;
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
@@ -254,6 +482,7 @@ bool VulkanStampEngine::runColorSmudgePlan(
         pc.opacity = std::clamp(d.opacity, 0.0f, 1.0f);
         pc.paintR = paintR; pc.paintG = paintG; pc.paintB = paintB; pc.paintA = paintA;
         pc.dilution = std::clamp(dilution, 0.0f, 1.0f);
+        pc.hasSampleMerged = hasSampleMerged ? 1.0f : 0.0f;
         vkCmdPushConstants(commandBuffer_, smudgePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(pc), &pc);
     };
@@ -351,16 +580,37 @@ bool VulkanStampEngine::colorSmudge(
         float feathering,
         bool smearAlpha,
         uint32_t paintColorArgb,
-        float dilution) {
+        float dilution,
+        const uint8_t* sampleSourceRgba8,
+        int sampleSourceWidth,
+        int sampleSourceHeight) {
     if (!isInitialized() || dabs.size() < 2) return false;
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
     if (!ensureColorSmudgeCarrier(static_cast<size_t>(diameter) * diameter)) return false;
     if (!benchmarkColorSmudge(radiusPx)) return false;
+
+    // Item 11 (Sample Merged): the composite is recomputed once per stroke on the Kotlin side, not
+    // per dab, so it's uploaded once here rather than per dispatch inside runColorSmudgePlan()'s
+    // loop -- same "upload once per call" discipline stampMaskedDabs() uses for its dab buffers.
+    // Unlike ensureGrainTexture()'s caller, which only re-uploads when maskWidth/maskHeight change
+    // (a stable tip for a whole stroke), this always re-uploads whenever a sample source is
+    // supplied: its *content* changes every stroke even when its dimensions match the previous
+    // call, because it's a fresh composite of the other layers' current pixels, not a cached tip.
+    const bool hasSampleMerged =
+        sampleSourceRgba8 != nullptr && sampleSourceWidth > 0 && sampleSourceHeight > 0;
+    if (hasSampleMerged) {
+        if (!ensureSampleSourceTexture(sampleSourceWidth, sampleSourceHeight)) return false;
+        if (!uploadSampleSourceTexture(sampleSourceRgba8, sampleSourceWidth, sampleSourceHeight)) {
+            return false;
+        }
+    }
+
     const uint32_t tile = smudgeBenchmark_.selectedTileSize;
     const VkPipeline pipeline = tile == 8 ? smudgePipeline8_ : smudgePipeline16_;
     return runColorSmudgePlan(
-        dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile, dilution);
+        dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile, dilution,
+        hasSampleMerged);
 }
 
 void VulkanStampEngine::destroyColorSmudgeResources() {
@@ -377,6 +627,16 @@ void VulkanStampEngine::destroyColorSmudgeResources() {
     if (smudgeCarrierMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, smudgeCarrierMemory_, nullptr); smudgeCarrierMemory_ = VK_NULL_HANDLE; }
     smudgeCarrierCapacity_ = 0;
     smudgeBenchmark_ = {};
+
+    if (smudgeSampleSourceSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, smudgeSampleSourceSampler_, nullptr); smudgeSampleSourceSampler_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, smudgeSampleSourceImageView_, nullptr); smudgeSampleSourceImageView_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, smudgeSampleSourceImage_, nullptr); smudgeSampleSourceImage_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, smudgeSampleSourceImageMemory_, nullptr); smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, smudgeSampleSourceStagingBuffer_, nullptr); smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE; }
+    if (smudgeSampleSourceStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, smudgeSampleSourceStagingBufferMemory_, nullptr); smudgeSampleSourceStagingBufferMemory_ = VK_NULL_HANDLE; }
+    smudgeSampleSourceWidth_ = 0;
+    smudgeSampleSourceHeight_ = 0;
+    smudgeSampleSourceImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 }  // namespace graffux

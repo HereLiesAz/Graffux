@@ -7,6 +7,13 @@ layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
 
 layout(binding = 0, rgba8) uniform image2D layerImage;
 layout(std430, binding = 1) buffer CarrierBuffer { vec4 carrier[]; };
+// Item 11 (Sample Merged): the pre-composited "what the artist can see" buffer, matching
+// ColorSmudgeEngine's readSource -- RGBA8 (not R8, unlike the stamp pipeline's alpha-only grain/
+// mask tiles) since a composite of other layers needs full colour depth. Sampled only via
+// texelFetch (never texture()), which ignores the sampler's filter/wrap state entirely and returns
+// the exact texel -- the CLAMP/NEAREST sampler C++ binds here exists for descriptor-type
+// consistency with the rest of this codebase's sampled textures, not because texelFetch needs it.
+layout(binding = 2) uniform sampler2D sampleSourceTex;
 
 // One pipeline handles all ordered Color Smudge stages. C++ submits phases sequentially with
 // compute->compute barriers between them, so every dab reads the pixels written by the previous dab.
@@ -28,6 +35,7 @@ layout(push_constant) uniform SmudgePush {
     float paintB;
     float paintA;
     float dilution;    // Procreate-style Dilution: 0 deposits pure paint, 1 deposits the sampled/carried colour.
+    float hasSampleMerged; // Item 11: >0.5 reads pickup from sampleSourceTex instead of layerImage.
 } pc;
 
 float brushMask(int dx, int dy) {
@@ -87,11 +95,17 @@ void smearDab() {
 
     int k = local.y * diameter + local.x;
     vec4 under = imageLoad(layerImage, dstPos);
-    vec4 carried = lerpArgb(under, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
+    // Pickup reads sampleSourceTex when Sample Merged is active; the carrier/under blend basis
+    // below always stays on `under` (the active layer's own pixel) regardless -- mirrors
+    // ColorSmudgeEngine.smear()'s `pickedUp` (readSource[idx]) vs `under` (pixels[idx]) split
+    // exactly. With hasSampleMerged <= 0.5, pickedUp == under, reproducing the original single-
+    // imageLoad code path byte-for-byte.
+    vec4 pickedUp = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, dstPos, 0) : under;
+    vec4 carried = lerpArgb(pickedUp, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
     carrier[k] = carried;
     vec4 outColor = lerpArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
     if (pc.colorRate > 0.0) {
-        vec4 pigment = dilutedPigment(under);
+        vec4 pigment = dilutedPigment(pickedUp);
         outColor = lerpArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
@@ -112,7 +126,11 @@ void dullSample() {
             if (!inLayer(p)) continue;
             float weight = clamp(1.0 - distancePx / float(sr), 0.0, 1.0);
             if (weight <= 0.0) continue;
-            sum += imageLoad(layerImage, p) * weight;
+            // Same pickup swap as smearDab(): the weighted-average neighbourhood reduction reads
+            // sampleSourceTex when Sample Merged is active, matching ColorSmudgeEngine.dull()'s
+            // weightedAverage(readSource, ...) call exactly.
+            vec4 texel = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+            sum += texel * weight;
             sumW += weight;
         }
     }
@@ -120,7 +138,11 @@ void dullSample() {
         carrier[0] = rounded8(sum / sumW);
     } else {
         ivec2 p = ivec2(pc.centerX, pc.centerY);
-        carrier[0] = inLayer(p) ? imageLoad(layerImage, p) : vec4(0.0);
+        if (!inLayer(p)) {
+            carrier[0] = vec4(0.0);
+        } else {
+            carrier[0] = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+        }
     }
 }
 

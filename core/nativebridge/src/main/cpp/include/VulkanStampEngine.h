@@ -183,9 +183,20 @@ public:
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
+    //
+    // Item 11 (Sample Merged) follow-up: `sampleSourceRgba8`, when non-null, is a `sampleSourceWidth`
+    // x `sampleSourceHeight` RGBA8 composite of the other visible layers -- the GPU counterpart to
+    // ColorSmudgeEngine.apply's `sampleSource` parameter. When supplied it is uploaded once here
+    // (see ensureSampleSourceTexture()'s doc comment for why this re-uploads unconditionally rather
+    // than gating on a size match), and every dab in this call reads pickup from it instead of the
+    // active layer -- matching the CPU reference's `readSource` vs `pixels` split exactly, see
+    // color_smudge.comp's `pickedUp`/`under` split. `nullptr` (the default) disables it for this
+    // call, same "null disables" optionality every other optional-texture entry point in this
+    // codebase follows (stampMaskedDabs()'s grain/secondary mask).
     bool colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
                      float feathering, bool smearAlpha, uint32_t paintColorArgb,
-                     float dilution = 0.0f);
+                     float dilution = 0.0f, const uint8_t* sampleSourceRgba8 = nullptr,
+                     int sampleSourceWidth = 0, int sampleSourceHeight = 0);
     ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const { return smudgeBenchmark_; }
 
     // Blocks until all dispatched work completes, then reads the layer image back into
@@ -238,7 +249,17 @@ private:
     bool benchmarkColorSmudge(float radiusPx);
     bool runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
                             float feathering, bool smearAlpha, uint32_t paintColorArgb,
-                            VkPipeline pipeline, uint32_t tileSize, float dilution = 0.0f);
+                            VkPipeline pipeline, uint32_t tileSize, float dilution = 0.0f,
+                            bool hasSampleMerged = false);
+    // Item 11 (Sample Merged) follow-up: an RGBA8 sampled image holding the composite of other
+    // visible layers, mirroring ensureGrainTexture()/uploadGrainTexture()'s structure (own sampler/
+    // image/view/staging buffer, re-created only when width/height change) but for 4-byte RGBA
+    // texels at binding 2 on the smudge descriptor set -- the composite must preserve full colour
+    // depth, unlike grain/mask's alpha-only R8 tiles. Unlike grain/mask (stable for a whole
+    // stroke), colorSmudge() re-uploads unconditionally whenever a sample source is supplied: its
+    // *content* (not just its dimensions) changes every stroke.
+    bool ensureSampleSourceTexture(int w, int h);
+    bool uploadSampleSourceTexture(const uint8_t* rgba8, int w, int h);
     void destroyColorSmudgeResources();
 
     int32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties) const;
@@ -299,6 +320,20 @@ private:
     VkPipeline smudgePipeline8_ = VK_NULL_HANDLE;
     VkPipeline smudgePipeline16_ = VK_NULL_HANDLE;
     ColorSmudgeBenchmarkInfo smudgeBenchmark_{};
+
+    // Item 11 (Sample Merged) follow-up -- see ensureSampleSourceTexture()'s doc comment above.
+    // Bound to a 1x1 transparent-black dummy at pipeline setup time (ensureColorSmudgePipelines())
+    // so binding 2 is never left unbound even when Sample Merged is off; pc.hasSampleMerged gates
+    // whether the shader ever reads it, so the dummy's content doesn't matter when it's 0.
+    VkImage smudgeSampleSourceImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory smudgeSampleSourceImageMemory_ = VK_NULL_HANDLE;
+    VkImageView smudgeSampleSourceImageView_ = VK_NULL_HANDLE;
+    VkSampler smudgeSampleSourceSampler_ = VK_NULL_HANDLE;
+    VkBuffer smudgeSampleSourceStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory smudgeSampleSourceStagingBufferMemory_ = VK_NULL_HANDLE;
+    int smudgeSampleSourceWidth_ = 0;
+    int smudgeSampleSourceHeight_ = 0;
+    VkImageLayout smudgeSampleSourceImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;

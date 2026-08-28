@@ -262,6 +262,27 @@ internal class DrawingEngine(
                 mapped, width, height, settings, mappedSamples, stroke.seed,
             )
 
+            // Sample Merged: composite the other visible layers into this layer's own pixel space
+            // (exact resolution match, required by both ColorSmudgeEngine.apply's sampleSource
+            // contract and VulkanStampEngine.colorSmudge's sampleSource contract) so pickup reads
+            // what's actually visible underneath/around this layer instead of only this layer's own
+            // paint. A mismatched/empty result degrades safely to each path's own single-layer
+            // fallback. Computed once, ahead of the GPU attempt below, so the GPU and CPU paths read
+            // the identical composite rather than risking two different other-layer snapshots.
+            val sampleSource = if (settings.sampleMerged) {
+                val others = otherLayers()
+                if (others.isNotEmpty()) {
+                    val composite = exportManager.compositeOtherLayersForSampling(
+                        bitmap, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                        others, stroke.canvasSize.width, stroke.canvasSize.height,
+                    )
+                    val src = IntArray(width * height)
+                    composite.getPixels(src, 0, width, 0, 0, width, height)
+                    composite.recycle()
+                    src
+                } else null
+            } else null
+
             // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
@@ -271,12 +292,12 @@ internal class DrawingEngine(
             // mix now reads the same in-shader source (the destination pixel for Smear, the weighted-
             // average carrier for Dulling) ColorSmudgeEngine.dilutedPigment() reads on the CPU for the
             // non-Sample-Merged case -- see color_smudge.comp's dilutedPigment().
-            // Sample Merged (item 11) has no GPU/color_smudge.comp equivalent -- VulkanColorSmudge
-            // always reads the same texture it's writing into, with no second "read-from" source, and
-            // that's also what the CPU dilution/colorRate math above reads from when sampleMerged is
-            // off. Force CPU rather than silently ignoring the setting and diverging from what the
-            // toggle promises.
-            val gpuPainted = !settings.sampleMerged && runCatching {
+            // Sample Merged (item 11) no longer needs a gate either: VulkanColorSmudge now carries a
+            // second sampled RGBA texture (color_smudge.comp's sampleSourceTex) that `sampleSource`
+            // seeds once per call, and every dab's pickup reads from it instead of the layer image
+            // when supplied -- see color_smudge.comp's `pickedUp`/`under` split, the GPU counterpart
+            // to ColorSmudgeEngine's `readSource`/`pixels` split.
+            val gpuPainted = runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
@@ -292,6 +313,8 @@ internal class DrawingEngine(
                         if (!engine.colorSmudge(
                                 nativeDabs, mode, settings.radiusPx, settings.feathering,
                                 settings.smearAlpha, settings.paintColor, settings.dilution,
+                                sampleSource = sampleSource,
+                                sampleSourceWidth = width, sampleSourceHeight = height,
                             )) return@runCatching false
                     }
                     engine.readback(target)
@@ -303,24 +326,6 @@ internal class DrawingEngine(
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
                 bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-                // Sample Merged: composite the other visible layers into this layer's own pixel
-                // space (exact resolution match, required by ColorSmudgeEngine.apply's
-                // sampleSource contract) so pickup reads what's actually visible underneath/around
-                // this layer instead of only this layer's own paint. A mismatched/empty result
-                // degrades safely to ColorSmudgeEngine's own single-layer fallback.
-                val sampleSource = if (settings.sampleMerged) {
-                    val others = otherLayers()
-                    if (others.isNotEmpty()) {
-                        val composite = exportManager.compositeOtherLayersForSampling(
-                            bitmap, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
-                            others, stroke.canvasSize.width, stroke.canvasSize.height,
-                        )
-                        val src = IntArray(width * height)
-                        composite.getPixels(src, 0, width, 0, 0, width, height)
-                        composite.recycle()
-                        src
-                    } else null
-                } else null
                 ColorSmudgeEngine.apply(
                     pixels, width, height, mapped, settings,
                     samples = mappedSamples, strokeSeed = stroke.seed,
