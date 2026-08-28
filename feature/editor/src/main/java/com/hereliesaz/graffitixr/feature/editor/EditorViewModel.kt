@@ -5517,10 +5517,39 @@ class EditorViewModel @Inject constructor(
     }
 
     fun onToggleOnionSkin() = dispatch(EditorIntent.ToggleOnionSkin)
-    fun onSetOnionSkinFrameCount(count: Int) = dispatch(EditorIntent.SetOnionSkinFrameCount(count))
+    fun onSetOnionSkinPastCount(count: Int) = dispatch(EditorIntent.SetOnionSkinPastCount(count))
+    fun onSetOnionSkinFutureCount(count: Int) = dispatch(EditorIntent.SetOnionSkinFutureCount(count))
     fun onSetAnimationFrameDurationMs(ms: Int) = dispatch(EditorIntent.SetAnimationFrameDurationMs(ms))
     fun onSetAnimationLoopMode(mode: com.hereliesaz.graffitixr.common.model.AnimationLoopMode) =
         dispatch(EditorIntent.SetAnimationLoopMode(mode))
+    fun onSetAnimationRange(start: Int, end: Int) = dispatch(EditorIntent.SetAnimationRange(start, end))
+
+    /** The current frame's hold count — see [com.hereliesaz.graffitixr.common.model.Layer.frameHoldCount]. */
+    fun currentFrameHoldCount(): Int =
+        AnimationFrames.topLevelFrames(_uiState.value.layers)
+            .getOrNull(_uiState.value.activeFrameIndex)?.frameHoldCount ?: 1
+
+    /** Sets the current frame's hold count — see [com.hereliesaz.graffitixr.common.model.Layer.frameHoldCount]. */
+    fun onSetFrameHoldCount(count: Int) {
+        val frame = AnimationFrames.topLevelFrames(_uiState.value.layers)
+            .getOrNull(_uiState.value.activeFrameIndex) ?: return
+        dispatch(EditorIntent.SetFrameHoldCount(frame.id, count))
+    }
+
+    /**
+     * [animationRangeStart]..[animationRangeEnd] resolved against the current frame count: the -1
+     * end sentinel becomes the last frame, and both ends are clamped so a range that outlived a
+     * frame deletion (or was never touched) still names real frames. Empty only when there are no
+     * frames at all. Public so the Animation window can show the actual numeric range rather than
+     * the raw, possibly-sentinel state fields.
+     */
+    fun resolvedPlaybackRange(state: EditorUiState = _uiState.value): IntRange {
+        val lastIndex = AnimationFrames.topLevelFrames(state.layers).size - 1
+        if (lastIndex < 0) return IntRange.EMPTY
+        val end = if (state.animationRangeEnd < 0) lastIndex else state.animationRangeEnd.coerceAtMost(lastIndex)
+        val start = state.animationRangeStart.coerceIn(0, lastIndex)
+        return start.coerceAtMost(end)..end
+    }
 
     /** Frame count == top-level layer count, since that's what a frame *is*. */
     fun animationFrameCount(): Int = AnimationFrames.topLevelFrames(_uiState.value.layers).size
@@ -5563,27 +5592,37 @@ class EditorViewModel @Inject constructor(
         if (_uiState.value.isAnimationPlaying) stopPlayback() else startPlayback()
     }
 
+    /**
+     * Plays within [resolvedPlaybackRange] (Krita's playback range), not necessarily every frame —
+     * so a subrange can loop/preview without touching the layer stack. Each frame's own
+     * [com.hereliesaz.graffitixr.common.model.Layer.frameHoldCount] (Krita's hold frame) multiplies
+     * how long *that* frame is held before advancing.
+     */
     private fun startPlayback() {
-        val count = animationFrameCount()
-        if (count <= 1) return
+        val startRange = resolvedPlaybackRange()
+        if (startRange.last - startRange.first < 1) return
         dispatch(EditorIntent.SetAnimationPlaying(true))
         playbackJob?.cancel()
         playbackJob = viewModelScope.launch(dispatchers.main) {
-            var index = _uiState.value.activeFrameIndex
+            var index = _uiState.value.activeFrameIndex.coerceIn(startRange)
             var forward = true
             while (isActive) {
-                kotlinx.coroutines.delay(_uiState.value.animationFrameDurationMs.toLong())
-                val frames = animationFrameCount()
-                if (frames <= 1) break
+                val holdCount = AnimationFrames.topLevelFrames(_uiState.value.layers)
+                    .getOrNull(index)?.frameHoldCount?.coerceAtLeast(1) ?: 1
+                kotlinx.coroutines.delay(_uiState.value.animationFrameDurationMs.toLong() * holdCount)
+                val range = resolvedPlaybackRange()
+                if (range.last - range.first < 1) break
+                index = index.coerceIn(range)
                 when (_uiState.value.animationLoopMode) {
-                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.LOOP -> index = (index + 1) % frames
+                    com.hereliesaz.graffitixr.common.model.AnimationLoopMode.LOOP ->
+                        index = if (index >= range.last) range.first else index + 1
                     com.hereliesaz.graffitixr.common.model.AnimationLoopMode.PING_PONG -> {
-                        if (forward && index >= frames - 1) forward = false
-                        else if (!forward && index <= 0) forward = true
-                        index = (index + if (forward) 1 else -1).coerceIn(0, frames - 1)
+                        if (forward && index >= range.last) forward = false
+                        else if (!forward && index <= range.first) forward = true
+                        index = (index + if (forward) 1 else -1).coerceIn(range)
                     }
                     com.hereliesaz.graffitixr.common.model.AnimationLoopMode.ONCE -> {
-                        if (index >= frames - 1) break
+                        if (index >= range.last) break
                         index++
                     }
                 }
@@ -5602,7 +5641,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Exports every frame as an animated GIF in Downloads. Each frame composites only its own
+     * Exports [resolvedPlaybackRange] as an animated GIF in Downloads — Krita's playback range, so a
+     * subrange can be exported without touching the layer stack. Each frame composites only its own
      * subtree — [buildLayerTree] roots at `parentId == null`, so a frame's own layers form a
      * complete tree on their own and group/clip/blend handling comes along unchanged.
      */
@@ -5613,6 +5653,7 @@ class EditorViewModel @Inject constructor(
             Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
             return
         }
+        val range = resolvedPlaybackRange(state)
         stopPlayback()
         viewModelScope.launch(dispatchers.default) {
             dispatch(EditorIntent.SetLoading(true))
@@ -5622,9 +5663,10 @@ class EditorViewModel @Inject constructor(
                 val file = File(dir, "animation_${System.currentTimeMillis()}.gif")
                 val written = com.hereliesaz.graffitixr.feature.editor.animation.AnimationGifWriter.write(
                     file = file,
-                    frameCount = frames.size,
+                    range = range,
                     frameDurationMs = state.animationFrameDurationMs,
                     loopMode = state.animationLoopMode,
+                    holdCountAt = { index -> frames.getOrNull(index)?.frameHoldCount ?: 1 },
                 ) { index ->
                     val frame = frames.getOrNull(index) ?: return@write null
                     val ids = AnimationFrames.frameSubtreeIds(state.layers, frame.id)

@@ -78,7 +78,10 @@ class AnimationFramesTest {
     @Test
     fun `without onion skin only the active frame is visible`() {
         val layers = listOf(layer("a"), layer("b"), layer("c"))
-        val alphas = AnimationFrames.effectiveOpacities(layers, activeFrameIndex = 1, onionSkinEnabled = false, onionSkinFrameCount = 2)
+        val alphas = AnimationFrames.effectiveOpacities(
+            layers, activeFrameIndex = 1, onionSkinEnabled = false,
+            onionSkinPastCount = 2, onionSkinFutureCount = 2,
+        )
         assertEquals(0f, alphas["a"]!!, 0f)
         assertEquals(1f, alphas["b"]!!, 0f)
         assertEquals(0f, alphas["c"]!!, 0f)
@@ -87,7 +90,10 @@ class AnimationFramesTest {
     @Test
     fun `onion skin fades neighbours and hides frames beyond the count`() {
         val layers = listOf(layer("a"), layer("b"), layer("c"), layer("d"))
-        val alphas = AnimationFrames.effectiveOpacities(layers, activeFrameIndex = 2, onionSkinEnabled = true, onionSkinFrameCount = 1)
+        val alphas = AnimationFrames.effectiveOpacities(
+            layers, activeFrameIndex = 2, onionSkinEnabled = true,
+            onionSkinPastCount = 1, onionSkinFutureCount = 1,
+        )
         assertEquals(1f, alphas["c"]!!, 0f)
         // One frame away on each side: faded but visible.
         assertTrue(alphas["b"]!! > 0f && alphas["b"]!! < 1f)
@@ -103,9 +109,28 @@ class AnimationFramesTest {
             layer("g", type = LayerType.GROUP),
             layer("child", parentId = "g"),
         )
-        val alphas = AnimationFrames.effectiveOpacities(layers, activeFrameIndex = 1, onionSkinEnabled = true, onionSkinFrameCount = 1)
+        val alphas = AnimationFrames.effectiveOpacities(
+            layers, activeFrameIndex = 1, onionSkinEnabled = true,
+            onionSkinPastCount = 1, onionSkinFutureCount = 1,
+        )
         assertEquals(alphas["g"], alphas["child"])
         assertEquals(1f, alphas["g"]!!, 0f)
+    }
+
+    @Test
+    fun `onion skin counts are independent per direction`() {
+        val layers = listOf(layer("a"), layer("b"), layer("c"), layer("d"), layer("e"))
+        // Active is "c" (index 2): 2 frames of history allowed behind, none ahead.
+        val alphas = AnimationFrames.effectiveOpacities(
+            layers, activeFrameIndex = 2, onionSkinEnabled = true,
+            onionSkinPastCount = 2, onionSkinFutureCount = 0,
+        )
+        assertEquals(1f, alphas["c"]!!, 0f)
+        assertTrue(alphas["a"]!! > 0f)
+        assertTrue(alphas["b"]!! > 0f)
+        // Future is capped at 0, so "d" (one frame ahead) stays hidden despite being closer than "a".
+        assertEquals(0f, alphas["d"]!!, 0f)
+        assertEquals(0f, alphas["e"]!!, 0f)
     }
 
     // ── Reducer transitions ──────────────────────────────────────────────────────────────────
@@ -147,9 +172,33 @@ class AnimationFramesTest {
     }
 
     @Test
-    fun `onion skin count is clamped to a usable range`() {
+    fun `onion skin counts are clamped to a usable range, independently per direction`() {
         val s = EditorUiState()
-        assertEquals(1, EditorReducer.reduce(s, EditorIntent.SetOnionSkinFrameCount(0)).onionSkinFrameCount)
-        assertEquals(5, EditorReducer.reduce(s, EditorIntent.SetOnionSkinFrameCount(99)).onionSkinFrameCount)
+        assertEquals(0, EditorReducer.reduce(s, EditorIntent.SetOnionSkinPastCount(-1)).onionSkinPastCount)
+        assertEquals(5, EditorReducer.reduce(s, EditorIntent.SetOnionSkinPastCount(99)).onionSkinPastCount)
+        assertEquals(0, EditorReducer.reduce(s, EditorIntent.SetOnionSkinFutureCount(-1)).onionSkinFutureCount)
+        assertEquals(5, EditorReducer.reduce(s, EditorIntent.SetOnionSkinFutureCount(99)).onionSkinFutureCount)
+    }
+
+    @Test
+    fun `SetFrameHoldCount sets the hold count on the target frame only`() {
+        val s = EditorUiState(layers = listOf(layer("a"), layer("b")))
+        val out = EditorReducer.reduce(s, EditorIntent.SetFrameHoldCount("a", 4))
+        assertEquals(4, out.layers.first { it.id == "a" }.frameHoldCount)
+        assertEquals(1, out.layers.first { it.id == "b" }.frameHoldCount)
+        // Clamped rather than rejected, same policy as everywhere else in this file.
+        assertEquals(60, EditorReducer.reduce(s, EditorIntent.SetFrameHoldCount("a", 999)).layers.first { it.id == "a" }.frameHoldCount)
+        assertEquals(1, EditorReducer.reduce(s, EditorIntent.SetFrameHoldCount("a", 0)).layers.first { it.id == "a" }.frameHoldCount)
+    }
+
+    @Test
+    fun `SetAnimationRange stores the range, keeping the -1 end sentinel untouched`() {
+        val s = EditorUiState()
+        val out = EditorReducer.reduce(s, EditorIntent.SetAnimationRange(2, 5))
+        assertEquals(2, out.animationRangeStart)
+        assertEquals(5, out.animationRangeEnd)
+        // -1 means "the last frame, whatever that currently is" — resolved at read time, not here.
+        val stillOpenEnded = EditorReducer.reduce(s, EditorIntent.SetAnimationRange(2, -1))
+        assertEquals(-1, stillOpenEnded.animationRangeEnd)
     }
 }

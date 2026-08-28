@@ -200,13 +200,14 @@ fun EditorScreen(
                         // (the normal editor), every frame stays at 1 and this is a no-op.
                         val frameAlphas = remember(
                             uiState.layers, uiState.isAnimationMode, uiState.activeFrameIndex,
-                            uiState.onionSkinEnabled, uiState.onionSkinFrameCount,
+                            uiState.onionSkinEnabled, uiState.onionSkinPastCount, uiState.onionSkinFutureCount,
                         ) {
                             if (!uiState.isAnimationMode) emptyMap() else AnimationFrames.effectiveOpacities(
                                 uiState.layers,
                                 uiState.activeFrameIndex,
                                 uiState.onionSkinEnabled,
-                                uiState.onionSkinFrameCount,
+                                uiState.onionSkinPastCount,
+                                uiState.onionSkinFutureCount,
                             )
                         }
                         layerTree.forEach { node ->

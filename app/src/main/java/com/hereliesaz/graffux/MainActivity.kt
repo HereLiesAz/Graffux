@@ -1189,6 +1189,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // which meant the panel could be shut with the mode still running (onion skins still
                 // drawn, playback still going) and nothing on screen saying so.
                 if (uiState.isAnimationMode) {
+                    val playbackRange = vm.resolvedPlaybackRange()
                     AnimationWindow(
                         // vm.animationFrameCount(), not `layers.count { it.parentId == null }`.
                         // Every other part of Animation Assist counts frames through
@@ -1202,18 +1203,25 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         activeFrameIndex = uiState.activeFrameIndex,
                         isPlaying = uiState.isAnimationPlaying,
                         onionSkinEnabled = uiState.onionSkinEnabled,
-                        onionSkinFrameCount = uiState.onionSkinFrameCount,
+                        onionSkinPastCount = uiState.onionSkinPastCount,
+                        onionSkinFutureCount = uiState.onionSkinFutureCount,
                         loopMode = uiState.animationLoopMode,
                         frameDurationMs = uiState.animationFrameDurationMs,
+                        rangeStart = playbackRange.first,
+                        rangeEnd = playbackRange.last,
+                        currentFrameHoldCount = vm.currentFrameHoldCount(),
                         isTimeLapseRecording = uiState.isTimeLapseRecording,
                         onTogglePlayback = { vm.onToggleAnimationPlayback() },
                         onPreviousFrame = { vm.onPreviousFrame() },
                         onNextFrame = { vm.onNextFrame() },
                         onAddFrame = { vm.onAddFrame() },
                         onToggleOnionSkin = { vm.onToggleOnionSkin() },
-                        onSetOnionSkinFrameCount = { vm.onSetOnionSkinFrameCount(it) },
+                        onSetOnionSkinPastCount = { vm.onSetOnionSkinPastCount(it) },
+                        onSetOnionSkinFutureCount = { vm.onSetOnionSkinFutureCount(it) },
                         onSetLoopMode = { vm.onSetAnimationLoopMode(it) },
                         onSetFrameDurationMs = { vm.onSetAnimationFrameDurationMs(it) },
+                        onSetRange = { start, end -> vm.onSetAnimationRange(start, end) },
+                        onSetFrameHoldCount = { vm.onSetFrameHoldCount(it) },
                         onExport = { vm.exportAnimation() },
                         onToggleTimeLapse = { vm.onToggleTimeLapseRecording() },
                         onDismiss = { vm.onToggleAnimationMode() },

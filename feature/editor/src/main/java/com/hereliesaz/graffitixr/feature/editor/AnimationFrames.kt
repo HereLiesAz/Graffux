@@ -44,26 +44,31 @@ object AnimationFrames {
 
     /**
      * Per-layer opacity multiplier for Animation Assist rendering: 1 for the active frame's own
-     * subtree, a fading fraction for up to [onionSkinFrameCount] neighbouring frames on each side
-     * when [onionSkinEnabled], 0 (hidden) for every other frame. A layer outside every frame's
-     * subtree (shouldn't happen — every layer resolves up to some top-level root) is simply absent
-     * from the result, so callers should default a missing id to 1 rather than 0.
+     * subtree, a fading fraction for up to [onionSkinPastCount] neighbours behind the active frame
+     * and up to [onionSkinFutureCount] ahead of it when [onionSkinEnabled] — Krita-style asymmetric
+     * onion skinning, so e.g. history can fade in behind a clean line with nothing shown ahead of
+     * it. 0 (hidden) for every other frame. A layer outside every frame's subtree (shouldn't
+     * happen — every layer resolves up to some top-level root) is simply absent from the result, so
+     * callers should default a missing id to 1 rather than 0.
      */
     fun effectiveOpacities(
         layers: List<Layer>,
         activeFrameIndex: Int,
         onionSkinEnabled: Boolean,
-        onionSkinFrameCount: Int,
+        onionSkinPastCount: Int,
+        onionSkinFutureCount: Int,
     ): Map<String, Float> {
         val tree = buildLayerTree(layers)
         if (tree.isEmpty()) return emptyMap()
         val result = mutableMapOf<String, Float>()
         tree.forEachIndexed { index, node ->
-            val distance = kotlin.math.abs(index - activeFrameIndex)
+            val distance = index - activeFrameIndex
+            val side = if (distance < 0) onionSkinPastCount else onionSkinFutureCount
+            val magnitude = kotlin.math.abs(distance)
             val alpha = when {
-                distance == 0 -> 1f
-                onionSkinEnabled && distance <= onionSkinFrameCount ->
-                    (ONION_MAX_ALPHA * (1f - distance.toFloat() / (onionSkinFrameCount + 1))).coerceAtLeast(ONION_MIN_ALPHA)
+                magnitude == 0 -> 1f
+                onionSkinEnabled && magnitude <= side ->
+                    (ONION_MAX_ALPHA * (1f - magnitude.toFloat() / (side + 1))).coerceAtLeast(ONION_MIN_ALPHA)
                 else -> 0f
             }
             subtreeIds(node).forEach { id -> result[id] = alpha }

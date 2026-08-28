@@ -114,6 +114,16 @@ data class Layer(
      */
     val layoutWidth: Float = 0f,
     val layoutHeight: Float = 0f,
+    /**
+     * Krita's "hold frame": how many animation ticks this frame's Animation Assist frame (see
+     * [AnimationFrames]) stays on screen before playback advances to the next one, as a multiple
+     * of the shared [EditorUiState.animationFrameDurationMs] base tick. Only meaningful on a
+     * top-level layer (a frame root) — lets uneven timing (a long hold on a key pose, a quick
+     * in-between) live on the frame itself instead of needing a duplicate layer to eat the extra
+     * ticks. 1 (no hold) for every ordinary layer and for every frame until the user asks
+     * otherwise.
+     */
+    val frameHoldCount: Int = 1,
 )
 
 /**
@@ -266,10 +276,23 @@ data class EditorUiState(
     val isAnimationPlaying: Boolean = false,
     val activeFrameIndex: Int = 0,
     val onionSkinEnabled: Boolean = false,
-    // Frames shown faded on each side of the active one when onion skinning is on.
-    val onionSkinFrameCount: Int = 1,
+    // Krita's onion skin: past and future neighbours fade in independently, so you can e.g. see
+    // three frames of history behind a clean line with nothing ahead of it. Each count is frames
+    // shown faded on that side of the active one when onion skinning is on.
+    val onionSkinPastCount: Int = 1,
+    val onionSkinFutureCount: Int = 1,
     val animationFrameDurationMs: Int = 100,
     val animationLoopMode: AnimationLoopMode = AnimationLoopMode.LOOP,
+    /**
+     * Krita's playback range: which frames Play and GIF export actually cycle through, distinct
+     * from which frames *exist* — so a subrange can be previewed/exported without touching the
+     * layer stack. -1 means "the last frame, whatever that currently is" rather than a frame count
+     * baked in here, since the frame count is derived from the layer stack and can change out from
+     * under this state. Frame stepping (Prev/Next/onSelectFrame) ignores the range and always
+     * reaches every frame — the range only gates Play and export.
+     */
+    val animationRangeStart: Int = 0,
+    val animationRangeEnd: Int = -1,
     // Brush Studio's working copy. Non-null means the editor is open; the draft is applied to the
     // live brush on every edit (so the canvas previews it), and only written to disk on Save.
     val brushStudioDraft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
