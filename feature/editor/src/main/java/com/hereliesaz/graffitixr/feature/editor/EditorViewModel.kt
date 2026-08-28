@@ -34,6 +34,7 @@ import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
+import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
@@ -499,6 +500,11 @@ class EditorViewModel @Inject constructor(
     private var stampLiveBitmap: Bitmap? = null
     private var stampLiveCanvas: Canvas? = null
     private var stampStampedCount: Int = 0
+    // Item 13's airbrush held-run dabs (AirbrushEngine.heldDabs) are tracked as their own
+    // independent incremental prefix, painted after each frame's new movement dabs -- see the
+    // live-preview block below for why this can't just be concatenated with [stampStampedCount]'s
+    // movement-dab list the way commit/replay concatenates them in DrawingEngine.
+    private var stampHeldStampedCount: Int = 0
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
@@ -3012,6 +3018,7 @@ class EditorViewModel @Inject constructor(
             val currentSeed = System.nanoTime()
             stampSeed = currentSeed
             stampStampedCount = 0
+            stampHeldStampedCount = 0
             stampLiveBitmap = null
             stampLiveCanvas = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
@@ -3434,9 +3441,33 @@ class EditorViewModel @Inject constructor(
             } else {
                 BrushStamps.dabs(stampMappedPoints, diameterPx, stampBrush, stampSeed)
             }
-            if (dabs.size > stampStampedCount) {
-                val newDabs = dabs.subList(stampStampedCount, dabs.size)
+            // Item 13's airbrush held-run dabs, tracked as their own independent incremental
+            // prefix (see [stampHeldStampedCount]'s doc comment) computed from the same growing
+            // mappedSamples -- painted after this frame's new movement dabs below, rather than
+            // concatenated with `dabs` the way DrawingEngine's commit/replay path concatenates
+            // them, because the concatenated list is NOT a stable-growing prefix as more samples
+            // arrive (a later frame's new movement dabs would need to be inserted *before* an
+            // earlier frame's already-painted held dabs to match commit's dabs-then-held ordering,
+            // which incremental repaint can't do without repainting the whole stroke every frame).
+            // Net effect: within one frame, movement-then-held ordering matches commit exactly;
+            // across frames, a held run's dabs can end up painted before a *later* movement dab
+            // that arrives after it, which only visibly differs from commit if the stroke's path
+            // later crosses back over that same held-still position -- a narrow, documented
+            // residual gap, not the "no live build-up at all" gap this replaces.
+            val heldDabs = if (stampBrush.airbrushDabsPerSecond > 0f && mappedSamples.isNotEmpty()) {
+                AirbrushEngine.heldDabs(
+                    mappedSamples, diameterPx, stampBrush,
+                    stampBrush.airbrushDabsPerSecond, stampBrush.airbrushStillnessRadiusPx, stampSeed,
+                )
+            } else {
+                emptyList()
+            }
+            val hasNewMovementDabs = dabs.size > stampStampedCount
+            val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
+            if (hasNewMovementDabs || hasNewHeldDabs) {
                 val colorArgb = _uiState.value.activeColor.toArgb()
+                if (hasNewMovementDabs) {
+                val newDabs = dabs.subList(stampStampedCount, dabs.size)
                 // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
                 // stampGpuActive's doc comment for the fallback contract, and
                 // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke uses. A
@@ -3529,6 +3560,23 @@ class EditorViewModel @Inject constructor(
                     )
                 }
                 stampStampedCount = dabs.size
+                }
+                if (hasNewHeldDabs) {
+                    // Airbrush held dabs are always painted on the CPU, matching the reference
+                    // commit/replay path (DrawingEngine's stamp-brush branch deposits held dabs
+                    // CPU-only regardless of GPU live-preview availability -- see item 13's
+                    // Vulkan target note). There is no GPU dispatch for this secondary dab source,
+                    // only for the primary movement dabs above; both draw onto the same
+                    // `work` bitmap/`canvas`, so ordering between this block and the movement-dab
+                    // block above (movement first, held second, every frame) is deterministic.
+                    val newHeldDabs = heldDabs.subList(stampHeldStampedCount, heldDabs.size)
+                    StampBrushRenderer.paintDabs(
+                        canvas, newHeldDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
+                        stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke, stampSeed,
+                        _uiState.value.secondaryColor.toArgb(),
+                    )
+                    stampHeldStampedCount = heldDabs.size
+                }
                 _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
             }
             return
@@ -5596,6 +5644,7 @@ class EditorViewModel @Inject constructor(
         stampLiveBitmap = null
         stampLiveCanvas = null
         stampStampedCount = 0
+        stampHeldStampedCount = 0
         stampBrushForStroke = null
         stampShapeForStroke = null
         stampGrainForStroke = null
