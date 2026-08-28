@@ -4328,27 +4328,25 @@ class EditorViewModel @Inject constructor(
         // right after this returns). The async commit only clears the live preview if it's still ours —
         // otherwise a stroke that started before this commit finished would have its preview wiped.
         val previewBitmap = stampLiveBitmap
+        // The pre-stroke height base (roadmap item 12): applySingleStroke deposits *this* stroke's own
+        // dabs onto it fresh below, so this must be the layer's height map from before this stroke —
+        // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
+        // live-preview drag and would double-deposit if reused here.
+        val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, base.width * base.height)).copyOf()
         viewModelScope.launch(dispatchers.default) {
-            val work = SafeBitmap.copy(base) ?: return@launch
-            val mapped = ImageProcessor.mapScreenToBitmap(
-                points, canvasW, canvasH, work.width, work.height, scale, offset, rotationZ
-            )
-            val brushScale = ImageProcessor.screenToBitmapScale(canvasW, canvasH, work.width, work.height, scale)
-            val pts = ArrayList<Float>(mapped.size * 2)
-            mapped.forEach { pts.add(it.x); pts.add(it.y) }
-            val hard = SelectionMask.bitmapPath(selection, work.width, work.height, scale, offset, rotationZ)
-            val radius = SelectionMask.featherRadius(selection, work.width, work.height, scale)
-            val commitCanvas = Canvas(work)
-            SelectionMask.clip(commitCanvas, SelectionMask.paintClip(hard, radius))
-            StampBrushRenderer.paintStroke(
-                commitCanvas, pts, brush, color, brushSize * brushScale, flow, command.seed, stampShape
-            )
-            val target = SelectionMask.feather(base, work, hard, radius)
+            // Route through the same DrawingEngine.applySingleStroke every other tool's commit and
+            // every undo/redo replay already uses, instead of hand-rolling a paintStroke call here.
+            // The hand-rolled version used to silently drop grain, the masked/dual tip, secondary
+            // color, sensor dynamics, airbrush, and Impasto the instant a stroke committed -- the live
+            // preview rendered all of that correctly, then it vanished on finger-up. `command` already
+            // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
+            val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
+            val target = drawingEngine.applySingleStroke(base, command, otherLayers, heightWorking)
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
             // it doesn't need a resolved dab list this call site doesn't otherwise construct, and
-            // stays correct regardless of exactly how paintStroke/feather resolved the final
-            // pixels. A capture failure (e.g. an OOM building the pixel buffers) is caught and
+            // stays correct regardless of exactly how applySingleStroke resolved the final pixels.
+            // A capture failure (e.g. an OOM building the pixel buffers) is caught and
             // degrades to `null` -- no fast path attached, this stroke's future undo/redo just
             // falls back to the existing full-replay path, same as any stroke this pass doesn't
             // cover.
@@ -4369,7 +4367,9 @@ class EditorViewModel @Inject constructor(
                 _uiState.update { s ->
                     val clearPreview = s.liveStrokeBitmap === previewBitmap
                     s.copy(
-                        layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it },
+                        layers = s.layers.map {
+                            if (it.id == layerId) it.copy(bitmap = target, heightMap = heightWorking) else it
+                        },
                         liveStrokeLayerId = if (clearPreview) null else s.liveStrokeLayerId,
                         liveStrokeBitmap = if (clearPreview) null else s.liveStrokeBitmap,
                     )
