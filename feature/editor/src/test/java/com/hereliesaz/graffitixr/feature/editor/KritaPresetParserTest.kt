@@ -17,7 +17,6 @@ import java.io.ByteArrayOutputStream
 class KritaPresetParserTest {
 
     private val samplePresetXml = """
-        <!DOCTYPE Preset>
         <Preset paintopid="colorsmudge" name="Sample Smudge" embedded_resources="0">
         <param name="Smudge/Rate" type="string">0.72</param>
         <param name="ColorRate/value" type="string">0.35</param>
@@ -127,6 +126,45 @@ class KritaPresetParserTest {
     @Test
     fun `throws when the root element is not Preset`() {
         val bytes = pngWithTextChunk("preset", "<NotAPreset/>")
+
+        assertThrows(KritaPresetParser.ParseException::class.java) {
+            KritaPresetParser.parse(bytes)
+        }
+    }
+
+    @Test
+    fun `a DOCTYPE with an external entity is rejected, not resolved`() {
+        // Attempts to read /etc/hostname into the "name" attribute via XXE. A correctly hardened
+        // parser refuses the DOCTYPE outright (ParseException), never resolving the entity and
+        // never leaking file content into the parsed Preset.
+        val xxe = """
+            <?xml version="1.0"?>
+            <!DOCTYPE Preset [<!ENTITY x SYSTEM "file:///etc/hostname">]>
+            <Preset paintopid="x" name="&x;" embedded_resources="0"/>
+        """.trimIndent()
+        val bytes = pngWithTextChunk("preset", xxe)
+
+        assertThrows(KritaPresetParser.ParseException::class.java) {
+            KritaPresetParser.parse(bytes)
+        }
+    }
+
+    @Test
+    fun `a chunk length near Int overflow fails safely instead of throwing an uncaught Error`() {
+        // A tEXt chunk claiming a length of ~2^31-16 bytes, in a file nowhere near that size.
+        // dataStart + length + 4 must be computed without wrapping to a small/negative Int, or
+        // this reaches copyOfRange() with a corrupted size and throws something other than the
+        // documented ParseException (OutOfMemoryError, NegativeArraySizeException, ...).
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        out.write(intToBytesBE(Int.MAX_VALUE - 16))
+        out.write("tEXt".toByteArray(Charsets.US_ASCII))
+        out.write("preset".toByteArray(Charsets.ISO_8859_1))
+        out.write(0)
+        out.write("not actually this long".toByteArray(Charsets.ISO_8859_1))
+        // No CRC/IEND -- the truncated file is the point; a real file of this claimed length
+        // would be ~2 GiB, which this test deliberately does not construct.
+        val bytes = out.toByteArray()
 
         assertThrows(KritaPresetParser.ParseException::class.java) {
             KritaPresetParser.parse(bytes)
