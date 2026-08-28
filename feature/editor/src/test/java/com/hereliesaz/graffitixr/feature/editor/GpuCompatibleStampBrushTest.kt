@@ -11,13 +11,13 @@ import org.junit.Test
 
 /**
  * [gpuCompatibleStampBrush] decides whether the azphalt stamp-brush live-preview path can hand a
- * stroke to a GPU shader instead of the CPU renderer (item 15 of the roadmap doc). Grain texture
- * or a masked/dual (second) tip still force CPU -- neither `stamp.comp` nor `stamp_masked.comp`
- * samples a grain tile or composites a second tip. A shaped tip and a non-round tipRatio no
- * longer force CPU: [gpuPipelineUsesMaskedShader] routes those two specifically to
- * `stamp_masked.comp` instead of the round-only `stamp.comp`. Color source is resolved to a final
- * per-dab RGB on the CPU before a dab ever reaches either shader, so it was never actually a
- * shader limitation and must NOT gate this.
+ * stroke to a GPU shader instead of the CPU renderer (item 15 of the roadmap doc). Only a
+ * masked/dual (second) tip still forces CPU -- neither `stamp.comp` nor `stamp_masked.comp`
+ * composites a second tip. A shaped tip, a non-round tipRatio, and (as of this pass) a grain
+ * texture no longer force CPU: [gpuPipelineUsesMaskedShader] routes all three to
+ * `stamp_masked.comp` instead of the round-only `stamp.comp`, which has no grain sampler at all.
+ * Color source is resolved to a final per-dab RGB on the CPU before a dab ever reaches either
+ * shader, so it was never actually a shader limitation and must NOT gate this.
  */
 class GpuCompatibleStampBrushTest {
 
@@ -57,10 +57,14 @@ class GpuCompatibleStampBrushTest {
     }
 
     @Test
-    fun `grain texture forces the CPU path`() {
+    fun `grain texture on a round tip is GPU-compatible via the masked pipeline`() {
         val brush = AzphaltBrush(name = "Textured")
 
-        assertFalse(gpuCompatibleStampBrush(brush, shape = null, grain = bitmap, maskShape = null))
+        assertTrue(gpuCompatibleStampBrush(brush, shape = null, grain = bitmap, maskShape = null))
+        // Only the masked shader has a grain sampler binding -- stamp.comp has none at all, so a
+        // round tip with grain still needs stamp_masked.comp even though shape/tipRatio don't ask for it.
+        assertFalse(gpuPipelineUsesMaskedShader(brush, shape = null))
+        assertTrue(gpuPipelineUsesMaskedShader(brush, shape = null, grain = bitmap))
     }
 
     @Test

@@ -136,8 +136,21 @@ public:
     // its own descriptor set/pipeline/dab buffer/mask texture, so a caller that never uses this
     // leaves stampDabs()'s resources untouched. No-op (returns false) if the engine failed init(),
     // `dabs` is empty, or `maskAlpha8` is null.
+    //
+    // Item 15's texture/grain follow-up: `grainAlpha8` is an optional second R8_UNORM tile
+    // (`grainWidth`x`grainHeight`, pre-baked exactly like BrushTipMaskCache.grainMask on the CPU
+    // side, so this only ever multiplies coverage down) sampled per-pixel and multiplied into each
+    // dab's coverage before compositing -- the GPU counterpart to StampBrushRenderer.applyGrain.
+    // `grainCanvasLocked` selects GrainBehavior.CANVAS_LOCKED (true) vs MOVING (false);
+    // `grainScale`/`grainPhaseX`/`grainPhaseY` mirror AzphaltBrush.grainScale and the caller's
+    // already-resolved per-stroke phase (grainOffsetX/Y plus any grainRandomOffsetPerStroke draw).
+    // Passing `grainAlpha8 = nullptr` disables grain for this call (a 1x1 all-white dummy texture
+    // is bound instead, making the shader's multiply a no-op).
     bool stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
-                         const uint8_t* maskAlpha8, int maskWidth, int maskHeight);
+                         const uint8_t* maskAlpha8, int maskWidth, int maskHeight,
+                         const uint8_t* grainAlpha8 = nullptr, int grainWidth = 0, int grainHeight = 0,
+                         bool grainCanvasLocked = false, float grainScale = 1.0f,
+                         float grainPhaseX = 0.0f, float grainPhaseY = 0.0f);
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
@@ -176,6 +189,11 @@ private:
     bool ensureMaskedDabBuffer(size_t dabCount);
     bool ensureMaskTexture(int width, int height);
     bool uploadMaskTexture(const uint8_t* alpha8, int width, int height);
+    // Item 15 grain follow-up. Same shape as ensureMaskTexture()/uploadMaskTexture() (an R8_UNORM
+    // sampled image, re-created only when width/height change), bound to a different descriptor
+    // (binding 3) and tracked independently so mask/grain re-uploads are decided separately.
+    bool ensureGrainTexture(int width, int height);
+    bool uploadGrainTexture(const uint8_t* alpha8, int width, int height);
     void destroyMaskedResources();
 
     bool ensureColorSmudgePipelines();
@@ -284,6 +302,20 @@ private:
     int maskWidth_ = 0;
     int maskHeight_ = 0;
     VkImageLayout maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // R8_UNORM grain tile texture (item 15 follow-up), independent from the mask texture above --
+    // re-uploaded via uploadGrainTexture() whenever stampMaskedDabs() is called with a different
+    // grainWidth/grainHeight than last time. A call with no grain uploads a 1x1 all-white dummy
+    // here (see stampMaskedDabs()'s doc comment), so this is never left unbound.
+    VkImage grainImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory grainImageMemory_ = VK_NULL_HANDLE;
+    VkImageView grainImageView_ = VK_NULL_HANDLE;
+    VkSampler grainSampler_ = VK_NULL_HANDLE;
+    VkBuffer grainStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory grainStagingBufferMemory_ = VK_NULL_HANDLE;
+    int grainWidth_ = 0;
+    int grainHeight_ = 0;
+    VkImageLayout grainImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 }  // namespace graffux

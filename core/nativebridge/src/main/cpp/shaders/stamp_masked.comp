@@ -19,6 +19,13 @@ layout(binding = 1, rgba8) uniform image2D layerImage;
 // Single-channel (R8_UNORM) alpha-only tip mask, sampled per-dab in the dab's own rotated/scaled
 // local space. White (1.0) = full coverage, matching stampCoverage()'s convention in stamp.comp.
 layout(binding = 2) uniform sampler2D tipMask;
+// Item 15's texture/grain follow-up: single-channel grain tile, pre-baked on the CPU
+// (BrushTipMaskCache.grainMask -- already folds in GrainBlendMode/grainStrength, so this shader
+// only ever *multiplies coverage down*, exactly like StampBrushRenderer.applyGrain's CPU math).
+// REPEAT wrap + NEAREST filter, matching applyGrain's explicit modulo/floor tiling. When a stroke
+// has no grain, the host binds a 1x1 all-white dummy texture here so this multiply is a no-op --
+// there is no separate "grain enabled" flag.
+layout(binding = 3) uniform sampler2D grainTex;
 
 layout(push_constant) uniform PushConstants {
     uint dabCount;
@@ -29,6 +36,14 @@ layout(push_constant) uniform PushConstants {
     float baseAlpha;
     int originX;
     int originY;
+    // Grain (item 15 follow-up). grainCanvasLocked > 0.5 selects GrainBehavior.CANVAS_LOCKED
+    // (absolute canvas pixel coordinates); otherwise GrainBehavior.MOVING (the dab's own local
+    // offset, unrotated -- matching StampBrushRenderer.applyGrain, which samples the scratch
+    // bitmap's own axis-aligned pixel grid rather than counter-rotating into tip-local space).
+    float grainCanvasLocked;
+    float grainScale;
+    float grainPhaseX;
+    float grainPhaseY;
 } pc;
 
 void main() {
@@ -57,6 +72,16 @@ void main() {
 
         vec2 uv = vec2(rotated.x / (2.0 * halfW) + 0.5, rotated.y / (2.0 * halfH) + 0.5);
         float coverage = texture(tipMask, uv).r;
+        if (coverage <= 0.0) continue;
+
+        vec2 grainSize = vec2(textureSize(grainTex, 0));
+        vec2 grainSource = (pc.grainCanvasLocked > 0.5) ? p : local;
+        float grainScaleSafe = max(pc.grainScale, 0.05);
+        vec2 grainUv = vec2(
+            (grainSource.x / grainScaleSafe + pc.grainPhaseX) / grainSize.x,
+            (grainSource.y / grainScaleSafe + pc.grainPhaseY) / grainSize.y
+        );
+        coverage *= texture(grainTex, grainUv).r;
         if (coverage <= 0.0) continue;
 
         bool hasResolvedPaint = d.paint1.z >= 0.5;

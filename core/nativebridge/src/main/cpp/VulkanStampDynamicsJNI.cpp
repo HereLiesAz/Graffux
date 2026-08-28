@@ -44,7 +44,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedDabs(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jfloat hardness,
-        jbyteArray maskAlpha8, jint maskWidth, jint maskHeight) {
+        jbyteArray maskAlpha8, jint maskWidth, jint maskHeight,
+        jbyteArray grainAlpha8, jint grainWidth, jint grainHeight, jboolean grainCanvasLocked,
+        jfloat grainScale, jfloat grainPhaseX, jfloat grainPhaseY) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData || !maskAlpha8) return JNI_FALSE;
     if (maskWidth <= 0 || maskHeight <= 0) return JNI_FALSE;
@@ -79,9 +81,32 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
 
     jbyte* maskData = env->GetByteArrayElements(maskAlpha8, nullptr);
     if (!maskData) return JNI_FALSE;
+
+    // Grain (item 15 follow-up) is optional -- a null grainAlpha8 (or non-positive dims) disables
+    // it for this call, same "null disables" contract stampMaskedDabs() already documents.
+    jbyte* grainData = nullptr;
+    bool hasGrainArray = grainAlpha8 != nullptr && grainWidth > 0 && grainHeight > 0;
+    if (hasGrainArray) {
+        const jsize grainLen = env->GetArrayLength(grainAlpha8);
+        if (static_cast<jlong>(grainLen) < static_cast<jlong>(grainWidth) * grainHeight) {
+            env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
+            return JNI_FALSE;
+        }
+        grainData = env->GetByteArrayElements(grainAlpha8, nullptr);
+        if (!grainData) {
+            env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
+            return JNI_FALSE;
+        }
+    }
+
     bool ok = engine->stampMaskedDabs(
         dabs, 0xFFFFFFFFu, std::clamp(hardness, 0.0f, 1.0f),
-        reinterpret_cast<const uint8_t*>(maskData), maskWidth, maskHeight);
+        reinterpret_cast<const uint8_t*>(maskData), maskWidth, maskHeight,
+        hasGrainArray ? reinterpret_cast<const uint8_t*>(grainData) : nullptr,
+        hasGrainArray ? grainWidth : 0, hasGrainArray ? grainHeight : 0,
+        grainCanvasLocked == JNI_TRUE, grainScale, grainPhaseX, grainPhaseY);
+
+    if (grainData) env->ReleaseByteArrayElements(grainAlpha8, grainData, JNI_ABORT);
     env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
 }

@@ -141,6 +141,15 @@ class VulkanStampEngine {
      * counterpart to StampBrushRenderer's masked-tip CPU path (docs/Krita Brush Engine Adoption.md
      * item 15). The mask texture is only re-uploaded natively when its dimensions change from the
      * previous call, so repeated calls with the same tip within one stroke are cheap.
+     *
+     * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
+     * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
+     * grain-tile cache, so this only ever multiplies coverage down, matching
+     * `StampBrushRenderer.applyGrain`'s CPU math. `null` (the default) disables grain for this
+     * call. [grainCanvasLocked]/[grainScale]/[grainPhaseX]/[grainPhaseY] mirror
+     * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
+     * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
+     * draw), same as the CPU path resolves them once per stroke.
      */
     fun stampMaskedDabs(
         dabs: List<MaskedBrushDab>,
@@ -148,11 +157,24 @@ class VulkanStampEngine {
         maskAlpha8: ByteArray,
         maskWidth: Int,
         maskHeight: Int,
+        grainAlpha8: ByteArray? = null,
+        grainWidth: Int = 0,
+        grainHeight: Int = 0,
+        grainCanvasLocked: Boolean = false,
+        grainScale: Float = 1f,
+        grainPhaseX: Float = 0f,
+        grainPhaseY: Float = 0f,
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         require(maskWidth > 0 && maskHeight > 0) { "maskWidth/maskHeight must be positive" }
         require(maskAlpha8.size >= maskWidth * maskHeight) {
             "maskAlpha8 too small: need ${maskWidth * maskHeight}, got ${maskAlpha8.size}"
+        }
+        if (grainAlpha8 != null) {
+            require(grainWidth > 0 && grainHeight > 0) { "grainWidth/grainHeight must be positive when grainAlpha8 is supplied" }
+            require(grainAlpha8.size >= grainWidth * grainHeight) {
+                "grainAlpha8 too small: need ${grainWidth * grainHeight}, got ${grainAlpha8.size}"
+            }
         }
         val flat = FloatArray(dabs.size * 11)
         for (i in dabs.indices) {
@@ -170,8 +192,10 @@ class VulkanStampEngine {
             flat[base + 9] = d.flow
             flat[base + 10] = d.tipRatio
         }
-        return nativeStampMaskedDabs(nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight)
-            .also { if (!it) healthy = false }
+        return nativeStampMaskedDabs(
+            nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
+            grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
+        ).also { if (!it) healthy = false }
     }
 
     /** Persistent Color Smudge pass. The image must already be seeded with [upload]. */
@@ -250,6 +274,13 @@ class VulkanStampEngine {
         maskAlpha8: ByteArray,
         maskWidth: Int,
         maskHeight: Int,
+        grainAlpha8: ByteArray?,
+        grainWidth: Int,
+        grainHeight: Int,
+        grainCanvasLocked: Boolean,
+        grainScale: Float,
+        grainPhaseX: Float,
+        grainPhaseY: Float,
     ): Boolean
     private external fun nativeColorSmudge(
         handle: Long,

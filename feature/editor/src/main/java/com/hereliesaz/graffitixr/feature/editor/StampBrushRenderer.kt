@@ -27,6 +27,31 @@ import kotlin.random.Random
 
 private const val GRAIN_SEED_SALT = 0x475241494E5F5048L
 
+/** [tile] is the pre-baked alpha-only grain bitmap ([BrushTipMaskCache.grainMask]), or null if
+ *  [AzphaltBrush.grainPath]/`grain` resolved to nothing this stroke. [phaseX]/[phaseY] are the
+ *  per-stroke sampling offset: [AzphaltBrush.grainOffsetX]/`Y` plus, when
+ *  [AzphaltBrush.grainRandomOffsetPerStroke] is set, one extra seeded-random draw in
+ *  `[0, tileDimension)` -- see [resolveGrainTileAndPhase]. */
+internal data class GrainResolution(val tile: Bitmap?, val phaseX: Float, val phaseY: Float)
+
+/**
+ * Resolves [grain] into its pre-baked tile plus this stroke's sampling phase -- the single source
+ * of truth both the CPU masked-tip path ([StampBrushRenderer.paintMaskedDabs]) and the GPU masked
+ * pipeline's live-preview setup (`EditorViewModel.onStrokeStart`) call, so the two never drift
+ * apart on how [AzphaltBrush.grainRandomOffsetPerStroke]'s seeded draw is resolved.
+ */
+internal fun resolveGrainTileAndPhase(grain: Bitmap?, brush: AzphaltBrush, seed: Long): GrainResolution {
+    val grainTile = grain?.let {
+        BrushTipMaskCache.grainMask(it, brush.grainBlendMode, brush.grainStrength)
+    }
+    val random = if (brush.grainRandomOffsetPerStroke && grainTile != null) {
+        Random(seed xor GRAIN_SEED_SALT)
+    } else null
+    val phaseX = brush.grainOffsetX + (random?.nextFloat()?.times(grainTile?.width ?: 0) ?: 0f)
+    val phaseY = brush.grainOffsetY + (random?.nextFloat()?.times(grainTile?.height ?: 0) ?: 0f)
+    return GrainResolution(grainTile, phaseX, phaseY)
+}
+
 /**
  * Android correctness renderer for resolved stamp dabs.
  *
@@ -177,14 +202,7 @@ internal object StampBrushRenderer {
         val scratch = DabScratch()
         val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         val baseFlow = flow.coerceIn(0f, 1f)
-        val grainTile = grain?.let {
-            BrushTipMaskCache.grainMask(it, brush.grainBlendMode, brush.grainStrength)
-        }
-        val random = if (brush.grainRandomOffsetPerStroke && grainTile != null) {
-            Random(seed xor GRAIN_SEED_SALT)
-        } else null
-        val grainPhaseX = brush.grainOffsetX + (random?.nextFloat()?.times(grainTile?.width ?: 0) ?: 0f)
-        val grainPhaseY = brush.grainOffsetY + (random?.nextFloat()?.times(grainTile?.height ?: 0) ?: 0f)
+        val (grainTile, grainPhaseX, grainPhaseY) = resolveGrainTileAndPhase(grain, brush, seed)
 
         try {
             dabs.forEach { dab ->
