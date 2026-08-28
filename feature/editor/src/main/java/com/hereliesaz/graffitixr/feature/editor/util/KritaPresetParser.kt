@@ -2,12 +2,18 @@ package com.hereliesaz.graffitixr.feature.editor.util
 
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
+import java.io.ByteArrayOutputStream
 import java.io.StringReader
+import java.util.zip.Inflater
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Reads Krita's `.kpp` brush preset container: a PNG whose `tEXt`/`iTXt`
- * chunks carry the preset XML under the "preset" keyword. Confirmed against
+ * Reads Krita's `.kpp` brush preset container: a PNG whose `tEXt`/`iTXt`/`zTXt`
+ * chunks carry the preset XML under the "preset" keyword -- a real preset is
+ * usually large enough that Krita's writer reaches for the deflate-compressed
+ * `zTXt` form; confirmed by fetching and decompressing a real shipped preset,
+ * `plugins/paintops/defaultpresets/colorsmudge.kpp` (KDE/krita repository).
+ * Confirmed against
  * Krita's own `KisPaintOpPreset::saveToDevice()`/`loadFromDevice()` (PNG text
  * chunk keywords "version"/"preset", root element `<Preset paintopid name
  * embedded_resources>`) and `KisPropertiesConfiguration::toXML()`/`fromXML()`
@@ -104,6 +110,7 @@ object KritaPresetParser {
             when (type) {
                 "tEXt" -> readLatin1TextChunk(data, keyword)?.let { return it }
                 "iTXt" -> readInternationalTextChunk(data, keyword)?.let { return it }
+                "zTXt" -> readCompressedTextChunk(data, keyword)?.let { return it }
                 "IEND" -> return null
             }
             offset = dataStart + length + 4 // + CRC
@@ -117,6 +124,46 @@ object KritaPresetParser {
         val kw = String(data, 0, nul, Charsets.ISO_8859_1)
         if (kw != keyword) return null
         return String(data, nul + 1, data.size - nul - 1, Charsets.ISO_8859_1)
+    }
+
+    /**
+     * A `zTXt` chunk (PNG spec: keyword, NUL, one-byte compression method, then zlib-deflated
+     * Latin-1 text). Krita's own `.kpp` writer reaches for this instead of `tEXt`/`iTXt` for a
+     * "preset" chunk large enough to be worth compressing -- confirmed directly: the real
+     * `plugins/paintops/defaultpresets/colorsmudge.kpp` (fetched from the KDE/krita repository,
+     * `invent.kde.org/graphics/krita`, `master` branch) stores its `"preset"` text this way, not
+     * as `tEXt`/`iTXt`. A compression method other than `0` (deflate) is rejected rather than
+     * guessed at, matching [readInternationalTextChunk]'s existing "unsupported compression"
+     * contract for `iTXt`.
+     */
+    private fun readCompressedTextChunk(data: ByteArray, keyword: String): String? {
+        val nul = data.indexOfByte(0)
+        if (nul < 0) return null
+        val kw = String(data, 0, nul, Charsets.ISO_8859_1)
+        if (kw != keyword) return null
+        val compressionMethod = data.getOrNull(nul + 1)?.toInt() ?: return null
+        if (compressionMethod != 0) {
+            throw ParseException("Unsupported zTXt compression method $compressionMethod for \"$keyword\" chunk")
+        }
+        val compressed = data.copyOfRange(nul + 2, data.size)
+        val inflater = Inflater()
+        inflater.setInput(compressed)
+        val out = ByteArrayOutputStream(compressed.size * 3)
+        val buffer = ByteArray(4096)
+        try {
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+                if (count == 0) {
+                    if (inflater.needsInput() || inflater.needsDictionary()) break
+                }
+                out.write(buffer, 0, count)
+            }
+        } catch (e: Exception) {
+            throw ParseException("Malformed zTXt \"$keyword\" chunk: ${e.message}")
+        } finally {
+            inflater.end()
+        }
+        return String(out.toByteArray(), Charsets.ISO_8859_1)
     }
 
     private fun readInternationalTextChunk(data: ByteArray, keyword: String): String? {
