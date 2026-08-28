@@ -262,21 +262,25 @@ What this pass actually adds is the CPU engine primitive, not the full end-to-en
 
 **Krita behavior adopted:** a height-map channel alongside color that lets brushes build visible paint thickness, later lit/rendered for an impasto look.
 
-**Graffux contract:** not yet defined. No height-map, impasto, or paint-thickness state exists anywhere in the brush model or renderer (the only "thickness" hits in the codebase are unrelated UI/geometry, e.g. ruler bar width in `EditorScreen.kt`).
+**Graffux contract:** `ImpastoEngine` (`core/common/.../azphalt/ImpastoEngine.kt`) is a new, renderer-neutral primitive alongside `BrushStamps`/`Dab`, following the same pattern established for item 11 (Sample Merged): implement and thoroughly test the CPU engine primitive itself, without wiring it into layer persistence yet.
 
-**Determinism/replay:** To be defined.
+`ImpastoEngine.deposit`/`depositStroke` accumulate a normalized 0..1 height value into a caller-owned `FloatArray` height map, using the *same* disc/hardness coverage falloff as colour dabs (`BrushStamps.stampCoverage`) so a dab's thickness footprint lines up with its colour footprint, and the *same* asymptotic accumulation curve alpha build-up already uses (`BrushStamps.buildUp`), so repeated passes thicken paint without ever exceeding 1. `ImpastoEngine.shade` renders a height map into a relief highlight/shadow: a central-difference height gradient approximates a surface normal, dotted against a light direction derived from azimuth/elevation, and expressed as a per-pixel RGB multiplier *relative to a perfectly flat region's baseline* — so an unpainted or flat-height area is provably unchanged regardless of light angle or strength (verified by test), and only sloped/built-up paint gets highlighted or shadowed. A dab's `tipRatio` (elongated tips) is intentionally not modelled in the height footprint — always circular — a documented simplification, not an oversight.
 
-**CPU reference:** Not started.
+**What is deliberately not done in this pass, same rationale as item 11:** nothing here attaches a height map to a `Layer`, threads one through `LayerStore`/save-load/export, calls `deposit` from `StampBrushRenderer`/`DrawingEngine`, or exposes any UI. A real height-map channel needs to be persisted per layer (doubling that layer's per-pixel storage), included in undo/redo snapshots, and composited into every render path (live preview, commit, replay, export) — a materially larger and riskier change than the primitive itself, and one this pass did not attempt without the ability to verify it visually on a running app. Wiring it in, choosing where in the paint pipeline `deposit` is called (per dab, gated by flow/pressure the same way alpha build-up already is), and exposing light-angle/strength controls in Tool Options or Brush Studio are the item's actual remaining scope.
 
-**Vulkan target:** Not started.
+**Determinism/replay:** Both `deposit` and `shade` are pure functions of their inputs (dab geometry/alpha/flow, and the height map itself) — no hidden state, no randomness. Once a height map is threaded through the stroke pipeline, it would need the same recorded-telemetry-only determinism rule as every other resolved-dab quantity (item 1); nothing in this primitive violates that, but nothing yet exercises it end-to-end either.
 
-**UI exposure:** Not started.
+**CPU reference:** Yes, for the primitive itself — `ImpastoEngine`, CPU-only, pure Kotlin (no Android dependency, unlike most of `feature/editor`'s renderer code).
 
-**Tests:** None.
+**Vulkan target:** Not started — no equivalent exists in `stamp.comp` or `VulkanColorSmudge`.
+
+**UI exposure:** Not started, deliberately (see above).
+
+**Tests:** `ImpastoEngineTest.kt` — deposit raises height at a dab's centre and leaves distant pixels untouched, zero `thicknessRate`/non-positive radius is a no-op, repeated deposits build up asymptotically and never exceed 1, coverage follows hardness falloff the same way colour dabs do, a perfectly flat height map is left unchanged by `shade` regardless of light angle or strength, non-positive strength returns an unmodified copy, `shade` never mutates its inputs, a height bump shades its two opposing faces differently (light-direction-dependent), and both functions are deterministic for identical input.
 
 **Dependencies:** Items 4-8 (shares the resolved-dab/color pipeline).
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS — CPU engine primitive implemented and tested; attaching a height map to the layer model (persistence, undo/redo, export), calling `deposit` from the paint pipeline, and UI exposure remain outstanding, and are the actual remaining scope of this item.
 
 ## 13. Airbrush / build-up / wash behavior
 
