@@ -53,8 +53,20 @@ class CustomBrushRepository @Inject constructor(
         _brushes.value = loaded
     }
 
-    /** Creates or overwrites the brush with [id]. Returns false if the write failed. */
+    /**
+     * `id` becomes a filename component (`"$id.json"`) with no other containment check, unlike
+     * the `.azp` extension pipeline this class's own doc comment says it deliberately bypasses --
+     * that pipeline canonical-path-checks every entry it unpacks. Every current caller only ever
+     * passes a value that already round-tripped through this same repository's own `id` field
+     * (originally `UUID.randomUUID().toString()`), so this is defensive hardening against a
+     * future caller, not a fix for a reachable bug today.
+     */
+    private fun isSafeId(id: String): Boolean =
+        id.isNotEmpty() && id.length <= 128 && id.all { it.isLetterOrDigit() || it == '_' || it == '-' }
+
+    /** Creates or overwrites the brush with [id]. Returns false if [id] is unsafe or the write failed. */
     fun save(id: String, brush: AzphaltBrush): Boolean {
+        if (!isSafeId(id)) return false
         val ok = runCatching {
             File(dir, "$id.json").writeText(json.encodeToString(CustomBrush(id, brush.sanitized())))
         }.isSuccess
@@ -63,6 +75,7 @@ class CustomBrushRepository @Inject constructor(
     }
 
     fun delete(id: String) {
+        if (!isSafeId(id)) return
         File(dir, "$id.json").delete()
         refresh()
     }
