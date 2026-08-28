@@ -122,9 +122,11 @@ class ExtensionRepository @Inject constructor(
 
     init {
         ioScope.launch {
-            trustStore = loadCachedTrustStore()
-            installer = AzpInstaller(extensionsRoot, trustStore)
-            _installed.value = scanInstalled()
+            synchronized(lock) {
+                trustStore = loadCachedTrustStore()
+                installer = AzpInstaller(extensionsRoot, trustStore)
+                _installed.value = scanInstalled()
+            }
             refreshTrustStore()
         }
     }
@@ -432,10 +434,17 @@ class ExtensionRepository @Inject constructor(
             if (keys.isEmpty()) return
             val store = TrustStore(keys)
             if (store == trustStore) return
-            File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
-            trustStore = store
-            installer = AzpInstaller(extensionsRoot, store)
-            _installed.value = scanInstalled()
+            // Same lock installFromStream/uninstall take before touching installer/_installed. This
+            // runs once per launch after a blocking network round trip, unsynchronized -- an install
+            // or uninstall landing in that window could have its own, already-correct _installed
+            // write overwritten by this rescan afterward, the same last-writer-wins shape fixed
+            // elsewhere in this app's async publishers (#244, #249).
+            synchronized(lock) {
+                File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
+                trustStore = store
+                installer = AzpInstaller(extensionsRoot, store)
+                _installed.value = scanInstalled()
+            }
         } catch (_: Exception) {
             // Network unavailable — cached keys (if any) are already in use.
         }
