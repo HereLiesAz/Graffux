@@ -301,21 +301,25 @@ What this pass actually adds is the CPU engine primitive, not the full end-to-en
 
 Distinct "wash" accumulation curves (Krita's Wet/dry-brush-style behavior beyond plain alpha build-up) are not addressed by this primitive and remain unstarted — `heldDabs` only adds Krita's *airbrush* half of this item.
 
-**What is deliberately not done in this pass, same rationale as items 11-12:** nothing here calls `heldDabs` from `StampBrushRenderer`/`EditorViewModel`/`DrawingEngine`, and no UI toggle exists. Two specific integration risks make full wiring more than a small addition: (1) `EditorViewModel`'s live stamp-stroke preview repaints incrementally using a dab-count bookkeeping scheme (`stampStampedCount`) to avoid re-painting already-drawn dabs each frame — concatenating a second, independently-indexed dab source into that scheme needs a design decision this pass didn't make; and (2) the Vulkan live-preview GPU-eligibility gate (`gpuCompatibleBrush` in `EditorViewModel`, see item 8's note on `colorSource`) would need to also exclude airbrush brushes, the same way it already excludes non-plain color sources, masked tips, and non-trivial `tipRatio`. Both are concrete, identified blockers to full wiring, not just "didn't get to it" — and are the item's actual remaining scope, alongside a wash-curve primitive and UI.
+**Wired into the commit/replay path, not the live preview:** `AzphaltBrush` gained two fields, `airbrushDabsPerSecond` (0 disables, matching `heldDabs`' own contract) and `airbrushStillnessRadiusPx`, exposed as a collapsed "Airbrush" section in `BrushStudioWindow` (item 18's phone-first pattern). `DrawingEngine.kt`'s stamp-brush branch — the one-shot render `composite()`/`applySingleStroke()` (and therefore commit and every undo/redo replay) already use — now computes `BrushStamps.dynamicDabs(...)` and, when `airbrushDabsPerSecond > 0`, concatenates `AirbrushEngine.heldDabs(...)` onto it before painting, instead of calling the old `paintDynamicStroke` convenience wrapper (byte-identical to before when airbrush is off, since that wrapper did exactly the same two calls internally). This resolves integration risk (2) from the prior pass by sidestepping it entirely — this path has no GPU-eligibility gate to update, only `EditorViewModel`'s *live preview* does.
 
-**Determinism/replay:** `heldDabs` is a pure function of the recorded sample stream (event time, not wall-clock/frame-rate), `brush`, and `seed` — satisfying the determinism rule this item's doc entry already called for, with no additional plumbing needed once a caller wires it in.
+Risk (1) — the live preview's `stampStampedCount` incremental-repaint bookkeeping — is **not** resolved, and airbrush is deliberately **not** wired into that path: a stroke with airbrush enabled previews as an ordinary stroke while dragging, and only gains its held-still build-up once committed. This is a real, visible limitation (the live preview undersells what the final stroke will look like), stated plainly rather than either solving it unsafely or hiding the gap.
 
-**CPU reference:** Yes, for the primitive itself — `AirbrushEngine.heldDabs`, CPU-only, pure Kotlin.
+**What is deliberately not done in this pass:** the live-preview bookkeeping redesign above; a wash-curve primitive; and `heldDabs`' documented simplifications (scatter/rotation/masked-tip resolution not applied to held dabs) remain as before.
 
-**Vulkan target:** Not started.
+**Determinism/replay:** `heldDabs` is a pure function of the recorded sample stream (event time, not wall-clock/frame-rate), `brush`, and `seed`. Now exercised end-to-end: `StrokeCommand.brushSamples` (already recorded per item 1/2's telemetry pipeline) is exactly what `DrawingEngine` feeds it on both commit and replay, so an airbrush stroke's held-run build-up replays identically on undo/redo, not just in theory.
 
-**UI exposure:** Not started, deliberately (see above).
+**CPU reference:** `AirbrushEngine.heldDabs`, CPU-only, pure Kotlin — now called from `DrawingEngine.kt`'s stamp-brush commit/replay path.
 
-**Tests:** `AirbrushEngineTest.kt` — non-positive `dabsPerSecond` disables airbrush entirely, fewer than two real samples produces nothing, a held run deposits dabs at a fixed cadence starting one interval after the anchor (never re-dabbing the anchor's own instant, which the movement path already covers), movement past the stillness radius resets the run without emitting mid-move dabs, a sample just inside vs. just outside the stillness radius extends vs. resets a run, held dab size responds to sensor dynamics resolved at the anchor, and output is deterministic for identical input.
+**Vulkan target:** Not started. (The commit/replay path this item now uses is CPU-only regardless of airbrush, same as every other azphalt stamp-brush commit — GPU is a live-preview-only accelerator, per item 15.)
+
+**UI exposure:** Collapsed "Airbrush" section in `BrushStudioWindow` (Rate, Stillness radius sliders).
+
+**Tests:** `AirbrushEngineTest.kt` (unchanged, still covers the primitive itself) plus new `AirbrushWiringTest.kt` (Robolectric, real `android.graphics`) — a held-still run with airbrush enabled deposits measurably more opacity than the same run without it; `airbrushDabsPerSecond = 0` renders byte-identical across separate calls (confirming the off-path is deterministic and doesn't accidentally engage); a moving stroke (past the stillness radius) is unaffected by airbrush being enabled, checked along its whole path.
 
 **Dependencies:** Items 2-3.
 
-**Completion state:** IN PROGRESS — CPU engine primitive implemented and tested; wiring into the live/commit paint pipeline (with the two identified integration points), a wash-curve primitive, and UI exposure remain outstanding.
+**Completion state:** IN PROGRESS. Airbrush build-up: IMPLEMENTED (CPU), wired into commit/replay, tested end-to-end; NOT wired into the live stroke preview (stated limitation, not a bug). Wash-curve primitive: NOT STARTED.
 
 ## 14. Brush preset schema and Krita preset interoperability
 
