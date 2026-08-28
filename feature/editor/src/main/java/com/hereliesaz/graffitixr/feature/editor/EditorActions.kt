@@ -48,18 +48,19 @@ interface EditorActions {
 
     fun onFeedbackShown()
 
-    // No onDrawingPathFinished / onDoubleTapHintDismissed / onOnboardingComplete. All three were
-    // declared here, implemented in EditorViewModel as an empty `{}` "for interface compliance",
-    // and called by nothing: the drawing surfaces moved to the three-phase
-    // onStrokeStart/onStrokeMove/onStrokeEnd API, and the hint and onboarding flows they belonged to
-    // no longer exist. An interface member that every implementation must write and no caller can
-    // reach is a instruction to write dead code.
+    // No onDrawingPathFinished / onDoubleTapHintDismissed / onOnboardingComplete /
+    // onLayerWarpChanged. All four were declared here, implemented in EditorViewModel, and called
+    // by nothing: the drawing surfaces moved to the three-phase onStrokeStart/onStrokeMove/
+    // onStrokeEnd API and the hint/onboarding flows onDrawingPathFinished/onDoubleTapHintDismissed/
+    // onOnboardingComplete belonged to no longer exist; onLayerWarpChanged wrote Layer.warpMesh, a
+    // field with no reader anywhere (the real mesh-warp feature -- WarpHandles/ImageWarp -- landed
+    // in the same PR as this dead setter and superseded it without anyone removing the old one). An
+    // interface member that every implementation must write and no caller can reach is a
+    // instruction to write dead code.
 
     fun onAdjustClicked()
     fun onColorClicked()
     fun onDismissPanel()
-
-    fun onLayerWarpChanged(layerId: String, mesh: List<Float>)
 
     fun setBrushSize(size: Float)
     fun setActiveColor(color: Color)

@@ -204,14 +204,6 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `SetLayerWarp sets the mesh on the target layer only`() {
-        val s = state(lyr("a"), lyr("b"))
-        val out = reduce(s, EditorIntent.SetLayerWarp("a", listOf(1f, 2f, 3f)))
-        assertEquals(listOf(1f, 2f, 3f), out.layers.first { it.id == "a" }.warpMesh)
-        assertTrue(out.layers.first { it.id == "b" }.warpMesh.isEmpty())
-    }
-
-    @Test
     fun `AppendLayer adds without touching the active layer (spectator path)`() {
         val s = state(lyr("a"), active = "a")
         val out = reduce(s, EditorIntent.AppendLayer(lyr("b")))

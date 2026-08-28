@@ -212,7 +212,6 @@ internal sealed interface EditorIntent {
     /** Sets the background/secondary brush color used by gradient Source/Mix brushes. */
     data class SetSecondaryColor(val color: Color) : EditorIntent
     data object SwapBrushColors : EditorIntent
-    data class SetLayerWarp(val layerId: String, val mesh: List<Float>) : EditorIntent
     /** Sets the active layer's compositing / blend mode (from the blend-mode picker). */
     data class SetBlendMode(val mode: com.hereliesaz.graffitixr.common.model.BlendMode) : EditorIntent
     /** Replaces the vector shapes on [layerId] (recolour, resize, edit). */
