@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
 import com.hereliesaz.aznavrail.AzWindow
 import com.hereliesaz.aznavrail.AzWindowState
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -150,20 +151,24 @@ fun FloatingWindow(
     // isn't waiting for a drag to end before it can act (unlike the onscreen-correction below,
     // which only matters once a position settles).
     //
-    // `.drop(1)` on purpose: the *first* `liveRect` this flow ever sees is the window's raw
-    // mount-time layout, before the onscreen-correction effect below has had a chance to run —
-    // AzWindow's own mount-time clamp only guarantees a minimal sliver, not full containment, so a
-    // window whose content is tall enough to want more than `MaxWindowHeight` (the colour picker's
-    // wheel-plus-tabs-plus-swatches easily does) could measure its very first frame mostly or
-    // entirely outside `containerSize` — nothing has dragged it anywhere, it just hasn't been
-    // corrected onto screen yet. Evaluating that frame here read as a drag that had already
-    // finished, so the window dismissed itself the instant it opened, before the user had touched
-    // it — and every reopen re-ran the same race, so it never seemed to come back. Dropping this
-    // one sample means the feature only ever judges a position the window was actually moved to —
-    // by the correction below, or by the user — never the one it merely started at.
+    // Debounced, not just `.drop(1)`-ed, because more than one mount-time layout pass can land
+    // before anything settles: AzWindow does its OWN internal onGloballyPositioned-driven clamp
+    // (`AzWindowState.onPositioned`, a "minimal sliver" guarantee, separate from and prior to the
+    // onscreen-correction effect below), and several [FloatingWindow]s cascade their initial
+    // position diagonally toward the corner — so a window whose content is tall enough to want more
+    // than `MaxWindowHeight` (the colour picker's wheel-plus-tabs-plus-swatches easily does), opened
+    // as the Nth cascaded window, can measure two or more distinct raw/sliver-clamped frames before
+    // the correction effect ever gets to fully place it onscreen, and a fixed `.drop(1)` only ever
+    // accounts for exactly one of them. Evaluating an intermediate, not-yet-corrected frame here
+    // read as a drag that had already finished, so the window dismissed itself the instant it
+    // opened, before the user had touched it — and every reopen re-ran the same race, so it never
+    // seemed to come back. Waiting for `liveRect` to stop changing for a beat means this only ever
+    // judges a position the window is actually resting at — after every mount-time settle/correction
+    // pass, or after the user's finger stops moving — never one it merely passed through.
     LaunchedEffect(containerSize) {
         snapshotFlow { liveRect }
             .filterNotNull()
+            .debounce(150)
             .drop(1)
             .collect { rect ->
                 if (visibleFraction(rect, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) onDismiss()
