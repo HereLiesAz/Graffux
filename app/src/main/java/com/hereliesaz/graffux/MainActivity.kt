@@ -410,15 +410,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val brushes by vm.installedBrushes.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
 
-    // Resolves and launches the azphalt store's browse intent (spec/store-app.md § Discovery), or
-    // says plainly that none is installed — the spec requires degrading gracefully here, not silently
-    // doing nothing or crashing on ActivityNotFoundException.
-    // Acquisition is delegated (spec/store-app.md), and there are two ways to reach a store: the
-    // Android store app, which hands verified bytes straight back through an Intent, and the web
-    // storefront, which is a browser. Only the second is guaranteed to exist, so the user is asked
-    // rather than silently given whichever happens to be present — which previously meant a toast
-    // saying "no store app is installed" and no way forward at all.
-    val openAzphaltStore: () -> Unit = { showStoreChooser = true }
+    // The rail's "Get Extensions" entry point. In-app browse (BrowseStoreWindow) is the primary way
+    // in now, not the delegated store chooser below — that used to be the only door, and this button
+    // still opened it directly, so the button a user would actually tap to get a brush routed them
+    // straight out to a browser/store app instead of the searchable in-app catalogue one tap away
+    // inside "Manage Extensions". The chooser is still reachable from BrowseStoreWindow's own "Other
+    // sources" button, for what only a real store app can do (Play Billing, chiefly).
+    val openAzphaltStore: () -> Unit = { showBrowseStore = true }
 
     /** Android: browse in the installed store app, or go get one when there isn't one. */
     val browseAzphaltAndroid: () -> Unit = {
@@ -1165,6 +1163,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     StoreWindow(
                         installed = allInstalledExtensions,
                         updatesAvailable = uiState.storeUpdatesAvailable,
+                        installingIds = uiState.storeInstallingIds,
                         onBrowse = { showStoreDialog = false; showBrowseStore = true },
                         onUpdate = { ext ->
                             uiState.storeUpdatesAvailable[ext.id]?.let { latest ->
@@ -1193,7 +1192,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSearch = { vm.onStoreSearch() },
                         onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
                         onBuy = { pkg ->
-                            val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/${pkg.id}"
+                            val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/" +
+                                com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.encodePathSegment(pkg.id)
                             runCatching {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             }.onFailure {
@@ -1251,6 +1251,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         frameDurationMs = uiState.animationFrameDurationMs,
                         rangeStart = playbackRange.first,
                         rangeEnd = playbackRange.last,
+                        rawRangeEnd = uiState.animationRangeEnd,
                         currentFrameHoldCount = vm.currentFrameHoldCount(),
                         isTimeLapseRecording = uiState.isTimeLapseRecording,
                         onTogglePlayback = { vm.onToggleAnimationPlayback() },

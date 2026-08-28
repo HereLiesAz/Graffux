@@ -51,6 +51,12 @@ fun AnimationWindow(
     // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields.
     rangeStart: Int,
     rangeEnd: Int,
+    // The RAW animationRangeEnd (may be -1), separate from the resolved [rangeEnd] above. The Start
+    // slider must round-trip this, not [rangeEnd] -- passing the resolved value back through
+    // onSetRange on every Start drag would silently pin the end to "whatever the last frame happens
+    // to be right now", destroying the -1 sentinel's whole point (tracking new frames as they're
+    // added) the very first time the user touches Start without ever having touched End.
+    rawRangeEnd: Int,
     currentFrameHoldCount: Int,
     isTimeLapseRecording: Boolean,
     onTogglePlayback: () -> Unit,
@@ -138,7 +144,7 @@ fun AnimationWindow(
                     Text("Start", style = MaterialTheme.typography.labelSmall)
                     Slider(
                         value = rangeStart.toFloat(),
-                        onValueChange = { onSetRange(it.roundToInt().coerceAtMost(rangeEnd), rangeEnd) },
+                        onValueChange = { onSetRange(it.roundToInt().coerceAtMost(rangeEnd), rawRangeEnd) },
                         valueRange = 0f..lastFrame.toFloat(),
                     )
                 }

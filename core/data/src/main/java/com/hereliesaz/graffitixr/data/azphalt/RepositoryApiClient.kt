@@ -119,7 +119,7 @@ class RepositoryApiClient @Inject constructor() {
     /** `GET /packages/{id}` (repository-api.md § 3), or null on a 404. */
     fun packageDetail(id: String, baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL): PackageDetail? =
         try {
-            get("$baseUrl/packages/${encode(id)}") { body ->
+            get("$baseUrl/packages/${encodePathSegment(id)}") { body ->
                 AzphaltJson.decodeFromString(PackageDetail.serializer(), body)
             }
         } catch (e: RepositoryException) {
@@ -171,7 +171,7 @@ class RepositoryApiClient @Inject constructor() {
         entitlementToken: String? = null,
         baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL,
     ): DownloadResult {
-        val url = URL("$baseUrl/packages/${encode(id)}/versions/${encode(version)}/download")
+        val url = URL("$baseUrl/packages/${encodePathSegment(id)}/versions/${encodePathSegment(version)}/download")
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 15_000
         connection.readTimeout = 30_000
@@ -195,6 +195,7 @@ class RepositoryApiClient @Inject constructor() {
 
     // ── Plumbing ──────────────────────────────────────────────────────────────────────────────
 
+    /** For a query-string value (`?q=`, `?since=`, the joined `kind=a,b`-style params). */
     private fun encode(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     private fun <T> get(url: String, parse: (String) -> T): T {
@@ -256,5 +257,16 @@ class RepositoryApiClient @Inject constructor() {
     companion object {
         private const val MAX_JSON_BYTES = 4 * 1024 * 1024
         private const val MAX_PAGES = 200
+
+        /**
+         * For a URL **path segment** (a package id/version embedded between slashes), NOT a query
+         * value — [URLEncoder] is `application/x-www-form-urlencoded`, which encodes a space as `+`,
+         * a character a path parser reads literally rather than decoding. An id or version containing
+         * a space (nothing in spec/package-format.md forbids one) would otherwise request a
+         * different, likely-404 path. `+` -> `%20` after [URLEncoder] gives correct path-segment
+         * escaping without pulling in a separate URI-encoding dependency. Public — [AzphaltStoreHandoff]'s
+         * own callers (e.g. building a web-checkout URL for a package id) need the exact same escaping.
+         */
+        fun encodePathSegment(s: String): String = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     }
 }

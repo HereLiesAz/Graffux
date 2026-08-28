@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,11 +34,11 @@ import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
- * Manages installed azphalt extensions and hands off acquiring new ones to a real store app
- * (spec/store-app.md) — Graffux is a host, not a marketplace, so browsing/searching/purchasing lives
- * in a separate, installable app the way it would for any other content the OS handles via an Intent.
- * [onBrowse] resolves and launches that handoff (or reports there's nothing to launch); this window's
- * own job is just the "what's already here" list and letting the user remove any of them.
+ * Manages installed azphalt extensions. [onBrowse] opens the in-app search/browse flow
+ * ([BrowseStoreWindow]) — the primary way to acquire new ones now, backed directly by the azphalt
+ * Repository API — with the delegated store-app/web handoff (spec/store-app.md) still reachable from
+ * there as a secondary route. This window's own job is the "what's already here" list: letting the
+ * user update or remove any of them.
  */
 @Composable
 fun StoreWindow(
@@ -45,6 +46,9 @@ fun StoreWindow(
     /** Installed extension id -> a newer version the azphalt Repository API reports, if any
      *  (spec/repository-api.md § 6 `POST /updates`). Absent = no known update. */
     updatesAvailable: Map<String, String> = emptyMap(),
+    /** Extension ids currently mid-update, for a busy indicator on that card's Update button — the
+     *  same download/install call BrowseStoreWindow shows a spinner for takes just as long here. */
+    installingIds: Set<String> = emptySet(),
     onBrowse: () -> Unit,
     onUpdate: (InstalledExtension) -> Unit = {},
     onUninstall: (String) -> Unit,
@@ -87,6 +91,7 @@ fun StoreWindow(
                     InstalledExtensionCard(
                         extension = extension,
                         updateVersion = updatesAvailable[extension.id],
+                        updating = extension.id in installingIds,
                         onUpdate = { onUpdate(extension) },
                         onUninstall = { pendingUninstall = extension },
                     )
@@ -100,6 +105,7 @@ fun StoreWindow(
 private fun InstalledExtensionCard(
     extension: InstalledExtension,
     updateVersion: String? = null,
+    updating: Boolean = false,
     onUpdate: () -> Unit = {},
     onUninstall: () -> Unit,
 ) {
@@ -135,12 +141,18 @@ private fun InstalledExtensionCard(
         }
         Spacer(Modifier.height(6.dp))
         if (updateVersion != null) {
-            AzButton(
-                text = "Update to $updateVersion",
-                onClick = onUpdate,
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (updating) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                }
+            } else {
+                AzButton(
+                    text = "Update to $updateVersion",
+                    onClick = onUpdate,
+                    shape = AzButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Spacer(Modifier.height(6.dp))
         }
         AzButton(
