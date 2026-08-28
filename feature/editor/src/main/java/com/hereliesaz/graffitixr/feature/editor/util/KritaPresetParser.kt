@@ -45,6 +45,17 @@ object KritaPresetParser {
     internal fun parsePresetXml(xml: String): Preset {
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = false
+        // Untrusted input (a .kpp is just a PNG someone can hand you): disable DOCTYPE entirely,
+        // which by itself blocks XXE (external entities) and billion-laughs (internal entity
+        // expansion) alike, since neither can exist without a DOCTYPE declaration. The other
+        // features are defense in depth in case some parser implementation doesn't honor the
+        // first one for every entity path.
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        factory.isXIncludeAware = false
+        factory.isExpandEntityReferences = false
         val doc = try {
             factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
         } catch (e: Exception) {
@@ -82,7 +93,13 @@ object KritaPresetParser {
             val length = readInt32BE(bytes, offset)
             val type = String(bytes, offset + 4, 4, Charsets.US_ASCII)
             val dataStart = offset + 8
-            if (length < 0 || dataStart + length + 4 > bytes.size) break
+            // Long arithmetic here is load-bearing, not style: a length near Int.MAX_VALUE makes
+            // `dataStart + length + 4` wrap around as an Int and pass the bounds check with a
+            // corrupted (possibly negative) result, which then reaches copyOfRange() with an
+            // effectively arbitrary size and throws something other than ParseException (an
+            // uncaught OutOfMemoryError/NegativeArraySizeException) -- exactly the failure this
+            // function's contract promises callers won't see.
+            if (length < 0 || dataStart.toLong() + length.toLong() + 4L > bytes.size.toLong()) break
             val data = bytes.copyOfRange(dataStart, dataStart + length)
             when (type) {
                 "tEXt" -> readLatin1TextChunk(data, keyword)?.let { return it }
