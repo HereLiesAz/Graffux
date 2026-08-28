@@ -79,6 +79,14 @@ data class Layer(
     val rotationX: Float = 0f,
     val rotationY: Float = 0f,
     val rotationZ: Float = 0f,
+    /**
+     * Opts this layer into 3D-specific controls: X/Y rotation fields in [TransformPanel] and
+     * double-tap-to-cycle-rotation-axis on the canvas, on top of the Z-axis rotation every layer
+     * already has. Off by default -- an ordinary flat layer only ever needs Z, and surfacing X/Y
+     * controls for every layer regardless of whether anything reads them would be UI noise most of
+     * the time this app is used for plain 2D editing.
+     */
+    val is3D: Boolean = false,
     val scale: Float = 1.0f,
     val isInverted: Boolean = false,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
