@@ -1162,7 +1162,11 @@ class EditorViewModel @Inject constructor(
         // elsewhere in this file: applySingleStroke mutates in place.
         val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()
 
-        viewModelScope.launch(dispatchers.default) {
+        // Tracked in rebuildJobs -- see commitStampStroke's identical comment for why: without
+        // this, a fast Undo racing this stroke's own in-flight commit could have its rebuild's
+        // publish overwritten by this coroutine's, silently resurrecting the just-undone stroke.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers, heightWorking)
 
@@ -3012,6 +3016,20 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
 
+    /**
+     * Seeds [layerId]'s pristine base bitmap directly, the way real layer-creation/load code
+     * paths do via the private [putLayerBase] -- but which `EditorIntent.SetLayers` (the usual
+     * test-seeding intent) never does. Without this, `rebuildLayerBitmap`'s null-base early
+     * return makes a test-seeded layer silently skip the `rebuildJobs` cancellation logic
+     * entirely, defeating any test built around it.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun putLayerBaseForTest(layerId: String, bitmap: Bitmap) = putLayerBase(layerId, bitmap)
+
+    /** The job currently registered in [rebuildJobs] for [layerId], if any -- see its own doc. */
+    @androidx.annotation.VisibleForTesting
+    internal fun rebuildJobForTest(layerId: String): kotlinx.coroutines.Job? = rebuildJobs[layerId]
+
     /** Whether item 16's tile-delta fast path actually got attached to the most recent undoable
      *  stroke -- null if there's no undoable Draw entry at all. */
     internal fun topUndoTileDeltaCountForTest(): Int? =
@@ -4333,7 +4351,15 @@ class EditorViewModel @Inject constructor(
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
         // live-preview drag and would double-deposit if reused here.
         val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, base.width * base.height)).copyOf()
-        viewModelScope.launch(dispatchers.default) {
+        // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
+        // cancel each other's stale publishes: without this, a fast Undo landing right after this
+        // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
+        // this coroutine's own publish (already in flight, never cancelled) lands after it and
+        // silently resurrects the just-undone stroke's pixels. Cancelling whatever was previously
+        // in flight for this layer before starting is the same discipline every other publisher
+        // here already follows.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             // Route through the same DrawingEngine.applySingleStroke every other tool's commit and
             // every undo/redo replay already uses, instead of hand-rolling a paintStroke call here.
             // The hand-rolled version used to silently drop grain, the masked/dual tip, secondary
