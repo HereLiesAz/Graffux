@@ -112,7 +112,14 @@ class FigmaRepository @Inject constructor(
         }
         try {
             val code = conn.responseCode
-            if (code !in 200..299) throw FigmaException(describe(code))
+            if (code !in 200..299) {
+                // A revoked/expired token surfaces here as a 403 on the next real call, not at
+                // connect() time -- nothing else ever un-sets isAuthenticated, so without this the
+                // UI kept showing the connected file picker (FigmaWindow) indefinitely after the
+                // token stopped working, instead of falling back to the connect screen.
+                if (code == 403) _isAuthenticated.value = false
+                throw FigmaException(describe(code))
+            }
             val out = ByteArrayOutputStream()
             conn.inputStream.use { copyBounded(it, out, MAX_RESPONSE_BYTES) }
             return out.toByteArray().decodeToString()

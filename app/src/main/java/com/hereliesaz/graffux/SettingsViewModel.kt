@@ -66,11 +66,6 @@ class SettingsViewModel @Inject constructor(
         settings.setCanvasRenderScale(scale)
     }
 
-    /** Re-arm the first-run tutorial/hint flows. */
-    fun resetTutorials() = viewModelScope.launch(dispatchers.io) {
-        settings.clearCompletedTutorials()
-    }
-
     /** Which action each customizable multi-finger gesture triggers — see [GestureSlot]. */
     val gestureMapping: StateFlow<Map<GestureSlot, GestureAction>> =
         settings.gestureMapping.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_GESTURE_MAPPING)

@@ -1162,7 +1162,11 @@ class EditorViewModel @Inject constructor(
         // elsewhere in this file: applySingleStroke mutates in place.
         val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()
 
-        viewModelScope.launch(dispatchers.default) {
+        // Tracked in rebuildJobs -- see commitStampStroke's identical comment for why: without
+        // this, a fast Undo racing this stroke's own in-flight commit could have its rebuild's
+        // publish overwritten by this coroutine's, silently resurrecting the just-undone stroke.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers, heightWorking)
 
@@ -1392,9 +1396,14 @@ class EditorViewModel @Inject constructor(
             if (!tmp.renameTo(file)) {
                 file.delete()
                 if (!tmp.renameTo(file)) {
-                    java.io.FileOutputStream(file).use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
+                    // Last resort: copy tmp's already-fully-written bytes onto file, rather than
+                    // re-compressing straight into it. Re-compressing here was the exact
+                    // truncated-on-crash write this whole tmp+rename dance exists to avoid -- and
+                    // a second, redundant chance for compress() to throw. tmp is deleted only
+                    // after the copy actually lands, so a copy failure (e.g. disk full) leaves
+                    // the known-good tmp file behind instead of silently discarding it while file
+                    // sits truncated.
+                    tmp.copyTo(file, overwrite = true)
                     tmp.delete()
                 }
             }
@@ -1959,9 +1968,12 @@ class EditorViewModel @Inject constructor(
     /** Remove the Mockup wall photo: clears the persisted background URI and the live bitmap. */
     fun clearBackgroundImage() {
         viewModelScope.launch(dispatchers.io) {
-            projectRepository.currentProject.value?.let { project ->
-                projectRepository.updateProject(project.copy(backgroundImageUri = null))
-            }
+            // The transform overload, not updateProject(project.copy(...)) -- same reasoning as
+            // setBackgroundImage above: the plain overload writes whatever snapshot the caller
+            // captured unconditionally, silently reverting anything else that changed in the gap
+            // (e.g. a debounced autosave landing between this coroutine's dispatch and its own
+            // run), and it isn't mutex-protected against a concurrent delete the way this is.
+            projectRepository.updateProject { current -> current.copy(backgroundImageUri = null) }
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.SetBackgroundBitmap(null))
             }
@@ -2977,8 +2989,10 @@ class EditorViewModel @Inject constructor(
         colorBalanceG = colorBalanceG,
         colorBalanceB = colorBalanceB,
         isImageLocked = isImageLocked,
+        alphaLock = alphaLock,
         isInverted = isInverted,
-        blendMode = blendMode
+        blendMode = blendMode,
+        clipToLayerBelow = clipToLayerBelow,
     )
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
@@ -3011,6 +3025,20 @@ class EditorViewModel @Inject constructor(
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
+    /**
+     * Seeds [layerId]'s pristine base bitmap directly, the way real layer-creation/load code
+     * paths do via the private [putLayerBase] -- but which `EditorIntent.SetLayers` (the usual
+     * test-seeding intent) never does. Without this, `rebuildLayerBitmap`'s null-base early
+     * return makes a test-seeded layer silently skip the `rebuildJobs` cancellation logic
+     * entirely, defeating any test built around it.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun putLayerBaseForTest(layerId: String, bitmap: Bitmap) = putLayerBase(layerId, bitmap)
+
+    /** The job currently registered in [rebuildJobs] for [layerId], if any -- see its own doc. */
+    @androidx.annotation.VisibleForTesting
+    internal fun rebuildJobForTest(layerId: String): kotlinx.coroutines.Job? = rebuildJobs[layerId]
 
     /** Whether item 16's tile-delta fast path actually got attached to the most recent undoable
      *  stroke -- null if there's no undoable Draw entry at all. */
@@ -3864,7 +3892,12 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs, same discipline as processNewStroke/commitStampStroke: a
+            // glee audit found this launch (and CLONE's/LIQUIFY's below) was never registered,
+            // so a fast Undo right after a BLUR/SHARPEN/SMUDGE commit could have its rebuild's
+            // publish overwritten by this coroutine's still-in-flight one.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 // Through the replay path rather than a second composite of its own. This branch
                 // used to build the clip itself and pass the HARD path straight in, which meant a
                 // blur inside a feathered selection committed with a hard edge and then replayed
@@ -3949,7 +3982,9 @@ class EditorViewModel @Inject constructor(
             history.pushDraw(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 val cloned = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -4000,7 +4035,9 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 val warped = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -4205,7 +4242,9 @@ class EditorViewModel @Inject constructor(
             // also cover the fast-stroke fallback, which never reaches this code.)
             if (featherRadius > 0f && base != null) {
                 val preview = workBitmap
-                viewModelScope.launch(dispatchers.default) {
+                // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+                rebuildJobs[layerId]?.cancel()
+                rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                     val committed = drawingEngine.applySingleStroke(base, command)
                     withContext(dispatchers.main) {
                         _uiState.update { s ->
@@ -4333,7 +4372,15 @@ class EditorViewModel @Inject constructor(
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
         // live-preview drag and would double-deposit if reused here.
         val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, base.width * base.height)).copyOf()
-        viewModelScope.launch(dispatchers.default) {
+        // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
+        // cancel each other's stale publishes: without this, a fast Undo landing right after this
+        // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
+        // this coroutine's own publish (already in flight, never cancelled) lands after it and
+        // silently resurrects the just-undone stroke's pixels. Cancelling whatever was previously
+        // in flight for this layer before starting is the same discipline every other publisher
+        // here already follows.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             // Route through the same DrawingEngine.applySingleStroke every other tool's commit and
             // every undo/redo replay already uses, instead of hand-rolling a paintStroke call here.
             // The hand-rolled version used to silently drop grain, the masked/dual tip, secondary
@@ -6592,8 +6639,17 @@ class EditorViewModel @Inject constructor(
         editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveHandle(it, index, outgoing, x, y, mirror) }
 
     /** Each of these is a discrete action, so it brackets its own history entry and saves. */
-    fun onInsertPathNode(segmentIndex: Int, t: Float) = discretePathEdit {
-        com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t)
+    fun onInsertPathNode(segmentIndex: Int, t: Float) {
+        val applied = discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t) }
+        if (!applied) return
+        // A glee audit found the selection went stale here: insertNode() inserts the new node at
+        // segmentIndex + 1 and shifts every later node's index up by one, but selectedNodeIndex
+        // was left untouched -- so a node selected past the insertion point silently became a
+        // handle on whichever node now sits at its old index, one before the one the user actually
+        // had selected. Shift it the same way the node list itself just shifted.
+        _uiState.value.selectedNodeIndex?.let { selected ->
+            if (selected > segmentIndex) dispatch(EditorIntent.SelectPathNode(selected + 1))
+        }
     }
 
     fun onDeletePathNode(index: Int) {
@@ -6627,14 +6683,17 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetPathShape(layerId, transform(shape)))
     }
 
-    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
-        val layerId = _uiState.value.pathEditLayerId ?: return
-        val shape = pathShapeOf(layerId) ?: return
+    /** @return whether [transform] actually changed the shape (a no-op transform, e.g. an
+     *  out-of-range index, applies nothing and returns false). */
+    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape): Boolean {
+        val layerId = _uiState.value.pathEditLayerId ?: return false
+        val shape = pathShapeOf(layerId) ?: return false
         val next = transform(shape)
-        if (next == shape) return
+        if (next == shape) return false
         pushHistory()
         dispatch(EditorIntent.SetPathShape(layerId, next))
         saveProject()
+        return true
     }
 
     // ── Figma import ─────────────────────────────────────────────────────────────────────────
@@ -6828,6 +6887,27 @@ class EditorViewModel @Inject constructor(
 
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
 
+    /**
+     * Stamp-brush presets that ship with the app, with no extension install and no Brush Studio
+     * setup required -- see [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes] for why
+     * these exist: without them, a fresh install's only paintable options were the legacy Round
+     * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
+     * brush built before there's anything to paint with).
+     */
+    val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+
+    /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
+    fun selectBuiltInBrush(name: String) {
+        val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        activeStampBrush = brush
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
     /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
     val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
         customBrushRepository.brushes
@@ -6968,27 +7048,6 @@ class EditorViewModel @Inject constructor(
             }
             // Bracketed: the rail's Opacity slider drives this, once per emitted sample.
             continuousEdit { dispatch(EditorIntent.SetLayerShapes(active.id, recoloured)) }
-        }
-    }
-
-    override fun adjustColorLightness(delta: Float) {
-        adjustColorHSV(lightnessDelta = delta, saturationDelta = 0f)
-    }
-
-    override fun adjustColorHSV(lightnessDelta: Float, saturationDelta: Float) {
-        _uiState.update { state ->
-            val c = state.activeColor
-            val hsv = FloatArray(3)
-            android.graphics.Color.RGBToHSV(
-                (c.red * 255).toInt(),
-                (c.green * 255).toInt(),
-                (c.blue * 255).toInt(),
-                hsv
-            )
-            hsv[1] = (hsv[1] + saturationDelta).coerceIn(0f, 1f)
-            hsv[2] = (hsv[2] + lightnessDelta).coerceIn(0f, 1f)
-            val newArgb = android.graphics.Color.HSVToColor(hsv)
-            state.copy(activeColor = Color(newArgb).copy(alpha = c.alpha))
         }
     }
 

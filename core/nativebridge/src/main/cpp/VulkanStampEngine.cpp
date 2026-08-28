@@ -17,6 +17,22 @@ namespace graffux {
 
 namespace {
 
+// A pooled VulkanStampEngine reuses maskImage_/grainImage_/secondaryMaskImage_ across strokes and
+// across brushes; dimensions alone don't identify content, so two different tip/grain bitmaps
+// that happen to share a size (common -- built-in tips and grain tiles are normalized to a
+// handful of standard sizes) would otherwise be treated as "unchanged" and the second one's pixels
+// would never actually upload, silently stamping with the first one's stale texture. FNV-1a over
+// the raw bytes is cheap (these buffers are at most a few KB) and collision-safe enough for a
+// same-process staleness check.
+uint64_t fnv1a(const uint8_t* data, size_t length) {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (size_t i = 0; i < length; ++i) {
+        hash ^= data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
 // Push constants for stamp.comp — layout and field order must match the shader's
 // `layout(push_constant) uniform PushConstants` block exactly (std430 scalar packing: all four
 // members are 4 bytes, so no padding is inserted between them).
@@ -2006,9 +2022,14 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     if (!secondaryDabs.empty() && secondaryDabs.size() != dabs.size()) return false;
     if (!ensureMaskedPipeline()) return false;
     if (!ensureMaskedDabBuffer(dabs.size())) return false;
-    bool maskIsNew = maskImage_ == VK_NULL_HANDLE || maskWidth != maskWidth_ || maskHeight != maskHeight_;
+    uint64_t maskHash = fnv1a(maskAlpha8, static_cast<size_t>(maskWidth) * static_cast<size_t>(maskHeight));
+    bool maskIsNew = maskImage_ == VK_NULL_HANDLE || maskWidth != maskWidth_ || maskHeight != maskHeight_ ||
+                      maskHash != maskContentHash_;
     if (!ensureMaskTexture(maskWidth, maskHeight)) return false;
-    if (maskIsNew && !uploadMaskTexture(maskAlpha8, maskWidth, maskHeight)) return false;
+    if (maskIsNew) {
+        if (!uploadMaskTexture(maskAlpha8, maskWidth, maskHeight)) return false;
+        maskContentHash_ = maskHash;
+    }
 
     // Grain (item 15 follow-up): a real tile if the caller supplied one, otherwise fall back to
     // the 1x1 dummy ensureMaskedPipeline() already bound -- re-requesting it here is a cheap
@@ -2017,8 +2038,12 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     bool haveGrain = grainAlpha8 != nullptr && grainWidth > 0 && grainHeight > 0;
     int effectiveGrainWidth = haveGrain ? grainWidth : 1;
     int effectiveGrainHeight = haveGrain ? grainHeight : 1;
+    uint64_t grainHash = haveGrain
+                              ? fnv1a(grainAlpha8, static_cast<size_t>(effectiveGrainWidth) *
+                                                        static_cast<size_t>(effectiveGrainHeight))
+                              : 0xFFULL;  // matches the dummy byte below (255), so a repeated no-grain call is a no-op
     bool grainIsNew = grainImage_ == VK_NULL_HANDLE || effectiveGrainWidth != grainWidth_ ||
-                       effectiveGrainHeight != grainHeight_;
+                       effectiveGrainHeight != grainHeight_ || grainHash != grainContentHash_;
     if (!ensureGrainTexture(effectiveGrainWidth, effectiveGrainHeight)) return false;
     if (grainIsNew) {
         if (haveGrain) {
@@ -2027,6 +2052,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
             const uint8_t dummyGrain = 255;
             if (!uploadGrainTexture(&dummyGrain, 1, 1)) return false;
         }
+        grainContentHash_ = grainHash;
     }
 
     // Masked/dual-brush (item 15 follow-up): same "real if supplied, else 1x1 dummy" pattern as
@@ -2036,9 +2062,14 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
                           secondaryMaskWidth > 0 && secondaryMaskHeight > 0;
     int effectiveSecondaryMaskWidth = haveSecondary ? secondaryMaskWidth : 1;
     int effectiveSecondaryMaskHeight = haveSecondary ? secondaryMaskHeight : 1;
+    uint64_t secondaryMaskHash =
+        haveSecondary ? fnv1a(secondaryMaskAlpha8, static_cast<size_t>(effectiveSecondaryMaskWidth) *
+                                                        static_cast<size_t>(effectiveSecondaryMaskHeight))
+                      : 0xFFULL;  // matches the dummy byte below, so a repeated no-secondary call is a no-op
     bool secondaryMaskIsNew = secondaryMaskImage_ == VK_NULL_HANDLE ||
                                effectiveSecondaryMaskWidth != secondaryMaskWidth_ ||
-                               effectiveSecondaryMaskHeight != secondaryMaskHeight_;
+                               effectiveSecondaryMaskHeight != secondaryMaskHeight_ ||
+                               secondaryMaskHash != secondaryMaskContentHash_;
     if (!ensureSecondaryMaskTexture(effectiveSecondaryMaskWidth, effectiveSecondaryMaskHeight)) return false;
     if (secondaryMaskIsNew) {
         if (haveSecondary) {
@@ -2050,6 +2081,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
             const uint8_t dummySecondaryMask = 255;
             if (!uploadSecondaryMaskTexture(&dummySecondaryMask, 1, 1)) return false;
         }
+        secondaryMaskContentHash_ = secondaryMaskHash;
     }
     // The secondary dab buffer's *content* changes every dispatch (different dab geometry) even
     // when dab count doesn't, unlike the mask/grain textures (same tip for a whole stroke) -- so

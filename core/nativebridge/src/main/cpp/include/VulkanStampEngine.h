@@ -374,6 +374,9 @@ private:
     int maskWidth_ = 0;
     int maskHeight_ = 0;
     VkImageLayout maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Content hash of the last-uploaded mask, since two different tips can share maskWidth_/
+    // maskHeight_ (see stampMaskedDabs()'s "maskIsNew" doc comment).
+    uint64_t maskContentHash_ = 0;
 
     // R8_UNORM grain tile texture (item 15 follow-up), independent from the mask texture above --
     // re-uploaded via uploadGrainTexture() whenever stampMaskedDabs() is called with a different
@@ -388,6 +391,8 @@ private:
     int grainWidth_ = 0;
     int grainHeight_ = 0;
     VkImageLayout grainImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Content hash of the last-uploaded grain tile, for the same reason as maskContentHash_.
+    uint64_t grainContentHash_ = 0;
 
     // Masked/dual-brush secondary tip (item 15 follow-up). secondaryDabBuffer_/staging mirror
     // maskedDabBuffer_/staging (binding 5, GpuSecondaryDab instead of GpuDab); secondaryMaskImage_
@@ -410,6 +415,8 @@ private:
     int secondaryMaskWidth_ = 0;
     int secondaryMaskHeight_ = 0;
     VkImageLayout secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Content hash of the last-uploaded secondary mask, for the same reason as maskContentHash_.
+    uint64_t secondaryMaskContentHash_ = 0;
 };
 
 }  // namespace graffux

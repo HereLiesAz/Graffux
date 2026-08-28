@@ -212,9 +212,6 @@ fun SettingsScreen(
             HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
-            TextButton(onClick = vm::resetTutorials) {
-                Text("Reset tutorials & hints")
-            }
             TextButton(onClick = { showNotices = true }) {
                 Text("Open-source notices")
             }
