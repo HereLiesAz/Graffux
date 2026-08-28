@@ -1392,9 +1392,14 @@ class EditorViewModel @Inject constructor(
             if (!tmp.renameTo(file)) {
                 file.delete()
                 if (!tmp.renameTo(file)) {
-                    java.io.FileOutputStream(file).use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
+                    // Last resort: copy tmp's already-fully-written bytes onto file, rather than
+                    // re-compressing straight into it. Re-compressing here was the exact
+                    // truncated-on-crash write this whole tmp+rename dance exists to avoid -- and
+                    // a second, redundant chance for compress() to throw. tmp is deleted only
+                    // after the copy actually lands, so a copy failure (e.g. disk full) leaves
+                    // the known-good tmp file behind instead of silently discarding it while file
+                    // sits truncated.
+                    tmp.copyTo(file, overwrite = true)
                     tmp.delete()
                 }
             }
@@ -1959,9 +1964,12 @@ class EditorViewModel @Inject constructor(
     /** Remove the Mockup wall photo: clears the persisted background URI and the live bitmap. */
     fun clearBackgroundImage() {
         viewModelScope.launch(dispatchers.io) {
-            projectRepository.currentProject.value?.let { project ->
-                projectRepository.updateProject(project.copy(backgroundImageUri = null))
-            }
+            // The transform overload, not updateProject(project.copy(...)) -- same reasoning as
+            // setBackgroundImage above: the plain overload writes whatever snapshot the caller
+            // captured unconditionally, silently reverting anything else that changed in the gap
+            // (e.g. a debounced autosave landing between this coroutine's dispatch and its own
+            // run), and it isn't mutex-protected against a concurrent delete the way this is.
+            projectRepository.updateProject { current -> current.copy(backgroundImageUri = null) }
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.SetBackgroundBitmap(null))
             }
