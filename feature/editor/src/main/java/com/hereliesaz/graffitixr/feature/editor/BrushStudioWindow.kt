@@ -56,6 +56,7 @@ fun BrushStudioWindow(
     var showTexture by remember { mutableStateOf(false) }
     var showMaskedTip by remember { mutableStateOf(false) }
     var showTaper by remember { mutableStateOf(false) }
+    var showAirbrush by remember { mutableStateOf(false) }
 
     if (confirmingDelete) {
         ConfirmDialog(
@@ -224,6 +225,26 @@ fun BrushStudioWindow(
                 Text(
                     "Fades size/opacity near the start and end of a stroke. Finger lift-off additionally " +
                         "slows the end fade with recorded speed, so a slow lift tapers more than a fast one.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            AzButton(
+                text = if (showAirbrush) "Airbrush ▴" else "Airbrush ▾",
+                onClick = { showAirbrush = !showAirbrush },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showAirbrush) {
+                ParamSlider("Rate", draft.airbrushDabsPerSecond, 0f..60f, unit = "/s") { v ->
+                    onEdit { it.copy(airbrushDabsPerSecond = v) }
+                }
+                ParamSlider("Stillness radius", draft.airbrushStillnessRadiusPx, 0f..40f, unit = "px") { v ->
+                    onEdit { it.copy(airbrushStillnessRadiusPx = v) }
+                }
+                Text(
+                    "0 disables airbrush. Above 0, holding the pointer roughly still keeps depositing paint " +
+                        "at this rate, on top of ordinary movement dabs. Only shows up once the stroke is " +
+                        "released, not in the live preview while dragging.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
