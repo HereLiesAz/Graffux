@@ -48,7 +48,7 @@ Completion states used throughout:
 
 **Vulkan target:** Resolved dab values (not the routing logic itself) are consumed by the widened Vulkan dab ABI (see item 3 below and the Color Smudge section).
 
-**UI exposure:** Brush Studio's collapsed Dynamics section; useful default mappings ship out of the box (see item 17).
+**UI exposure:** Brush Studio's collapsed Dynamics section; useful default mappings ship out of the box (see item 18).
 
 **Tests:** `BrushSensorDynamicsTest.kt`.
 
@@ -69,21 +69,30 @@ Color Smudge (Smear, Dulling, Color Rate — see below) has its own persistent V
 - *Dulling*: sample a weighted color beneath the brush over a configurable smudge radius, then mix/fill the current dab with that sampled color while preserving the brush mask.
 - *Color Rate*: deposit the current foreground paint separately from the smudge stage, independently controllable from smudge strength.
 
-Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity, alpha carry behavior, and optional sensor/response-curve routes for Smudge Rate, Color Rate, Smudge Radius, and shared opacity. `Tool.SMUDGE`'s default maps to Smear with zero Color Rate.
+**One engine, not two: Krita Color Smudge and Procreate Wet Mix are the same model.** An earlier draft of `Native Rendering Engine Design.md` proposed Wet Mix (Charge/Dilution/Pull/Attack/Grade) as new fields on `AzphaltBrush` — a second, parallel paint-simulation system alongside this one. That proposal is now retracted: Procreate's vocabulary and Krita's vocabulary describe the same read/modify/write operation from two products' angles, so the reconciled design is two additional `ColorSmudgeEngine.Settings` fields rather than a second engine:
 
-**Determinism/replay:** Color Smudge settings are snapshotted onto each Smudge `StrokeCommand`, so undo/redo replays the mode, rates, radius, alpha behavior, and sensor routes used when the stroke was made rather than whatever Tool Options contains later.
+- `chargeDecayRate` (default `0`) generalizes `colorRate` into Procreate's actual Charge: `charge(t) = colorRate * exp(-chargeDecayRate * t)`, `t` the arc-length distance travelled in bitmap pixels. At the default `0`, `colorRate` stays flat — historical Krita Color Rate, byte-identical. Above `0`, deposition decays with distance and the brush settles into a pure `smudgeRate`-driven smudge once depleted, exactly matching Procreate's documented dry-brush end state — that behavior falls out of the decay formula by construction, not as a special case.
+- `dilution` (default `0`) is Procreate's Dilution: the pigment about to be deposited is itself pre-mixed with the colour already under the brush before blending into the canvas at the (possibly decaying) `colorRate`. Default `0` deposits pure `paintColor`, matching historical Color Rate deposition exactly; `1` deposits the sampled/carried colour essentially unchanged, so no new pigment reaches the canvas even though `colorRate` is still being "spent".
+- `smudgeRate` *is* Procreate's Pull, and needed no change — same quantity, different product's name for it.
+- Procreate's remaining Wet Mix sliders (Attack, Grade, Blur, Wetness Jitter) needed no new fields: they already map onto `opacity`/`smudgeRate` (Attack), `Mode.DULLING`'s sample radius and `dynamics` sensor routes (Grade/Jitter), and `feathering` (Blur).
 
-**CPU reference:** Yes — the CPU engine is the correctness/reference fallback and parity target for the Vulkan path.
+Both new fields resolve once, in the shared `resolve()` used by the CPU raster path and by `resolvePlans()` (the plan Vulkan will eventually consume) — the same "resolve before renderer-specific code" rule every other item in this document follows, so a future Vulkan Wet Mix path inherits the decay/dilution math instead of reimplementing it.
 
-**Vulkan target:** Implemented — persistent read/modify/write compute path with device-adaptive tile size.
+Settings: mode (Smear/Dulling), smudge rate, color rate, charge decay rate, dilution, smudge radius, opacity, alpha carry behavior, and optional sensor/response-curve routes for Smudge Rate, Color Rate, Smudge Radius, and shared opacity. `Tool.SMUDGE`'s default maps to Smear with zero Color Rate, zero charge decay, and zero dilution — all Wet Mix behavior is opt-in.
 
-**UI exposure:** Mode, Smudge Rate, Color Rate, radius, opacity, and alpha-carry controls appear only in the transient Tool Options window while Smudge is active (see item 17).
+**Determinism/replay:** Color Smudge settings (including the two Wet Mix fields) are snapshotted onto each Smudge `StrokeCommand`, so undo/redo replays the mode, rates, decay, dilution, radius, alpha behavior, and sensor routes used when the stroke was made rather than whatever Tool Options contains later. Both new fields are pure functions of already-deterministic inputs (arc-length distance, the colour already at a pixel) — no new randomness or replay dependency.
 
-**Tests:** Smear direction/alpha/strength/flat-color-invariance tests, Dulling weighted-sampling/radius tests, Color Rate/mixed-pigment tests, an instrumentation parity/benchmark test for the Vulkan path.
+**CPU reference:** Yes — the CPU engine is the correctness/reference fallback and parity target for the Vulkan path, including the two Wet Mix fields.
+
+**Vulkan target:** Implemented for the pre-reconciliation feature set (Smear/Dulling/flat Color Rate) — persistent read/modify/write compute path with device-adaptive tile size. `chargeDecayRate`/`dilution` are not yet in `VulkanColorSmudge.cpp`'s shader; a stroke using either currently only has the CPU path (the same "resolved but not yet ported to `stamp.comp`/`color_smudge.comp`" pattern already used for masks/texture/color-source in item 15).
+
+**UI exposure:** Mode, Smudge Rate, Color Rate, radius, opacity, and alpha-carry controls appear in the transient Tool Options window while Smudge is active, same as before; a collapsed "Wet Mix" section there now exposes Charge decay and Dilution, following the same progressive-disclosure pattern as Brush Studio's collapsed sections (see item 18).
+
+**Tests:** Smear direction/alpha/strength/flat-color-invariance tests, Dulling weighted-sampling/radius tests, Color Rate/mixed-pigment tests, an instrumentation parity/benchmark test for the Vulkan path. `ColorSmudgeWetMixTest.kt` — default `chargeDecayRate`/`dilution` reproduce flat Color Rate exactly, charge decay deposits less pigment as the stroke travels, depleted charge settles into a pure smudge without tinting an untouched pixel, `resolvePlans` exposes the same decayed `colorRate` the CPU raster path consumes (the GPU-parity contract above), dilution mixes deposited pigment toward the colour already under the brush, and `dilution = 0` is byte-identical to omitting it.
 
 **Dependencies:** Items 1-2.
 
-**Completion state:** IMPLEMENTED (CPU+GPU); Adreno/Mali physical-device benchmark numbers are still outstanding (see item 16) — build success on both ARM native targets is not treated as a substitute for running the instrumentation on physical hardware.
+**Completion state:** IMPLEMENTED (CPU+GPU) for the pre-reconciliation feature set; IMPLEMENTED (CPU) for the reconciled Wet Mix fields (`chargeDecayRate`/`dilution`) — Vulkan parity for those two in `color_smudge.comp` is outstanding, the same "resolved on CPU, not yet ported to the shader" gap item 15 tracks for `stamp.comp`'s mask/texture/color-source stages, just in the sibling Color Smudge compute path instead. Adreno/Mali physical-device benchmark numbers remain outstanding for the whole Vulkan path (see item 17) — build success on both ARM native targets is not treated as a substitute for running the instrumentation on physical hardware.
 
 ## 4. Dynamic spacing
 
@@ -97,7 +106,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **Vulkan target:** Vulkan consumes resolved dab geometry/count; the spacing decision itself is CPU-side.
 
-**UI exposure:** Ratio/spacing controls near the top of Brush Studio (see item 17).
+**UI exposure:** Ratio/spacing controls near the top of Brush Studio (see item 18).
 
 **Tests:** Legacy spacing compatibility, ratio-aware placement, dynamic spacing, independent primary/secondary random stream tests.
 
@@ -117,7 +126,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **Vulkan target:** None yet — `stamp.comp` has no mask/texture logic; masked/textured brushes fall back to the CPU correctness renderer (tracked as item 14).
 
-**UI exposure:** Masked Tip section in Brush Studio, collapsed by default (see item 17).
+**UI exposure:** Masked Tip section in Brush Studio, collapsed by default (see item 18).
 
 **Tests:** `KritaTipTextureMaskTest.kt`; tip-mask cache reuse and elliptical raster geometry coverage.
 
@@ -137,7 +146,7 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **Vulkan target:** None — not referenced by `stamp.comp` (tracked as item 14).
 
-**UI exposure:** Texture section in Brush Studio, collapsed by default (see item 17).
+**UI exposure:** Texture section in Brush Studio, collapsed by default (see item 18).
 
 **Tests:** `KritaTipTextureMaskTest.kt`; moving-versus-canvas-locked grain phase coverage.
 

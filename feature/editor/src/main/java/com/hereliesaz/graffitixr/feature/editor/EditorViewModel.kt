@@ -5443,6 +5443,14 @@ class EditorViewModel @Inject constructor(
     fun setColorSmudgeColorRate(amount: Float) =
         _colorSmudgeSettings.update { it.copy(colorRate = amount.coerceIn(0f, 1f)) }
 
+    /** Procreate's Charge decay: 0 keeps Color Rate flat (default); >0 lets it deplete with distance. */
+    fun setColorSmudgeChargeDecayRate(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(chargeDecayRate = amount.coerceAtLeast(0f)) }
+
+    /** Procreate's Dilution: how much deposited pigment pre-mixes with the colour already there. */
+    fun setColorSmudgeDilution(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
+
     fun setColorSmudgeRadius(amount: Float) =
         _colorSmudgeSettings.update { it.copy(smudgeRadius = amount.coerceIn(0.05f, 3f)) }
 
