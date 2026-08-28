@@ -104,6 +104,7 @@ class LiveStampImpastoTest {
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
+            repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes,
             figmaRepository = figma,
             projectFileScanner = mockk(relaxed = true),

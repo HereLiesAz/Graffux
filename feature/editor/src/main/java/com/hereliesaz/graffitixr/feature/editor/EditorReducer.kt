@@ -321,6 +321,18 @@ internal object EditorReducer {
             brushStudioDraft = intent.draft?.sanitized(),
             brushStudioEditingId = intent.editingId,
         )
+        is EditorIntent.SetStoreBrowseQuery -> state.copy(storeBrowseQuery = intent.query)
+        is EditorIntent.SetStoreBrowseResults -> state.copy(storeBrowseResults = intent.results)
+        is EditorIntent.SetStoreBrowseLoading -> state.copy(storeBrowseLoading = intent.loading)
+        is EditorIntent.SetStoreBrowseError -> state.copy(storeBrowseError = intent.message)
+        is EditorIntent.SetStoreUpdatesAvailable -> state.copy(storeUpdatesAvailable = intent.updates)
+        is EditorIntent.SetStoreInstalling -> state.copy(
+            storeInstallingIds = if (intent.installing) {
+                state.storeInstallingIds + intent.id
+            } else {
+                state.storeInstallingIds - intent.id
+            },
+        )
         is EditorIntent.SetActiveBrush -> state.copy(activeBrushName = intent.name)
         EditorIntent.ShowColorPicker -> state.copy(showColorPicker = true)
         EditorIntent.DismissColorPicker -> state.copy(showColorPicker = false)

@@ -299,6 +299,18 @@ data class EditorUiState(
     // Set when the draft came from an existing saved brush, so Save overwrites it instead of
     // forking a near-duplicate every time it's reopened.
     val brushStudioEditingId: String? = null,
+    // In-app azphalt store browse (spec/repository-api.md): Graffux is a client of the Repository API,
+    // not a delegated-only host — see BrowseStoreWindow. Transient UI state, not history.
+    val storeBrowseQuery: String = "",
+    val storeBrowseResults: List<com.hereliesaz.graffitixr.common.azphalt.PackageSummary> = emptyList(),
+    val storeBrowseLoading: Boolean = false,
+    /** Set on a failed search/browse fetch; null means no error is currently showing. */
+    val storeBrowseError: String? = null,
+    /** Installed extension id -> the newer version the repository reports (POST /updates), for the
+     *  "Update" badge in [StoreWindow]. Absent = no known update, not "checked and none exists". */
+    val storeUpdatesAvailable: Map<String, String> = emptyMap(),
+    /** Package ids currently downloading/installing from the in-app browse, for a per-card spinner. */
+    val storeInstallingIds: Set<String> = emptySet(),
     // Vector node editing (Figma's vector pen): the id of the PATH layer whose nodes are being
     // edited, or null when not in node-edit mode. Transient UI state — the *edits* are undoable,
     // entering the mode isn't.

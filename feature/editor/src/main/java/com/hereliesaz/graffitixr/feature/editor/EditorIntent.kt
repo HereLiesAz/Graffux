@@ -135,6 +135,16 @@ internal sealed interface EditorIntent {
         val draft: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush?,
         val editingId: String? = null,
     ) : EditorIntent
+
+    // ── In-app azphalt store browse (spec/repository-api.md) ─────────────────────────────────
+    data class SetStoreBrowseQuery(val query: String) : EditorIntent
+    data class SetStoreBrowseResults(
+        val results: List<com.hereliesaz.graffitixr.common.azphalt.PackageSummary>,
+    ) : EditorIntent
+    data class SetStoreBrowseLoading(val loading: Boolean) : EditorIntent
+    data class SetStoreBrowseError(val message: String?) : EditorIntent
+    data class SetStoreUpdatesAvailable(val updates: Map<String, String>) : EditorIntent
+    data class SetStoreInstalling(val id: String, val installing: Boolean) : EditorIntent
     /** Promotes a layer to a main component (Figma's "create component"). */
     data class MakeComponent(val layerId: String, val componentId: String) : EditorIntent
     /** Adds a new instance layer of a component to the top of the stack. */

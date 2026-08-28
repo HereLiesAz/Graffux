@@ -42,7 +42,11 @@ import com.hereliesaz.graffitixr.design.components.FloatingWindow
 @Composable
 fun StoreWindow(
     installed: List<InstalledExtension>,
+    /** Installed extension id -> a newer version the azphalt Repository API reports, if any
+     *  (spec/repository-api.md § 6 `POST /updates`). Absent = no known update. */
+    updatesAvailable: Map<String, String> = emptyMap(),
     onBrowse: () -> Unit,
+    onUpdate: (InstalledExtension) -> Unit = {},
     onUninstall: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -80,7 +84,12 @@ fun StoreWindow(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(installed, key = { it.id }) { extension ->
-                    InstalledExtensionCard(extension = extension, onUninstall = { pendingUninstall = extension })
+                    InstalledExtensionCard(
+                        extension = extension,
+                        updateVersion = updatesAvailable[extension.id],
+                        onUpdate = { onUpdate(extension) },
+                        onUninstall = { pendingUninstall = extension },
+                    )
                 }
             }
         }
@@ -90,6 +99,8 @@ fun StoreWindow(
 @Composable
 private fun InstalledExtensionCard(
     extension: InstalledExtension,
+    updateVersion: String? = null,
+    onUpdate: () -> Unit = {},
     onUninstall: () -> Unit,
 ) {
     val capabilities = rememberExtensionCapabilities(extension)
@@ -123,6 +134,15 @@ private fun InstalledExtensionCard(
             )
         }
         Spacer(Modifier.height(6.dp))
+        if (updateVersion != null) {
+            AzButton(
+                text = "Update to $updateVersion",
+                onClick = onUpdate,
+                shape = AzButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         AzButton(
             text = "Uninstall",
             onClick = onUninstall,

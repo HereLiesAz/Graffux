@@ -344,6 +344,7 @@ class EditorViewModel @Inject constructor(
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
+    private val repositoryApiClient: com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient,
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
@@ -6382,6 +6383,115 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+            }
+        }
+    }
+
+    // ── In-app azphalt store browse (spec/repository-api.md) ────────────────────────────────────
+    //
+    // Graffux talks to the Repository API directly here rather than only delegating to a separate
+    // store app (AzphaltStoreHandoff): it is still not a marketplace (it hosts no catalog and takes no
+    // payment), but there is no reason to make browsing, obtaining and installing free extensions any
+    // less than a first-class in-app path. The delegated handoff and the azphalt://install deep link
+    // both still exist and still work — this is a second, primary way in, not a replacement.
+
+    private var storeSearchJob: kotlinx.coroutines.Job? = null
+
+    fun onStoreBrowseQueryChanged(query: String) = dispatch(EditorIntent.SetStoreBrowseQuery(query))
+
+    /**
+     * Searches the azphalt Repository API (spec/repository-api.md § 2), filtered to the kinds/media
+     * domains this host can actually use — the exact same self-declared capability filter
+     * [com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.browseIntent] sends a delegated store
+     * app, shared rather than restated, so the in-app and delegated routes never disagree about what
+     * Graffux can run. Cancels any search already in flight, so mashing the search button (or typing
+     * fast into a debounced field) can't land results out of order.
+     */
+    fun onStoreSearch() {
+        storeSearchJob?.cancel()
+        val query = _uiState.value.storeBrowseQuery
+        storeSearchJob = viewModelScope.launch(dispatchers.io) {
+            dispatch(EditorIntent.SetStoreBrowseLoading(true))
+            dispatch(EditorIntent.SetStoreBrowseError(null))
+            try {
+                val results = repositoryApiClient.search(
+                    query = query.takeIf { it.isNotBlank() },
+                    kind = com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.kinds,
+                    mediaDomains = com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.mediaDomains,
+                    appId = context.packageName,
+                )
+                dispatch(EditorIntent.SetStoreBrowseResults(results))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                dispatch(EditorIntent.SetStoreBrowseError(e.message ?: "Couldn't reach the azphalt store"))
+            } finally {
+                dispatch(EditorIntent.SetStoreBrowseLoading(false))
+            }
+        }
+        refreshStoreUpdates()
+    }
+
+    /**
+     * Batch-checks every installed extension for a newer version in one request
+     * (spec/repository-api.md § 6 `POST /updates`), so [StoreWindow] can badge an "Update" button
+     * instead of the user having to notice on their own. Best-effort: [RepositoryApiClient.checkUpdates]
+     * already treats a failed/unsupported check as "nothing new" rather than throwing.
+     */
+    fun refreshStoreUpdates() {
+        viewModelScope.launch(dispatchers.io) {
+            val refs = extensionRepository.installed.value.map {
+                com.hereliesaz.graffitixr.common.azphalt.UpdateRef(it.id, it.manifest.version)
+            }
+            val updates = repositoryApiClient.checkUpdates(refs)
+            dispatch(EditorIntent.SetStoreUpdatesAvailable(updates.associate { it.id to it.latest }))
+        }
+    }
+
+    /**
+     * Downloads and installs a **free** package straight from the Repository API
+     * (spec/repository-api.md § 4), through the identical [ExtensionRepository.installFromStream]
+     * verification every other acquisition path uses — a repository's metadata is exactly as advisory
+     * here as a store app's [com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult] is
+     * under the delegated route. Never called for a paid package: the caller (BrowseStoreWindow via
+     * MainActivity) routes those to the web checkout instead, since Graffux has no in-app payment of
+     * its own — a [RepositoryApiClient.PaymentRequiredException]/[RepositoryApiClient.UnauthorizedException]
+     * surfacing here regardless (a card's `priceStatus` disagreeing with the server's own gate) is
+     * reported like any other failure rather than silently swallowed.
+     */
+    fun installFromRepository(id: String, version: String) {
+        if (id in _uiState.value.storeInstallingIds) return
+        dispatch(EditorIntent.SetStoreInstalling(id, true))
+        viewModelScope.launch(dispatchers.io) {
+            val now = System.currentTimeMillis()
+            try {
+                val result = repositoryApiClient.download(id, version)
+                // Only now are verified-pending bytes actually in hand -- same reasoning as
+                // installExtensionFromUri: recording `downloaded` before the stream opens would claim
+                // something that could be false if the request itself had failed.
+                extensionRepository.recordDownloaded(id, version, now)
+                val installed = result.stream.use {
+                    extensionRepository.installFromStream(it, now, knownId = id, knownVersion = version)
+                }
+                withContext(dispatchers.main) {
+                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
+                }
+                refreshStoreUpdates()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                extensionRepository.recordFailed(id, version, now, e.message)
+                withContext(dispatchers.main) {
+                    val message = when (e) {
+                        is com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.PaymentRequiredException,
+                        is com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.UnauthorizedException,
+                        -> "This extension needs a purchase or license — use Buy on its card."
+                        else -> "Couldn't install: ${e.message}"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                dispatch(EditorIntent.SetStoreInstalling(id, false))
             }
         }
     }

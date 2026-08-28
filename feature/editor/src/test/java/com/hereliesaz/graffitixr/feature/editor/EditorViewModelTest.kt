@@ -132,7 +132,8 @@ class EditorViewModelTest {
 
         viewModel = EditorViewModel(
             projectRepository, settingsRepository, projectManager, exportManager, context,
-            slamManager, testDispatcherProvider, opEmitter, extensionRepository, customBrushRepository,
+            slamManager, testDispatcherProvider, opEmitter, extensionRepository,
+            mockk(relaxed = true), customBrushRepository,
             figmaRepository, projectFileScanner,
         )
     }
