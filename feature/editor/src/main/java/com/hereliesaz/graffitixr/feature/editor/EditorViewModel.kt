@@ -3620,7 +3620,12 @@ class EditorViewModel @Inject constructor(
             } else {
                 emptyList()
             }
-            val dabs = if (stampBrush.dynamics.isNotEmpty() && mappedSamples.isNotEmpty()) {
+            // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
+            // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
+            // every stroke whose brush used only those, live and on replay alike.
+            val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
+            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive()
+            val dabs = if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
                 BrushStamps.dynamicDabs(mappedSamples, diameterPx, stampBrush, stampSeed)
             } else {
                 BrushStamps.dabs(stampMappedPoints, diameterPx, stampBrush, stampSeed)
