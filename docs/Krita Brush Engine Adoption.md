@@ -238,21 +238,25 @@ Both fields are implemented in *both* `BrushStamps.dabs` (the legacy/static path
 
 **Krita behavior adopted:** "Sample Merged"-style smudge sampling reads a composite of all visible layers (or a chosen overlay set) instead of only the active layer.
 
-**Graffux contract:** not yet defined. **Correction to prior tracking:** the `feat/krita-overlay-sampling` branch (PR #197, merge commit `c9e11c1`) is mislabeled — its diff is identical to `fba9521` ("Add Krita brush tip, texture, mask, and color source semantics", covering items 5-8 of this document) and shipped no overlay/composite-sampling code. There is no composite/read-only sampling surface anywhere in `VulkanColorSmudge.cpp/.h` or `ColorSmudgeEngine.kt`. This item remains genuinely unstarted despite the misleading branch/PR name; do not treat that merge as evidence of progress here.
+**Graffux contract:** **Correction to prior tracking, still accurate as of this pass:** the `feat/krita-overlay-sampling` branch (PR #197, merge commit `c9e11c1`) was mislabeled — its diff was identical to `fba9521` ("Add Krita brush tip, texture, mask, and color source semantics", covering items 5-8) and shipped no overlay/composite-sampling code. That misleading branch name is still not evidence of progress here.
 
-**Determinism/replay:** To be defined — an overlay sampling mode and the layer set it reads must be snapshotted onto the stroke command like other Color Smudge settings (item 3).
+What this pass actually adds is the CPU engine primitive, not the full end-to-end feature. `ColorSmudgeEngine.apply` (`feature/editor/.../util/ColorSmudgeEngine.kt`) now takes an optional `sampleSource: IntArray?`, and `Settings.sampleMerged: Boolean` (default `false`). When `sampleMerged` is true and a same-size `sampleSource` is supplied, Smear's carrier pickup and Dulling's weighted-average pickup read from `sampleSource` instead of the active layer's own pixels; painting (the actual `pixels[idx] = out` write) always still targets the active layer regardless. A null or mismatched-size `sampleSource` degrades safely to the historical single-layer behavior rather than crashing — verified by test. Smear's carrier can still *carry* a picked-up composite color forward past the composite's original extent, same as it always carried picked-up color forward; that's existing Smear behavior, not new.
 
-**CPU reference:** Not started.
+**What is deliberately not done in this pass, and why:** no caller supplies a real `sampleSource` yet. Producing one means compositing the document's other visible layers into the *active layer's own bitmap coordinate space* — a different problem than `ExportManager.compositeLayers`, which already composites the visible stack but into canvas/screen space, at a size and alignment that generally differs from an individual layer's own bitmap (each layer can have its own scale/offset/rotationZ). Getting that per-pixel coordinate remap right, and verifying it, needs either running the app on a device/emulator with multiple non-trivially-transformed layers or substantial new test infrastructure for it — neither of which this pass attempted, rather than risk an unverified remap. `DrawingEngine`'s `Tool.SMUDGE` branch (`DrawingEngine.kt`) is therefore unchanged and does not pass `sampleSource`; a "Sample Merged" toggle was deliberately *not* added to Tool Options, because a toggle with no wired effect would violate the phone-first UI's own honesty bar.
 
-**Vulkan target:** Not started.
+**Determinism/replay:** `sampleMerged` is a field on `Settings`, which is already snapshotted onto the Smudge `StrokeCommand` (item 3's precedent) — so once a caller wires a real source, the setting itself already replays correctly with no further plumbing. The composite source itself is not part of replay in this pass (there isn't one yet).
 
-**UI exposure:** Not started.
+**CPU reference:** Yes, for the primitive itself — `ColorSmudgeEngine.smear`/`dull`, CPU-only. Not yet exercised end-to-end by any real caller.
 
-**Tests:** None.
+**Vulkan target:** Not started — `VulkanColorSmudge.cpp/.h` has no equivalent read-source parameter.
+
+**UI exposure:** Not started, deliberately (see above).
+
+**Tests:** `ColorSmudgeSampleMergedTest.kt` — default/no-source behaves identically to sampling the active layer, Smear and Dulling pickup both read the supplied composite when enabled, pickup ignores a supplied composite when `sampleMerged` is off, painting only ever mutates the active layer (the supplied composite is asserted unmutated), and a mismatched-size source degrades safely. Existing `ColorSmudgeEngineTest.kt`/`ColorSmudgeDynamicsTest.kt` pass unmodified, confirming the default path is byte-for-byte unchanged.
 
 **Dependencies:** Item 3 (Color Smudge).
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS — CPU engine primitive implemented and tested; wiring a real multi-layer composite into `DrawingEngine` (with correct per-layer coordinate remapping) and exposing a UI toggle remain outstanding, and are the actual remaining scope of this item.
 
 ## 12. Paint thickness / height / impasto
 
