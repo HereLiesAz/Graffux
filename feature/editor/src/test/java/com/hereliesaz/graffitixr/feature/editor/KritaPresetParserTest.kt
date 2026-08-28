@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayOutputStream
+import java.util.zip.Deflater
 
 /**
  * Fixtures below hand-build minimal PNG byte streams with a `tEXt`/`iTXt`
@@ -96,6 +97,57 @@ class KritaPresetParserTest {
 
         assertEquals("colorsmudge", preset.paintopId)
         assertEquals("0.72", preset.params.getValue("Smudge/Rate").value)
+    }
+
+    @Test
+    fun `reads a zTXt chunk the same as a tEXt chunk`() {
+        // Real .kpp files fetched from the KDE/krita repository this pass (e.g.
+        // plugins/paintops/defaultpresets/colorsmudge.kpp) store their "preset" chunk this way,
+        // not as tEXt/iTXt -- this fixture mirrors that real on-disk shape rather than a synthetic
+        // one, per the PNG spec's zTXt layout: keyword, NUL, one-byte compression method (0 =
+        // deflate), then the deflated bytes.
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        out.writeChunk("IHDR", ByteArray(13))
+        val payload = ByteArrayOutputStream()
+        payload.write("preset".toByteArray(Charsets.ISO_8859_1))
+        payload.write(0)
+        payload.write(0) // compression method: deflate
+        val deflater = Deflater()
+        deflater.setInput(samplePresetXml.toByteArray(Charsets.ISO_8859_1))
+        deflater.finish()
+        val buffer = ByteArray(4096)
+        while (!deflater.finished()) {
+            val count = deflater.deflate(buffer)
+            payload.write(buffer, 0, count)
+        }
+        deflater.end()
+        out.writeChunk("zTXt", payload.toByteArray())
+        out.writeChunk("IEND", ByteArray(0))
+        val bytes = out.toByteArray()
+
+        val preset = KritaPresetParser.parse(bytes)
+
+        assertEquals("colorsmudge", preset.paintopId)
+        assertEquals("0.72", preset.params.getValue("Smudge/Rate").value)
+    }
+
+    @Test
+    fun `throws on an unsupported zTXt compression method instead of silently misreading`() {
+        val payload = ByteArrayOutputStream()
+        payload.write("preset".toByteArray(Charsets.ISO_8859_1))
+        payload.write(0)
+        payload.write(9) // not deflate
+        payload.write("garbage".toByteArray(Charsets.ISO_8859_1))
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        out.writeChunk("IHDR", ByteArray(13))
+        out.writeChunk("zTXt", payload.toByteArray())
+        out.writeChunk("IEND", ByteArray(0))
+
+        assertThrows(KritaPresetParser.ParseException::class.java) {
+            KritaPresetParser.parse(out.toByteArray())
+        }
     }
 
     @Test
