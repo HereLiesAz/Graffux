@@ -157,4 +157,36 @@ class UndoRaceRegressionTest {
 
         dispatcher.scheduler.advanceUntilIdle()
     }
+
+    @Test
+    fun `undo called immediately after Clear Layer cancels that clear's still-pending publish job`() = runTest(dispatcher) {
+        val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)
+        val layer = Layer(id = "L", name = "Layer", bitmap = original)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.putLayerBaseForTest("L", original)
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.onClearLayer()
+
+        // Same shape as the stroke-commit case above: onClearLayer's own feathered-clear publish
+        // is registered but hasn't run yet under StandardTestDispatcher.
+        val clearJob = vm.rebuildJobForTest("L")
+        assertNotNull(
+            "onClearLayer's publish coroutine must be tracked in rebuildJobs so a following undo can cancel it",
+            clearJob,
+        )
+        assertFalse("the clear job must not already be cancelled before undo runs", clearJob!!.isCancelled)
+
+        vm.onUndoClicked()
+
+        assertTrue(
+            "onUndoClicked must cancel the still-in-flight clear job so its late publish can't " +
+                "resurrect the undone clear",
+            clearJob.isCancelled,
+        )
+
+        dispatcher.scheduler.advanceUntilIdle()
+    }
 }

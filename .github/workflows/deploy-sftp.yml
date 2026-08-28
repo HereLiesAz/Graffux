@@ -53,7 +53,16 @@ jobs:
           # lftp has its own SFTP implementation (not OpenSSH) which
           # handles ProFTPD mod_sftp password auth reliably - bypasses
           # the sshpass/OpenSSH incompatibility we hit earlier.
-          lftp -u "$USER_TRIMMED","$PW_TRIMMED" \
-            -p "$PORT" \
-            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror -R --verbose ./_site/ $REMOTE_DIR; quit" \
-            sftp://"$HOST"
+          #
+          # Credentials go in via stdin (an `open -u user,pass` command), not a `-u`/`-e` CLI
+          # argument: a CLI arg lands in this process's argv, readable by anything else on the
+          # runner via /proc/<pid>/cmdline or `ps -eo args` for the life of the process, bypassing
+          # GitHub's log masking entirely (that only redacts the log stream, not the OS process
+          # table). Certificate verification is left at lftp's own default (on) rather than
+          # explicitly disabled, so the session can't be silently handed to an unverified host.
+          lftp <<LFTP_SCRIPT
+          set sftp:auto-confirm yes
+          open -u "$USER_TRIMMED","$PW_TRIMMED" -p "$PORT" sftp://"$HOST"
+          mirror -R --verbose ./_site/ "$REMOTE_DIR"
+          quit
+          LFTP_SCRIPT
