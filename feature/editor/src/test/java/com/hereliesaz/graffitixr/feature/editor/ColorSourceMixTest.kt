@@ -11,6 +11,8 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.Dab
+import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushConfig
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import io.mockk.mockk
@@ -86,6 +88,63 @@ class ColorSourceMixTest {
         val dabs = BrushStamps.dynamicDabs(samples, 10f, brush, 55L)
         assertTrue(dabs.first().colorMix < 0.1f)
         assertTrue(dabs.last().colorMix > 0.8f)
+    }
+
+    @Test
+    fun `uniform random source is deterministic under dynamic sensor-driven placement`() {
+        val brush = AzphaltBrush(
+            name = "dynamic random",
+            colorSource = BrushColorSource.UNIFORM_RANDOM,
+            dynamics = listOf(
+                BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SIZE, outputMin = 0.5f, outputMax = 1.5f)
+            ),
+        )
+        val builder = BrushSampleBuilder()
+        val samples = listOf(
+            builder.add(4f, 10f, 0L, pressure = 1f),
+            builder.add(60f, 10f, 32L, pressure = 1f),
+        )
+        val a = BrushStamps.dynamicDabs(samples, 10f, brush, 4242L)
+        val b = BrushStamps.dynamicDabs(samples, 10f, brush, 4242L)
+        assertEquals(a.map { it.sourceRandom }, b.map { it.sourceRandom })
+        assertTrue(a.map { it.sourceRandom }.distinct().size > 1)
+    }
+
+    @Test
+    fun `sensor HSV shift applies after the colour source has resolved`() {
+        val foreground = Color.rgb(200, 40, 40)
+        val background = Color.rgb(40, 40, 200)
+        val brush = AzphaltBrush(name = "gradient hsv", colorSource = BrushColorSource.GRADIENT)
+        val gradientDab = BrushStamps.dabs(listOf(5f, 5f), 8f, brush, 1L).single().copy(colorMix = 1f)
+        val plainResolved = StampBrushRenderer.resolvedColor(foreground, background, brush, gradientDab)
+        assertEquals(background, plainResolved)
+
+        val shiftedDab = gradientDab.copy(saturationMultiplier = 0f)
+        val desaturated = StampBrushRenderer.resolvedColor(foreground, background, brush, shiftedDab)
+        assertNotEquals(background, desaturated)
+        assertEquals(Color.red(desaturated), Color.green(desaturated))
+        assertEquals(Color.green(desaturated), Color.blue(desaturated))
+    }
+
+    @Test
+    fun `masked dual-brush pipeline paints the same colour source as the primary tip`() {
+        val foreground = Color.RED
+        val background = Color.BLUE
+        val brush = AzphaltBrush(
+            name = "masked gradient",
+            hardness = 1f,
+            tipRatio = 0.4f,
+            colorSource = BrushColorSource.GRADIENT,
+            colorMix = 1f,
+            maskedBrush = MaskedBrushConfig(sizeRatio = 0.6f, hardness = 1f),
+        )
+        val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+        val dabs: List<Dab> = BrushStamps.dabs(listOf(24f, 24f), 24f, brush, 3L)
+        StampBrushRenderer.paintDabs(
+            android.graphics.Canvas(bitmap), dabs, brush, foreground, 1f, secondaryColorArgb = background,
+        )
+        val painted = bitmap.getPixel(24, 24)
+        assertTrue(Color.blue(painted) > Color.red(painted))
     }
 
     @Test
