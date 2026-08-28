@@ -1,0 +1,74 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Same 48-byte/3×vec4 std430 layout as stamp.comp's Dab -- binary-identical to GpuDab in
+// VulkanStampEngine.h. paint1.w (`pad0` in the C++ struct) is repurposed here as `tipRatio`
+// (height/width of the tip, matching AzphaltBrush.tipRatio): 1.0 is a round/square tip, matching
+// stamp.comp's dabs exactly when this shader's mask happens to be a filled circle. A legacy caller
+// leaving that field at its C++ default of 0.0 would collapse the tip to zero height, so the host
+// side must always set it explicitly for this shader -- there is no meaningful "legacy" caller of
+// this entry point the way stamp.comp has one for `resolved`.
+struct Dab {
+    vec4 geometry; // x, y, radius, alpha
+    vec4 paint0;   // angleDeg, colorR, colorG, colorB
+    vec4 paint1;   // colorA, flow, resolved, tipRatio
+};
+
+layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
+layout(binding = 1, rgba8) uniform image2D layerImage;
+// Single-channel (R8_UNORM) alpha-only tip mask, sampled per-dab in the dab's own rotated/scaled
+// local space. White (1.0) = full coverage, matching stampCoverage()'s convention in stamp.comp.
+layout(binding = 2) uniform sampler2D tipMask;
+
+layout(push_constant) uniform PushConstants {
+    uint dabCount;
+    float hardness; // unused by this shader -- the mask texture already encodes the tip's falloff.
+    float colorR;
+    float colorG;
+    float colorB;
+    float baseAlpha;
+    int originX;
+    int originY;
+} pc;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy) + ivec2(pc.originX, pc.originY);
+    ivec2 size = imageSize(layerImage);
+    if (pixel.x < 0 || pixel.y < 0 || pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec4 dst = imageLoad(layerImage, pixel);
+    vec2 p = vec2(pixel) + vec2(0.5);
+
+    for (uint i = 0u; i < pc.dabCount; i++) {
+        Dab d = dabs[i];
+        vec2 center = d.geometry.xy;
+        float radius = max(d.geometry.z, 0.5);
+        float dabAlpha = d.geometry.w;
+        float tipRatio = clamp(d.paint1.w, 0.05, 1.0);
+        float halfW = radius;
+        float halfH = radius * tipRatio;
+
+        vec2 local = p - center;
+        float angleRad = radians(-d.paint0.x);
+        float ca = cos(angleRad);
+        float sa = sin(angleRad);
+        vec2 rotated = vec2(local.x * ca - local.y * sa, local.x * sa + local.y * ca);
+        if (abs(rotated.x) > halfW || abs(rotated.y) > halfH) continue;
+
+        vec2 uv = vec2(rotated.x / (2.0 * halfW) + 0.5, rotated.y / (2.0 * halfH) + 0.5);
+        float coverage = texture(tipMask, uv).r;
+        if (coverage <= 0.0) continue;
+
+        bool hasResolvedPaint = d.paint1.z >= 0.5;
+        vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);
+        float baseAlpha = hasResolvedPaint ? d.paint1.x : pc.baseAlpha;
+        float dabFlow = hasResolvedPaint ? max(d.paint1.y, 0.0) : 1.0;
+        float srcA = baseAlpha * dabAlpha * dabFlow * coverage;
+        if (srcA <= 0.0) continue;
+
+        dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
+        dst.a = srcA + dst.a * (1.0 - srcA);
+        dst = round(dst * 255.0) / 255.0;
+    }
+    imageStore(layerImage, pixel, dst);
+}

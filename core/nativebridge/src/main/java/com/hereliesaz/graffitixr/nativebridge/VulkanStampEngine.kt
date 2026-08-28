@@ -134,6 +134,46 @@ class VulkanStampEngine {
         return nativeStampResolvedDabs(nativeHandle, flat, hardness).also { if (!it) healthy = false }
     }
 
+    /**
+     * shaders/stamp_masked.comp counterpart to [stampResolvedDabs]: each dab samples [maskAlpha8]
+     * (an R8 alpha-only tip texture, [maskWidth]x[maskHeight], white=full coverage) in its own
+     * rotated/scaled local space instead of using the round coverage falloff -- the GPU-side
+     * counterpart to StampBrushRenderer's masked-tip CPU path (docs/Krita Brush Engine Adoption.md
+     * item 15). The mask texture is only re-uploaded natively when its dimensions change from the
+     * previous call, so repeated calls with the same tip within one stroke are cheap.
+     */
+    fun stampMaskedDabs(
+        dabs: List<MaskedBrushDab>,
+        hardness: Float,
+        maskAlpha8: ByteArray,
+        maskWidth: Int,
+        maskHeight: Int,
+    ): Boolean {
+        if (!isInitialized || dabs.isEmpty()) return false
+        require(maskWidth > 0 && maskHeight > 0) { "maskWidth/maskHeight must be positive" }
+        require(maskAlpha8.size >= maskWidth * maskHeight) {
+            "maskAlpha8 too small: need ${maskWidth * maskHeight}, got ${maskAlpha8.size}"
+        }
+        val flat = FloatArray(dabs.size * 11)
+        for (i in dabs.indices) {
+            val d = dabs[i]
+            val base = i * 11
+            flat[base] = d.x
+            flat[base + 1] = d.y
+            flat[base + 2] = d.radius
+            flat[base + 3] = d.alpha
+            flat[base + 4] = d.angleDeg
+            flat[base + 5] = Color.red(d.colorArgb) / 255f
+            flat[base + 6] = Color.green(d.colorArgb) / 255f
+            flat[base + 7] = Color.blue(d.colorArgb) / 255f
+            flat[base + 8] = Color.alpha(d.colorArgb) / 255f
+            flat[base + 9] = d.flow
+            flat[base + 10] = d.tipRatio
+        }
+        return nativeStampMaskedDabs(nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight)
+            .also { if (!it) healthy = false }
+    }
+
     /** Persistent Color Smudge pass. The image must already be seeded with [upload]. */
     fun colorSmudge(
         dabs: List<ColorSmudgeDab>,
@@ -203,6 +243,14 @@ class VulkanStampEngine {
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, hardness: Float): Boolean
+    private external fun nativeStampMaskedDabs(
+        handle: Long,
+        dabData: FloatArray,
+        hardness: Float,
+        maskAlpha8: ByteArray,
+        maskWidth: Int,
+        maskHeight: Int,
+    ): Boolean
     private external fun nativeColorSmudge(
         handle: Long,
         dabData: FloatArray,
@@ -244,4 +292,16 @@ data class ResolvedBrushDab(
     val angleDeg: Float,
     val colorArgb: Int,
     val flow: Float,
+)
+
+/** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [VulkanStampEngine.stampMaskedDabs]. */
+data class MaskedBrushDab(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val alpha: Float,
+    val angleDeg: Float,
+    val colorArgb: Int,
+    val flow: Float,
+    val tipRatio: Float,
 )

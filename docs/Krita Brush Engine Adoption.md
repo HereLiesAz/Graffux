@@ -343,21 +343,23 @@ What it deliberately does **not** do: map those `param` keys onto Graffux's own 
 
 **Scope correction:** this item originally also listed item 8 (color source). It doesn't belong here: color source turned out to need no shader work at all, since it's fully resolved to a per-dab RGB on the CPU before a dab reaches the GPU — see item 8's Vulkan target for the actual fix (removing an unnecessarily conservative gate, not adding shader logic). This item's real scope is only the three capabilities that genuinely require sampling something in the shader a dab's geometry alone doesn't carry: a tip-mask/shape texture, grain, and a second (dual/masked) tip.
 
-**Graffux contract:** not yet started. `core/nativebridge/src/main/cpp/shaders/stamp.comp` is a 65-line shader with no mask, texture, grain, or secondary-tip logic — only a generated round dab. This confirms the "deliberately CPU-first" statement already made in items 5-7: any brush using a shaped tip, texture/grain, or a masked/dual tip currently falls back to the CPU correctness renderer (`gpuCompatibleStampBrush()` in `EditorViewModel`, added/extracted alongside item 8's fix, is the actual gate — a shaped tip, non-null grain/mask bitmap, a set `maskedBrush` config, or `tipRatio != 1f` all still force CPU), with no equivalent GPU path yet.
+**Graffux contract:** shaped-tip sampling only, IN PROGRESS. `core/nativebridge/src/main/cpp/shaders/stamp.comp` is still the 65-line round-only shader with no mask/texture/grain/secondary-tip logic; a new, separate `shaders/stamp_masked.comp` samples an R8_UNORM alpha-only tip-mask texture per-dab in that dab's own rotated/scaled local space (using a new `tipRatio` field on `GpuDab`, repurposing what was previously an unused padding float — a binary-compatible change, verified byte-for-byte against the existing `stamp.comp`/JNI packing sites) instead of using the round `stampCoverage()` falloff. `VulkanStampEngine::stampMaskedDabs()` is a fully separate resource set (its own descriptor set/pipeline/dab buffer/mask image+sampler) from the existing round-dab path, so this is purely additive — nothing about the already-verified round-tip pipeline changes. Texture/grain and masked/dual-brush sampling are NOT part of this — still genuinely NOT STARTED, this item's remaining scope.
 
-**Determinism/replay:** GPU path must reproduce CPU output for the same resolved dab record (per the architecture rule that CPU and GPU paths must produce equivalent visible behavior).
+`gpuCompatibleStampBrush()` in `EditorViewModel` has **not** been updated to route a shaped tip through this new path — the shader/engine primitive exists and compiles, but nothing in the live stroke pipeline calls `stampMaskedDabs()` yet. A shaped tip still falls back to the CPU renderer exactly as before this change. Wiring that in (packing `StampBrushRenderer`'s existing CPU tip-mask bitmap into the R8 byte layout `stampMaskedDabs()` expects, and widening the gate to allow a shaped tip specifically while still excluding grain/dual-brush) is the next step, not done here.
+
+**Determinism/replay:** GPU path must reproduce CPU output for the same resolved dab record (per the architecture rule that CPU and GPU paths must produce equivalent visible behavior) — unverified for the new masked path specifically, since it has no live caller yet to compare against the CPU reference.
 
 **CPU reference:** Already required and already implemented per items 5-7; this item is specifically about adding the missing GPU path.
 
-**Vulkan target:** Not started — this item's entire scope.
+**Vulkan target:** `stamp_masked.comp` + `VulkanStampEngine::stampMaskedDabs()` (shaped tip only) — compiles clean via the NDK's `glslc` and full arm64-v8a/armeabi-v7a native builds, but **has never run on an actual GPU**: nobody working on this repo in this session has a physical Vulkan-capable device (the same hardware gap item 17 tracks), so correctness beyond "the shader compiles and the C++ builds" is unverified. Texture/grain and masked/dual-brush sampling remain entirely unstarted.
 
-**UI exposure:** None new; existing controls from items 5-7 would simply stop falling back to CPU once this ships.
+**UI exposure:** None new; a shaped tip still uses the CPU path (see above — the gate wasn't widened).
 
-**Tests:** None yet for texture/mask/dual-brush; would need CPU/GPU parity tests analogous to the existing Color Smudge parity/benchmark instrumentation (item 3). `GpuCompatibleStampBrushTest.kt` (item 8) already covers the gate itself — that a shaped tip/grain/masked-brush/non-round `tipRatio` correctly stay CPU-only, which is this item's dependency surface.
+**Tests:** None yet — none of this is reachable from Kotlin unit tests (no Vulkan device in CI or this session), and it has no live caller to exercise even indirectly. Would need CPU/GPU parity tests analogous to the existing Color Smudge parity/benchmark instrumentation (item 3), run on real hardware. `GpuCompatibleStampBrushTest.kt` (item 8) still covers the *existing* gate correctly (a shaped tip/grain/masked-brush/non-round `tipRatio` all stay CPU-only) — unchanged by this addition, since the gate itself wasn't touched.
 
 **Dependencies:** Items 3, 5-7.
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS. Shaped-tip sampling: engine primitive written and compile-verified (shader + native C++ + JNI + Kotlin wrapper), but NOT wired into the live stroke pipeline and NOT runtime-verified on any GPU. Texture/grain and masked/dual-brush sampling: NOT STARTED.
 
 ## 16. Tile / dirty-region rendering and tile-based undo
 
