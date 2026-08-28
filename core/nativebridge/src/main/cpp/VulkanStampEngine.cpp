@@ -221,7 +221,10 @@ bool VulkanStampEngine::createLayerImage(int width, int height) {
                       "vkAllocateMemory(layerImage)")) {
         return false;
     }
-    vkBindImageMemory(device_, layerImage_, layerImageMemory_, 0);
+    if (!checkResult(vkBindImageMemory(device_, layerImage_, layerImageMemory_, 0),
+                      "vkBindImageMemory(layerImage)")) {
+        return false;
+    }
 
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -267,7 +270,10 @@ bool VulkanStampEngine::createStagingBuffer(int width, int height) {
                       "vkAllocateMemory(staging)")) {
         return false;
     }
-    vkBindBufferMemory(device_, stagingBuffer_, stagingBufferMemory_, 0);
+    if (!checkResult(vkBindBufferMemory(device_, stagingBuffer_, stagingBufferMemory_, 0),
+                      "vkBindBufferMemory(staging)")) {
+        return false;
+    }
     return true;
 }
 
@@ -589,7 +595,12 @@ bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
         dabBuffer_ = VK_NULL_HANDLE;
         return false;
     }
-    vkBindBufferMemory(device_, dabBuffer_, dabBufferMemory_, 0);
+    if (!checkResult(vkBindBufferMemory(device_, dabBuffer_, dabBufferMemory_, 0),
+                      "vkBindBufferMemory(dabBuffer)")) {
+        vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
 
     VkBufferCreateInfo stagingBufferInfo{};
     stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -627,7 +638,14 @@ bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
         vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
         return false;
     }
-    vkBindBufferMemory(device_, dabStagingBuffer_, dabStagingBufferMemory_, 0);
+    if (!checkResult(vkBindBufferMemory(device_, dabStagingBuffer_, dabStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(dabStaging)")) {
+        vkDestroyBuffer(device_, dabStagingBuffer_, nullptr); dabStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabStagingBufferMemory_, nullptr); dabStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, dabBuffer_, nullptr); dabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, dabBufferMemory_, nullptr); dabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
 
     dabBufferCapacity_ = newCapacity;
 
@@ -734,7 +752,9 @@ bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     std::memcpy(mapped, inRgba8, requiredBytes);
     vkUnmapMemory(device_, stagingBufferMemory_);
 
-    vkResetCommandBuffer(commandBuffer_, 0);
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer")) {
+        return false;
+    }
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -797,7 +817,9 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
     std::memcpy(mapped, dabs.data(), uploadSize);
     vkUnmapMemory(device_, dabStagingBufferMemory_);
 
-    vkResetCommandBuffer(commandBuffer_, 0);
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer")) {
+        return false;
+    }
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -896,7 +918,9 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
         return false;
     }
 
-    vkResetCommandBuffer(commandBuffer_, 0);
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer")) {
+        return false;
+    }
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
