@@ -31,6 +31,23 @@ struct PushConstants {
     int32_t originY;
 };
 
+// Push constants for stamp_masked.comp -- same first 8 fields as PushConstants above (kept
+// byte-identical so the two structs stay easy to compare), plus item 15's grain follow-up fields.
+struct MaskedPushConstants {
+    uint32_t dabCount;
+    float hardness;
+    float colorR;
+    float colorG;
+    float colorB;
+    float baseAlpha;
+    int32_t originX;
+    int32_t originY;
+    float grainCanvasLocked;
+    float grainScale;
+    float grainPhaseX;
+    float grainPhaseY;
+};
+
 bool checkResult(VkResult result, const char* what) {
     if (result != VK_SUCCESS) {
         LOGE("%s failed: VkResult=%d", what, static_cast<int>(result));
@@ -926,7 +943,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[3]{};
+    VkDescriptorSetLayoutBinding bindings[4]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -939,10 +956,14 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 3;
+    layoutInfo.bindingCount = 4;
     layoutInfo.pBindings = bindings;
     if (!checkResult(
             vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &maskedDescriptorSetLayout_),
@@ -953,7 +974,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushRange.offset = 0;
-    pushRange.size = sizeof(PushConstants);
+    pushRange.size = sizeof(MaskedPushConstants);
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -983,18 +1004,20 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorPoolSize poolSizes[3]{};
+    VkDescriptorPoolSize poolSizes[4]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     poolSizes[1].descriptorCount = 1;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[2].descriptorCount = 1;
+    poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[3].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 3;
+    poolInfo.poolSizeCount = 4;
     poolInfo.pPoolSizes = poolSizes;
     if (!checkResult(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &maskedDescriptorPool_),
                       "vkCreateDescriptorPool(masked)")) {
@@ -1036,8 +1059,32 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
-    return checkResult(vkCreateSampler(device_, &samplerInfo, nullptr, &maskSampler_),
-                        "vkCreateSampler(mask)");
+    if (!checkResult(vkCreateSampler(device_, &samplerInfo, nullptr, &maskSampler_),
+                      "vkCreateSampler(mask)")) {
+        return false;
+    }
+
+    // Grain sampler: REPEAT wrap + NEAREST filter, matching StampBrushRenderer.applyGrain's
+    // explicit modulo/floor tiling exactly (LINEAR would blur between grain texels, which the CPU
+    // reference never does).
+    VkSamplerCreateInfo grainSamplerInfo{};
+    grainSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    grainSamplerInfo.magFilter = VK_FILTER_NEAREST;
+    grainSamplerInfo.minFilter = VK_FILTER_NEAREST;
+    grainSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    grainSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    grainSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    grainSamplerInfo.unnormalizedCoordinates = VK_FALSE;
+    if (!checkResult(vkCreateSampler(device_, &grainSamplerInfo, nullptr, &grainSampler_),
+                      "vkCreateSampler(grain)")) {
+        return false;
+    }
+
+    // Binding 3 must always reference a valid image once the pipeline is used -- a stroke with no
+    // grain binds this 1x1 all-white dummy so the shader's coverage multiply is a no-op.
+    if (!ensureGrainTexture(1, 1)) return false;
+    const uint8_t dummyGrain = 255;
+    return uploadGrainTexture(&dummyGrain, 1, 1);
 }
 
 bool VulkanStampEngine::ensureMaskedDabBuffer(size_t dabCount) {
@@ -1366,9 +1413,217 @@ bool VulkanStampEngine::uploadMaskTexture(const uint8_t* alpha8, int width, int 
     return true;
 }
 
+bool VulkanStampEngine::ensureGrainTexture(int width, int height) {
+    if (grainImage_ != VK_NULL_HANDLE && width == grainWidth_ && height == grainHeight_) return true;
+
+    if (grainImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE; }
+    if (grainImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE; }
+    if (grainImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE; }
+    if (grainStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, grainStagingBuffer_, nullptr); grainStagingBuffer_ = VK_NULL_HANDLE; }
+    if (grainStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, grainStagingBufferMemory_, nullptr); grainStagingBufferMemory_ = VK_NULL_HANDLE; }
+    grainImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    grainWidth_ = 0;
+    grainHeight_ = 0;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8_UNORM;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &grainImage_), "vkCreateImage(grain)")) {
+        return false;
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, grainImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for grain image");
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &grainImageMemory_),
+                      "vkAllocateMemory(grain)")) {
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindImageMemory(device_, grainImage_, grainImageMemory_, 0),
+                      "vkBindImageMemory(grain)")) {
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = grainImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8_UNORM;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &grainImageView_),
+                      "vkCreateImageView(grain)")) {
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &grainStagingBuffer_),
+                      "vkCreateBuffer(grainStaging)")) {
+        vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, grainStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for grain staging buffer");
+        vkDestroyBuffer(device_, grainStagingBuffer_, nullptr); grainStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &grainStagingBufferMemory_),
+                      "vkAllocateMemory(grainStaging)")) {
+        vkDestroyBuffer(device_, grainStagingBuffer_, nullptr); grainStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, grainStagingBuffer_, grainStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(grainStaging)")) {
+        vkDestroyBuffer(device_, grainStagingBuffer_, nullptr); grainStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainStagingBufferMemory_, nullptr); grainStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    grainWidth_ = width;
+    grainHeight_ = height;
+
+    VkDescriptorImageInfo samplerImageInfo{};
+    samplerImageInfo.sampler = grainSampler_;
+    samplerImageInfo.imageView = grainImageView_;
+    samplerImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = maskedDescriptorSet_;
+    samplerWrite.dstBinding = 3;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerImageInfo;
+    vkUpdateDescriptorSets(device_, 1, &samplerWrite, 0, nullptr);
+    return true;
+}
+
+bool VulkanStampEngine::uploadGrainTexture(const uint8_t* alpha8, int width, int height) {
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height;
+    if (!checkResult(vkMapMemory(device_, grainStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(grainStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, alpha8, uploadSize);
+    vkUnmapMemory(device_, grainStagingBufferMemory_);
+
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer(grain)")) {
+        return false;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(grain)")) {
+        return false;
+    }
+
+    VkImageMemoryBarrier toTransferDst{};
+    toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferDst.oldLayout = grainImageLayout_;
+    toTransferDst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferDst.srcAccessMask = 0;
+    toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = grainImage_;
+    toTransferDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransferDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(commandBuffer_, grainStagingBuffer_, grainImage_, VK_IMAGE_LAYOUT_GENERAL,
+                            1, &region);
+
+    VkImageMemoryBarrier toShaderRead{};
+    toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.image = grainImage_;
+    toShaderRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderRead);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(grain)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(grain)")) return false;
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(grain)")) {
+        return false;
+    }
+    grainImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+    return true;
+}
+
 bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
                                         float hardness, const uint8_t* maskAlpha8, int maskWidth,
-                                        int maskHeight) {
+                                        int maskHeight, const uint8_t* grainAlpha8, int grainWidth,
+                                        int grainHeight, bool grainCanvasLocked, float grainScale,
+                                        float grainPhaseX, float grainPhaseY) {
     if (!isInitialized() || dabs.empty() || maskAlpha8 == nullptr) return false;
     if (maskWidth <= 0 || maskHeight <= 0) return false;
     if (!ensureMaskedPipeline()) return false;
@@ -1376,6 +1631,25 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     bool maskIsNew = maskImage_ == VK_NULL_HANDLE || maskWidth != maskWidth_ || maskHeight != maskHeight_;
     if (!ensureMaskTexture(maskWidth, maskHeight)) return false;
     if (maskIsNew && !uploadMaskTexture(maskAlpha8, maskWidth, maskHeight)) return false;
+
+    // Grain (item 15 follow-up): a real tile if the caller supplied one, otherwise fall back to
+    // the 1x1 dummy ensureMaskedPipeline() already bound -- re-requesting it here is a cheap
+    // no-op via ensureGrainTexture()'s size check, and keeps this branch symmetric with the mask
+    // handling just above rather than special-casing "no grain" as a distinct code path.
+    bool haveGrain = grainAlpha8 != nullptr && grainWidth > 0 && grainHeight > 0;
+    int effectiveGrainWidth = haveGrain ? grainWidth : 1;
+    int effectiveGrainHeight = haveGrain ? grainHeight : 1;
+    bool grainIsNew = grainImage_ == VK_NULL_HANDLE || effectiveGrainWidth != grainWidth_ ||
+                       effectiveGrainHeight != grainHeight_;
+    if (!ensureGrainTexture(effectiveGrainWidth, effectiveGrainHeight)) return false;
+    if (grainIsNew) {
+        if (haveGrain) {
+            if (!uploadGrainTexture(grainAlpha8, effectiveGrainWidth, effectiveGrainHeight)) return false;
+        } else {
+            const uint8_t dummyGrain = 255;
+            if (!uploadGrainTexture(&dummyGrain, 1, 1)) return false;
+        }
+    }
 
     void* mapped = nullptr;
     VkDeviceSize uploadSize = dabs.size() * sizeof(GpuDab);
@@ -1432,7 +1706,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     int32_t regionW = std::max(0, endX - originX);
     int32_t regionH = std::max(0, endY - originY);
     if (regionW > 0 && regionH > 0) {
-        PushConstants pc{};
+        MaskedPushConstants pc{};
         pc.dabCount = static_cast<uint32_t>(dabs.size());
         pc.hardness = hardness;
         pc.colorR = static_cast<float>((colorArgb >> 16) & 0xFF) / 255.0f;
@@ -1441,6 +1715,12 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
         pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
         pc.originX = originX;
         pc.originY = originY;
+        // No grain: scale=1/phase=0 would still be a no-op given the 1x1 all-white dummy texture,
+        // but zeroing them here too keeps this call's push constants fully deterministic either way.
+        pc.grainCanvasLocked = grainCanvasLocked ? 1.0f : 0.0f;
+        pc.grainScale = haveGrain ? grainScale : 1.0f;
+        pc.grainPhaseX = haveGrain ? grainPhaseX : 0.0f;
+        pc.grainPhaseY = haveGrain ? grainPhaseY : 0.0f;
         vkCmdPushConstants(commandBuffer_, maskedPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 
@@ -1472,6 +1752,16 @@ void VulkanStampEngine::destroyMaskedResources() {
     maskWidth_ = 0;
     maskHeight_ = 0;
     maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (grainSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, grainSampler_, nullptr); grainSampler_ = VK_NULL_HANDLE; }
+    if (grainImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE; }
+    if (grainImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, grainImage_, nullptr); grainImage_ = VK_NULL_HANDLE; }
+    if (grainImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, grainImageMemory_, nullptr); grainImageMemory_ = VK_NULL_HANDLE; }
+    if (grainStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, grainStagingBuffer_, nullptr); grainStagingBuffer_ = VK_NULL_HANDLE; }
+    if (grainStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, grainStagingBufferMemory_, nullptr); grainStagingBufferMemory_ = VK_NULL_HANDLE; }
+    grainWidth_ = 0;
+    grainHeight_ = 0;
+    grainImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (maskedDabBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE; }
     if (maskedDabBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE; }
