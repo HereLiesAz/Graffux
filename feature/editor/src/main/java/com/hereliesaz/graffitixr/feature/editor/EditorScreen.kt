@@ -264,6 +264,7 @@ fun EditorScreen(
                         )
                     }
                     .pointerInput(Unit) {
+                        val slop = viewConfiguration.touchSlop
                         awaitEachGesture {
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
@@ -285,7 +286,23 @@ fun EditorScreen(
                                     break
                                 }
                                 if (startOnActiveLayer) {
-                                    if (!movingObject) { vm.onGestureStart(); movingObject = true }
+                                    if (!movingObject) {
+                                        // Ordinary jitter on a still tap must not read as a drag: a
+                                        // plain tap-to-select was pushing an undo entry, a disk save
+                                        // (onGestureEnd -> saveProject) and a co-op LayerTransform op
+                                        // for a gesture that never meant to move anything, because
+                                        // this loop treated the very first sample's nonzero delta —
+                                        // present in essentially every real touch-up — the same as a
+                                        // deliberate drag. Only start once the finger has actually
+                                        // moved past touch-slop from where it went down; the same
+                                        // trade-off Compose's own detectDragGestures makes (the drag
+                                        // "starts" at the slop crossing, not the original down point).
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                            ?: event.changes.first()
+                                        if ((change.position - down.position).getDistance() < slop) continue
+                                        vm.onGestureStart()
+                                        movingObject = true
+                                    }
                                     // The pan arrives in screen pixels; a layer's offset is world
                                     // space. Handing the raw screen pan straight through meant that
                                     // at 2× zoom the layer travelled twice as far as the finger, and
@@ -1262,7 +1279,25 @@ private fun BoxScope.Rulers(
             val mHi = ceil(maxOf(b2, a2 * h + b2) / spacing).toInt()
             if (mHi - mLo <= 1000) for (m in mLo..mHi) {
                 val y = (m * spacing - b2) / a2
-                if (y in 0f..h) drawLine(tickColor, Offset(0f, y), Offset(thickness, y), strokeWidth = 1f)
+                if (y in 0f..h) {
+                    drawLine(tickColor, Offset(0f, y), Offset(thickness, y), strokeWidth = 1f)
+                    // Same every-5th-tick labelling as the top ruler (unlabelled here was an
+                    // oversight, not a deliberate asymmetry — this function's own doc comment calls
+                    // the two edges symmetric). Rotated -90°: normal horizontal text doesn't fit
+                    // inside a bar this narrow (thickness is a handful of dp), the same reason every
+                    // vertical ruler (Photoshop, Illustrator, etc.) rotates its numbers too.
+                    if (m % 5 == 0) {
+                        val value = pxToUnit(m * spacing, imperial)
+                        val label = "${"%.1f".format(value)}${if (imperial) "\"" else "cm"}"
+                        val canvas = drawContext.canvas.nativeCanvas
+                        val px = thickness - 3f
+                        val py = y - 2f
+                        canvas.save()
+                        canvas.rotate(-90f, px, py)
+                        canvas.drawText(label, px, py, labelPaint)
+                        canvas.restore()
+                    }
+                }
             }
         }
     }

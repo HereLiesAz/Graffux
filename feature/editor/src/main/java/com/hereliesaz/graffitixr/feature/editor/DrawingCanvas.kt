@@ -194,7 +194,14 @@ fun DrawingCanvas(
                         // While nothing has started yet, wait only for what's left of the fixed
                         // hold window: a still finger produces no events, and reaching the deadline
                         // (not a fresh per-iteration timeout) is what flips into the eyedropper.
-                        val event = if (!began && !eyedrop) {
+                        //
+                        // Excluded here, not just "any tool" as the comment below still says once
+                        // triggered: aiming the Clone source and Tool.FILL are BOTH documented as a
+                        // tap (or lift), not a hold — a hold-to-eyedrop rule with no exception for
+                        // them used to fire the eyedropper on a deliberately careful, slightly-long
+                        // tap, silently swapping the active paint colour instead of setting the
+                        // clone source, or eating a FILL tap entirely with no fill and no explanation.
+                        val event = if (!began && !eyedrop && !pickingCloneSource && activeTool != Tool.FILL) {
                             val remainingMs = eyedropDeadlineMs - android.os.SystemClock.uptimeMillis()
                             if (remainingMs <= 0L) null else withTimeoutOrNull(remainingMs) { awaitPointerEvent() }
                         } else {

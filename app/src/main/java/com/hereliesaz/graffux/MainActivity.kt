@@ -942,45 +942,57 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
 
+                // key(uiState.activeLayerId) on all four of these: the same staleness hazard
+                // TextEditDialog's own key() below is documented against — these dialogs seed their
+                // fields from `remember { mutableStateOf(current...) }` with no key, so if the active
+                // layer changes while one stays open (FloatingWindow-style dialogs never block the
+                // canvas/rail), the dialog keeps showing and applying the OLD layer's stale value,
+                // silently overwriting the NEW active layer's real property on Apply.
                 if (showStrokeDialog) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                    VectorStrokeDialog(
-                        currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
-                        onApply = { w ->
-                            vm.setVectorStrokeWidth(w)
-                            showStrokeDialog = false
-                        },
-                        onDismiss = { showStrokeDialog = false },
-                    )
+                    key(uiState.activeLayerId) {
+                        VectorStrokeDialog(
+                            currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
+                            onApply = { w ->
+                                vm.setVectorStrokeWidth(w)
+                                showStrokeDialog = false
+                            },
+                            onDismiss = { showStrokeDialog = false },
+                        )
+                    }
                 }
 
                 if (showCornerDialog) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
-                    CornerRadiusDialog(
-                        currentRadius = rect?.cornerRadius ?: 0f,
-                        onApply = { r ->
-                            vm.setVectorCornerRadius(r)
-                            showCornerDialog = false
-                        },
-                        onDismiss = { showCornerDialog = false },
-                    )
+                    key(uiState.activeLayerId) {
+                        CornerRadiusDialog(
+                            currentRadius = rect?.cornerRadius ?: 0f,
+                            onApply = { r ->
+                                vm.setVectorCornerRadius(r)
+                                showCornerDialog = false
+                            },
+                            onDismiss = { showCornerDialog = false },
+                        )
+                    }
                 }
 
                 if (showShapeSizeDialog) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val shape = activeLayer?.shapes?.firstOrNull()
                     if (shape != null) {
-                        ShapeSizeDialog(
-                            currentWidth = shape.width,
-                            currentHeight = shape.height,
-                            isLine = shape.kind == ShapeKind.LINE,
-                            onConfirm = { w, h ->
-                                vm.setVectorSize(w, h)
-                                showShapeSizeDialog = false
-                            },
-                            onDismiss = { showShapeSizeDialog = false },
-                        )
+                        key(uiState.activeLayerId) {
+                            ShapeSizeDialog(
+                                currentWidth = shape.width,
+                                currentHeight = shape.height,
+                                isLine = shape.kind == ShapeKind.LINE,
+                                onConfirm = { w, h ->
+                                    vm.setVectorSize(w, h)
+                                    showShapeSizeDialog = false
+                                },
+                                onDismiss = { showShapeSizeDialog = false },
+                            )
+                        }
                     }
                 }
 
@@ -988,14 +1000,16 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
                     if (polygon != null) {
-                        PolygonSidesDialog(
-                            currentSides = polygon.sides,
-                            onApply = { n ->
-                                vm.setPolygonSides(n)
-                                showSidesDialog = false
-                            },
-                            onDismiss = { showSidesDialog = false },
-                        )
+                        key(uiState.activeLayerId) {
+                            PolygonSidesDialog(
+                                currentSides = polygon.sides,
+                                onApply = { n ->
+                                    vm.setPolygonSides(n)
+                                    showSidesDialog = false
+                                },
+                                onDismiss = { showSidesDialog = false },
+                            )
+                        }
                     }
                 }
 
