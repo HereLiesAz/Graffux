@@ -3882,7 +3882,12 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs, same discipline as processNewStroke/commitStampStroke: a
+            // glee audit found this launch (and CLONE's/LIQUIFY's below) was never registered,
+            // so a fast Undo right after a BLUR/SHARPEN/SMUDGE commit could have its rebuild's
+            // publish overwritten by this coroutine's still-in-flight one.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 // Through the replay path rather than a second composite of its own. This branch
                 // used to build the clip itself and pass the HARD path straight in, which meant a
                 // blur inside a feathered selection committed with a hard edge and then replayed
@@ -3967,7 +3972,9 @@ class EditorViewModel @Inject constructor(
             history.pushDraw(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 val cloned = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -4018,7 +4025,9 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
-            viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+            rebuildJobs[layerId]?.cancel()
+            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                 val warped = drawingEngine.applySingleStroke(base, command)
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
@@ -4223,7 +4232,9 @@ class EditorViewModel @Inject constructor(
             // also cover the fast-stroke fallback, which never reaches this code.)
             if (featherRadius > 0f && base != null) {
                 val preview = workBitmap
-                viewModelScope.launch(dispatchers.default) {
+                // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
+                rebuildJobs[layerId]?.cancel()
+                rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                     val committed = drawingEngine.applySingleStroke(base, command)
                     withContext(dispatchers.main) {
                         _uiState.update { s ->
