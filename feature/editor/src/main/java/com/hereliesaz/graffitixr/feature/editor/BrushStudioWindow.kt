@@ -59,6 +59,25 @@ fun BrushStudioWindow(
     var showAirbrush by remember { mutableStateOf(false) }
     var showImpasto by remember { mutableStateOf(false) }
 
+    // A glee audit found FloatingWindow's drag-almost-offscreen auto-dismiss (and, before this fix,
+    // the header's own dismiss control) had no save-guard here, asymmetric with Delete's
+    // ConfirmDialog just below: a brush's edits -- new or on top of an already-saved one -- could
+    // vanish by dragging the window's edge past the screen border, with no prompt at all. `onEdit`
+    // is shadowed below (every call site in this file keeps calling `onEdit { ... }` unmodified) so
+    // marking dirty needs no changes anywhere else.
+    var hasUnsavedEdits by remember { mutableStateOf(false) }
+    var confirmingDiscard by remember { mutableStateOf(false) }
+    val onDraftEdited = onEdit
+    val onEdit: ((AzphaltBrush) -> AzphaltBrush) -> Unit = { edit ->
+        hasUnsavedEdits = true
+        onDraftEdited(edit)
+    }
+    val onDraftSaved = onSave
+    val onSave: () -> Unit = { hasUnsavedEdits = false; onDraftSaved() }
+    val guardedDismiss: () -> Unit = {
+        if (hasUnsavedEdits) confirmingDiscard = true else onDismiss()
+    }
+
     if (confirmingDelete) {
         ConfirmDialog(
             title = "Delete brush?",
@@ -68,8 +87,17 @@ fun BrushStudioWindow(
             onDismiss = { confirmingDelete = false },
         )
     }
+    if (confirmingDiscard) {
+        ConfirmDialog(
+            title = "Discard unsaved changes?",
+            message = "\"${draft.name}\" has edits that haven't been saved. Closing now will lose them.",
+            confirmLabel = "Discard",
+            onConfirm = { confirmingDiscard = false; onDismiss() },
+            onDismiss = { confirmingDiscard = false },
+        )
+    }
 
-    FloatingWindow(title = "Brush Studio", onDismiss = onDismiss) {
+    FloatingWindow(title = "Brush Studio", onDismiss = guardedDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
