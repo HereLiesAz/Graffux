@@ -389,23 +389,23 @@ One nuance the CPU reference doesn't make textually explicit: `GrainBehavior.MOV
 
 **Krita behavior adopted:** Krita tracks dirty tiles/regions per stroke and stores undo as tile deltas rather than whole-image snapshots, keeping large-canvas painting and undo cheap.
 
-**Graffux contract:** dirty-region bounding-box computation only, IN PROGRESS. `DirtyRegion` (`core/common/.../azphalt/DirtyRegion.kt`) computes the axis-aligned pixel bounds a set of dabs could have painted — each dab's own radius, plus its secondary (masked/dual) tip's radius if present, unioned across a stroke's dabs and clampable to canvas bounds. It mirrors the bounding-box math `VulkanStampEngine::stampDabs()`'s dispatch-region optimization already computes ad hoc in C++ (item 3), now as a reusable, tested Kotlin utility.
+**Graffux contract:** dirty-region bounding-box computation AND tile-index mapping, IN PROGRESS. `DirtyRegion` (`core/common/.../azphalt/DirtyRegion.kt`) computes the axis-aligned pixel bounds a set of dabs could have painted — each dab's own radius, plus its secondary (masked/dual) tip's radius if present, unioned across a stroke's dabs and clampable to canvas bounds. It mirrors the bounding-box math `VulkanStampEngine::stampDabs()`'s dispatch-region optimization already computes ad hoc in C++ (item 3), now as a reusable, tested Kotlin utility. `TileGrid` (new, same package) partitions a canvas into fixed-size square tiles and maps a `DirtyRegion` onto the inclusive `(tx, ty)` tile-index range it overlaps (`tilesTouching()`), clamping to the canvas and correctly excluding a tile a region's exclusive right/bottom edge merely touches without covering.
 
-This is explicitly the smaller, safer half of the item. `DirtyTile`/`TileGrid` do not exist, and neither does tile-based undo: `EditHistory.kt`/`LayerStore.kt` remain entirely whole-bitmap-snapshot based, unchanged by this. Rewriting undo storage to tile deltas is a correctness-sensitive change to how every stroke's undo/redo works — real user data at stake if it's wrong — and wasn't attempted here; `DirtyRegion` has no consumer yet in either undo or rendering. It's a foundation a future dirty-region-aware partial redraw, partial GPU upload, or (eventually) tile-based undo could build on, not those things themselves.
+This is still explicitly the smaller, safer half of the item. Tile-based *undo* does not exist: `EditHistory.kt`/`LayerStore.kt` remain entirely whole-bitmap-snapshot based, unchanged by this. Rewriting undo storage to tile deltas is a correctness-sensitive change to how every stroke's undo/redo works — real user data at stake if it's wrong — and wasn't attempted here; neither `DirtyRegion` nor `TileGrid` has a consumer yet in either undo or rendering. Unlike the physical-hardware gaps this document is explicit about NOT treating as an excuse (items 15/17), this is a genuinely different kind of open question: tile-based undo needs its own design pass (tile size choice, delta encoding, migration of already-saved whole-bitmap history) before a safe implementation is possible, not more device access. `DirtyRegion` and `TileGrid` are the foundation a future dirty-region-aware partial redraw, partial GPU upload, or (eventually) tile-based undo could build on, not those things themselves.
 
-**Determinism/replay:** N/A yet — `DirtyRegion` doesn't touch replay; nothing consumes its output. Once something does, tile boundaries and dirty-region bookkeeping must not change replayed pixel output, per this item's original framing (performance/memory optimization only, not a semantic change).
+**Determinism/replay:** N/A yet — neither `DirtyRegion` nor `TileGrid` touches replay; nothing consumes their output. Once something does, tile boundaries and dirty-region bookkeeping must not change replayed pixel output, per this item's original framing (performance/memory optimization only, not a semantic change).
 
-**CPU reference:** `DirtyRegion.fromDabs()`/`.union()`/`.clampTo()` — implemented and tested.
+**CPU reference:** `DirtyRegion.fromDabs()`/`.union()`/`.clampTo()` and `TileGrid.tileBounds()`/`.tilesTouching()` — implemented and tested.
 
 **Vulkan target:** Not started (would also affect how Vulkan uploads/reads back layer regions for Color Smudge, item 3).
 
 **UI exposure:** None expected — internal rendering/undo architecture.
 
-**Tests:** `DirtyRegionTest.kt` — single-dab bounds, multi-dab union, secondary masked-tip extent inclusion, `union()`, `clampTo()` (including producing an empty region when entirely outside canvas), and `width`/`height`/`isEmpty`.
+**Tests:** `DirtyRegionTest.kt` — single-dab bounds, multi-dab union, secondary masked-tip extent inclusion, `union()`, `clampTo()` (including producing an empty region when entirely outside canvas), and `width`/`height`/`isEmpty`. `TileGridTest.kt` (new) — column/row rounding for a canvas not evenly divisible by tile size, edge-tile clamping, out-of-range `tileBounds()`, single- and multi-tile `tilesTouching()`, the exclusive-edge case, clamping a region straddling the canvas boundary before computing indices, and the empty-range case for a region entirely outside the canvas.
 
 **Dependencies:** Items 3, 15 (touches the same layer read/modify/write surface).
 
-**Completion state:** IN PROGRESS. Dirty-region bounding-box utility: IMPLEMENTED (CPU), tested, no consumer yet. Tile-based undo storage: NOT STARTED.
+**Completion state:** IN PROGRESS. Dirty-region bounding-box and tile-index mapping utilities: IMPLEMENTED (CPU), tested, no consumer yet. Tile-based undo storage: NOT STARTED — needs its own design pass, not blocked on anything this session could unblock by "not playing it safe."
 
 ## 17. Physical Adreno/Mali benchmarking and parity validation
 
