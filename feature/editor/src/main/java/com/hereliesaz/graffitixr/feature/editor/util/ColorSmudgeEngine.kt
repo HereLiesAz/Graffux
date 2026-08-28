@@ -49,6 +49,14 @@ object ColorSmudgeEngine {
         val symmetryMode: SymmetryMode = SymmetryMode.NONE,
         /** Optional Krita-style sensor routes. */
         val dynamics: List<BrushSensorBinding> = emptyList(),
+        /**
+         * Krita's Sample Merged: when true and a `sampleSource` is supplied to [apply], Smear's
+         * pickup and Dulling's weighted average read from that separate composite buffer instead
+         * of the active layer's own pixels — painting always still writes to the active layer.
+         * Recorded on the stroke like every other setting, so replay is deterministic regardless
+         * of whether a caller currently supplies a source (see [apply]'s `sampleSource` doc).
+         */
+        val sampleMerged: Boolean = false,
     )
 
     private data class DabPoint(val position: Offset, val sample: BrushSample?)
@@ -118,6 +126,14 @@ object ColorSmudgeEngine {
         return plans
     }
 
+    /**
+     * @param sampleSource Optional pre-composited "what the artist can see" buffer, same
+     *   dimensions as [pixels], used for colour pickup instead of the active layer's own pixels
+     *   when [Settings.sampleMerged] is set. Ignored (falls back to sampling [pixels] itself,
+     *   identical to `sampleMerged = false`) when null or mismatched in size — a caller with no
+     *   merged composite available degrades to the historical single-layer behaviour rather than
+     *   crashing or silently misbehaving. Painting always writes to [pixels] regardless.
+     */
     fun apply(
         pixels: IntArray,
         width: Int,
@@ -126,9 +142,10 @@ object ColorSmudgeEngine {
         settings: Settings,
         samples: List<BrushSample> = emptyList(),
         strokeSeed: Long = 0L,
+        sampleSource: IntArray? = null,
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
-        applyOne(pixels, width, height, stroke, settings, samples, strokeSeed)
+        applyOne(pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource)
         for (transform in symmetryTransforms(settings.symmetryMode, width.toFloat(), height.toFloat())) {
             // Only x/y are mirrored. Sensor values describe the real hand movement and must not be
             // transformed just because a synthetic symmetry twin is being rendered.
@@ -146,6 +163,7 @@ object ColorSmudgeEngine {
                 settings.copy(symmetryMode = SymmetryMode.NONE),
                 transformedSamples,
                 strokeSeed,
+                sampleSource,
             )
         }
     }
@@ -158,15 +176,21 @@ object ColorSmudgeEngine {
         settings: Settings,
         samples: List<BrushSample>,
         strokeSeed: Long,
+        sampleSource: IntArray?,
     ) {
         val radius = settings.radiusPx.coerceAtLeast(1f)
         val path = resampleWithTelemetry(stroke, samples, (radius / 2f).coerceAtLeast(1f))
         if (path.isEmpty()) return
         val kernel = BrushKernel(radius, settings.feathering)
         val startTime = samples.firstOrNull()?.uptimeMillis ?: 0L
+        val readSource = if (settings.sampleMerged && sampleSource != null && sampleSource.size == pixels.size) {
+            sampleSource
+        } else {
+            pixels
+        }
         when (settings.mode) {
-            Mode.SMEAR -> smear(pixels, width, height, path, kernel, settings, startTime, strokeSeed)
-            Mode.DULLING -> dull(pixels, width, height, path, kernel, settings, startTime, strokeSeed)
+            Mode.SMEAR -> smear(pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed)
+            Mode.DULLING -> dull(pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed)
         }
     }
 
@@ -203,6 +227,7 @@ object ColorSmudgeEngine {
     /** Spatial carrier. This remains Graffux's original directional smudge when dynamics are empty. */
     private fun smear(
         pixels: IntArray,
+        readSource: IntArray,
         width: Int,
         height: Int,
         path: List<DabPoint>,
@@ -219,7 +244,7 @@ object ColorSmudgeEngine {
         forEachKernel(kernel) { dx, dy, k, _ ->
             val sx = (start.x.toInt() + dx).coerceIn(0, width - 1)
             val sy = (start.y.toInt() + dy).coerceIn(0, height - 1)
-            carrier[k] = pixels[sy * width + sx]
+            carrier[k] = readSource[sy * width + sx]
         }
 
         for (i in 1 until path.size) {
@@ -232,9 +257,13 @@ object ColorSmudgeEngine {
                 val idx = indexOf(cx + dx, cy + dy, width, height, settings.wrapAround)
                 if (idx < 0) return@forEachKernel
 
+                // Pickup reads from readSource (the merged composite when Sample Merged is active);
+                // the paint blend below always reads/writes the active layer's own pixels — Sample
+                // Merged changes what colour gets carried, never which layer receives the stroke.
+                val pickedUp = readSource[idx]
                 val under = pixels[idx]
                 carrier[k] = lerpArgb(
-                    under, carrier[k], resolved.smudgeRate, includeAlpha = settings.smearAlpha,
+                    pickedUp, carrier[k], resolved.smudgeRate, includeAlpha = settings.smearAlpha,
                 )
                 var out = lerpArgb(
                     under,
@@ -258,6 +287,7 @@ object ColorSmudgeEngine {
     /** Local colour mixing followed by brush-footprint deposition. */
     private fun dull(
         pixels: IntArray,
+        readSource: IntArray,
         width: Int,
         height: Int,
         path: List<DabPoint>,
@@ -273,7 +303,7 @@ object ColorSmudgeEngine {
             val cy = dab.position.y.toInt()
             val sampleRadius = (settings.radiusPx * resolved.smudgeRadius).roundToInt().coerceAtLeast(1)
             val sampled = weightedAverage(
-                pixels, width, height, cx, cy, sampleRadius, settings.wrapAround,
+                readSource, width, height, cx, cy, sampleRadius, settings.wrapAround,
             )
 
             forEachKernel(kernel) { dx, dy, _, mask ->
