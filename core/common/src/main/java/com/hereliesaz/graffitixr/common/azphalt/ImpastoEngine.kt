@@ -97,7 +97,63 @@ object ImpastoEngine {
         strength: Float,
     ): IntArray {
         val out = colorPixels.copyOf()
-        if (strength <= 0f || width <= 0 || imgHeight <= 0) return out
+        shadeInto(out, colorPixels, height, width, imgHeight, 0, 0, width, imgHeight, lightAzimuthDeg, lightElevationDeg, strength)
+        return out
+    }
+
+    /**
+     * Regional counterpart to [shade], for callers that need to re-shade only a small area cheaply
+     * — e.g. a live stamp-stroke preview, where re-running the full [shade] every drag frame would
+     * turn a once-per-stroke O(width×height) pass into a many-times-per-stroke one (see roadmap
+     * item 12's live-preview note). Writes shaded pixels directly into [out] (which the caller
+     * should have pre-seeded with [rawColorPixels]'s unshaded values, NOT a previously-shaded
+     * frame's output — see below) for exactly the rows/columns in
+     * `[left, right) x [top, bottom)`, clamped to the canvas; every other pixel of [out] is left
+     * untouched.
+     *
+     * [rawColorPixels] must be the *unshaded*, purely-painted colour for every pixel this call
+     * touches — never a previously shaded result. [shade]'s multiplier is not idempotent: applying
+     * it twice to an already-shaded pixel does not converge to the correct answer for the pixel's
+     * final height, it just compounds an error. A caller that re-shades the same region across
+     * multiple frames (as height keeps changing under a held brush) must always re-derive from the
+     * raw painted colour, e.g. by keeping a separate unshaded canvas around (mirroring how
+     * `EditorViewModel`'s live preview already keeps `stampLiveBitmap` as the raw dab-compositing
+     * target and applies shading into a *second*, display-only bitmap — see its wiring for the
+     * concrete pattern).
+     *
+     * Because [shade]'s gradient at a pixel reads its immediate neighbours (`x±1`, `y±1`), a caller
+     * whose *raw colour* changed only inside some bounds must still re-shade a 1-pixel-wider region
+     * than that to also refresh every pixel whose gradient input changed — this function does not
+     * do that widening itself (it has no way to know which bounds are "the new paint" vs. "already
+     * padded"), so callers should pass an already-dilated region; see [DirtyRegion] for computing
+     * one and padding it before calling this.
+     */
+    fun shadeInto(
+        out: IntArray,
+        rawColorPixels: IntArray,
+        height: FloatArray,
+        width: Int,
+        imgHeight: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        lightAzimuthDeg: Float,
+        lightElevationDeg: Float,
+        strength: Float,
+    ) {
+        val x0 = left.coerceIn(0, width)
+        val x1 = right.coerceIn(0, width)
+        val y0 = top.coerceIn(0, imgHeight)
+        val y1 = bottom.coerceIn(0, imgHeight)
+        if (x0 >= x1 || y0 >= y1 || width <= 0 || imgHeight <= 0) return
+        if (strength <= 0f) {
+            for (y in y0 until y1) {
+                val row = y * width
+                for (x in x0 until x1) out[row + x] = rawColorPixels[row + x]
+            }
+            return
+        }
 
         val azimuthRad = lightAzimuthDeg * IMPASTO_DEG_TO_RAD
         val elevationRad = lightElevationDeg * IMPASTO_DEG_TO_RAD
@@ -108,23 +164,24 @@ object ImpastoEngine {
         // is expressed relative to that baseline so flat/unpainted regions are always left alone.
         val baselineDiffuse = lz
 
-        for (y in 0 until imgHeight) {
-            for (x in 0 until width) {
+        for (y in y0 until y1) {
+            for (x in x0 until x1) {
                 val dHdx = (at(height, width, imgHeight, x + 1, y) - at(height, width, imgHeight, x - 1, y)) / 2f
                 val dHdy = (at(height, width, imgHeight, x, y + 1) - at(height, width, imgHeight, x, y - 1)) / 2f
-                if (dHdx == 0f && dHdy == 0f) continue
+                val idx = y * width + x
+                if (dHdx == 0f && dHdy == 0f) {
+                    out[idx] = rawColorPixels[idx]
+                    continue
+                }
                 val nx = -dHdx
                 val ny = -dHdy
                 val nz = 1f
                 val invLen = 1f / sqrt(nx * nx + ny * ny + nz * nz)
                 val diffuse = (nx * invLen * lx + ny * invLen * ly + nz * invLen * lz)
                 val multiplier = (1f + strength * (diffuse - baselineDiffuse)).coerceIn(0f, 3f)
-                if (multiplier == 1f) continue
-                val idx = y * width + x
-                out[idx] = scaleRgb(colorPixels[idx], multiplier)
+                out[idx] = if (multiplier == 1f) rawColorPixels[idx] else scaleRgb(rawColorPixels[idx], multiplier)
             }
         }
-        return out
     }
 
     private fun at(height: FloatArray, width: Int, imgHeight: Int, x: Int, y: Int): Float {

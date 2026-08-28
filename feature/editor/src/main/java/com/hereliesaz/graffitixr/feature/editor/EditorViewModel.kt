@@ -37,6 +37,8 @@ import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
@@ -505,6 +507,23 @@ class EditorViewModel @Inject constructor(
     // live-preview block below for why this can't just be concatenated with [stampStampedCount]'s
     // movement-dab list the way commit/replay concatenates them in DrawingEngine.
     private var stampHeldStampedCount: Int = 0
+    // Item 12's live-preview follow-up (Impasto). Live shading is necessary, not optional, but
+    // calling ImpastoEngine.shade() over the WHOLE canvas every drag frame is a real interactivity
+    // risk (that full-image pass is designed to run once, at commit) -- so the live preview keeps
+    // its own scratch height map and a SEPARATE, display-only shaded bitmap, and re-shades only the
+    // small region each frame's new dabs actually touched (dilated by 1px for shade()'s neighbour-
+    // gradient reads) via ImpastoEngine.shadeInto(), never the CPU/GPU dab-compositing target
+    // ([stampLiveBitmap]) itself. Both null whenever this stroke's brush has no Impasto thickness.
+    //
+    // Why a second bitmap, not shading stampLiveBitmap in place: shadeInto()'s multiplier is not
+    // idempotent -- it must always be computed from the RAW, unshaded painted colour, never from a
+    // previously-shaded frame's output (see shadeInto's own doc comment). If shading were applied
+    // destructively onto stampLiveBitmap, a later overlapping dab's alpha blend would read an
+    // already-brightened/darkened pixel as if it were the true paint colour, corrupting both the
+    // displayed colour and (since GPU readback/CPU paintDabs both write onto the same bitmap) the
+    // stroke's actual accumulated pigment -- not just a cosmetic bug.
+    private var stampLiveHeightMap: FloatArray? = null
+    private var stampLiveShadedBitmap: Bitmap? = null
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
@@ -3021,6 +3040,8 @@ class EditorViewModel @Inject constructor(
             stampHeldStampedCount = 0
             stampLiveBitmap = null
             stampLiveCanvas = null
+            stampLiveHeightMap = null
+            stampLiveShadedBitmap = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
             // to call defensively and a leaked Vulkan device is not).
@@ -3081,6 +3102,15 @@ class EditorViewModel @Inject constructor(
                 } else null
                 val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
                 val gpuReady = gpuEngine != null
+                // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
+                // copy of the layer's committed base, never the shared instance itself, so a
+                // discarded/failed live preview can never corrupt it) plus a second, display-only
+                // bitmap starting identical to `work` -- see stampLiveHeightMap's doc comment for
+                // why shading needs its own bitmap rather than mutating `work` in place.
+                val heightMapSeed = if (stampBrush.impastoThicknessRate > 0f) {
+                    layerStore.heightBase(layerId, work.width * work.height).copyOf()
+                } else null
+                val shadedBitmapSeed = heightMapSeed?.let { SafeBitmap.copy(work) }
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -3096,6 +3126,8 @@ class EditorViewModel @Inject constructor(
                                 ),
                             )
                         }
+                        stampLiveHeightMap = heightMapSeed
+                        stampLiveShadedBitmap = shadedBitmapSeed
                         stampGpuEngine = if (gpuReady) gpuEngine else null
                         stampGpuActive = gpuReady
                         stampGpuUsesMaskedPipeline = gpuReady && usesMaskedPipeline
@@ -3113,7 +3145,7 @@ class EditorViewModel @Inject constructor(
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
-                                liveStrokeBitmap = work,
+                                liveStrokeBitmap = shadedBitmapSeed ?: work,
                                 liveStrokeVersion = it.liveStrokeVersion + 1,
                             )
                         }
@@ -3466,8 +3498,12 @@ class EditorViewModel @Inject constructor(
             val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
             if (hasNewMovementDabs || hasNewHeldDabs) {
                 val colorArgb = _uiState.value.activeColor.toArgb()
+                // Hoisted above the movement/held-specific branches below so Impasto (further down)
+                // can deposit/shade the exact same dabs those branches just painted, without
+                // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
+                val newDabs = if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size) else emptyList()
+                val newHeldDabs = if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size) else emptyList()
                 if (hasNewMovementDabs) {
-                val newDabs = dabs.subList(stampStampedCount, dabs.size)
                 // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
                 // stampGpuActive's doc comment for the fallback contract, and
                 // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke uses. A
@@ -3569,13 +3605,44 @@ class EditorViewModel @Inject constructor(
                     // only for the primary movement dabs above; both draw onto the same
                     // `work` bitmap/`canvas`, so ordering between this block and the movement-dab
                     // block above (movement first, held second, every frame) is deterministic.
-                    val newHeldDabs = heldDabs.subList(stampHeldStampedCount, heldDabs.size)
                     StampBrushRenderer.paintDabs(
                         canvas, newHeldDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
                         stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke, stampSeed,
                         _uiState.value.secondaryColor.toArgb(),
                     )
                     stampHeldStampedCount = heldDabs.size
+                }
+                // Item 12's live-preview follow-up: deposit height for exactly the dabs just
+                // painted above (both sources), then re-shade only the small region they touched --
+                // see stampLiveHeightMap's doc comment for why this can't run over the whole canvas
+                // every frame, and shadeInto's doc comment for why it must read from `work` (raw)
+                // rather than the shaded bitmap it writes into.
+                val heightMap = stampLiveHeightMap
+                val shadedBitmap = stampLiveShadedBitmap
+                if (stampBrush.impastoThicknessRate > 0f && heightMap != null && shadedBitmap != null) {
+                    val impastoDabs = newDabs + newHeldDabs
+                    if (impastoDabs.isNotEmpty()) {
+                        ImpastoEngine.depositStroke(
+                            heightMap, work.width, work.height, impastoDabs,
+                            stampBrush.hardness, stampBrush.impastoThicknessRate,
+                        )
+                        val touched = DirtyRegion.fromDabs(impastoDabs)
+                        val region = touched?.let {
+                            DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
+                        }?.clampTo(work.width, work.height)
+                        if (region != null && !region.isEmpty) {
+                            val rawPixels = IntArray(work.width * work.height)
+                            work.getPixels(rawPixels, 0, work.width, 0, 0, work.width, work.height)
+                            val outPixels = IntArray(work.width * work.height)
+                            shadedBitmap.getPixels(outPixels, 0, work.width, 0, 0, work.width, work.height)
+                            ImpastoEngine.shadeInto(
+                                outPixels, rawPixels, heightMap, work.width, work.height,
+                                region.left, region.top, region.right, region.bottom,
+                                IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+                            )
+                            shadedBitmap.setPixels(outPixels, 0, work.width, 0, 0, work.width, work.height)
+                        }
+                    }
                 }
                 _uiState.update { it.copy(liveStrokeVersion = it.liveStrokeVersion + 1) }
             }
@@ -5643,6 +5710,8 @@ class EditorViewModel @Inject constructor(
 
         stampLiveBitmap = null
         stampLiveCanvas = null
+        stampLiveHeightMap = null
+        stampLiveShadedBitmap = null
         stampStampedCount = 0
         stampHeldStampedCount = 0
         stampBrushForStroke = null
