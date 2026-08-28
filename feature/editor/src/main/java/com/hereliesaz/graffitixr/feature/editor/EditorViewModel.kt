@@ -2391,8 +2391,19 @@ class EditorViewModel @Inject constructor(
         // base+strokes. Explicitly dropping the cache here used to restore a permanently blank layer
         // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
         // ages out of undo/redo history — the same mechanism the flatten path already relies on.
+        evictJobsFor(id)
         opEmitter.emit(Op.LayerRemove(id))
         saveProject()
+    }
+
+    /** Cancels and drops [layerId]'s entries in [rebuildJobs]/[textRasterizeJobs], if any. A deleted
+     *  layer's own edit isn't coming back (undo rebuilds pixels from [layerStore], not from either
+     *  map — see [onLayerRemoved]'s comment), so nothing should keep publishing to this id, and
+     *  leaving a completed Job in either map forever would otherwise leak one entry per deleted
+     *  layer for the life of the ViewModel. */
+    private fun evictJobsFor(layerId: String) {
+        rebuildJobs.remove(layerId)?.cancel()
+        textRasterizeJobs.remove(layerId)?.cancel()
     }
 
     override fun onLayerReordered(newOrder: List<String>) {
@@ -4681,7 +4692,11 @@ class EditorViewModel @Inject constructor(
         maybeBakeOldStrokes(layerId)
         showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
 
-        viewModelScope.launch(dispatchers.default) {
+        // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment: without
+        // this, a fast Undo racing this clear's own in-flight publish could have its rebuild's
+        // publish overwritten by this coroutine's, silently resurrecting the just-undone clear.
+        rebuildJobs[layerId]?.cancel()
+        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             val work = SafeBitmap.copy(base) ?: return@launch
             val hard = SelectionMask.bitmapPath(
                 command.selection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
@@ -4772,6 +4787,8 @@ class EditorViewModel @Inject constructor(
                     .toMutableList()
                     .apply { add(at.coerceIn(0, size), mergedLayer) }
                 dispatch(EditorIntent.ReplaceLayers(next, mergedLayer.id))
+                evictJobsFor(upper.id)
+                evictJobsFor(lower.id)
                 opEmitter.emit(Op.LayerRemove(upper.id))
                 opEmitter.emit(Op.LayerRemove(lower.id))
                 opEmitter.emit(Op.LayerAdd(mergedLayer))
@@ -4828,6 +4845,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         val toRemove = descendantIds(layers, groupId) + groupId
         dispatch(EditorIntent.SetLayers(layers.filterNot { it.id in toRemove }))
+        toRemove.forEach(::evictJobsFor)
         saveProject()
     }
 
@@ -5014,6 +5032,11 @@ class EditorViewModel @Inject constructor(
      */
     private var warpOriginalBitmap: Bitmap? = null
 
+    /** The in-flight resample launched by the last [onWarpHandleReleased], if any -- tracked so a
+     *  second release before the first resample finishes cancels it instead of racing it, and so
+     *  [onApplyWarp] can cancel a still-running one before recomputing the final warp itself. */
+    private var warpJob: kotlinx.coroutines.Job? = null
+
     /** Picks Freeform / Distort / Warp, laying a fresh handle grid over the layer for the last two. */
     fun onSetTransformMode(mode: TransformMode) {
         val state = _uiState.value
@@ -5098,7 +5121,11 @@ class EditorViewModel @Inject constructor(
         if (handles.isEmpty()) return
         val canvasW = state.canvasSize.width.takeIf { it > 0 } ?: original.width
         val canvasH = state.canvasSize.height.takeIf { it > 0 } ?: original.height
-        viewModelScope.launch(dispatchers.default) {
+        // A second release before the first resample finishes must cancel it -- otherwise whichever
+        // finishes last wins the publish below, and an older release's result can land after a newer
+        // one, visibly snapping the preview back to an earlier handle position.
+        warpJob?.cancel()
+        warpJob = viewModelScope.launch(dispatchers.default) {
             val inBitmap = ImageProcessor.mapScreenToBitmap(
                 handles, canvasW, canvasH, original.width, original.height,
                 layer.scale, layer.offset, layer.rotationZ,
@@ -5124,10 +5151,28 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
-        val bitmap = layer.bitmap
+        val original = warpOriginalBitmap
         val handles = state.warpHandles
-        val canvasW = state.canvasSize.width.takeIf { it > 0 } ?: (bitmap?.width ?: 0)
-        val canvasH = state.canvasSize.height.takeIf { it > 0 } ?: (bitmap?.height ?: 0)
+        val canvasW = state.canvasSize.width.takeIf { it > 0 } ?: (original?.width ?: 0)
+        val canvasH = state.canvasSize.height.takeIf { it > 0 } ?: (original?.height ?: 0)
+        // onWarpHandleReleased's own resample is async: tapping Apply right after the last release
+        // could otherwise read layer.bitmap before that resample has published, committing and
+        // disk-saving pixels from an earlier handle position than what's on screen. Cancel it and
+        // recompute the final warp here instead of trusting whatever landed last.
+        warpJob?.cancel()
+        val bitmap = if (original != null && handles.isNotEmpty()) {
+            val inBitmap = ImageProcessor.mapScreenToBitmap(
+                handles, canvasW, canvasH, original.width, original.height,
+                layer.scale, layer.offset, layer.rotationZ,
+            )
+            ImageWarp.warp(original, inBitmap)?.also { warped ->
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it })
+                }
+            }
+        } else {
+            layer.bitmap
+        }
         // Dropped, not recycled. A resample kicked off by the last handle release may still be
         // reading it on another dispatcher, and recycling underneath that read draws from freed
         // memory. Releasing the reference is enough.
@@ -7160,6 +7205,7 @@ class EditorViewModel @Inject constructor(
                 putLayerBase(flatLayer.id, composite)
                 layerStore.initStrokes(flatLayer.id)
                 dispatch(EditorIntent.ReplaceLayers(listOf(flatLayer), flatLayer.id))
+                oldLayerIds.forEach(::evictJobsFor)
                 // Without this a spectator's layer list silently diverges from the host's until some
                 // unrelated action forces a full resync — flatten replaced every layer wholesale, so
                 // guests need the removes and the add, not just a props/transform resync.
