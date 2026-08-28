@@ -3012,19 +3012,53 @@ class EditorViewModel @Inject constructor(
             val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock, strokeOpacity)
 
             // GPU live-preview compositor for the round brush (docs/Native Rendering Engine
-            // Design.md §9 Phase 3) — only for the dynamic (round) brush path, and kept purely
-            // local through the catch-up loop below since `strokeGpuEngine`/`strokeGpuActive` are
-            // only published to the class fields once this coroutine's result is adopted, same
-            // guard shape the azphalt stamp-brush path uses for its own GPU engine. Both native
-            // calls block on GPU work, hence doing this here on Dispatchers.Default.
-            // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
-            // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
-            // to call defensively and a leaked Vulkan device is not) — same defensive pattern the
-            // azphalt stamp-brush path uses.
-            strokeGpuEngine?.destroy()
-            val gpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null
-            strokeGpuEngine = gpuEngine
-            strokeGpuActive = gpuEngine != null
+            // Design.md §9 Phase 3) — only for the dynamic (round) brush path. The blocking native
+            // create() call itself deliberately happens OUTSIDE any lock (it can take real time,
+            // and clearTransientStrokeState()/onStrokeEnd must never be blocked waiting on it from
+            // the main thread) — only the field publish immediately below is synchronized.
+            //
+            // strokeGpuEngine/strokeGpuActive are read (via drawCurveRun) and torn down (via
+            // clearTransientStrokeState) from other threads while a stroke is live, so every touch
+            // of those two fields -- this publish, drawCurveRun's read/fallback-disable, and
+            // clearTransientStrokeState's teardown -- shares `liveCurveLock`. Without that, a fast
+            // tap-lift landing between this publish and the final generation-check below races
+            // clearTransientStrokeState()'s destroy: both sides can end up destroying the same
+            // native engine, or drawCurveRun can call into one mid-destroy. `gpuEngine` below is
+            // only non-null when this stroke actually won the race to publish, so its two cleanup
+            // call sites further down stay engine-object-identity-safe rather than blindly
+            // destroying whatever's now in the field.
+            val createdGpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null
+            val gpuEngine = synchronized(liveCurveLock) {
+                if (generation != strokeGeneration || strokeLayerId != layerId) {
+                    createdGpuEngine?.destroy()
+                    null
+                } else {
+                    // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
+                    // clearTransientStrokeState in between (there shouldn't be one, but destroy()
+                    // is cheap to call defensively and a leaked Vulkan device is not).
+                    strokeGpuEngine?.destroy()
+                    strokeGpuEngine = createdGpuEngine
+                    strokeGpuActive = createdGpuEngine != null
+                    createdGpuEngine
+                }
+            }
+
+            // Releases [gpuEngine] only if it's still the one published in strokeGpuEngine --
+            // i.e. only if clearTransientStrokeState() hasn't already claimed and destroyed it
+            // itself in the meantime. Bare `gpuEngine?.destroy()` at either call site below would
+            // reintroduce the double-destroy race this function's field publish was written to
+            // close: a fast tap-lift can run clearTransientStrokeState() concurrently with this
+            // coroutine reaching either early-exit path.
+            fun releaseGpuEngineIfCurrent() {
+                if (gpuEngine == null) return
+                synchronized(liveCurveLock) {
+                    if (strokeGpuEngine === gpuEngine) {
+                        strokeGpuEngine = null
+                        strokeGpuActive = false
+                        gpuEngine.destroy()
+                    }
+                }
+            }
 
             // Snapshot the collected points at this moment — may include points that arrived
             // during the bitmap-copy phase.
@@ -3036,7 +3070,7 @@ class EditorViewModel @Inject constructor(
             )
 
             if (mappedAll.isEmpty()) {
-                gpuEngine?.destroy()
+                releaseGpuEngineIfCurrent()
                 workBitmap.recycle()
                 return@launch
             }
@@ -3110,7 +3144,7 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 if (generation != strokeGeneration || strokeLayerId != layerId) {
-                    gpuEngine?.destroy()
+                    releaseGpuEngineIfCurrent()
                     workBitmap.recycle()
                     return@withContext
                 }
@@ -3818,10 +3852,12 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Commit an azphalt stamp-brush stroke: record a replayable [StrokeCommand] (carrying the brush,
-     * flow and a content-derived seed so undo/redo re-composites identically), then rasterize the whole
-     * stroke onto a fresh copy of the layer bitmap via [StampBrushRenderer] off the main thread and
-     * publish it. The seed is derived from the stroke's points so the same stroke always jitters the
-     * same way — [DrawingEngine] uses it on replay.
+     * flow, and the seed fixed at stroke start so undo/redo re-composites identically), then
+     * rasterize the whole stroke onto a fresh copy of the layer bitmap via [StampBrushRenderer] off
+     * the main thread and publish it. The seed itself is `System.nanoTime()` at stroke start, not
+     * derived from the stroke's content -- two visually-identical strokes drawn at different times
+     * jitter differently -- but once recorded on the command, replay always reads that same stored
+     * value, so [DrawingEngine] reproduces this exact stroke identically on every replay.
      */
     private fun commitStampStroke(
         state: EditorUiState,
@@ -5366,9 +5402,15 @@ class EditorViewModel @Inject constructor(
         stampGpuEngine = null
         stampGpuActive = false
 
-        strokeGpuEngine?.destroy()
-        strokeGpuEngine = null
-        strokeGpuActive = false
+        // Shares liveCurveLock with onStrokeStart's publish and drawCurveRun's read/fallback-
+        // disable of these same two fields — see onStrokeStart's GPU live-preview comment for why:
+        // without this, a fast tap-lift landing mid-publish could destroy the engine here while
+        // onStrokeStart's coroutine still holds and uses the same reference, or double-destroy it.
+        synchronized(liveCurveLock) {
+            strokeGpuEngine?.destroy()
+            strokeGpuEngine = null
+            strokeGpuActive = false
+        }
     }
 
     private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =
