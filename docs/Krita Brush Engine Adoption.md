@@ -365,21 +365,23 @@ What it deliberately does **not** do: map those `param` keys onto Graffux's own 
 
 **Krita behavior adopted:** Krita tracks dirty tiles/regions per stroke and stores undo as tile deltas rather than whole-image snapshots, keeping large-canvas painting and undo cheap.
 
-**Graffux contract:** not yet started. No `DirtyRegion`, `DirtyTile`, `TileGrid`, or `dirty_rect` symbols exist in the Kotlin or C++ sources. Existing undo (`EditHistory.kt`, `LayerStore.kt`) is whole-bitmap based; no tile infrastructure exists to build dirty-region tracking or tile-based undo on top of.
+**Graffux contract:** dirty-region bounding-box computation only, IN PROGRESS. `DirtyRegion` (`core/common/.../azphalt/DirtyRegion.kt`) computes the axis-aligned pixel bounds a set of dabs could have painted — each dab's own radius, plus its secondary (masked/dual) tip's radius if present, unioned across a stroke's dabs and clampable to canvas bounds. It mirrors the bounding-box math `VulkanStampEngine::stampDabs()`'s dispatch-region optimization already computes ad hoc in C++ (item 3), now as a reusable, tested Kotlin utility.
 
-**Determinism/replay:** Tile boundaries and dirty-region bookkeeping must not change replayed pixel output — this is a performance/memory optimization only, not a semantic change.
+This is explicitly the smaller, safer half of the item. `DirtyTile`/`TileGrid` do not exist, and neither does tile-based undo: `EditHistory.kt`/`LayerStore.kt` remain entirely whole-bitmap-snapshot based, unchanged by this. Rewriting undo storage to tile deltas is a correctness-sensitive change to how every stroke's undo/redo works — real user data at stake if it's wrong — and wasn't attempted here; `DirtyRegion` has no consumer yet in either undo or rendering. It's a foundation a future dirty-region-aware partial redraw, partial GPU upload, or (eventually) tile-based undo could build on, not those things themselves.
 
-**CPU reference:** Not started.
+**Determinism/replay:** N/A yet — `DirtyRegion` doesn't touch replay; nothing consumes its output. Once something does, tile boundaries and dirty-region bookkeeping must not change replayed pixel output, per this item's original framing (performance/memory optimization only, not a semantic change).
+
+**CPU reference:** `DirtyRegion.fromDabs()`/`.union()`/`.clampTo()` — implemented and tested.
 
 **Vulkan target:** Not started (would also affect how Vulkan uploads/reads back layer regions for Color Smudge, item 3).
 
 **UI exposure:** None expected — internal rendering/undo architecture.
 
-**Tests:** None.
+**Tests:** `DirtyRegionTest.kt` — single-dab bounds, multi-dab union, secondary masked-tip extent inclusion, `union()`, `clampTo()` (including producing an empty region when entirely outside canvas), and `width`/`height`/`isEmpty`.
 
 **Dependencies:** Items 3, 15 (touches the same layer read/modify/write surface).
 
-**Completion state:** NOT STARTED.
+**Completion state:** IN PROGRESS. Dirty-region bounding-box utility: IMPLEMENTED (CPU), tested, no consumer yet. Tile-based undo storage: NOT STARTED.
 
 ## 17. Physical Adreno/Mali benchmarking and parity validation
 
