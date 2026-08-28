@@ -902,7 +902,9 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.default) {
             try {
-                val baked = drawingEngine.composite(base, stale)
+                val baked = drawingEngine.composite(base, stale) {
+                    _uiState.value.layers.filterNot { it.id == layerId }
+                }
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
                     // layer's caches wholesale while this ran, and baking onto a stale base would
@@ -962,7 +964,9 @@ class EditorViewModel @Inject constructor(
             // failure during undo/redo logs instead of taking down the app — the stroke list and
             // base are unchanged, so the next edit re-renders cleanly.
             try {
-                val currentBitmap = drawingEngine.composite(base, strokes)
+                val currentBitmap = drawingEngine.composite(base, strokes) {
+                    _uiState.value.layers.filterNot { it.id == layerId }
+                }
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
                 // push the whole baked bitmap — but only if something is actually listening. This
@@ -995,7 +999,8 @@ class EditorViewModel @Inject constructor(
         maybeBakeOldStrokes(layerId)
 
         viewModelScope.launch(dispatchers.default) {
-            val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command)
+            val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
+            val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers)
 
             withContext(dispatchers.main) {
                 _uiState.update { state ->
@@ -5610,6 +5615,11 @@ class EditorViewModel @Inject constructor(
 
     fun setColorSmudgeAlphaCarry(enabled: Boolean) =
         _colorSmudgeSettings.update { it.copy(smearAlpha = enabled) }
+
+    /** Item 11: read pickup from the composite of every other visible layer instead of only this
+     *  one's own paint. See [DrawingEngine]'s Tool.SMUDGE branch for where this actually applies. */
+    fun setColorSmudgeSampleMerged(enabled: Boolean) =
+        _colorSmudgeSettings.update { it.copy(sampleMerged = enabled) }
 
     fun setColorSmudgeDynamics(bindings: List<com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding>) =
         _colorSmudgeSettings.update { it.copy(dynamics = bindings) }

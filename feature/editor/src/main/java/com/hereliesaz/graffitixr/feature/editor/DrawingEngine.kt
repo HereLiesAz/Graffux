@@ -3,11 +3,13 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
@@ -21,7 +23,10 @@ import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
  * dependencies are the OpenCV [ImageProcessor] and [SlamManager] (for Liquify warps). Callers
  * run these on a background dispatcher — they are CPU-heavy and must not touch the main thread.
  */
-internal class DrawingEngine(private val slamManager: SlamManager) {
+internal class DrawingEngine(
+    private val slamManager: SlamManager,
+    private val exportManager: ExportManager = ExportManager(),
+) {
 
     /**
      * Replays [strokes] in order onto a fresh mutable copy of [base], returning the result.
@@ -31,24 +36,40 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
      * [LayerStore]'s pristine base into the UI and let the next in-place stroke corrupt the one
      * copy every rebuild and undo depends on. Both callers already treat a thrown rebuild as
      * "leave the layer as it was", which is the correct outcome.
+     *
+     * [otherLayers] is read fresh for every stroke in the list (not snapshotted once) since it
+     * only feeds Color Smudge's "Sample Merged" (item 11): the *current* state of the other
+     * layers, matching what a live composite would show, is what Krita's own Sample Merged reads,
+     * and undo/redo replay through this same function should agree with a live draw at the same
+     * document state rather than resurrecting whatever those layers looked like when the stroke
+     * was first recorded.
      */
-    suspend fun composite(base: Bitmap, strokes: List<StrokeCommand>): Bitmap {
+    suspend fun composite(
+        base: Bitmap,
+        strokes: List<StrokeCommand>,
+        otherLayers: () -> List<Layer> = { emptyList() },
+    ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
         for (stroke in strokes) {
             val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
-            else applyTool(current, stroke, replaceExisting = true)
+            else applyTool(current, stroke, replaceExisting = true, otherLayers = otherLayers)
             if (next !== current && current !== base) current.recycle()
             current = next
         }
         return current
     }
 
-    suspend fun applySingleStroke(base: Bitmap, command: StrokeCommand): Bitmap =
+    suspend fun applySingleStroke(base: Bitmap, command: StrokeCommand, otherLayers: List<Layer> = emptyList()): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
-        else applyTool(base, command, replaceExisting = false)
+        else applyTool(base, command, replaceExisting = false, otherLayers = { otherLayers })
 
-    private suspend fun applyTool(bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean): Bitmap {
+    private suspend fun applyTool(
+        bitmap: Bitmap,
+        stroke: StrokeCommand,
+        replaceExisting: Boolean,
+        otherLayers: () -> List<Layer> = { emptyList() },
+    ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
@@ -203,7 +224,11 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             // dab primitive in this engine holds to. chargeDecayRate needs no such gate: it's
             // already folded into the per-dab colorRate by resolve() before reaching either path,
             // so the flat colorRate blend below already reproduces it correctly.
-            val gpuPainted = settings.dilution <= 0f && runCatching {
+            // Sample Merged (item 11) has no GPU/color_smudge.comp equivalent -- VulkanColorSmudge
+            // always reads the same texture it's writing into, with no second "read-from" source.
+            // Same discipline as the dilution gate just above: force CPU rather than silently
+            // ignoring the setting and diverging from what the toggle promises.
+            val gpuPainted = settings.dilution <= 0f && !settings.sampleMerged && runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
@@ -230,9 +255,28 @@ internal class DrawingEngine(private val slamManager: SlamManager) {
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
                 bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                // Sample Merged: composite the other visible layers into this layer's own pixel
+                // space (exact resolution match, required by ColorSmudgeEngine.apply's
+                // sampleSource contract) so pickup reads what's actually visible underneath/around
+                // this layer instead of only this layer's own paint. A mismatched/empty result
+                // degrades safely to ColorSmudgeEngine's own single-layer fallback.
+                val sampleSource = if (settings.sampleMerged) {
+                    val others = otherLayers()
+                    if (others.isNotEmpty()) {
+                        val composite = exportManager.compositeOtherLayersForSampling(
+                            bitmap, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                            others, stroke.canvasSize.width, stroke.canvasSize.height,
+                        )
+                        val src = IntArray(width * height)
+                        composite.getPixels(src, 0, width, 0, 0, width, height)
+                        composite.recycle()
+                        src
+                    } else null
+                } else null
                 ColorSmudgeEngine.apply(
                     pixels, width, height, mapped, settings,
                     samples = mappedSamples, strokeSeed = stroke.seed,
+                    sampleSource = sampleSource,
                 )
                 target.setPixels(pixels, 0, width, 0, 0, width, height)
             }
