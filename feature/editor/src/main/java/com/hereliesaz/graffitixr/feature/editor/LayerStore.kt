@@ -21,10 +21,33 @@ import java.util.concurrent.ConcurrentHashMap
 internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val layerStrokes = ConcurrentHashMap<String, MutableList<StrokeCommand>>()
+    private val heightBases = ConcurrentHashMap<String, FloatArray>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
         baseBitmaps[layerId] = bitmap
+    }
+
+    /**
+     * The pristine paint-thickness base for [layerId] (roadmap item 12) — the height map baked
+     * strokes have already contributed, before replaying whatever's left in [strokes]. Lazily
+     * allocated at [size] (`width * height`) zeros on first request rather than at every one of
+     * the many layer-creation call sites [putBase] has, since most layers never use Impasto at
+     * all; self-heals by reallocating if a stale cached array's size no longer matches (e.g. a
+     * layer id somehow reused at a different size).
+     */
+    fun heightBase(layerId: String, size: Int): FloatArray {
+        val existing = heightBases[layerId]
+        if (existing != null && existing.size == size) return existing
+        val fresh = FloatArray(size)
+        heightBases[layerId] = fresh
+        return fresh
+    }
+
+    /** Replaces [layerId]'s height base — the caller bakes stale strokes' height contribution
+     *  into it the same way [takeOldestStrokes] bakes their pixels into the bitmap base. */
+    fun putHeightBase(layerId: String, heightMap: FloatArray) {
+        heightBases[layerId] = heightMap
     }
 
     /** Resets [layerId]'s stroke list to empty. */
@@ -97,21 +120,24 @@ internal class LayerStore {
         }
     }
 
-    /** Drops both caches for [layerId]. */
+    /** Drops all caches for [layerId]. */
     fun remove(layerId: String) {
         baseBitmaps.remove(layerId)
         layerStrokes.remove(layerId)
+        heightBases.remove(layerId)
     }
 
-    /** Clears all cached bitmaps and strokes (e.g. on project unload). */
+    /** Clears all cached bitmaps, strokes, and height bases (e.g. on project unload). */
     fun clear() {
         baseBitmaps.clear()
         layerStrokes.clear()
+        heightBases.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
     fun retainOnly(liveIds: Set<String>) {
         baseBitmaps.keys.retainAll(liveIds)
         layerStrokes.keys.retainAll(liveIds)
+        heightBases.keys.retainAll(liveIds)
     }
 }

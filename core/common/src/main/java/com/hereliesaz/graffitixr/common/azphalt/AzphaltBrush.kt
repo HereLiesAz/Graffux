@@ -152,6 +152,13 @@ data class AzphaltBrush(
     /** A sample within this radius of the current held run's anchor still counts as "held";
      *  movement past it resets the run. Irrelevant while [airbrushDabsPerSecond] is 0. */
     val airbrushStillnessRadiusPx: Float = 3f,
+    /** Paint-thickness build-up (roadmap item 12, `ImpastoEngine.deposit`): how much each dab
+     *  raises the layer's height map, in the same units as `ImpastoEngine`'s `thicknessRate`.
+     *  0 (the default) disables it entirely, matching `ImpastoEngine.deposit`'s own
+     *  "non-positive rate is a no-op" contract, so existing brushes are unaffected. Only takes
+     *  effect on stroke commit/replay, not the live preview -- see the call site in
+     *  `DrawingEngine.kt` for why (same reasoning as [airbrushDabsPerSecond]). */
+    val impastoThicknessRate: Float = 0f,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -171,6 +178,7 @@ data class AzphaltBrush(
         taper = taper.sanitized(),
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
         airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
+        impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -235,6 +243,7 @@ data class AzphaltBrush(
                 taper = taper,
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
                 airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
+                impastoThicknessRate = (f("impastoThicknessRate") ?: 0f).coerceAtLeast(0f),
             ).sanitized()
         }
     }
