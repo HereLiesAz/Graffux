@@ -285,10 +285,10 @@ jobs:
       # same versionCode, this is the only way to hand one bundle to more than one track.
       # publish_play.py exits 0 = every track ok, 2 = internal published but ≥1
       # other track failed (versionCode still consumed by Play), 1 = nothing published.
-      # This step has no explicit `shell:`, so it runs under GitHub's default `bash -e {0}` —
-      # `-e` alone (no pipe here, so pipefail is moot) would still kill the step on the
-      # python call's exit 2 before `$?` can be read below. Disable errexit around the call to
-      # actually reach it.
+      # This step runs under `bash -e` (either way: explicitly below, or GitHub's own default for
+      # an unspecified shell) — `-e` alone (no pipe here, so pipefail is moot) would still kill
+      # the step on the python call's exit 2 before `$?` can be read below. Disable errexit around
+      # the call to actually reach it.
       - name: Publish to Google Play (internal + alpha draft; roll out in console)
         id: publish
         if: ${{ inputs.publish != 'false' }}
