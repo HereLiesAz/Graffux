@@ -41,6 +41,7 @@ import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
+import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
@@ -174,14 +175,13 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 
 /**
  * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
- * the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). A masked/dual (second) tip, or a
- * full `maskedBrush` config, still force the CPU path -- neither `stamp.comp` nor
- * `stamp_masked.comp` composites a second tip. A [shape], a non-round [AzphaltBrush.tipRatio], or a
- * grain texture no longer force CPU: see [gpuPipelineUsesMaskedShader] for the first two, and
- * `stamp_masked.comp`'s grain sampler (bound whenever the caller supplies a grain tile, a no-op
- * dummy texture otherwise) for the third.
+ * the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). As of this pass, every azphalt
+ * stamp-brush capability has a GPU counterpart -- shaped tips and non-round
+ * [AzphaltBrush.tipRatio], grain, and now masked/dual-brush (a full `maskedBrush` config) -- so
+ * this is unconditionally true; see [gpuPipelineUsesMaskedShader] for which shader a given
+ * combination routes to.
  *
- * Color source (plain/gradient/uniform-random) and any HSV sensor shift are NOT part of this
+ * Color source (plain/gradient/uniform-random) and any HSV sensor shift were never part of this
  * restriction either: [StampBrushRenderer.resolvedColor] already resolves the final per-dab RGB
  * on the CPU before a dab ever reaches the GPU (see the `stampResolvedDabs`/`stampMaskedDabs` call
  * sites in `onStrokeStart`), and both shaders already render whatever resolved RGB they're given.
@@ -191,25 +191,25 @@ internal fun gpuCompatibleStampBrush(
     shape: Bitmap?,
     grain: Bitmap?,
     maskShape: Bitmap?,
-): Boolean =
-    maskShape == null &&
-        brush.maskedBrush == null
+): Boolean = true
 
 /**
  * Given a GPU-compatible stroke (see [gpuCompatibleStampBrush]), whether it needs
  * `stamp_masked.comp` rather than the long-proven generated-round-tip-only `stamp.comp` path: a
  * real [shape] bitmap, a non-round [AzphaltBrush.tipRatio] that `stamp.comp`'s round-only
- * `stampCoverage()` can't represent, or a [grain] texture -- only `stamp_masked.comp` has a grain
- * sampler binding at all, so a round tip with grain still needs the masked pipeline even though
- * neither of the first two conditions applies. `stamp_masked.comp` already handles a null/round
- * tip correctly (see [alphaChannelBytes]'s call site, which rasterizes a generated round mask via
- * `BrushTipMaskCache.tipMask(null, ...)` when [shape] is null).
+ * `stampCoverage()` can't represent, a [grain] texture, or [AzphaltBrush.maskedBrush] being set --
+ * only `stamp_masked.comp` has grain and secondary-tip sampler bindings at all, so a round tip
+ * with either still needs the masked pipeline even though neither of the first two conditions
+ * applies. `stamp_masked.comp` already handles a null/round tip correctly (see
+ * [alphaChannelBytes]'s call site, which rasterizes a generated round mask via
+ * `BrushTipMaskCache.tipMask(null, ...)` when [shape] is null) -- the same trick applies to the
+ * secondary tip's own mask when [AzphaltBrush.maskedBrush]'s `shapePath` resolved to nothing.
  */
 internal fun gpuPipelineUsesMaskedShader(
     brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
     shape: Bitmap?,
     grain: Bitmap? = null,
-): Boolean = shape != null || brush.tipRatio != 1f || grain != null
+): Boolean = shape != null || brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
 
 /** Reference resolution the masked GPU pipeline's tip mask is rasterized at, once per stroke,
  *  independent of any individual dab's radius -- `stamp_masked.comp` scales it per dab via UV
@@ -542,6 +542,13 @@ class EditorViewModel @Inject constructor(
     private var stampGpuGrainCanvasLocked: Boolean = false
     private var stampGpuGrainPhaseX: Float = 0f
     private var stampGpuGrainPhaseY: Float = 0f
+    // Item 15's masked/dual-brush follow-up: mirrors stampGpuMaskAlpha8/stampGpuMaskSize for the
+    // secondary tip's own mask texture, rasterized once per stroke the same way. Per-dab secondary
+    // geometry isn't cached here -- it comes straight from each dab's own BrushStamps-attached
+    // `Dab.mask` at the dispatch site, same source the CPU path already reads.
+    private var stampGpuHasDualBrush: Boolean = false
+    private var stampGpuSecondaryMaskAlpha8: ByteArray? = null
+    private var stampGpuSecondaryMaskSize: Int = 0
 
     // Same contract as stampGpuEngine/stampGpuActive above, for the round brush's live path
     // instead of azphalt stamp brushes — both now stamp dabs (see ROUND_BRUSH_DAB_SPACING_FRACTION),
@@ -3019,6 +3026,9 @@ class EditorViewModel @Inject constructor(
             stampGpuGrainAlpha8 = null
             stampGpuGrainWidth = 0
             stampGpuGrainHeight = 0
+            stampGpuHasDualBrush = false
+            stampGpuSecondaryMaskAlpha8 = null
+            stampGpuSecondaryMaskSize = 0
             stampMappedPoints.clear()
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
@@ -3049,6 +3059,19 @@ class EditorViewModel @Inject constructor(
                     resolveGrainTileAndPhase(stampGrainForStroke, stampBrush, currentSeed)
                 } else null
                 val grainAlpha8 = grainResolution?.tile?.let { alphaChannelBytes(it) }
+                // Item 15's masked/dual-brush follow-up: same fixed-reference-size rasterization
+                // as the primary mask, for the secondary tip's own shape. `brush.maskedBrush`
+                // being non-null is a per-STROKE decision (every dab gets a `Dab.mask`, see
+                // BrushStamps.dabs/dynamicDabs), so this doesn't need to inspect any dab.
+                val hasDualBrush = usesMaskedPipeline && stampBrush.maskedBrush != null
+                val secondaryMaskAlpha8 = if (hasDualBrush) {
+                    alphaChannelBytes(
+                        BrushTipMaskCache.tipMask(
+                            stampMaskShapeForStroke, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE,
+                            stampBrush.maskedBrush?.hardness ?: 1f,
+                        ),
+                    )
+                } else null
                 val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
                 val gpuReady = gpuEngine != null
                 withContext(dispatchers.main) {
@@ -3077,6 +3100,9 @@ class EditorViewModel @Inject constructor(
                         stampGpuGrainCanvasLocked = stampBrush.grainBehavior == com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED
                         stampGpuGrainPhaseX = grainResolution?.phaseX ?: 0f
                         stampGpuGrainPhaseY = grainResolution?.phaseY ?: 0f
+                        stampGpuHasDualBrush = gpuReady && hasDualBrush
+                        stampGpuSecondaryMaskAlpha8 = if (gpuReady) secondaryMaskAlpha8 else null
+                        stampGpuSecondaryMaskSize = if (gpuReady && hasDualBrush) GPU_MASK_REFERENCE_SIZE else 0
                         _uiState.update {
                             it.copy(
                                 liveStrokeLayerId = layerId,
@@ -3437,12 +3463,31 @@ class EditorViewModel @Inject constructor(
                                 tipRatio = dab.tipRatio,
                             )
                         }
+                        val secondaryDabs = if (stampGpuHasDualBrush) {
+                            newDabs.map { dab ->
+                                val maskDab = dab.mask ?: return@let false
+                                SecondaryBrushDab(
+                                    x = maskDab.x,
+                                    y = maskDab.y,
+                                    radius = maskDab.radius,
+                                    tipRatio = maskDab.tipRatio,
+                                    alpha = maskDab.alpha,
+                                    angleDeg = maskDab.angleDeg,
+                                    flowMultiplier = maskDab.flowMultiplier,
+                                    keepInside = maskDab.keepInside,
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
                         engine.stampMaskedDabs(
                             gpuDabs, stampBrush.hardness.coerceIn(0f, 1f), maskAlpha8,
                             stampGpuMaskSize, stampGpuMaskSize,
                             stampGpuGrainAlpha8, stampGpuGrainWidth, stampGpuGrainHeight,
                             stampGpuGrainCanvasLocked, stampBrush.grainScale,
                             stampGpuGrainPhaseX, stampGpuGrainPhaseY,
+                            secondaryDabs, stampGpuSecondaryMaskAlpha8,
+                            stampGpuSecondaryMaskSize, stampGpuSecondaryMaskSize,
                         ) && engine.readback(work)
                     } else {
                         val gpuDabs = newDabs.map { dab ->
@@ -3473,6 +3518,9 @@ class EditorViewModel @Inject constructor(
                         stampGpuGrainAlpha8 = null
                         stampGpuGrainWidth = 0
                         stampGpuGrainHeight = 0
+                        stampGpuHasDualBrush = false
+                        stampGpuSecondaryMaskAlpha8 = null
+                        stampGpuSecondaryMaskSize = 0
                     }
                     StampBrushRenderer.paintDabs(
                         canvas, newDabs, stampBrush, colorArgb, _uiState.value.brushFlow,
@@ -5562,6 +5610,9 @@ class EditorViewModel @Inject constructor(
         stampGpuGrainAlpha8 = null
         stampGpuGrainWidth = 0
         stampGpuGrainHeight = 0
+        stampGpuHasDualBrush = false
+        stampGpuSecondaryMaskAlpha8 = null
+        stampGpuSecondaryMaskSize = 0
 
         // Shares liveCurveLock with onStrokeStart's publish and drawCurveRun's read/fallback-
         // disable of these same two fields — see onStrokeStart's GPU live-preview comment for why:

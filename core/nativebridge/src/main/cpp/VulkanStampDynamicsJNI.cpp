@@ -5,6 +5,7 @@
 
 namespace {
 using graffux::GpuDab;
+using graffux::GpuSecondaryDab;
 using graffux::VulkanStampEngine;
 }
 
@@ -46,7 +47,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jfloat hardness,
         jbyteArray maskAlpha8, jint maskWidth, jint maskHeight,
         jbyteArray grainAlpha8, jint grainWidth, jint grainHeight, jboolean grainCanvasLocked,
-        jfloat grainScale, jfloat grainPhaseX, jfloat grainPhaseY) {
+        jfloat grainScale, jfloat grainPhaseX, jfloat grainPhaseY,
+        jfloatArray secondaryDabData, jbyteArray secondaryMaskAlpha8, jint secondaryMaskWidth,
+        jint secondaryMaskHeight) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData || !maskAlpha8) return JNI_FALSE;
     if (maskWidth <= 0 || maskHeight <= 0) return JNI_FALSE;
@@ -99,13 +102,62 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
         }
     }
 
+    // Masked/dual-brush (item 15 follow-up), same optionality pattern as grain above: a null
+    // secondaryDabData or secondaryMaskAlpha8 (or non-positive secondary mask dims) disables it
+    // for this call. Per stampMaskedDabs()'s contract, a non-empty secondaryDabs must be exactly
+    // dabs.size() long -- checked here (stride-and-count) before native code ever sees a mismatch.
+    jfloat* secondaryData = nullptr;
+    jbyte* secondaryMaskData = nullptr;
+    std::vector<GpuSecondaryDab> secondaryDabs;
+    bool hasSecondaryArrays = secondaryDabData != nullptr && secondaryMaskAlpha8 != nullptr &&
+                               secondaryMaskWidth > 0 && secondaryMaskHeight > 0;
+    if (hasSecondaryArrays) {
+        constexpr int kSecondaryStride = 8;  // x,y,radius,tipRatio,alpha,angle,flowMultiplier,keepInside
+        const jsize secondaryCount = env->GetArrayLength(secondaryDabData);
+        const jsize expectedCount = static_cast<jsize>(dabs.size()) * kSecondaryStride;
+        const jsize secondaryMaskLen = env->GetArrayLength(secondaryMaskAlpha8);
+        bool secondarySizesOk = secondaryCount == expectedCount &&
+            static_cast<jlong>(secondaryMaskLen) >= static_cast<jlong>(secondaryMaskWidth) * secondaryMaskHeight;
+        if (!secondarySizesOk) {
+            hasSecondaryArrays = false;
+        } else {
+            secondaryData = env->GetFloatArrayElements(secondaryDabData, nullptr);
+            secondaryMaskData = secondaryData ? env->GetByteArrayElements(secondaryMaskAlpha8, nullptr) : nullptr;
+            if (!secondaryData || !secondaryMaskData) {
+                if (secondaryData) env->ReleaseFloatArrayElements(secondaryDabData, secondaryData, JNI_ABORT);
+                hasSecondaryArrays = false;
+                secondaryData = nullptr;
+                secondaryMaskData = nullptr;
+            } else {
+                secondaryDabs.reserve(dabs.size());
+                for (jsize i = 0; i < secondaryCount; i += kSecondaryStride) {
+                    GpuSecondaryDab sd{};
+                    sd.x = secondaryData[i];
+                    sd.y = secondaryData[i + 1];
+                    sd.radius = secondaryData[i + 2];
+                    sd.tipRatio = std::clamp(secondaryData[i + 3], 0.05f, 1.0f);
+                    sd.alpha = secondaryData[i + 4];
+                    sd.angleDeg = secondaryData[i + 5];
+                    sd.flowMultiplier = std::max(secondaryData[i + 6], 0.0f);
+                    sd.keepInside = secondaryData[i + 7];
+                    secondaryDabs.push_back(sd);
+                }
+            }
+        }
+    }
+
     bool ok = engine->stampMaskedDabs(
         dabs, 0xFFFFFFFFu, std::clamp(hardness, 0.0f, 1.0f),
         reinterpret_cast<const uint8_t*>(maskData), maskWidth, maskHeight,
         hasGrainArray ? reinterpret_cast<const uint8_t*>(grainData) : nullptr,
         hasGrainArray ? grainWidth : 0, hasGrainArray ? grainHeight : 0,
-        grainCanvasLocked == JNI_TRUE, grainScale, grainPhaseX, grainPhaseY);
+        grainCanvasLocked == JNI_TRUE, grainScale, grainPhaseX, grainPhaseY,
+        secondaryDabs,
+        hasSecondaryArrays ? reinterpret_cast<const uint8_t*>(secondaryMaskData) : nullptr,
+        hasSecondaryArrays ? secondaryMaskWidth : 0, hasSecondaryArrays ? secondaryMaskHeight : 0);
 
+    if (secondaryMaskData) env->ReleaseByteArrayElements(secondaryMaskAlpha8, secondaryMaskData, JNI_ABORT);
+    if (secondaryData) env->ReleaseFloatArrayElements(secondaryDabData, secondaryData, JNI_ABORT);
     if (grainData) env->ReleaseByteArrayElements(grainAlpha8, grainData, JNI_ABORT);
     env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;

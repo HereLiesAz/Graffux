@@ -46,6 +46,7 @@ struct MaskedPushConstants {
     float grainScale;
     float grainPhaseX;
     float grainPhaseY;
+    float hasSecondary;
 };
 
 bool checkResult(VkResult result, const char* what) {
@@ -943,7 +944,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[4]{};
+    VkDescriptorSetLayoutBinding bindings[6]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -960,10 +961,19 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    // Item 15 masked/dual-brush follow-up: secondary tip mask sampler + secondary dab buffer.
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[5].binding = 5;
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[5].descriptorCount = 1;
+    bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 4;
+    layoutInfo.bindingCount = 6;
     layoutInfo.pBindings = bindings;
     if (!checkResult(
             vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &maskedDescriptorSetLayout_),
@@ -1004,7 +1014,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorPoolSize poolSizes[4]{};
+    VkDescriptorPoolSize poolSizes[6]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1013,11 +1023,15 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     poolSizes[2].descriptorCount = 1;
     poolSizes[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[3].descriptorCount = 1;
+    poolSizes[4].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[4].descriptorCount = 1;
+    poolSizes[5].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[5].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 4;
+    poolInfo.poolSizeCount = 6;
     poolInfo.pPoolSizes = poolSizes;
     if (!checkResult(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &maskedDescriptorPool_),
                       "vkCreateDescriptorPool(masked)")) {
@@ -1084,7 +1098,31 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     // grain binds this 1x1 all-white dummy so the shader's coverage multiply is a no-op.
     if (!ensureGrainTexture(1, 1)) return false;
     const uint8_t dummyGrain = 255;
-    return uploadGrainTexture(&dummyGrain, 1, 1);
+    if (!uploadGrainTexture(&dummyGrain, 1, 1)) return false;
+
+    // Secondary (dual-brush) tip mask sampler: same LINEAR/CLAMP convention as the primary tip
+    // mask -- CPU rasterizes the secondary tip through the same BrushTipMaskCache.tipMask() path
+    // as the primary one, so the two should filter identically.
+    VkSamplerCreateInfo secondarySamplerInfo{};
+    secondarySamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    secondarySamplerInfo.magFilter = VK_FILTER_LINEAR;
+    secondarySamplerInfo.minFilter = VK_FILTER_LINEAR;
+    secondarySamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    secondarySamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    secondarySamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    secondarySamplerInfo.unnormalizedCoordinates = VK_FALSE;
+    if (!checkResult(vkCreateSampler(device_, &secondarySamplerInfo, nullptr, &secondaryMaskSampler_),
+                      "vkCreateSampler(secondaryMask)")) {
+        return false;
+    }
+
+    // Binding 4/5 must always reference valid resources once the pipeline is used -- a stroke with
+    // no dual-brush config binds a 1x1 dummy mask and a single dummy dab; pc.hasSecondary gates
+    // whether the shader ever reads them, so their content doesn't matter when it's 0.
+    if (!ensureSecondaryMaskTexture(1, 1)) return false;
+    const uint8_t dummySecondaryMask = 255;
+    if (!uploadSecondaryMaskTexture(&dummySecondaryMask, 1, 1)) return false;
+    return ensureSecondaryDabBuffer(1);
 }
 
 bool VulkanStampEngine::ensureMaskedDabBuffer(size_t dabCount) {
@@ -1204,6 +1242,129 @@ bool VulkanStampEngine::ensureMaskedDabBuffer(size_t dabCount) {
     bufWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bufWrite.pBufferInfo = &bufInfo;
     vkUpdateDescriptorSets(device_, 1, &bufWrite, 0, nullptr);
+    return true;
+}
+
+// Item 15 masked/dual-brush follow-up. Mirrors ensureMaskedDabBuffer() exactly (grow-only
+// device-local storage buffer + host-visible staging buffer), for GpuSecondaryDab at binding 5
+// instead of GpuDab at binding 0.
+bool VulkanStampEngine::ensureSecondaryDabBuffer(size_t dabCount) {
+    if (dabCount <= secondaryDabBufferCapacity_ && secondaryDabBuffer_ != VK_NULL_HANDLE) return true;
+
+    if (secondaryDabBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr);
+        secondaryDabBuffer_ = VK_NULL_HANDLE;
+    }
+    if (secondaryDabBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr);
+        secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+    }
+    if (secondaryDabStagingBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, secondaryDabStagingBuffer_, nullptr);
+        secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+    }
+    if (secondaryDabStagingBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, secondaryDabStagingBufferMemory_, nullptr);
+        secondaryDabStagingBufferMemory_ = VK_NULL_HANDLE;
+    }
+    secondaryDabBufferCapacity_ = 0;
+
+    size_t newCapacity = dabCount + dabCount / 2 + 16;
+    VkDeviceSize bufferSize = static_cast<VkDeviceSize>(newCapacity) * sizeof(GpuSecondaryDab);
+
+    VkBufferCreateInfo deviceBufferInfo{};
+    deviceBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    deviceBufferInfo.size = bufferSize;
+    deviceBufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &deviceBufferInfo, nullptr, &secondaryDabBuffer_),
+                      "vkCreateBuffer(secondaryDabBuffer)")) {
+        secondaryDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements memReq;
+    vkGetBufferMemoryRequirements(device_, secondaryDabBuffer_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for secondary dab buffer");
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &secondaryDabBufferMemory_),
+                      "vkAllocateMemory(secondaryDabBuffer)")) {
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, secondaryDabBuffer_, secondaryDabBufferMemory_, 0),
+                      "vkBindBufferMemory(secondaryDabBuffer)")) {
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkBufferCreateInfo stagingBufferInfo{};
+    stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingBufferInfo.size = bufferSize;
+    stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &stagingBufferInfo, nullptr, &secondaryDabStagingBuffer_),
+                      "vkCreateBuffer(secondaryDabStaging)")) {
+        secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, secondaryDabStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for secondary dab staging buffer");
+        vkDestroyBuffer(device_, secondaryDabStagingBuffer_, nullptr); secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &secondaryDabStagingBufferMemory_),
+                      "vkAllocateMemory(secondaryDabStaging)")) {
+        vkDestroyBuffer(device_, secondaryDabStagingBuffer_, nullptr); secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, secondaryDabStagingBuffer_, secondaryDabStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(secondaryDabStaging)")) {
+        vkDestroyBuffer(device_, secondaryDabStagingBuffer_, nullptr); secondaryDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabStagingBufferMemory_, nullptr); secondaryDabStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    secondaryDabBufferCapacity_ = newCapacity;
+
+    VkDescriptorBufferInfo bufInfo2{};
+    bufInfo2.buffer = secondaryDabBuffer_;
+    bufInfo2.offset = 0;
+    bufInfo2.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet bufWrite2{};
+    bufWrite2.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bufWrite2.dstSet = maskedDescriptorSet_;
+    bufWrite2.dstBinding = 5;
+    bufWrite2.descriptorCount = 1;
+    bufWrite2.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bufWrite2.pBufferInfo = &bufInfo2;
+    vkUpdateDescriptorSets(device_, 1, &bufWrite2, 0, nullptr);
     return true;
 }
 
@@ -1619,13 +1780,230 @@ bool VulkanStampEngine::uploadGrainTexture(const uint8_t* alpha8, int width, int
     return true;
 }
 
+// Item 15 masked/dual-brush follow-up. Mirrors ensureGrainTexture()/uploadGrainTexture()
+// exactly (an R8_UNORM sampled image, re-created only when width/height change), bound to
+// binding 4 with LINEAR filtering (matching the primary tip mask's own sampler) instead of
+// grain's REPEAT/NEAREST.
+bool VulkanStampEngine::ensureSecondaryMaskTexture(int width, int height) {
+    if (secondaryMaskImage_ != VK_NULL_HANDLE && width == secondaryMaskWidth_ && height == secondaryMaskHeight_) return true;
+
+    if (secondaryMaskImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE; }
+    if (secondaryMaskImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE; }
+    if (secondaryMaskImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE; }
+    if (secondaryMaskStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, secondaryMaskStagingBuffer_, nullptr); secondaryMaskStagingBuffer_ = VK_NULL_HANDLE; }
+    if (secondaryMaskStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryMaskStagingBufferMemory_, nullptr); secondaryMaskStagingBufferMemory_ = VK_NULL_HANDLE; }
+    secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    secondaryMaskWidth_ = 0;
+    secondaryMaskHeight_ = 0;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8_UNORM;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &secondaryMaskImage_), "vkCreateImage(secondaryMask)")) {
+        return false;
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, secondaryMaskImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for secondary mask image");
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &secondaryMaskImageMemory_),
+                      "vkAllocateMemory(secondaryMask)")) {
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindImageMemory(device_, secondaryMaskImage_, secondaryMaskImageMemory_, 0),
+                      "vkBindImageMemory(secondaryMask)")) {
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = secondaryMaskImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8_UNORM;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &secondaryMaskImageView_),
+                      "vkCreateImageView(secondaryMask)")) {
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &secondaryMaskStagingBuffer_),
+                      "vkCreateBuffer(secondaryMaskStaging)")) {
+        vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, secondaryMaskStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for secondary mask staging buffer");
+        vkDestroyBuffer(device_, secondaryMaskStagingBuffer_, nullptr); secondaryMaskStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &secondaryMaskStagingBufferMemory_),
+                      "vkAllocateMemory(secondaryMaskStaging)")) {
+        vkDestroyBuffer(device_, secondaryMaskStagingBuffer_, nullptr); secondaryMaskStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, secondaryMaskStagingBuffer_, secondaryMaskStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(secondaryMaskStaging)")) {
+        vkDestroyBuffer(device_, secondaryMaskStagingBuffer_, nullptr); secondaryMaskStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskStagingBufferMemory_, nullptr); secondaryMaskStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    secondaryMaskWidth_ = width;
+    secondaryMaskHeight_ = height;
+
+    VkDescriptorImageInfo samplerImageInfo{};
+    samplerImageInfo.sampler = secondaryMaskSampler_;
+    samplerImageInfo.imageView = secondaryMaskImageView_;
+    samplerImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = maskedDescriptorSet_;
+    samplerWrite.dstBinding = 4;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerImageInfo;
+    vkUpdateDescriptorSets(device_, 1, &samplerWrite, 0, nullptr);
+    return true;
+}
+
+bool VulkanStampEngine::uploadSecondaryMaskTexture(const uint8_t* alpha8, int width, int height) {
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height;
+    if (!checkResult(vkMapMemory(device_, secondaryMaskStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(secondaryMaskStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, alpha8, uploadSize);
+    vkUnmapMemory(device_, secondaryMaskStagingBufferMemory_);
+
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer(secondaryMask)")) {
+        return false;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(secondaryMask)")) {
+        return false;
+    }
+
+    VkImageMemoryBarrier toTransferDst{};
+    toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferDst.oldLayout = secondaryMaskImageLayout_;
+    toTransferDst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferDst.srcAccessMask = 0;
+    toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = secondaryMaskImage_;
+    toTransferDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransferDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(commandBuffer_, secondaryMaskStagingBuffer_, secondaryMaskImage_, VK_IMAGE_LAYOUT_GENERAL,
+                            1, &region);
+
+    VkImageMemoryBarrier toShaderRead{};
+    toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.image = secondaryMaskImage_;
+    toShaderRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderRead);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(secondaryMask)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(secondaryMask)")) return false;
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(secondaryMask)")) {
+        return false;
+    }
+    secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+    return true;
+}
+
 bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
                                         float hardness, const uint8_t* maskAlpha8, int maskWidth,
                                         int maskHeight, const uint8_t* grainAlpha8, int grainWidth,
                                         int grainHeight, bool grainCanvasLocked, float grainScale,
-                                        float grainPhaseX, float grainPhaseY) {
+                                        float grainPhaseX, float grainPhaseY,
+                                        const std::vector<GpuSecondaryDab>& secondaryDabs,
+                                        const uint8_t* secondaryMaskAlpha8, int secondaryMaskWidth,
+                                        int secondaryMaskHeight) {
     if (!isInitialized() || dabs.empty() || maskAlpha8 == nullptr) return false;
     if (maskWidth <= 0 || maskHeight <= 0) return false;
+    // Dual-brush is per-stroke, not per-dab optional (see the header doc comment): a non-empty
+    // secondaryDabs must line up 1:1 with dabs, or the shader would read past its own array (a
+    // shorter secondaryDabs) or silently ignore trailing primary dabs (a longer one).
+    if (!secondaryDabs.empty() && secondaryDabs.size() != dabs.size()) return false;
     if (!ensureMaskedPipeline()) return false;
     if (!ensureMaskedDabBuffer(dabs.size())) return false;
     bool maskIsNew = maskImage_ == VK_NULL_HANDLE || maskWidth != maskWidth_ || maskHeight != maskHeight_;
@@ -1649,6 +2027,45 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
             const uint8_t dummyGrain = 255;
             if (!uploadGrainTexture(&dummyGrain, 1, 1)) return false;
         }
+    }
+
+    // Masked/dual-brush (item 15 follow-up): same "real if supplied, else 1x1 dummy" pattern as
+    // grain above, but for two resources (mask texture + dab buffer) instead of one, since a
+    // secondary tip needs both its own shape and its own per-dab geometry.
+    bool haveSecondary = !secondaryDabs.empty() && secondaryMaskAlpha8 != nullptr &&
+                          secondaryMaskWidth > 0 && secondaryMaskHeight > 0;
+    int effectiveSecondaryMaskWidth = haveSecondary ? secondaryMaskWidth : 1;
+    int effectiveSecondaryMaskHeight = haveSecondary ? secondaryMaskHeight : 1;
+    bool secondaryMaskIsNew = secondaryMaskImage_ == VK_NULL_HANDLE ||
+                               effectiveSecondaryMaskWidth != secondaryMaskWidth_ ||
+                               effectiveSecondaryMaskHeight != secondaryMaskHeight_;
+    if (!ensureSecondaryMaskTexture(effectiveSecondaryMaskWidth, effectiveSecondaryMaskHeight)) return false;
+    if (secondaryMaskIsNew) {
+        if (haveSecondary) {
+            if (!uploadSecondaryMaskTexture(secondaryMaskAlpha8, effectiveSecondaryMaskWidth,
+                                             effectiveSecondaryMaskHeight)) {
+                return false;
+            }
+        } else {
+            const uint8_t dummySecondaryMask = 255;
+            if (!uploadSecondaryMaskTexture(&dummySecondaryMask, 1, 1)) return false;
+        }
+    }
+    // The secondary dab buffer's *content* changes every dispatch (different dab geometry) even
+    // when dab count doesn't, unlike the mask/grain textures (same tip for a whole stroke) -- so
+    // this always re-uploads when dual-brush is active, not just on a size change.
+    size_t secondaryDabCount = haveSecondary ? secondaryDabs.size() : 1;
+    if (!ensureSecondaryDabBuffer(secondaryDabCount)) return false;
+    if (haveSecondary) {
+        void* secondaryMapped = nullptr;
+        VkDeviceSize secondaryUploadSize = secondaryDabs.size() * sizeof(GpuSecondaryDab);
+        if (!checkResult(
+                vkMapMemory(device_, secondaryDabStagingBufferMemory_, 0, secondaryUploadSize, 0, &secondaryMapped),
+                "vkMapMemory(secondaryDabStaging)")) {
+            return false;
+        }
+        std::memcpy(secondaryMapped, secondaryDabs.data(), secondaryUploadSize);
+        vkUnmapMemory(device_, secondaryDabStagingBufferMemory_);
     }
 
     void* mapped = nullptr;
@@ -1686,6 +2103,26 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
                           nullptr);
 
+    if (haveSecondary) {
+        VkDeviceSize secondaryUploadSize = secondaryDabs.size() * sizeof(GpuSecondaryDab);
+        VkBufferCopy secondaryCopyRegion{0, 0, secondaryUploadSize};
+        vkCmdCopyBuffer(commandBuffer_, secondaryDabStagingBuffer_, secondaryDabBuffer_, 1,
+                         &secondaryCopyRegion);
+
+        VkBufferMemoryBarrier secondaryBufBarrier{};
+        secondaryBufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        secondaryBufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        secondaryBufBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        secondaryBufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        secondaryBufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        secondaryBufBarrier.buffer = secondaryDabBuffer_;
+        secondaryBufBarrier.offset = 0;
+        secondaryBufBarrier.size = secondaryUploadSize;
+        vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                              &secondaryBufBarrier, 0, nullptr);
+    }
+
     ensureLayerImageGeneral(commandBuffer_);
 
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, maskedPipeline_);
@@ -1721,6 +2158,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
         pc.grainScale = haveGrain ? grainScale : 1.0f;
         pc.grainPhaseX = haveGrain ? grainPhaseX : 0.0f;
         pc.grainPhaseY = haveGrain ? grainPhaseY : 0.0f;
+        pc.hasSecondary = haveSecondary ? 1.0f : 0.0f;
         vkCmdPushConstants(commandBuffer_, maskedPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 
@@ -1768,6 +2206,22 @@ void VulkanStampEngine::destroyMaskedResources() {
     if (maskedDabStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr); maskedDabStagingBuffer_ = VK_NULL_HANDLE; }
     if (maskedDabStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskedDabStagingBufferMemory_, nullptr); maskedDabStagingBufferMemory_ = VK_NULL_HANDLE; }
     maskedDabBufferCapacity_ = 0;
+
+    if (secondaryMaskSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, secondaryMaskSampler_, nullptr); secondaryMaskSampler_ = VK_NULL_HANDLE; }
+    if (secondaryMaskImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, secondaryMaskImageView_, nullptr); secondaryMaskImageView_ = VK_NULL_HANDLE; }
+    if (secondaryMaskImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, secondaryMaskImage_, nullptr); secondaryMaskImage_ = VK_NULL_HANDLE; }
+    if (secondaryMaskImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryMaskImageMemory_, nullptr); secondaryMaskImageMemory_ = VK_NULL_HANDLE; }
+    if (secondaryMaskStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, secondaryMaskStagingBuffer_, nullptr); secondaryMaskStagingBuffer_ = VK_NULL_HANDLE; }
+    if (secondaryMaskStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryMaskStagingBufferMemory_, nullptr); secondaryMaskStagingBufferMemory_ = VK_NULL_HANDLE; }
+    secondaryMaskWidth_ = 0;
+    secondaryMaskHeight_ = 0;
+    secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (secondaryDabBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, secondaryDabBuffer_, nullptr); secondaryDabBuffer_ = VK_NULL_HANDLE; }
+    if (secondaryDabBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryDabBufferMemory_, nullptr); secondaryDabBufferMemory_ = VK_NULL_HANDLE; }
+    if (secondaryDabStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, secondaryDabStagingBuffer_, nullptr); secondaryDabStagingBuffer_ = VK_NULL_HANDLE; }
+    if (secondaryDabStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, secondaryDabStagingBufferMemory_, nullptr); secondaryDabStagingBufferMemory_ = VK_NULL_HANDLE; }
+    secondaryDabBufferCapacity_ = 0;
 
     if (maskedPipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, maskedPipeline_, nullptr); maskedPipeline_ = VK_NULL_HANDLE; }
     if (maskedPipelineLayout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, maskedPipelineLayout_, nullptr); maskedPipelineLayout_ = VK_NULL_HANDLE; }

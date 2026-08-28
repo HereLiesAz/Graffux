@@ -16,7 +16,6 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.GrainBehavior
-import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushBlendMode
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -258,13 +257,9 @@ internal object StampBrushRenderer {
                         maskDab.angleDeg,
                         maskPaint,
                     )
-                    val keepInside = when (maskDab.blendMode) {
-                        MaskedBrushBlendMode.MULTIPLY -> !maskDab.invert
-                        MaskedBrushBlendMode.SUBTRACT -> maskDab.invert
-                    }
                     val xfer = Paint().apply {
                         xfermode = PorterDuffXfermode(
-                            if (keepInside) PorterDuff.Mode.DST_IN else PorterDuff.Mode.DST_OUT
+                            if (maskDab.keepInside) PorterDuff.Mode.DST_IN else PorterDuff.Mode.DST_OUT
                         )
                     }
                     scratch.primaryCanvas.drawBitmap(scratch.secondary, 0f, 0f, xfer)
