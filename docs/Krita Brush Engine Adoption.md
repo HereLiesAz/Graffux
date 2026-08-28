@@ -179,11 +179,11 @@ Settings: mode (Smear/Dulling), smudge rate, color rate, smudge radius, opacity,
 
 **UI exposure:** Real foreground/secondary color wired through `EditorViewModel` (`secondaryColor` in ui state), `BrushStudioWindow` mix preview, and color-source picker controls in `SketchToolsDialog`.
 
-**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`.
+**Tests:** `BrushColorSourceParsingTest.kt`, `ColorSourceMixTest.kt`, `KritaBrushStagesTest.kt`. `ColorSourceMixTest` now also covers: `UNIFORM_RANDOM` determinism under sensor-driven `dynamicDabs` placement (not just the static `dabs` path), sensor HSV shift composing correctly on top of an already-resolved `GRADIENT`/`UNIFORM_RANDOM` color, and the masked/dual-brush pipeline (`paintDabs` with `maskedBrush` set) painting the same resolved color source as the primary tip.
 
 **Dependencies:** Items 4-6 (shares the resolved-dab pipeline).
 
-**Completion state:** IMPLEMENTED (CPU). Validation is in its final pass; GPU parity is deferred to item 14.
+**Completion state:** IMPLEMENTED (CPU), validation complete. GPU parity remains deferred to item 14 — `gpuCompatibleBrush` gating in `EditorViewModel` (live-preview GPU eligibility) correctly requires `colorSource == PLAIN`, so a non-plain color source falls back to the CPU path exactly as documented, confirmed by reading that gate directly rather than inferring it.
 
 ## 9. Taper / Fade / Lift-off
 
