@@ -45,6 +45,7 @@ fun ToolOptionsWindow(
     onSetColorSmudgeRadius: (Float) -> Unit,
     onSetColorSmudgeOpacity: (Float) -> Unit,
     onSetColorSmudgeAlphaCarry: (Boolean) -> Unit,
+    onSetColorSmudgeSampleMerged: (Boolean) -> Unit,
     symmetryMode: SymmetryMode,
     onSetSymmetryMode: (SymmetryMode) -> Unit,
     onDismiss: () -> Unit,
@@ -120,6 +121,16 @@ fun ToolOptionsWindow(
                     onClick = { onSetColorSmudgeAlphaCarry(!smudge.smearAlpha) },
                     shape = AzButtonShape.RECTANGLE,
                     modifier = Modifier.fillMaxWidth(),
+                )
+                AzButton(
+                    text = if (smudge.sampleMerged) "Sample Merged ✓" else "Sample Merged",
+                    onClick = { onSetColorSmudgeSampleMerged(!smudge.sampleMerged) },
+                    shape = AzButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Picks up colour from every visible layer, not just this one.",
+                    style = MaterialTheme.typography.labelSmall,
                 )
             }
 

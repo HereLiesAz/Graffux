@@ -9,6 +9,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.BlendMode as NativeBlendMode
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -184,18 +185,24 @@ class ExportManager @Inject constructor() {
 
     /**
      * Composites [linkedLayers] into the local coordinate space of the [anchor] layer.
-     * The resulting bitmap is capped to a maximum dimension of 2048px to prevent OOM.
+     * The resulting bitmap is capped to a maximum dimension of [maxDim] to prevent OOM — pass
+     * `null` for pixel-exact output at the anchor's own native resolution, needed by callers (like
+     * [compositeOtherLayersForSampling]) that must line up 1:1 with the anchor's own pixel array
+     * rather than a UI-facing downscaled preview.
      */
-    fun compositeToLayerSpace(anchor: Layer, linkedLayers: List<Layer>, screenWidth: Int, screenHeight: Int): Bitmap {
+    fun compositeToLayerSpace(
+        anchor: Layer,
+        linkedLayers: List<Layer>,
+        screenWidth: Int,
+        screenHeight: Int,
+        maxDim: Int? = 2048,
+    ): Bitmap {
         val anchorBitmap = anchor.bitmap ?: return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-        
-        // Cap target dimensions to 2048px to avoid OOM
-        val maxDim = 2048
+
         var targetWidth = anchorBitmap.width
         var targetHeight = anchorBitmap.height
-        val aspect = targetWidth.toFloat() / targetHeight.toFloat()
-        
-        if (targetWidth > maxDim || targetHeight > maxDim) {
+        if (maxDim != null && (targetWidth > maxDim || targetHeight > maxDim)) {
+            val aspect = targetWidth.toFloat() / targetHeight.toFloat()
             if (aspect > 1f) {
                 targetWidth = maxDim
                 targetHeight = (maxDim / aspect).toInt()
@@ -254,6 +261,35 @@ class ExportManager @Inject constructor() {
             }
         }
         return result
+    }
+
+    /**
+     * Composites [otherLayers] into the pixel space of a layer with [anchorBitmap]'s own
+     * dimensions and [anchorScale]/[anchorOffset]/[anchorRotationZ] transform — item 11's "Sample
+     * Merged" primitive. This is [compositeToLayerSpace] at native resolution (`maxDim = null`),
+     * via a throwaway [Layer] built from the anchor's transform snapshot rather than a full mutable
+     * layer, since callers (Color Smudge replay) only have that snapshot, not the live layer object.
+     * The result is always exactly `anchorBitmap.width × anchorBitmap.height`, matching what
+     * [ColorSmudgeEngine.apply]'s `sampleSource` parameter requires pixel-for-pixel.
+     */
+    fun compositeOtherLayersForSampling(
+        anchorBitmap: Bitmap,
+        anchorScale: Float,
+        anchorOffset: Offset,
+        anchorRotationZ: Float,
+        otherLayers: List<Layer>,
+        screenWidth: Int,
+        screenHeight: Int,
+    ): Bitmap {
+        val anchor = Layer(
+            id = "__sample_merged_anchor__",
+            name = "",
+            bitmap = anchorBitmap,
+            scale = anchorScale,
+            offset = anchorOffset,
+            rotationZ = anchorRotationZ,
+        )
+        return compositeToLayerSpace(anchor, otherLayers, screenWidth, screenHeight, maxDim = null)
     }
 
     /**
