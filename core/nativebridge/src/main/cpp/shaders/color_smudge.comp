@@ -27,6 +27,7 @@ layout(push_constant) uniform SmudgePush {
     float paintG;
     float paintB;
     float paintA;
+    float dilution;    // Procreate-style Dilution: 0 deposits pure paint, 1 deposits the sampled/carried colour.
 } pc;
 
 float brushMask(int dx, int dy) {
@@ -47,6 +48,14 @@ vec4 lerpArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
     vec4 outColor = mix(a, b, f);
     if (!includeAlpha) outColor.a = a.a;
     return rounded8(outColor);
+}
+
+// Procreate-style Dilution: at dilution=0 (default) returns the raw paint colour, matching flat
+// Krita Color Rate exactly; at dilution=1 returns `under` unchanged, so no new pigment reaches the
+// canvas even though colorRate is still being "spent" -- mirrors ColorSmudgeEngine.dilutedPigment().
+vec4 dilutedPigment(vec4 under) {
+    vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
+    return lerpArgb(under, paint, 1.0 - pc.dilution, true);
 }
 
 bool inLayer(ivec2 p) {
@@ -82,8 +91,8 @@ void smearDab() {
     carrier[k] = carried;
     vec4 outColor = lerpArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
     if (pc.colorRate > 0.0) {
-        vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
-        outColor = lerpArgb(outColor, paint, mask * pc.opacity * pc.colorRate, true);
+        vec4 pigment = dilutedPigment(under);
+        outColor = lerpArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }
@@ -131,8 +140,8 @@ void dullDeposit() {
         under, carrier[0], mask * pc.opacity * pc.smudgeRate, pc.smearAlpha != 0
     );
     if (pc.colorRate > 0.0) {
-        vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
-        outColor = lerpArgb(outColor, paint, mask * pc.opacity * pc.colorRate, true);
+        vec4 pigment = dilutedPigment(carrier[0]);
+        outColor = lerpArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }

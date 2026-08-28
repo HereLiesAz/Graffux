@@ -247,6 +247,7 @@ class VulkanStampEngine {
         feathering: Float,
         smearAlpha: Boolean,
         paintColorArgb: Int,
+        dilution: Float = 0f,
     ): Boolean {
         if (!isInitialized || dabs.size < 2) return false
         val flat = FloatArray(dabs.size * 6)
@@ -261,7 +262,7 @@ class VulkanStampEngine {
             flat[base + 5] = d.smudgeRadius
         }
         val ok = nativeColorSmudge(
-            nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb,
+            nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
         )
         if (!ok) healthy = false
         return ok
@@ -335,6 +336,7 @@ class VulkanStampEngine {
         feathering: Float,
         smearAlpha: Boolean,
         paintColorArgb: Int,
+        dilution: Float,
     ): Boolean
     private external fun nativeColorSmudgeBenchmarkInfo(handle: Long): LongArray?
     private external fun nativeReadback(handle: Long, outBitmap: Bitmap): Boolean

@@ -6,7 +6,7 @@
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeColorSmudge(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jint mode, jfloat radiusPx,
-        jfloat feathering, jboolean smearAlpha, jint paintColorArgb) {
+        jfloat feathering, jboolean smearAlpha, jint paintColorArgb, jfloat dilution) {
     auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !dabData) return JNI_FALSE;
     const jsize length = env->GetArrayLength(dabData);
@@ -24,7 +24,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeColorSmudge(
     env->ReleaseFloatArrayElements(dabData, ptr, JNI_ABORT);
     return engine->colorSmudge(
         dabs, mode, radiusPx, feathering, smearAlpha == JNI_TRUE,
-        static_cast<uint32_t>(paintColorArgb)) ? JNI_TRUE : JNI_FALSE;
+        static_cast<uint32_t>(paintColorArgb), dilution) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
