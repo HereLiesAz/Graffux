@@ -11,6 +11,7 @@ private const val DEG_TO_RAD = 0.017453292f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
+private const val MASK_LONGITUDINAL_SEED_SALT = 0x4D41534B5F4C4F4EL // "MASK_LON"
 
 /** Resolved secondary-tip instruction attached to a primary dab. */
 data class MaskDab(
@@ -87,6 +88,7 @@ object BrushStamps {
 
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
+        val maskLongRng = Random(seed xor MASK_LONGITUDINAL_SEED_SALT)
         val colorRng = Random(seed xor COLOR_SEED_SALT)
         val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val out = ArrayList<Dab>(count)
@@ -117,7 +119,7 @@ object BrushStamps {
                 (if (brush.followStroke) headingDeg else 0f) +
                 brush.rotationPerPx * (i * step)
             val mask = resolveStaticMask(
-                brush.maskedBrush, x, y, diameter, headingDeg, maskRng,
+                brush.maskedBrush, x, y, diameter, headingDeg, i * step, maskRng, maskLongRng,
             )
             out.add(
                 Dab(
@@ -158,6 +160,7 @@ object BrushStamps {
         val baseRadius = diameter / 2f
         val rng = Random(seed)
         val maskRng = Random(seed xor MASK_SEED_SALT)
+        val maskLongRng = Random(seed xor MASK_LONGITUDINAL_SEED_SALT)
         val colorRng = Random(seed xor COLOR_SEED_SALT)
         val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val out = ArrayList<Dab>()
@@ -224,10 +227,12 @@ object BrushStamps {
                 y,
                 resolvedDiameter,
                 headingDeg,
+                at,
                 startTime,
                 seed,
                 index,
                 maskRng,
+                maskLongRng,
             )
             out.add(
                 Dab(
@@ -267,7 +272,9 @@ object BrushStamps {
         y: Float,
         primaryDiameter: Float,
         headingDeg: Float,
+        at: Float,
         rng: Random,
+        longRng: Random,
     ): MaskDab? {
         if (config == null) return null
         val cfg = config.sanitized()
@@ -282,13 +289,21 @@ object BrushStamps {
             // Keep the independent RNG cadence stable whether scatter is enabled or not.
             rng.nextFloat()
         }
+        if (cfg.scatterLongitudinal > 0f) {
+            val mag = cfg.scatterLongitudinal * primaryDiameter * cfg.sizeRatio * (longRng.nextFloat() * 2f - 1f)
+            val headingRad = headingDeg * DEG_TO_RAD
+            mx += mag * cos(headingRad)
+            my += mag * sin(headingRad)
+        } else {
+            longRng.nextFloat()
+        }
         return MaskDab(
             x = mx,
             y = my,
             radius = primaryDiameter * cfg.sizeRatio / 2f,
             tipRatio = cfg.tipRatio,
             alpha = cfg.opacity,
-            angleDeg = cfg.angle + if (cfg.followStroke) headingDeg else 0f,
+            angleDeg = cfg.angle + (if (cfg.followStroke) headingDeg else 0f) + cfg.rotationPerPx * at,
             flowMultiplier = cfg.flow,
             invert = cfg.invert,
             blendMode = cfg.blendMode,
@@ -302,10 +317,12 @@ object BrushStamps {
         y: Float,
         primaryDiameter: Float,
         headingDeg: Float,
+        at: Float,
         startTime: Long,
         seed: Long,
         index: Int,
         rng: Random,
+        longRng: Random,
     ): MaskDab? {
         if (config == null) return null
         val cfg = config.sanitized()
@@ -324,6 +341,15 @@ object BrushStamps {
         } else {
             rng.nextFloat()
         }
+        val longitudinalScatter = cfg.scatterLongitudinal * dynamic.scatterMultiplier
+        if (longitudinalScatter > 0f) {
+            val mag = longitudinalScatter * maskDiameter * (longRng.nextFloat() * 2f - 1f)
+            val headingRad = headingDeg * DEG_TO_RAD
+            mx += mag * cos(headingRad)
+            my += mag * sin(headingRad)
+        } else {
+            longRng.nextFloat()
+        }
         return MaskDab(
             x = mx,
             y = my,
@@ -331,7 +357,7 @@ object BrushStamps {
             tipRatio = cfg.tipRatio,
             alpha = (cfg.opacity * dynamic.opacityMultiplier).coerceIn(0f, 1f),
             angleDeg = cfg.angle +
-                (if (cfg.followStroke) headingDeg else 0f) + dynamic.rotationOffsetDeg,
+                (if (cfg.followStroke) headingDeg else 0f) + dynamic.rotationOffsetDeg + cfg.rotationPerPx * at,
             flowMultiplier = (cfg.flow * dynamic.flowMultiplier).coerceAtLeast(0f),
             invert = cfg.invert,
             blendMode = cfg.blendMode,

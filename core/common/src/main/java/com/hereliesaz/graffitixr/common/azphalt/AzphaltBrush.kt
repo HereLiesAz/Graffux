@@ -79,6 +79,11 @@ data class MaskedBrushConfig(
     val angle: Float = 0f,
     val followStroke: Boolean = false,
     val scatter: Float = 0f,
+    /** Along-heading scatter, mirroring [AzphaltBrush.scatterLongitudinal] for the secondary tip. */
+    val scatterLongitudinal: Float = 0f,
+    /** Degrees of extra rotation per pixel of cumulative stroke distance, mirroring
+     * [AzphaltBrush.rotationPerPx] for the secondary tip. */
+    val rotationPerPx: Float = 0f,
     val invert: Boolean = false,
     val blendMode: MaskedBrushBlendMode = MaskedBrushBlendMode.MULTIPLY,
     val dynamics: List<BrushSensorBinding> = emptyList(),
@@ -90,6 +95,7 @@ data class MaskedBrushConfig(
         opacity = opacity.coerceIn(0f, 1f),
         flow = flow.coerceIn(0f, 1f),
         scatter = scatter.coerceAtLeast(0f),
+        scatterLongitudinal = scatterLongitudinal.coerceAtLeast(0f),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
     )
 }

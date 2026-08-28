@@ -188,6 +188,12 @@ fun BrushStudioWindow(
                     ParamSlider("Mask opacity", mask.opacity, 0f..1f) { v -> onEdit { it.copy(maskedBrush = mask.copy(opacity = v)) } }
                     ParamSlider("Mask flow", mask.flow, 0f..1f) { v -> onEdit { it.copy(maskedBrush = mask.copy(flow = v)) } }
                     ParamSlider("Mask scatter", mask.scatter, 0f..2f, asFraction = true) { v -> onEdit { it.copy(maskedBrush = mask.copy(scatter = v)) } }
+                    ParamSlider("Mask longitudinal scatter", mask.scatterLongitudinal, 0f..2f, asFraction = true) { v ->
+                        onEdit { it.copy(maskedBrush = mask.copy(scatterLongitudinal = v)) }
+                    }
+                    ParamSlider("Mask spin per px", mask.rotationPerPx, -10f..10f, unit = "°") { v ->
+                        onEdit { it.copy(maskedBrush = mask.copy(rotationPerPx = v)) }
+                    }
                     EnumButtons("Combine", MaskedBrushBlendMode.entries, mask.blendMode) { value -> onEdit { it.copy(maskedBrush = mask.copy(blendMode = value)) } }
                     AzButton(
                         text = if (mask.invert) "Invert mask ✓" else "Invert mask",

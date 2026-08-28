@@ -239,9 +239,11 @@ Both fields are implemented in *both* `BrushStamps.dabs` (the legacy/static path
 
 **Tests:** `BrushScatterRotationTest.kt` — default fields are a no-op, longitudinal scatter perturbs only the along-heading axis (verified against the existing perpendicular-only baseline), longitudinal scatter is deterministic and does not perturb perpendicular scatter or size/opacity jitter, distance rotation accumulates linearly on both the static and sensor-aware paths, distance rotation composes additively with a static `angle` rather than overriding it, and extension-param round-tripping/clamping.
 
+**Follow-up landed in this pass:** `MaskedBrushConfig` gained its own independent `scatterLongitudinal`/`rotationPerPx` fields, resolved the same way as the primary tip's (own RNG stream salted separately so it never perturbs the mask's existing perpendicular `scatter` cadence; `rotationPerPx * at` composes additively with the mask's own static `angle`/`followStroke`/sensor rotation, same as the primary tip). Exposed in Brush Studio's Masked Tip section as "Mask longitudinal scatter"/"Mask spin per px". `MaskedBrushConfig` is `@Serializable` with all-defaulted new fields, so `.azp`/preset round-tripping needed no separate change. Tests: `MaskedBrushScatterRotationTest.kt`, mirroring `BrushScatterRotationTest.kt`'s cases against the mask output instead of the primary dab.
+
 **Dependencies:** Items 4, 7.
 
-**Completion state:** IMPLEMENTED (CPU). Not addressed in this pass: propagating either primitive to the secondary/masked tip (`MaskedBrushConfig` keeps its own simpler independent `scatter`/`angle` fields, unchanged) — the roadmap's "richer angle sensors shared by primary and secondary tips" phrasing is only partially met; extending `MaskedBrushConfig` with the same two primitives is a reasonable, separately-scoped follow-up.
+**Completion state:** IMPLEMENTED (CPU), including the secondary/masked tip follow-up.
 
 ## 11. Overlay / all-layer Color Smudge sampling
 
