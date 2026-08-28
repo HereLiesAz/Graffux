@@ -57,6 +57,11 @@ graffux_embed_shader(
     "kStampCompSpv"
 )
 graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp_masked.comp"
+    "StampMaskedSpv.h"
+    "kStampMaskedCompSpv"
+)
+graffux_embed_shader(
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
     "ColorSmudge8Spv.h"
     "kColorSmudge8CompSpv"

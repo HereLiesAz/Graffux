@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "StampSpv.h"
+#include "StampMaskedSpv.h"
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "VulkanStampEngine", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "VulkanStampEngine", __VA_ARGS__)
@@ -910,6 +911,581 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
                         "vkWaitForFences(stampDabs)");
 }
 
+// shaders/stamp_masked.comp resources -- see the header's field comments for why these are kept
+// entirely separate from the plain round-dab resources above.
+
+bool VulkanStampEngine::ensureMaskedPipeline() {
+    if (maskedPipeline_ != VK_NULL_HANDLE) return true;
+
+    VkShaderModuleCreateInfo shaderInfo{};
+    shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shaderInfo.codeSize = kStampMaskedCompSpvWords * sizeof(uint32_t);
+    shaderInfo.pCode = kStampMaskedCompSpv;
+    if (!checkResult(vkCreateShaderModule(device_, &shaderInfo, nullptr, &maskedShaderModule_),
+                      "vkCreateShaderModule(masked)")) {
+        return false;
+    }
+
+    VkDescriptorSetLayoutBinding bindings[3]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 3;
+    layoutInfo.pBindings = bindings;
+    if (!checkResult(
+            vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &maskedDescriptorSetLayout_),
+            "vkCreateDescriptorSetLayout(masked)")) {
+        return false;
+    }
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(PushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &maskedDescriptorSetLayout_;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushRange;
+    if (!checkResult(
+            vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr, &maskedPipelineLayout_),
+            "vkCreatePipelineLayout(masked)")) {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo stageInfo{};
+    stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stageInfo.module = maskedShaderModule_;
+    stageInfo.pName = "main";
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = stageInfo;
+    pipelineInfo.layout = maskedPipelineLayout_;
+    if (!checkResult(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+                                               &maskedPipeline_),
+                      "vkCreateComputePipelines(masked)")) {
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSizes[3]{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[1].descriptorCount = 1;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[2].descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 3;
+    poolInfo.pPoolSizes = poolSizes;
+    if (!checkResult(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &maskedDescriptorPool_),
+                      "vkCreateDescriptorPool(masked)")) {
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool = maskedDescriptorPool_;
+    dsAllocInfo.descriptorSetCount = 1;
+    dsAllocInfo.pSetLayouts = &maskedDescriptorSetLayout_;
+    if (!checkResult(vkAllocateDescriptorSets(device_, &dsAllocInfo, &maskedDescriptorSet_),
+                      "vkAllocateDescriptorSets(masked)")) {
+        return false;
+    }
+
+    // Binding 1 (the layer image) is stable for this engine's lifetime, same as the round-dab
+    // pipeline's descriptorSet_ -- written once, here. Binding 0 (dab buffer) is written whenever
+    // ensureMaskedDabBuffer() (re)creates it; binding 2 (mask sampler) whenever ensureMaskTexture()
+    // (re)creates the mask image/view.
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageView = layerImageView_;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet imageWrite{};
+    imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    imageWrite.dstSet = maskedDescriptorSet_;
+    imageWrite.dstBinding = 1;
+    imageWrite.descriptorCount = 1;
+    imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    imageWrite.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(device_, 1, &imageWrite, 0, nullptr);
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+    return checkResult(vkCreateSampler(device_, &samplerInfo, nullptr, &maskSampler_),
+                        "vkCreateSampler(mask)");
+}
+
+bool VulkanStampEngine::ensureMaskedDabBuffer(size_t dabCount) {
+    if (dabCount <= maskedDabBufferCapacity_ && maskedDabBuffer_ != VK_NULL_HANDLE) return true;
+
+    if (maskedDabBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr);
+        maskedDabBuffer_ = VK_NULL_HANDLE;
+    }
+    if (maskedDabBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr);
+        maskedDabBufferMemory_ = VK_NULL_HANDLE;
+    }
+    if (maskedDabStagingBuffer_ != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr);
+        maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+    }
+    if (maskedDabStagingBufferMemory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, maskedDabStagingBufferMemory_, nullptr);
+        maskedDabStagingBufferMemory_ = VK_NULL_HANDLE;
+    }
+    maskedDabBufferCapacity_ = 0;
+
+    size_t newCapacity = dabCount + dabCount / 2 + 16;
+    VkDeviceSize bufferSize = static_cast<VkDeviceSize>(newCapacity) * sizeof(GpuDab);
+
+    VkBufferCreateInfo deviceBufferInfo{};
+    deviceBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    deviceBufferInfo.size = bufferSize;
+    deviceBufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &deviceBufferInfo, nullptr, &maskedDabBuffer_),
+                      "vkCreateBuffer(maskedDabBuffer)")) {
+        maskedDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements memReq;
+    vkGetBufferMemoryRequirements(device_, maskedDabBuffer_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for masked dab buffer");
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &maskedDabBufferMemory_),
+                      "vkAllocateMemory(maskedDabBuffer)")) {
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, maskedDabBuffer_, maskedDabBufferMemory_, 0),
+                      "vkBindBufferMemory(maskedDabBuffer)")) {
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkBufferCreateInfo stagingBufferInfo{};
+    stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingBufferInfo.size = bufferSize;
+    stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &stagingBufferInfo, nullptr, &maskedDabStagingBuffer_),
+                      "vkCreateBuffer(maskedDabStaging)")) {
+        maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, maskedDabStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for masked dab staging buffer");
+        vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr); maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &maskedDabStagingBufferMemory_),
+                      "vkAllocateMemory(maskedDabStaging)")) {
+        vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr); maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, maskedDabStagingBuffer_, maskedDabStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(maskedDabStaging)")) {
+        vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr); maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabStagingBufferMemory_, nullptr); maskedDabStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    maskedDabBufferCapacity_ = newCapacity;
+
+    VkDescriptorBufferInfo bufInfo{};
+    bufInfo.buffer = maskedDabBuffer_;
+    bufInfo.offset = 0;
+    bufInfo.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet bufWrite{};
+    bufWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bufWrite.dstSet = maskedDescriptorSet_;
+    bufWrite.dstBinding = 0;
+    bufWrite.descriptorCount = 1;
+    bufWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bufWrite.pBufferInfo = &bufInfo;
+    vkUpdateDescriptorSets(device_, 1, &bufWrite, 0, nullptr);
+    return true;
+}
+
+bool VulkanStampEngine::ensureMaskTexture(int width, int height) {
+    if (maskImage_ != VK_NULL_HANDLE && width == maskWidth_ && height == maskHeight_) return true;
+
+    if (maskImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE; }
+    if (maskImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE; }
+    if (maskImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE; }
+    if (maskStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskStagingBuffer_, nullptr); maskStagingBuffer_ = VK_NULL_HANDLE; }
+    if (maskStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskStagingBufferMemory_, nullptr); maskStagingBufferMemory_ = VK_NULL_HANDLE; }
+    maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    maskWidth_ = 0;
+    maskHeight_ = 0;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8_UNORM;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &maskImage_), "vkCreateImage(mask)")) {
+        return false;
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, maskImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for mask image");
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &maskImageMemory_),
+                      "vkAllocateMemory(mask)")) {
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindImageMemory(device_, maskImage_, maskImageMemory_, 0),
+                      "vkBindImageMemory(mask)")) {
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = maskImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8_UNORM;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &maskImageView_),
+                      "vkCreateImageView(mask)")) {
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &maskStagingBuffer_),
+                      "vkCreateBuffer(maskStaging)")) {
+        vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, maskStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for mask staging buffer");
+        vkDestroyBuffer(device_, maskStagingBuffer_, nullptr); maskStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &maskStagingBufferMemory_),
+                      "vkAllocateMemory(maskStaging)")) {
+        vkDestroyBuffer(device_, maskStagingBuffer_, nullptr); maskStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, maskStagingBuffer_, maskStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(maskStaging)")) {
+        vkDestroyBuffer(device_, maskStagingBuffer_, nullptr); maskStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskStagingBufferMemory_, nullptr); maskStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    maskWidth_ = width;
+    maskHeight_ = height;
+
+    VkDescriptorImageInfo samplerImageInfo{};
+    samplerImageInfo.sampler = maskSampler_;
+    samplerImageInfo.imageView = maskImageView_;
+    samplerImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = maskedDescriptorSet_;
+    samplerWrite.dstBinding = 2;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerImageInfo;
+    vkUpdateDescriptorSets(device_, 1, &samplerWrite, 0, nullptr);
+    return true;
+}
+
+bool VulkanStampEngine::uploadMaskTexture(const uint8_t* alpha8, int width, int height) {
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height;
+    if (!checkResult(vkMapMemory(device_, maskStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(maskStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, alpha8, uploadSize);
+    vkUnmapMemory(device_, maskStagingBufferMemory_);
+
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer(mask)")) {
+        return false;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(mask)")) {
+        return false;
+    }
+
+    VkImageMemoryBarrier toTransferDst{};
+    toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferDst.oldLayout = maskImageLayout_;
+    toTransferDst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferDst.srcAccessMask = 0;
+    toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = maskImage_;
+    toTransferDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransferDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(commandBuffer_, maskStagingBuffer_, maskImage_, VK_IMAGE_LAYOUT_GENERAL,
+                            1, &region);
+
+    VkImageMemoryBarrier toShaderRead{};
+    toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.image = maskImage_;
+    toShaderRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderRead);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(mask)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(mask)")) return false;
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(mask)")) {
+        return false;
+    }
+    maskImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+    return true;
+}
+
+bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
+                                        float hardness, const uint8_t* maskAlpha8, int maskWidth,
+                                        int maskHeight) {
+    if (!isInitialized() || dabs.empty() || maskAlpha8 == nullptr) return false;
+    if (maskWidth <= 0 || maskHeight <= 0) return false;
+    if (!ensureMaskedPipeline()) return false;
+    if (!ensureMaskedDabBuffer(dabs.size())) return false;
+    bool maskIsNew = maskImage_ == VK_NULL_HANDLE || maskWidth != maskWidth_ || maskHeight != maskHeight_;
+    if (!ensureMaskTexture(maskWidth, maskHeight)) return false;
+    if (maskIsNew && !uploadMaskTexture(maskAlpha8, maskWidth, maskHeight)) return false;
+
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = dabs.size() * sizeof(GpuDab);
+    if (!checkResult(vkMapMemory(device_, maskedDabStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(maskedDabStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, dabs.data(), uploadSize);
+    vkUnmapMemory(device_, maskedDabStagingBufferMemory_);
+
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer(stampMasked)")) {
+        return false;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(stampMasked)")) {
+        return false;
+    }
+
+    VkBufferCopy copyRegion{0, 0, uploadSize};
+    vkCmdCopyBuffer(commandBuffer_, maskedDabStagingBuffer_, maskedDabBuffer_, 1, &copyRegion);
+
+    VkBufferMemoryBarrier bufBarrier{};
+    bufBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    bufBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    bufBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    bufBarrier.buffer = maskedDabBuffer_;
+    bufBarrier.offset = 0;
+    bufBarrier.size = uploadSize;
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
+                          nullptr);
+
+    ensureLayerImageGeneral(commandBuffer_);
+
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, maskedPipeline_);
+    vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, maskedPipelineLayout_, 0,
+                             1, &maskedDescriptorSet_, 0, nullptr);
+
+    // Same padded-bbox dispatch-region optimization as stampDabs() -- see its doc comment.
+    float minX = dabs[0].x - dabs[0].radius, maxX = dabs[0].x + dabs[0].radius;
+    float minY = dabs[0].y - dabs[0].radius, maxY = dabs[0].y + dabs[0].radius;
+    for (const GpuDab& d : dabs) {
+        minX = std::min(minX, d.x - d.radius); maxX = std::max(maxX, d.x + d.radius);
+        minY = std::min(minY, d.y - d.radius); maxY = std::max(maxY, d.y + d.radius);
+    }
+    int32_t originX = std::max(0, static_cast<int32_t>(std::floor(minX)));
+    int32_t originY = std::max(0, static_cast<int32_t>(std::floor(minY)));
+    int32_t endX = std::min(width_, static_cast<int32_t>(std::ceil(maxX)) + 1);
+    int32_t endY = std::min(height_, static_cast<int32_t>(std::ceil(maxY)) + 1);
+    int32_t regionW = std::max(0, endX - originX);
+    int32_t regionH = std::max(0, endY - originY);
+    if (regionW > 0 && regionH > 0) {
+        PushConstants pc{};
+        pc.dabCount = static_cast<uint32_t>(dabs.size());
+        pc.hardness = hardness;
+        pc.colorR = static_cast<float>((colorArgb >> 16) & 0xFF) / 255.0f;
+        pc.colorG = static_cast<float>((colorArgb >> 8) & 0xFF) / 255.0f;
+        pc.colorB = static_cast<float>(colorArgb & 0xFF) / 255.0f;
+        pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
+        pc.originX = originX;
+        pc.originY = originY;
+        vkCmdPushConstants(commandBuffer_, maskedPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                            sizeof(pc), &pc);
+
+        uint32_t groupsX = (static_cast<uint32_t>(regionW) + 15) / 16;
+        uint32_t groupsY = (static_cast<uint32_t>(regionH) + 15) / 16;
+        vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
+    }
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(stampMasked)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(stampMasked)")) return false;
+    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(stampMasked)");
+}
+
+void VulkanStampEngine::destroyMaskedResources() {
+    if (maskSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, maskSampler_, nullptr); maskSampler_ = VK_NULL_HANDLE; }
+    if (maskImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, maskImageView_, nullptr); maskImageView_ = VK_NULL_HANDLE; }
+    if (maskImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, maskImage_, nullptr); maskImage_ = VK_NULL_HANDLE; }
+    if (maskImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskImageMemory_, nullptr); maskImageMemory_ = VK_NULL_HANDLE; }
+    if (maskStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskStagingBuffer_, nullptr); maskStagingBuffer_ = VK_NULL_HANDLE; }
+    if (maskStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskStagingBufferMemory_, nullptr); maskStagingBufferMemory_ = VK_NULL_HANDLE; }
+    maskWidth_ = 0;
+    maskHeight_ = 0;
+    maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (maskedDabBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskedDabBuffer_, nullptr); maskedDabBuffer_ = VK_NULL_HANDLE; }
+    if (maskedDabBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskedDabBufferMemory_, nullptr); maskedDabBufferMemory_ = VK_NULL_HANDLE; }
+    if (maskedDabStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, maskedDabStagingBuffer_, nullptr); maskedDabStagingBuffer_ = VK_NULL_HANDLE; }
+    if (maskedDabStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, maskedDabStagingBufferMemory_, nullptr); maskedDabStagingBufferMemory_ = VK_NULL_HANDLE; }
+    maskedDabBufferCapacity_ = 0;
+
+    if (maskedPipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, maskedPipeline_, nullptr); maskedPipeline_ = VK_NULL_HANDLE; }
+    if (maskedPipelineLayout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, maskedPipelineLayout_, nullptr); maskedPipelineLayout_ = VK_NULL_HANDLE; }
+    if (maskedShaderModule_ != VK_NULL_HANDLE) { vkDestroyShaderModule(device_, maskedShaderModule_, nullptr); maskedShaderModule_ = VK_NULL_HANDLE; }
+    if (maskedDescriptorPool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, maskedDescriptorPool_, nullptr); maskedDescriptorPool_ = VK_NULL_HANDLE; maskedDescriptorSet_ = VK_NULL_HANDLE; }
+    if (maskedDescriptorSetLayout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, maskedDescriptorSetLayout_, nullptr); maskedDescriptorSetLayout_ = VK_NULL_HANDLE; }
+}
+
 bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     if (!isInitialized()) return false;
     size_t requiredBytes = static_cast<size_t>(width_) * height_ * 4;
@@ -986,6 +1562,7 @@ void VulkanStampEngine::destroy() {
     if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
         destroyColorSmudgeResources();
+        destroyMaskedResources();
     }
 
     if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }

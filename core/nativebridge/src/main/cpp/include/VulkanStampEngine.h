@@ -17,7 +17,13 @@ namespace graffux {
 // buffer to 12 floats / 48 bytes; old aggregate initializers that provide only five values leave
 // `resolved` at zero, so the shader falls back to the stroke-level push-constant colour exactly as
 // before. New callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
-// shaders/stamp.comp.
+// shaders/stamp.comp AND shaders/stamp_masked.comp (both share this exact struct layout).
+//
+// `tipRatio` is read only by stamp_masked.comp (height/width of the tip -- see AzphaltBrush.
+// tipRatio), and is ignored entirely by stamp.comp's plain round-dab path -- its default of 1.0
+// (a round/square tip) is meaningful only to a stampMaskedDabs() caller, which must set it per dab
+// explicitly rather than relying on this default; there is no "legacy" masked caller to preserve
+// compatibility for the way `resolved` preserves stamp.comp's original five-field callers.
 struct GpuDab {
     float x;
     float y;
@@ -30,7 +36,7 @@ struct GpuDab {
     float colorA = 0.0f;
     float flow = 0.0f;
     float resolved = 0.0f;
-    float pad0 = 0.0f;
+    float tipRatio = 1.0f;
 };
 static_assert(sizeof(GpuDab) == 48, "GpuDab must match the shader's 3xvec4 std430 record");
 
@@ -118,6 +124,21 @@ public:
     // (returns false) if the engine failed init() or `dabs` is empty.
     bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness);
 
+    // shaders/stamp_masked.comp counterpart to stampDabs(): each dab samples `maskAlpha8` (an
+    // R8_UNORM alpha-only tip texture, `maskWidth`x`maskHeight`, white=full coverage) in its own
+    // rotated/scaled local space instead of using the round stampCoverage() falloff -- the CPU-side
+    // reference this must match is StampBrushRenderer's masked-tip path (docs/Krita Brush Engine
+    // Adoption.md item 15). `dabs[i].tipRatio` must be set explicitly per dab (see GpuDab's doc
+    // comment); `hardness` is accepted for call-site symmetry with stampDabs() but unused -- the
+    // mask texture itself already encodes the tip's edge falloff. The mask texture is re-uploaded
+    // whenever `maskWidth`/`maskHeight` differ from the previous call (a new stroke's tip), and
+    // reused as-is when they match (repeated calls within the same stroke). Entirely additive: owns
+    // its own descriptor set/pipeline/dab buffer/mask texture, so a caller that never uses this
+    // leaves stampDabs()'s resources untouched. No-op (returns false) if the engine failed init(),
+    // `dabs` is empty, or `maskAlpha8` is null.
+    bool stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
+                         const uint8_t* maskAlpha8, int maskWidth, int maskHeight);
+
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
     bool colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
@@ -150,6 +171,12 @@ private:
     bool createDescriptorAndPipeline();
     bool createDabBuffer(size_t dabCount);
     bool allocateCommandBuffer();
+
+    bool ensureMaskedPipeline();
+    bool ensureMaskedDabBuffer(size_t dabCount);
+    bool ensureMaskTexture(int width, int height);
+    bool uploadMaskTexture(const uint8_t* alpha8, int width, int height);
+    void destroyMaskedResources();
 
     bool ensureColorSmudgePipelines();
     bool ensureColorSmudgeCarrier(size_t pixelCount);
@@ -224,6 +251,39 @@ private:
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
     VkShaderModule shaderModule_ = VK_NULL_HANDLE;
+
+    // stampMaskedDabs() (shaders/stamp_masked.comp) resources -- entirely separate from the plain
+    // round-dab resources above so this feature is purely additive: a caller that never uses
+    // stampMaskedDabs() never allocates any of this. Lazily created on first use by
+    // ensureMaskedPipeline()/ensureMaskedDabBuffer()/ensureMaskTexture().
+    VkDescriptorSetLayout maskedDescriptorSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool maskedDescriptorPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet maskedDescriptorSet_ = VK_NULL_HANDLE;
+    VkPipelineLayout maskedPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline maskedPipeline_ = VK_NULL_HANDLE;
+    VkShaderModule maskedShaderModule_ = VK_NULL_HANDLE;
+
+    // Own dab buffer (not shared with dabBuffer_/dabStagingBuffer_ above) -- keeps
+    // createDabBuffer()'s existing growth/descriptor-update logic for the round-dab path
+    // untouched by this addition.
+    VkBuffer maskedDabBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory maskedDabBufferMemory_ = VK_NULL_HANDLE;
+    size_t maskedDabBufferCapacity_ = 0;
+    VkBuffer maskedDabStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory maskedDabStagingBufferMemory_ = VK_NULL_HANDLE;
+
+    // R8_UNORM alpha-only tip mask texture, re-uploaded via uploadMaskTexture() whenever
+    // stampMaskedDabs() is called with different maskWidth/maskHeight than last time (a new
+    // stroke's tip); reused as-is across calls within the same stroke.
+    VkImage maskImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory maskImageMemory_ = VK_NULL_HANDLE;
+    VkImageView maskImageView_ = VK_NULL_HANDLE;
+    VkSampler maskSampler_ = VK_NULL_HANDLE;
+    VkBuffer maskStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory maskStagingBufferMemory_ = VK_NULL_HANDLE;
+    int maskWidth_ = 0;
+    int maskHeight_ = 0;
+    VkImageLayout maskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 }  // namespace graffux
