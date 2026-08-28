@@ -1525,6 +1525,9 @@ internal fun activeRailClassifiers(
     // The current brush. `null` is the built-in round brush, which is why the host itself lights up
     // rather than a member of its list.
     if (uiState.activeBrushName == null) add("grp.brushes")
+    com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+        .firstOrNull { it.name == uiState.activeBrushName }
+        ?.let { add("brush.builtin.${it.name}") }
     brushes.firstOrNull { it.second == uiState.activeBrushName }?.let { add("brush.${it.first}") }
     customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }
         ?.let { add("brush.custom.${it.id}") }
@@ -1980,6 +1983,14 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = railColor("grp.brushes"),
         onClick = { vm.selectBrushExtension(null) },
     )
+    // Ship with the app itself, unlike everything below -- so a fresh install has at least one
+    // brush that actually exercises the native stamp engine (dab dynamics, Airbrush, Impasto,
+    // GPU stamping) without an extension install or a trip through Brush Studio first.
+    com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.forEach { preset ->
+        stateSubItem("brush.builtin.${preset.name}", "grp.brushes", preset.name, GraffuxIcons.BrushImport) {
+            vm.selectBuiltInBrush(preset.name)
+        }
+    }
     brushes.forEach { (id, name) ->
         // BrushLibrary, not Brush: the plain brush glyph is the brush *tool*. Using it here too meant
         // the tool, every installed brush and every custom brush were the same picture — verbatim the
