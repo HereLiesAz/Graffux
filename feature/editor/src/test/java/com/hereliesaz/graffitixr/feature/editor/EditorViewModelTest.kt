@@ -579,4 +579,43 @@ class EditorViewModelTest {
 
         assertEquals(60f, viewModel.uiState.value.layers.first().rotationZ, 0.01f)
     }
+
+    @Test
+    fun `inserting a path node shifts a selection that sits past the insertion point`() {
+        // A glee audit found insertNode() shifts every later node's index up by one but
+        // selectedNodeIndex was left untouched -- so a selection past the insertion point silently
+        // pointed at the wrong node afterward. This pins the fix.
+        val path = com.hereliesaz.graffitixr.common.model.VectorShape(
+            kind = com.hereliesaz.graffitixr.common.model.ShapeKind.PATH,
+            points = listOf(0f, 0f, 100f, 0f, 100f, 100f),
+        )
+        val layer = lyr("path1").copy(shapes = listOf(path))
+        viewModel.setLayers(listOf(layer))
+        viewModel.onSetPathEditLayer("path1")
+        viewModel.onSelectPathNode(2)
+
+        // Inserts a new node between node 0 and node 1 (segmentIndex 0): the selected node (2) sits
+        // past the insertion point and must shift to 3 to keep pointing at the same node.
+        viewModel.onInsertPathNode(segmentIndex = 0, t = 0.5f)
+
+        assertEquals(3, viewModel.uiState.value.selectedNodeIndex)
+    }
+
+    @Test
+    fun `inserting a path node before the selection leaves it untouched`() {
+        val path = com.hereliesaz.graffitixr.common.model.VectorShape(
+            kind = com.hereliesaz.graffitixr.common.model.ShapeKind.PATH,
+            points = listOf(0f, 0f, 100f, 0f, 100f, 100f),
+        )
+        val layer = lyr("path1").copy(shapes = listOf(path))
+        viewModel.setLayers(listOf(layer))
+        viewModel.onSetPathEditLayer("path1")
+        viewModel.onSelectPathNode(0)
+
+        // segmentIndex 1 (between node 1 and node 2) is entirely after the selected node (0), which
+        // must not move.
+        viewModel.onInsertPathNode(segmentIndex = 1, t = 0.5f)
+
+        assertEquals(0, viewModel.uiState.value.selectedNodeIndex)
+    }
 }

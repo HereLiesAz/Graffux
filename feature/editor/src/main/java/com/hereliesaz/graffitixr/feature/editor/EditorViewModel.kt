@@ -6611,8 +6611,17 @@ class EditorViewModel @Inject constructor(
         editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveHandle(it, index, outgoing, x, y, mirror) }
 
     /** Each of these is a discrete action, so it brackets its own history entry and saves. */
-    fun onInsertPathNode(segmentIndex: Int, t: Float) = discretePathEdit {
-        com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t)
+    fun onInsertPathNode(segmentIndex: Int, t: Float) {
+        val applied = discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t) }
+        if (!applied) return
+        // A glee audit found the selection went stale here: insertNode() inserts the new node at
+        // segmentIndex + 1 and shifts every later node's index up by one, but selectedNodeIndex
+        // was left untouched -- so a node selected past the insertion point silently became a
+        // handle on whichever node now sits at its old index, one before the one the user actually
+        // had selected. Shift it the same way the node list itself just shifted.
+        _uiState.value.selectedNodeIndex?.let { selected ->
+            if (selected > segmentIndex) dispatch(EditorIntent.SelectPathNode(selected + 1))
+        }
     }
 
     fun onDeletePathNode(index: Int) {
@@ -6646,14 +6655,17 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetPathShape(layerId, transform(shape)))
     }
 
-    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
-        val layerId = _uiState.value.pathEditLayerId ?: return
-        val shape = pathShapeOf(layerId) ?: return
+    /** @return whether [transform] actually changed the shape (a no-op transform, e.g. an
+     *  out-of-range index, applies nothing and returns false). */
+    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape): Boolean {
+        val layerId = _uiState.value.pathEditLayerId ?: return false
+        val shape = pathShapeOf(layerId) ?: return false
         val next = transform(shape)
-        if (next == shape) return
+        if (next == shape) return false
         pushHistory()
         dispatch(EditorIntent.SetPathShape(layerId, next))
         saveProject()
+        return true
     }
 
     // ── Figma import ─────────────────────────────────────────────────────────────────────────
@@ -6847,6 +6859,27 @@ class EditorViewModel @Inject constructor(
 
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
 
+    /**
+     * Stamp-brush presets that ship with the app, with no extension install and no Brush Studio
+     * setup required -- see [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes] for why
+     * these exist: without them, a fresh install's only paintable options were the legacy Round
+     * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
+     * brush built before there's anything to paint with).
+     */
+    val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+
+    /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
+    fun selectBuiltInBrush(name: String) {
+        val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        activeStampBrush = brush
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
     /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
     val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
         customBrushRepository.brushes
@@ -6987,27 +7020,6 @@ class EditorViewModel @Inject constructor(
             }
             // Bracketed: the rail's Opacity slider drives this, once per emitted sample.
             continuousEdit { dispatch(EditorIntent.SetLayerShapes(active.id, recoloured)) }
-        }
-    }
-
-    override fun adjustColorLightness(delta: Float) {
-        adjustColorHSV(lightnessDelta = delta, saturationDelta = 0f)
-    }
-
-    override fun adjustColorHSV(lightnessDelta: Float, saturationDelta: Float) {
-        _uiState.update { state ->
-            val c = state.activeColor
-            val hsv = FloatArray(3)
-            android.graphics.Color.RGBToHSV(
-                (c.red * 255).toInt(),
-                (c.green * 255).toInt(),
-                (c.blue * 255).toInt(),
-                hsv
-            )
-            hsv[1] = (hsv[1] + saturationDelta).coerceIn(0f, 1f)
-            hsv[2] = (hsv[2] + lightnessDelta).coerceIn(0f, 1f)
-            val newArgb = android.graphics.Color.HSVToColor(hsv)
-            state.copy(activeColor = Color(newArgb).copy(alpha = c.alpha))
         }
     }
 

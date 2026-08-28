@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -17,6 +18,19 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * The Smudge brush, against real pixels.
+ *
+ * A glee audit found this file exercised `ImageProcessor.applyToolToBitmap(..., Tool.SMUDGE, ...)`
+ * directly -- code no real stroke reaches any more. `DrawingEngine`'s own `Tool.SMUDGE` branch
+ * intercepts before that dispatch and routes through `ColorSmudgeEngine` instead (GPU-first via
+ * `VulkanStampEngine.colorSmudge`, falling back to `ColorSmudgeEngine.apply` -- the CPU path this
+ * file now calls directly, the same one a Robolectric/JVM test actually exercises since there's no
+ * real Vulkan device to succeed here). `ImageProcessor`'s `Tool.SMUDGE` branch itself isn't dead --
+ * `ColorSmudgeEngineTest`'s "pixel-identical to original Graffux smudge" test deliberately keeps it
+ * alive as the historical reference `ColorSmudgeEngine.Mode.SMEAR`'s defaults are pinned against --
+ * but these tests were giving false confidence: they passed regardless of whether the *actual*
+ * production entry point had regressed. [applySmudge] mirrors `DrawingEngine`'s own settings
+ * construction for `Tool.SMUDGE` (see its doc comment) so every property below is now proven
+ * against the code a real stroke runs.
  *
  * The whole point of this tool is the thing that separates it from the Blur it was mislabelled as
  * for so long: smudge **carries** colour, so it has a direction and leaves a tail, while blur
@@ -53,19 +67,53 @@ class SmudgeRenderTest {
     }
 
     /**
+     * Runs Smudge the way a real stroke does: through [ColorSmudgeEngine.apply], with the exact
+     * default settings [DrawingEngine]'s own `Tool.SMUDGE` branch constructs when a stroke carries
+     * no explicit [com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine.Settings]
+     * snapshot (the legacy intensity->Smear mapping every pre-Color-Smudge-Studio stroke used).
+     */
+    private fun applySmudge(
+        bitmap: Bitmap,
+        stroke: List<Offset>,
+        brushSize: Float,
+        intensity: Float,
+        feathering: Float = 0f,
+    ): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        ColorSmudgeEngine.apply(
+            pixels,
+            width,
+            height,
+            stroke,
+            ColorSmudgeEngine.Settings(
+                mode = ColorSmudgeEngine.Mode.SMEAR,
+                smudgeRate = 0.35f + intensity.coerceIn(0f, 1f) * 0.6f,
+                colorRate = 0f,
+                opacity = 1f,
+                radiusPx = (brushSize / 2f).coerceAtLeast(1f),
+                feathering = feathering,
+                smearAlpha = true,
+            ),
+        )
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
+        return out
+    }
+
+    /**
      * The defining behaviour. Red must end up to the *right* of where it started, which is the one
      * thing a blur cannot do at this distance: a blur of radius r cannot move colour more than r,
      * and it would pull white leftwards into the red by exactly as much as it pushed red rightwards.
      */
     @Test
-    fun `drags colour along the stroke and not backwards`() = runBlocking {
+    fun `drags colour along the stroke and not backwards`() {
         val b = redBlock()
         val edge = 16
 
-        val after = ImageProcessor.applyToolToBitmap(
-            b, List(40) { Offset((edge - 8 + it).toFloat(), 32f) }, Tool.SMUDGE,
-            brushSize = 12f, intensity = 1f,
-        )
+        val after = applySmudge(b, List(40) { Offset((edge - 8 + it).toFloat(), 32f) }, brushSize = 12f, intensity = 1f)
 
         assertTrue(
             "red must be carried well past the block edge at x=$edge, reached ${redReach(after, 32)}",
@@ -80,17 +128,11 @@ class SmudgeRenderTest {
      * neighbourhood filter. The same stroke run the other way must not carry red to the right.
      */
     @Test
-    fun `dragging the other way does not carry colour rightwards`() = runBlocking {
+    fun `dragging the other way does not carry colour rightwards`() {
         val b = redBlock()
 
-        val rightwards = ImageProcessor.applyToolToBitmap(
-            b, List(40) { Offset((8 + it).toFloat(), 32f) }, Tool.SMUDGE,
-            brushSize = 12f, intensity = 1f,
-        )
-        val leftwards = ImageProcessor.applyToolToBitmap(
-            b, List(40) { Offset((47 - it).toFloat(), 32f) }, Tool.SMUDGE,
-            brushSize = 12f, intensity = 1f,
-        )
+        val rightwards = applySmudge(b, List(40) { Offset((8 + it).toFloat(), 32f) }, brushSize = 12f, intensity = 1f)
+        val leftwards = applySmudge(b, List(40) { Offset((47 - it).toFloat(), 32f) }, brushSize = 12f, intensity = 1f)
 
         assertTrue(
             "a rightward drag must reach further right than a leftward one " +
@@ -103,14 +145,16 @@ class SmudgeRenderTest {
      * A blur would produce a *symmetric* exchange across the boundary: as much white pulled left as
      * red pushed right. A smudge is one-directional, so the white side changes far more than the red
      * side does. Asserting the asymmetry catches an implementation that averages instead of carries,
-     * even one whose result happens to spread red a little.
+     * even one whose result happens to spread red a little. Blur has no `ColorSmudgeEngine`
+     * counterpart and isn't this audit's concern, so its side of the comparison still goes through
+     * `ImageProcessor` -- the same entry point a real Blur stroke uses.
      */
     @Test
     fun `the effect is one-sided, unlike a blur`() = runBlocking {
         val b = redBlock()
         val stroke = List(40) { Offset((8 + it).toFloat(), 32f) }
 
-        val smudged = ImageProcessor.applyToolToBitmap(b, stroke, Tool.SMUDGE, brushSize = 12f, intensity = 1f)
+        val smudged = applySmudge(b, stroke, brushSize = 12f, intensity = 1f)
         val blurred = ImageProcessor.applyToolToBitmap(b, stroke, Tool.BLUR, brushSize = 12f, intensity = 1f)
 
         fun changed(after: Bitmap, from: Int, until: Int): Int =
@@ -129,12 +173,12 @@ class SmudgeRenderTest {
 
     /** Intensity is how much colour survives each dab, so it is how far the tail runs. */
     @Test
-    fun `intensity controls how far the colour is carried`() = runBlocking {
+    fun `intensity controls how far the colour is carried`() {
         val b = redBlock()
         val stroke = List(40) { Offset((8 + it).toFloat(), 32f) }
 
-        val weak = ImageProcessor.applyToolToBitmap(b, stroke, Tool.SMUDGE, brushSize = 12f, intensity = 0f)
-        val strong = ImageProcessor.applyToolToBitmap(b, stroke, Tool.SMUDGE, brushSize = 12f, intensity = 1f)
+        val weak = applySmudge(b, stroke, brushSize = 12f, intensity = 0f)
+        val strong = applySmudge(b, stroke, brushSize = 12f, intensity = 1f)
 
         assertTrue(
             "intensity 1 must carry further than intensity 0 " +
@@ -145,13 +189,10 @@ class SmudgeRenderTest {
 
     /** Nowhere near the stroke, nothing moves. */
     @Test
-    fun `only the pixels under the stroke change`() = runBlocking {
+    fun `only the pixels under the stroke change`() {
         val b = redBlock()
 
-        val after = ImageProcessor.applyToolToBitmap(
-            b, List(40) { Offset((8 + it).toFloat(), 6f) }, Tool.SMUDGE,
-            brushSize = 8f, intensity = 1f,
-        )
+        val after = applySmudge(b, List(40) { Offset((8 + it).toFloat(), 6f) }, brushSize = 8f, intensity = 1f)
 
         for (y in intArrayOf(32, 50, 63)) {
             for (x in intArrayOf(10, 20, 40)) {
@@ -169,16 +210,13 @@ class SmudgeRenderTest {
      * would slide the hue off a shape and leave its silhouette sitting there.
      */
     @Test
-    fun `alpha is dragged too, so a shape's edge moves with it`() = runBlocking {
+    fun `alpha is dragged too, so a shape's edge moves with it`() {
         val b = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
         for (y in 0 until 64) for (x in 0 until 64) {
             b.setPixel(x, y, if (x < 16) Color.argb(255, 255, 0, 0) else Color.TRANSPARENT)
         }
 
-        val after = ImageProcessor.applyToolToBitmap(
-            b, List(40) { Offset((8 + it).toFloat(), 32f) }, Tool.SMUDGE,
-            brushSize = 12f, intensity = 1f,
-        )
+        val after = applySmudge(b, List(40) { Offset((8 + it).toFloat(), 32f) }, brushSize = 12f, intensity = 1f)
 
         var pulled = 0
         for (x in 16 until 64) if (Color.alpha(after.getPixel(x, 32)) > 8) pulled++
@@ -187,13 +225,10 @@ class SmudgeRenderTest {
 
     /** Smudging a flat colour has nothing to carry, so it changes nothing visible. */
     @Test
-    fun `flat colour is left alone`() = runBlocking {
+    fun `flat colour is left alone`() {
         val flat = RenderTestBase.filled(48, 48, Color.argb(255, 90, 140, 200))
 
-        val after = ImageProcessor.applyToolToBitmap(
-            flat, List(40) { Offset((4 + it).toFloat(), 24f) }, Tool.SMUDGE,
-            brushSize = 12f, intensity = 1f,
-        )
+        val after = applySmudge(flat, List(40) { Offset((4 + it).toFloat(), 24f) }, brushSize = 12f, intensity = 1f)
 
         for (x in intArrayOf(10, 24, 38)) {
             assertEquals("($x, 24)", flat.getPixel(x, 24), after.getPixel(x, 24))
