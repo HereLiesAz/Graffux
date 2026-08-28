@@ -1558,8 +1558,8 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     jsize len = env->GetArrayLength(dabData);
+    if (len <= 0 || len % 5 != 0) return JNI_FALSE;
     jsize dabCount = len / 5;
-    if (dabCount <= 0) return JNI_FALSE;
     jfloat* ptr = env->GetFloatArrayElements(dabData, nullptr);
     if (!ptr) return JNI_FALSE;
 
