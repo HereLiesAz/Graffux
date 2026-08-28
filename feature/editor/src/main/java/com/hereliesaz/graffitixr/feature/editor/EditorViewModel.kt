@@ -6585,8 +6585,17 @@ class EditorViewModel @Inject constructor(
         editPath { com.hereliesaz.graffitixr.common.model.PathEditing.moveHandle(it, index, outgoing, x, y, mirror) }
 
     /** Each of these is a discrete action, so it brackets its own history entry and saves. */
-    fun onInsertPathNode(segmentIndex: Int, t: Float) = discretePathEdit {
-        com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t)
+    fun onInsertPathNode(segmentIndex: Int, t: Float) {
+        val applied = discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t) }
+        if (!applied) return
+        // A glee audit found the selection went stale here: insertNode() inserts the new node at
+        // segmentIndex + 1 and shifts every later node's index up by one, but selectedNodeIndex
+        // was left untouched -- so a node selected past the insertion point silently became a
+        // handle on whichever node now sits at its old index, one before the one the user actually
+        // had selected. Shift it the same way the node list itself just shifted.
+        _uiState.value.selectedNodeIndex?.let { selected ->
+            if (selected > segmentIndex) dispatch(EditorIntent.SelectPathNode(selected + 1))
+        }
     }
 
     fun onDeletePathNode(index: Int) {
@@ -6620,14 +6629,17 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetPathShape(layerId, transform(shape)))
     }
 
-    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape) {
-        val layerId = _uiState.value.pathEditLayerId ?: return
-        val shape = pathShapeOf(layerId) ?: return
+    /** @return whether [transform] actually changed the shape (a no-op transform, e.g. an
+     *  out-of-range index, applies nothing and returns false). */
+    private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -> com.hereliesaz.graffitixr.common.model.VectorShape): Boolean {
+        val layerId = _uiState.value.pathEditLayerId ?: return false
+        val shape = pathShapeOf(layerId) ?: return false
         val next = transform(shape)
-        if (next == shape) return
+        if (next == shape) return false
         pushHistory()
         dispatch(EditorIntent.SetPathShape(layerId, next))
         saveProject()
+        return true
     }
 
     // ── Figma import ─────────────────────────────────────────────────────────────────────────
