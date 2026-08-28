@@ -38,7 +38,8 @@ Dynamics that already exist and are worth keeping as-is conceptually:
 **The ceiling of this architecture**: every stroke operation allocates and walks full-resolution
 `Bitmap`s on the CPU. `applyToolToBitmap` copies the entire layer bitmap per stroke commit and per
 undo/redo step. There is no compute-shader parallelism, no persistent GPU-resident layer state, no
-frame-pacing control beyond Compose's own recomposition, and no touch-prediction. This is why a
+frame-pacing control beyond Compose's own recomposition, and touch-prediction is presentation-only
+(§4) — no predicted dab ever enters the paint path. This is why a
 fast, heavy stroke on a large canvas visibly lags — it is doing exactly what Valkyrie was built to
 stop doing (§9 of the companion doc: CSP's "8.7ms of CPU thumbnail regen" story is structurally
 the same class of problem `applyToolToBitmap`'s full-bitmap copy is).
@@ -170,14 +171,32 @@ coalesced-touch equivalent — so sub-frame samples aren't being thrown away tod
 during the pressure work this session; `HistoricalChange` carries position + time, not pressure,
 which is why the pressure change borrows the enclosing `change`'s reading for historical points).
 
-What's missing is the predictive half. `androidx.input.motionprediction`
-(`MotionEventPredictor`) is the direct Android analogue of `predictedTouches` — feed it the real
-`MotionEvent` stream, it hands back an extrapolated point ~1 frame ahead. Same substitution model
-the companion doc describes for Valkyrie: render the predicted dab(s) at the leading edge of the
-stroke, then on the next real sample, discard and overwrite with ground truth. This wires in at
-exactly the `DrawingCanvas.kt` pointerInput boundary that already threads `.historical` and
-`.pressure` through — a predicted trailing point is architecturally the same shape as a historical
-one, just extrapolated forward instead of interpolated backward.
+**Correction, checked against the code directly rather than assumed:** this section previously
+said prediction infrastructure was missing and proposed wiring `androidx.input.motionprediction`
+in. That infrastructure already exists and is already wired — the gap is narrower and different
+in kind than what was described here.
+
+`DrawingCanvas.kt` already runs a `PredictionTournament` (`LinearGesturePredictor`,
+`AccelerationGesturePredictor`, and `AndroidXMotionGesturePredictor` wrapping
+`androidx.input.motionprediction.MotionEventPredictor`) fed the live `MotionEvent` stream via
+`androidXPredictor.recordMotionEvent(event)`. But the class's own KDoc states the actual contract
+plainly: "Brush latency prediction is presentation-only: predictors race to extend the visible
+tail to the next frame, but predicted points are NEVER sent to `onStrokePoint`. Only real input
+can enter the bitmap/history path" — rendered as `predictionTail`, a translucent overlay line, not
+substituted into the dab stream. That is a deliberate, different design from the dab-substitution
+model the companion doc describes for Valkyrie ("render the predicted dab(s) at the leading edge
+of the stroke, then on the next real sample, discard and overwrite with ground truth") — Graffux
+never paints a predicted dab at all, real or provisional; prediction only shows the artist where
+the line is about to go.
+
+Adopting the companion doc's actual substitution model — painting provisional predicted dabs and
+overwriting them once ground truth arrives — remains unimplemented and is a real, separate item
+from what exists today: it would need `onStrokePoint`'s real-input-only invariant to grow a
+provisional/authoritative distinction it currently doesn't have (predicted samples would need to
+enter the live paint/replay path in a way that's still cleanly discardable), which is nontrivial
+enough that it isn't sketched out further here. `prediction/GoogleInkGesturePredictor.kt` also
+exists as a fourth predictor implementation but isn't included in `DrawingCanvas.kt`'s
+`PredictionTournament` list — an unwired primitive, not a live gap in current behavior.
 
 ## 5. Catmull-Rom spline fitting
 
@@ -280,7 +299,7 @@ Not every Android device in `minSdk 26`'s range can do all of this. Rather than 
 | GPU compute stamping (§2) | Vulkan 1.1+ (API 29 for the version guaranteed present; effectively near-universal by now, but see below) | Today's CPU `Canvas` path, unchanged |
 | `AHardwareBuffer` GPU interop (§2) | API 26+ (`AHardwareBuffer` itself), API 29+ for the GL/Vulkan external-memory extensions this design actually needs | Same as above — no interop, no GPU path |
 | Front-buffer presentation (§3) | API 29+ (`SurfaceControl`); best on 34+ (`HardwareBufferRenderer`) | Persistent-texture render + normal Compose frame |
-| Touch prediction (§4) | `androidx.input.motionprediction` — works on any API level, quality varies by digitizer | No prediction; historical-only, as today |
+| Touch prediction (§4) | `androidx.input.motionprediction` — works on any API level, quality varies by digitizer | Already shipped, presentation-only: `PredictionTournament` extends the visible tail; no predicted dab enters the paint path on any device |
 | Wet Mix GPU port (§7) | GPU compute (same as §2) | Already the shipped behaviour: the full, non-approximated `ColorSmudgeEngine` CPU path, same as every device runs today — not a degraded fallback |
 
 Net effect of the Vulkan-compute revision on this table: the GPU path's floor moved from "GLES
@@ -392,9 +411,11 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
-5. **Touch prediction (§4)** — can land any time after step 1, independent of the GPU work;
-   slots into the same `DrawingCanvas.kt` pointerInput boundary the pressure work this session
-   already touched.
+5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) already shipped;
+   what remains is the dab-substitution model itself (provisional predicted dabs, overwritten by
+   ground truth), which needs `onStrokePoint`'s real-input-only invariant to grow a
+   provisional/authoritative distinction first — independent of the GPU work, but a real design
+   change, not a drop-in slot into the existing pointerInput boundary.
 6. **Wet Mix (§7) GPU port** — last among the GPU phases, though its CPU half (the `chargeDecayRate`/
    `dilution` reconciliation into `ColorSmudgeEngine`, with Tool Options UI) has already landed —
    see §7's revision note. What remains is porting `ColorSmudgeEngine.resolve()`'s decay/dilution
