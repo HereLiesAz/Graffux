@@ -529,4 +529,54 @@ class CommitPathRoutingTest {
             committed.getPixel(canvas.width - 2, 24) != before.getPixel(canvas.width - 2, 24),
         )
     }
+
+    /**
+     * Roadmap gap found by a glee audit: on a fresh install, the only paintable options were the
+     * legacy Round tool (never touches the native stamp engine) and Brush Studio (needs a brush
+     * built before there's anything to paint with) -- `builtInBrushes`/`selectBuiltInBrush` give a
+     * fresh install at least one real stamp brush. This drives every one of them through the same
+     * commit-equals-replay property the rest of this file enforces, so a future preset that
+     * regresses the same way `commitStampStroke` used to (dropping dynamics/grain/mask on commit)
+     * fails here too.
+     */
+    @Test
+    fun `every built-in brush commits what it replays`() = runTest(dispatcher) {
+        for (preset in vm.builtInBrushes) {
+            val base = RenderTestBase.filled(48, 48, Color.WHITE)
+            val presetVm = EditorViewModelFixture.build(dispatcher)
+            presetVm.dispatchForTest(EditorIntent.SetLayers(listOf(Layer(id = "L", name = "L", bitmap = base))))
+            presetVm.onLayerActivated("L")
+            presetVm.dispatchForTest(EditorIntent.SetCanvasSize(canvas))
+            presetVm.selectBuiltInBrush(preset.name)
+            presetVm.setActiveTool(Tool.BRUSH)
+            presetVm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+            val before = base.copy(Bitmap.Config.ARGB_8888, false)
+
+            presetVm.onStrokeStart(BrushSample(12f, 24f, pressure = 0.2f, uptimeMillis = 0L), canvas)
+            presetVm.onStrokePoint(BrushSample(24f, 24f, pressure = 0.6f, uptimeMillis = 16L))
+            presetVm.onStrokePoint(BrushSample(36f, 24f, pressure = 1f, uptimeMillis = 32L))
+            presetVm.onStrokeEnd()
+
+            fun published(): Bitmap = presetVm.uiState.value.layers.single { it.id == "L" }.bitmap!!
+            awaitCommit(message = "${preset.name} published no change") {
+                published().getPixel(24, 24) != before.getPixel(24, 24)
+            }
+
+            val strokes = presetVm.recordedStrokesForTest("L")
+            assertTrue("${preset.name}: nothing was recorded", strokes.isNotEmpty())
+            val replayed = DrawingEngine(presetVm.slamManager).composite(before, strokes)
+            assertSamePixels(published(), replayed, preset.name)
+        }
+    }
+
+    @Test
+    fun `built-in brush presets are non-empty and uniquely named`() {
+        assertTrue("no built-in brushes -- a fresh install still has nothing to paint with", vm.builtInBrushes.isNotEmpty())
+        val names = vm.builtInBrushes.map { it.name }
+        assertEquals(
+            "selectBuiltInBrush matches by name -- a duplicate would silently shadow one preset",
+            names.size,
+            names.toSet().size,
+        )
+    }
 }

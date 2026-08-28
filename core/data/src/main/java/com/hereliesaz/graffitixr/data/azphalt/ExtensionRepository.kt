@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -420,7 +421,13 @@ class ExtensionRepository @Inject constructor(
             connection.setRequestProperty("Accept", "application/json")
             connection.connect()
             if (connection.responseCode !in 200..299) return
-            val body = connection.inputStream.use { it.bufferedReader().readText() }
+            // Bounded the same way installFromStream's package download is (copyBounded): this
+            // runs unattended on every app launch against a remote endpoint, unlike a user-
+            // initiated install, so a compromised/misbehaving server streaming an unbounded or
+            // enormous body must not be able to grow this read without limit.
+            val out = ByteArrayOutputStream()
+            connection.inputStream.use { copyBounded(it, out, MAX_TRUST_STORE_BYTES) }
+            val body = out.toByteArray().decodeToString()
             val keys = parseSigningKeys(body)
             if (keys.isEmpty()) return
             val store = TrustStore(keys)
@@ -447,5 +454,8 @@ class ExtensionRepository @Inject constructor(
     companion object {
         private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"
         private const val WELL_KNOWN_URL = "https://azphalt.store/.well-known/azphalt-repository.json"
+        // A signing-key list is a handful of short base64 strings -- generous headroom over any
+        // real payload, not a size this endpoint should ever need to approach.
+        private const val MAX_TRUST_STORE_BYTES = 1L * 1024 * 1024
     }
 }

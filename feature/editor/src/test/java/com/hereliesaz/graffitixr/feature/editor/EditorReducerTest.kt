@@ -238,6 +238,23 @@ class EditorReducerTest {
         assertEquals(1.0f, out.layers.first { it.id == "b" }.opacity)
     }
 
+    /**
+     * Co-op bug found by a glee audit: `Op.LayerPropsChange` (the wire message
+     * `SetLayerProps` applies) used to always carry `alphaLock = false` -- `toLayerProps()`
+     * never read the layer's real value -- and had no field for `clipToLayerBelow` at all, so
+     * neither toggle could ever reach a collaborator. Both are on `LayerProps` now and this
+     * reducer branch must actually apply them.
+     */
+    @Test
+    fun `SetLayerProps copies alphaLock and clipToLayerBelow onto the target layer`() {
+        val s = state(lyr("a"))
+        val props = com.hereliesaz.graffitixr.common.model.LayerProps(alphaLock = true, clipToLayerBelow = true)
+        val out = reduce(s, EditorIntent.SetLayerProps("a", props))
+        val a = out.layers.first { it.id == "a" }
+        assertTrue(a.alphaLock)
+        assertTrue(a.clipToLayerBelow)
+    }
+
     @Test
     fun `SetLayerTransformById sets transform on the target layer`() {
         val s = state(lyr("a"))
