@@ -42,6 +42,8 @@ internal sealed interface EditorIntent {
     /** Toggles Procreate-style Alpha Lock on layer [id] (paint only lands on existing alpha). */
     data class ToggleAlphaLock(val id: String) : EditorIntent
     data object CycleRotationAxis : EditorIntent
+    /** Toggles layer [id]'s 3D-specific controls (X/Y rotation, double-tap axis cycling). */
+    data class ToggleLayer3D(val id: String) : EditorIntent
 
     // ── Layer list ────────────────────────────────────────────────────────────
     data class ReorderLayers(val order: List<String>) : EditorIntent

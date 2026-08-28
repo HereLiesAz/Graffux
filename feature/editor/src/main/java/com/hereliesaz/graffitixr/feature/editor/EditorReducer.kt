@@ -110,6 +110,8 @@ internal object EditorReducer {
             }
             state.copy(activeRotationAxis = next, showRotationAxisFeedback = true)
         }
+        is EditorIntent.ToggleLayer3D ->
+            state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(is3D = !it.is3D) })
         is EditorIntent.SetLayerTransformById -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
             it.copy(scale = intent.scale, offset = intent.offset, rotationX = intent.rx, rotationY = intent.ry, rotationZ = intent.rz)
         })

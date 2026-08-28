@@ -66,6 +66,16 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `ToggleLayer3D flips is3D on the target layer only`() {
+        val s = state(lyr("a"), lyr("b"))
+        val out = reduce(s, EditorIntent.ToggleLayer3D("a"))
+        assertTrue(out.layers.first { it.id == "a" }.is3D)
+        assertFalse(out.layers.first { it.id == "b" }.is3D)
+        val back = reduce(out, EditorIntent.ToggleLayer3D("a"))
+        assertFalse(back.layers.first { it.id == "a" }.is3D)
+    }
+
+    @Test
     fun `ToggleInvert and ToggleImageLock flip the active layer`() {
         val s = state(lyr("a"), active = "a")
         assertTrue(reduce(s, EditorIntent.ToggleInvert).layers.first().isInverted)

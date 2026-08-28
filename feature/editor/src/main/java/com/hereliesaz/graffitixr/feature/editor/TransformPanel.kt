@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,7 +49,39 @@ fun TransformPanel(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Transform", style = MaterialTheme.typography.titleSmall, color = Color.White)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Transform", style = MaterialTheme.typography.titleSmall, color = Color.White)
+            Row {
+                Text("3D", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Switch(
+                    checked = activeLayer.is3D,
+                    onCheckedChange = { actions.onToggleLayer3D(id) },
+                    colors = SwitchDefaults.colors(),
+                )
+            }
+        }
+
+        if (activeLayer.is3D) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumberField(
+                    label = "Rotate X°",
+                    initial = remember(id) { activeLayer.rotationX.roundToInt().toString() },
+                    onValue = { v -> actions.onRotationXChanged(v) },
+                    allowNegative = true,
+                    modifier = Modifier.weight(1f),
+                )
+                NumberField(
+                    label = "Rotate Y°",
+                    initial = remember(id) { activeLayer.rotationY.roundToInt().toString() },
+                    onValue = { v -> actions.onRotationYChanged(v) },
+                    allowNegative = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberField(

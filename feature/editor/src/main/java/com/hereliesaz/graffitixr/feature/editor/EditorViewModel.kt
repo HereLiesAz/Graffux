@@ -2369,9 +2369,22 @@ class EditorViewModel @Inject constructor(
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
+    /**
+     * Two jobs, picked by what's actually under the tap and whether the active layer has opted into
+     * 3D controls ([Layer.is3D]): with two or more overlapping layers there, cycling which one is
+     * active is the useful thing a double-tap can do; with one or none AND a 3D active layer, the
+     * gesture is free for its other job -- stepping which axis (X/Y/Z) the next drag rotates around,
+     * the natural "what am I rotating right now" toggle for 3D work. Outside that, a double-tap over
+     * one-or-no layers stays a no-op, same as before: cycling an axis nothing reads yet would be a
+     * silent, unexplained mode change for ordinary flat editing.
+     */
     fun onCanvasDoubleTap(offset: Offset, screenWidth: Float, screenHeight: Float) {
         val hits = CanvasHitTest.allHits(_uiState.value.layers, offset, screenWidth, screenHeight)
-        if (hits.isEmpty()) return
+        if (hits.size < 2) {
+            val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
+            if (active?.is3D == true) onCycleRotationAxis()
+            return
+        }
         val currentId = _uiState.value.activeLayerId
         val currentIdx = hits.indexOf(currentId)
         val nextId = if (currentIdx >= 0) hits[(currentIdx + 1) % hits.size] else hits.first()
@@ -2786,6 +2799,18 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
+
+    // No opEmitter.emit here, unlike onToggleVisibility/onToggleAlphaLock: LayerProps (what
+    // Op.LayerPropsChange carries) has no room for is3D, and there's no precedent for a rotation-
+    // related field going through it -- rotation itself syncs as a computed matrix via
+    // Op.LayerTransform, never as individual fields. is3D only gates local UI affordances (the
+    // TransformPanel's X/Y fields, double-tap's axis-cycle), so a collaborator not seeing it change
+    // is a minor UX inconsistency, not a rendering desync -- the resulting pixels still sync fine.
+    override fun onToggleLayer3D(layerId: String) {
+        pushHistory()
+        dispatch(EditorIntent.ToggleLayer3D(layerId))
+        saveProject()
+    }
 
     override fun onAdjustmentStart() { pushHistory(); dispatch(EditorIntent.SetGestureInProgress(true)) }
 

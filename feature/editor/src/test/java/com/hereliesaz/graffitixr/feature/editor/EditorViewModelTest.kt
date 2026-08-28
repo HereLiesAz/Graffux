@@ -568,6 +568,36 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `onCanvasDoubleTap cycles the rotation axis when the active layer is 3D and nothing else is under it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = lyr("a").copy(is3D = true)
+        viewModel.setLayers(listOf(layer))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val before = viewModel.uiState.value.activeRotationAxis
+        // Off in empty space: hits.size < 2, so this must fall through to axis-cycling rather than
+        // staying a no-op, since the active layer opted into 3D controls.
+        viewModel.onCanvasDoubleTap(Offset(-1000f, -1000f), 1000f, 1000f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNotEquals(before, viewModel.uiState.value.activeRotationAxis)
+    }
+
+    @Test
+    fun `onCanvasDoubleTap stays a no-op when the active layer is not 3D`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = lyr("a") // is3D defaults to false
+        viewModel.setLayers(listOf(layer))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val before = viewModel.uiState.value.activeRotationAxis
+        viewModel.onCanvasDoubleTap(Offset(-1000f, -1000f), 1000f, 1000f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(before, viewModel.uiState.value.activeRotationAxis)
+    }
+
+    @Test
     fun `onRotateLayerHandle rotates active layer on Z axis`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val l = lyr("a").copy(rotationZ = 15f)
