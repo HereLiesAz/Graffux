@@ -6821,6 +6821,27 @@ class EditorViewModel @Inject constructor(
 
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
 
+    /**
+     * Stamp-brush presets that ship with the app, with no extension install and no Brush Studio
+     * setup required -- see [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes] for why
+     * these exist: without them, a fresh install's only paintable options were the legacy Round
+     * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
+     * brush built before there's anything to paint with).
+     */
+    val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+
+    /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
+    fun selectBuiltInBrush(name: String) {
+        val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        activeStampBrush = brush
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
+        dispatch(EditorIntent.SetActiveBrush(brush.name))
+        setActiveTool(Tool.BRUSH)
+    }
+
     /** Brushes the user built in Brush Studio, shown in the rail alongside installed ones. */
     val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
         customBrushRepository.brushes
