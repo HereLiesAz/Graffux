@@ -824,7 +824,7 @@ object ImageProcessor {
         }
     }
 
-    private fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetryMode: SymmetryMode = SymmetryMode.NONE) {
+    internal fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetryMode: SymmetryMode = SymmetryMode.NONE) {
         if (symmetryMode != SymmetryMode.NONE) {
             // Draw each mirrored/rotated twin first with symmetry off, then fall
             // through to the normal draw — keeps the mirror math in exactly one place.
@@ -1049,7 +1049,7 @@ object ImageProcessor {
          * OutOfMemoryError propagate — both intermediate bitmaps are full-canvas ARGB_8888
          * buffers, the same allocation SafeBitmap exists to guard everywhere else.
          */
-        private fun cheapBlur(src: Bitmap, factor: Int): Bitmap? {
+        internal fun cheapBlur(src: Bitmap, factor: Int): Bitmap? {
             val w = (src.width / factor).coerceAtLeast(1)
             val h = (src.height / factor).coerceAtLeast(1)
             val small = try {

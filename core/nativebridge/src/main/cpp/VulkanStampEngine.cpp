@@ -89,6 +89,7 @@ bool VulkanStampEngine::init(int width, int height) {
     if (!createDescriptorAndPipeline()) { destroy(); return false; }
     if (!allocateCommandBuffer()) { destroy(); return false; }
 
+    markLayerFullyDirty();
     LOGI("VulkanStampEngine initialized: %dx%d layer", width, height);
     return true;
 }
@@ -114,6 +115,7 @@ bool VulkanStampEngine::initWithHardwareBuffer(int width, int height) {
     if (!createDescriptorAndPipeline()) { destroy(); return false; }
     if (!allocateCommandBuffer()) { destroy(); return false; }
 
+    markLayerFullyDirty();
     LOGI("VulkanStampEngine initialized (AHardwareBuffer-backed): %dx%d layer", width, height);
     return true;
 }
@@ -771,6 +773,32 @@ void VulkanStampEngine::ensureLayerImageGeneral(VkCommandBuffer cmd) {
     layerImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
 }
 
+void VulkanStampEngine::expandDirtyRect(int32_t originX, int32_t originY, int32_t w, int32_t h) {
+    if (w <= 0 || h <= 0) return;
+    if (dirtyWidth_ <= 0 || dirtyHeight_ <= 0) {
+        dirtyOriginX_ = originX;
+        dirtyOriginY_ = originY;
+        dirtyWidth_ = w;
+        dirtyHeight_ = h;
+        return;
+    }
+    int32_t x0 = std::min(dirtyOriginX_, originX);
+    int32_t y0 = std::min(dirtyOriginY_, originY);
+    int32_t x1 = std::max(dirtyOriginX_ + dirtyWidth_, originX + w);
+    int32_t y1 = std::max(dirtyOriginY_ + dirtyHeight_, originY + h);
+    dirtyOriginX_ = x0;
+    dirtyOriginY_ = y0;
+    dirtyWidth_ = x1 - x0;
+    dirtyHeight_ = y1 - y0;
+}
+
+void VulkanStampEngine::markLayerFullyDirty() {
+    dirtyOriginX_ = 0;
+    dirtyOriginY_ = 0;
+    dirtyWidth_ = width_;
+    dirtyHeight_ = height_;
+}
+
 bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     if (!isInitialized()) return false;
     size_t requiredBytes = static_cast<size_t>(width_) * height_ * 4;
@@ -835,8 +863,14 @@ bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
 
     vkResetFences(device_, 1, &fence_);
     if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(upload)")) return false;
-    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(upload)");
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(upload)")) {
+        return false;
+    }
+    // upload() replaces every pixel, so the next readback() must copy the whole layer regardless
+    // of whatever narrower region a prior stampDabs()/stampMaskedDabs() call had left dirty.
+    markLayerFullyDirty();
+    return true;
 }
 
 bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness) {
@@ -941,8 +975,12 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
 
     vkResetFences(device_, 1, &fence_);
     if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit")) return false;
-    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(stampDabs)");
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(stampDabs)")) {
+        return false;
+    }
+    expandDirtyRect(originX, originY, regionW, regionH);
+    return true;
 }
 
 // shaders/stamp_masked.comp resources -- see the header's field comments for why these are kept
@@ -2208,8 +2246,12 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
 
     vkResetFences(device_, 1, &fence_);
     if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(stampMasked)")) return false;
-    return checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(stampMasked)");
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(stampMasked)")) {
+        return false;
+    }
+    expandDirtyRect(originX, originY, regionW, regionH);
+    return true;
 }
 
 void VulkanStampEngine::destroyMaskedResources() {
@@ -2270,6 +2312,12 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
         return false;
     }
 
+    // Nothing has been written since the last successful readback (or the engine is freshly
+    // cleared/initialized with nothing drawn on it yet) -- outRgba8 already holds the right pixels
+    // everywhere, so there's nothing to do. This is the common case for a stroke that just lifted:
+    // the caller's final readback after onStrokeEnd's last dab batch already got everything.
+    if (dirtyWidth_ <= 0 || dirtyHeight_ <= 0) return true;
+
     if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer")) {
         return false;
     }
@@ -2300,13 +2348,20 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
                           &toTransferSrc);
 
+    // Only the dirty rect is copied off the GPU -- both here (the device-side transfer) and in the
+    // host-side memcpy below. bufferRowLength is deliberately the FULL layer width (not the dirty
+    // rect's own, narrower width): that makes each copied row land at the same byte offset within
+    // stagingBuffer_ that a full-image copy would have used, so the row-by-row memcpy below can
+    // address both the staging buffer and outRgba8 with identical full-image-stride math, and any
+    // untouched bytes elsewhere in the staging buffer (stale from a previous, differently-shaped
+    // dirty rect) are simply never read.
     VkBufferImageCopy region{};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
+    region.bufferOffset = (static_cast<VkDeviceSize>(dirtyOriginY_) * width_ + dirtyOriginX_) * 4;
+    region.bufferRowLength = static_cast<uint32_t>(width_);
     region.bufferImageHeight = 0;
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
+    region.imageOffset = {dirtyOriginX_, dirtyOriginY_, 0};
+    region.imageExtent = {static_cast<uint32_t>(dirtyWidth_), static_cast<uint32_t>(dirtyHeight_), 1};
     vkCmdCopyImageToBuffer(commandBuffer_, layerImage_, VK_IMAGE_LAYOUT_GENERAL, stagingBuffer_, 1,
                             &region);
 
@@ -2329,8 +2384,19 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
                       "vkMapMemory(readback)")) {
         return false;
     }
-    std::memcpy(outRgba8, mapped, requiredBytes);
+    const uint8_t* src = static_cast<const uint8_t*>(mapped);
+    const size_t rowBytes = static_cast<size_t>(dirtyWidth_) * 4;
+    for (int32_t row = 0; row < dirtyHeight_; ++row) {
+        size_t off = (static_cast<size_t>(dirtyOriginY_ + row) * width_ + dirtyOriginX_) * 4;
+        std::memcpy(outRgba8 + off, src + off, rowBytes);
+    }
     vkUnmapMemory(device_, stagingBufferMemory_);
+    // Everything now outstanding has been copied out -- the next readback() with no intervening
+    // write is a no-op via the dirtyWidth_/dirtyHeight_ <= 0 check at the top of this function.
+    dirtyOriginX_ = 0;
+    dirtyOriginY_ = 0;
+    dirtyWidth_ = 0;
+    dirtyHeight_ = 0;
     return true;
 }
 
