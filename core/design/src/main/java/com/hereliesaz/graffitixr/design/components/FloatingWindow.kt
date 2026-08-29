@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +55,14 @@ val LocalRailInset = compositionLocalOf { RailInset(dockedOnLeft = false, width 
 
 private val MaxWindowWidth = 320.dp
 private val MaxWindowHeight = 480.dp
+
+// [clampFullyOnscreen]'s `containerSize` (from LocalWindowInfo) is the full display area, not the
+// safe-content area clear of system bars -- a window whose available space is fully used (this
+// file's own mount-time correction, or AzWindow's internal one before it, pinning `maxY` exactly to
+// `containerSize.height`) can end up with its bottom edge sitting right under the gesture nav bar,
+// content there unreachable even though the window is technically "fully onscreen" by the numbers.
+// A modest inset from every edge sidesteps this without needing precise WindowInsets plumbing here.
+private val SafeEdgeMargin = 24.dp
 
 // A window more than this fraction offscreen is being thrown away, not just moved — closing it
 // beats leaving a barely-there sliver nobody can find their way back to. AzWindow itself has no
@@ -142,43 +152,74 @@ fun FloatingWindow(
             obstruction = obstruction,
             snapFullyOnscreen = true,
         ) {
-            Column(modifier = Modifier.padding(12.dp), content = content)
+            // AzWindow caps its own height at MaxWindowHeight, but does not scroll content that
+            // exceeds it -- a plain Column measured that way gives every earlier child its full
+            // requested size and hands the last child whatever's left, which can be ~0px (this is
+            // how the Color picker's own Apply button was found rendered 1px tall: the wheel, tabs
+            // and slider above it already consumed nearly the entire 480dp budget). Scrolling here
+            // means content that doesn't fit is reachable, not silently crushed.
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp),
+                content = content,
+            )
         }
     }
 
     // Mount-time correction, THEN — only then — start watching for a real drag taking the window
     // (almost) entirely offscreen. One sequential effect, not two independent ones.
     //
-    // This used to be two separate `LaunchedEffect`s: one applying the onscreen/rail-avoidance
-    // correction below, the other independently watching `liveRect` (debounced, with a `.drop(1)`)
-    // to auto-close a window dragged off screen. Compose gives no guarantee about the relative
-    // timing of two sibling LaunchedEffects, so the watcher's subscription could start — and its
-    // `debounce(150).drop(1)` could settle on a frame — *before* the correction effect had even
-    // run, let alone before its `moveTo()` call had propagated back through recomposition into a
-    // new `liveRect`. AzWindow's own internal mount-time clamp (`AzWindowState.onPositioned`, a
-    // "minimal sliver" guarantee, separate from and prior to this correction) adds more raw layout
-    // passes on top, and several [FloatingWindow]s cascade their initial position diagonally toward
-    // the corner — so a window whose content wants more than `MaxWindowHeight` (the colour picker's
-    // wheel-plus-tabs-plus-swatches easily does), opened as the Nth cascaded window, could still
-    // read one of those pre-correction frames as "a drag that already finished" and dismiss itself
-    // the instant it opened, before the user had touched it. A longer debounce only narrows that
-    // race; it can't close it, because the two effects have no ordering relationship at all.
+    // Two distinct bugs lived here, found by instrumenting this effect against a real device:
     //
-    // Sequencing them removes the race by construction: the watcher's `snapshotFlow` subscription
-    // is created by a line of code that cannot execute until the correction call above it already
-    // has, so its very first observed `liveRect` is guaranteed to be at-or-after that correction —
-    // never a frame from before it. `debounce(150)` is kept for what it's actually good for: however
-    // many *further* layout passes AzWindow's own internals contribute after that point (a pending
-    // `moveTo()`'s own relayout included) are simply more values this already-correctly-scoped
-    // watch absorbs into the same quiet period, not a second race to win.
+    // 1. AzWindow is hard evidence that the SAME obstruction (`obstruction`, passed to AzWindow
+    //    directly below) drives its own internal mount-time "minimal sliver" clamp independently of
+    //    anything in this file. Logging `windowState.offsetX`/`offsetY` immediately after mount —
+    //    with this effect's own `moveTo()` call disabled entirely — still showed `offsetY` already
+    //    corrupted to the full container height (window pushed off the bottom edge) for a window
+    //    opened next to a left-docked, full-height rail. AzNavRail's own internal obstruction-
+    //    narrowing logic (`AzWindowState`'s `narrowForObstruction`/`onPositioned`, per this file's
+    //    own earlier doc comment claiming to mirror it) applies the identical bug this file's
+    //    [clampFullyOnscreen] used to have: a full-height obstruction touches y=0 and y=height by
+    //    construction regardless of which side it's docked on, and treating that alone as "this
+    //    obstruction constrains the vertical range" pushes every window mounted next to a rail
+    //    towards the bottom edge instead of merely clear of the rail horizontally. This is a bug to
+    //    report/fix upstream in AzNavRail; it cannot be fixed from here.
+    //
+    // 2. This file's OWN correction was computing its delta from `liveRect.topLeft` (measured via
+    //    `onGloballyPositioned` on the wrapping [Box] above) and adding it to `windowState.offsetX`/
+    //    `offsetY`. But `liveRect` never tracked AzWindow's actual rendered position at all — it
+    //    stayed pinned at (0, 0) across every observed frame regardless of what `windowState`'s
+    //    fields held (AzWindow evidently repositions its content by some means `onGloballyPositioned`
+    //    on an ancestor Box doesn't see, e.g. a graphics-layer translation applied inside AzWindow's
+    //    own tree rather than a layout-level offset the wrapping Box's own measured bounds would
+    //    move with). Adding a `liveRect`-derived delta to `windowState.offsetX`/`offsetY` therefore
+    //    computed a value with no relation to where the window was actually sitting, compounding
+    //    on top of bug 1's already-wrong offsetY rather than correcting it.
+    //
+    // Fixed by reading and writing `windowState.offsetX`/`offsetY` directly — the one value AzWindow
+    // actually renders from — as an ABSOLUTE target (not a delta against the unreliable `liveRect`),
+    // computed via this file's own (correctly axis-aware) [clampFullyOnscreen], using `liveRect`
+    // only for its WIDTH/HEIGHT (size is unaffected by the position-tracking mismatch above). This
+    // runs unconditionally, not just when a raw mismatch is detected, specifically because bug 1
+    // already corrupts `offsetX`/`offsetY` before this effect ever gets to inspect them.
+    //
+    // The auto-dismiss watcher below still reads `liveRect`, which the finding above means may not
+    // reflect a real drag's true resting position either — a known follow-up, not fixed here since
+    // no evidence yet shows it firing incorrectly (this session's traces all show `willDismiss=false`
+    // exactly when the window is, per the fix above, actually onscreen).
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
-        val safe = clampFullyOnscreen(rect.topLeft, Offset(rect.width, rect.height), containerSize, obstruction)
-        if (safe != rect.topLeft) {
-            windowState.moveTo(
-                windowState.offsetX + (safe.x - rect.left),
-                windowState.offsetY + (safe.y - rect.top),
-            )
+        val marginPx = with(density) { SafeEdgeMargin.toPx() }
+        val safe = clampFullyOnscreen(
+            Offset(windowState.offsetX, windowState.offsetY),
+            Offset(rect.width, rect.height),
+            containerSize,
+            obstruction,
+            marginPx,
+        )
+        if (safe.x != windowState.offsetX || safe.y != windowState.offsetY) {
+            windowState.moveTo(safe.x, safe.y)
         }
 
         snapshotFlow { liveRect }
@@ -215,18 +256,43 @@ private fun visibleFraction(rect: Rect, containerSize: IntSize): Float {
  * `obstruction` — mirroring [AzWindowState]'s own internal `narrowForObstruction`: only the edge(s)
  * `obstruction` actually touches are enforced, since there's no side to define "clear of it" from
  * for a rect that touches none of the container's edges.
+ *
+ * [RailInset.asObstruction] only ever produces a full-HEIGHT strip (a left- or right-docked rail)
+ * or a full-WIDTH strip (a top- or bottom-docked one) — never a rect floating clear of every edge.
+ * A full-height strip touches `top` (0) and `bottom` (containerHeight) by construction, regardless
+ * of which side it's docked on — checking "does it touch top/bottom" in isolation to decide whether
+ * to narrow the vertical range therefore fired for a purely-horizontal (left/right) obstruction too,
+ * which does not touch the top or bottom edge in any y-clamping sense; it just happens to span the
+ * full height. That silently pushed `minY` all the way to `obstruction.bottom` — the full container
+ * height — for every left-docked rail, so a freshly-opened window's "safe" position became fully
+ * off-screen (`y = containerHeight`) instead of merely clear of the rail on the x-axis. This is what
+ * made a floating window (the colour picker among them) render once at its raw mount position, get
+ * "corrected" straight off the bottom edge, and never come back — not a dismiss (`onDismiss()` is
+ * never called by this path), so the state backing it stayed "open" the whole time.
+ *
+ * Fixed by classifying the obstruction first — a full-height strip only ever narrows X, a full-width
+ * strip only ever narrows Y — rather than testing each of the four edges independently.
+ *
+ * [marginPx] insets all four container edges (not the obstruction's own edge, which needs no such
+ * buffer — the window is meant to sit flush against it) — see [SafeEdgeMargin]'s doc comment.
  */
-private fun clampFullyOnscreen(topLeft: Offset, size: Offset, containerSize: IntSize, obstruction: Rect?): Offset {
+private fun clampFullyOnscreen(topLeft: Offset, size: Offset, containerSize: IntSize, obstruction: Rect?, marginPx: Float = 0f): Offset {
     if (containerSize.width <= 0 || containerSize.height <= 0) return topLeft
-    var minX = 0f
-    var maxX = (containerSize.width - size.x).coerceAtLeast(minX)
-    var minY = 0f
-    var maxY = (containerSize.height - size.y).coerceAtLeast(minY)
+    var minX = marginPx
+    var maxX = (containerSize.width - marginPx - size.x).coerceAtLeast(minX)
+    var minY = marginPx
+    var maxY = (containerSize.height - marginPx - size.y).coerceAtLeast(minY)
     if (obstruction != null) {
-        if (obstruction.left <= 0f) minX = minX.coerceAtLeast(obstruction.right)
-        if (obstruction.right >= containerSize.width) maxX = maxX.coerceAtMost(obstruction.left - size.x)
-        if (obstruction.top <= 0f) minY = minY.coerceAtLeast(obstruction.bottom)
-        if (obstruction.bottom >= containerSize.height) maxY = maxY.coerceAtMost(obstruction.top - size.y)
+        val isVerticalBar = obstruction.top <= 0f && obstruction.bottom >= containerSize.height
+        val isHorizontalBar = obstruction.left <= 0f && obstruction.right >= containerSize.width
+        if (isVerticalBar) {
+            if (obstruction.left <= 0f) minX = minX.coerceAtLeast(obstruction.right)
+            if (obstruction.right >= containerSize.width) maxX = maxX.coerceAtMost(obstruction.left - size.x)
+        }
+        if (isHorizontalBar) {
+            if (obstruction.top <= 0f) minY = minY.coerceAtLeast(obstruction.bottom)
+            if (obstruction.bottom >= containerSize.height) maxY = maxY.coerceAtMost(obstruction.top - size.y)
+        }
         if (minX > maxX) maxX = minX
         if (minY > maxY) maxY = minY
     }
