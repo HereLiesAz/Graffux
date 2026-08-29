@@ -204,10 +204,15 @@ fun FloatingWindow(
     // runs unconditionally, not just when a raw mismatch is detected, specifically because bug 1
     // already corrupts `offsetX`/`offsetY` before this effect ever gets to inspect them.
     //
-    // The auto-dismiss watcher below still reads `liveRect`, which the finding above means may not
-    // reflect a real drag's true resting position either — a known follow-up, not fixed here since
-    // no evidence yet shows it firing incorrectly (this session's traces all show `willDismiss=false`
-    // exactly when the window is, per the fix above, actually onscreen).
+    // The auto-dismiss watcher was the follow-up the finding above flagged but didn't yet fix: it
+    // judged a drag's resting position from `liveRect` directly, which — per finding 2 above — never
+    // tracks AzWindow's actual rendered position; it stays pinned regardless of where the window
+    // visually sits. So this watcher could see a stale/wrong rect and dismiss a window that was, on
+    // screen, nowhere near 90% offscreen (the store, colour picker and text panels all share this
+    // FloatingWindow, which is why the same popping-shut behaviour showed up on all three). Fixed the
+    // same way the correction effect above was: use `windowState.offsetX`/`offsetY` for position —
+    // the one value AzWindow actually renders from — and `liveRect` only for its size, which finding
+    // 2 already established is unaffected by the position-tracking mismatch.
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
         val marginPx = with(density) { SafeEdgeMargin.toPx() }
@@ -222,7 +227,7 @@ fun FloatingWindow(
             windowState.moveTo(safe.x, safe.y)
         }
 
-        snapshotFlow { liveRect }
+        snapshotFlow { liveRect?.let { Rect(Offset(windowState.offsetX, windowState.offsetY), it.size) } }
             .filterNotNull()
             .debounce(150)
             .collect { r ->
