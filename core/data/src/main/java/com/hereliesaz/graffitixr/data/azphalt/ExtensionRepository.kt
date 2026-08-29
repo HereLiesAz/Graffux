@@ -462,7 +462,10 @@ class ExtensionRepository @Inject constructor(
 
     companion object {
         private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"
-        private const val WELL_KNOWN_URL = "https://azphalt.store/.well-known/azphalt-repository.json"
+        // The canonical `www.` host, not the bare domain -- see AzphaltStoreHandoff.WEB_STORE_URL:
+        // the bare domain 308-redirects here, which this raw HttpURLConnection doesn't follow, so it
+        // silently returned nothing (leaving every repository package permanently SIGNED_UNTRUSTED).
+        private const val WELL_KNOWN_URL = "https://www.azphalt.store/.well-known/azphalt-repository.json"
         // A signing-key list is a handful of short base64 strings -- generous headroom over any
         // real payload, not a size this endpoint should ever need to approach.
         private const val MAX_TRUST_STORE_BYTES = 1L * 1024 * 1024
