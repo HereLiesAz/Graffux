@@ -32,7 +32,6 @@ import androidx.compose.ui.zIndex
 import com.hereliesaz.aznavrail.AzWindow
 import com.hereliesaz.aznavrail.AzWindowState
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
@@ -147,38 +146,31 @@ fun FloatingWindow(
         }
     }
 
-    // Auto-close a window dragged (almost) entirely off screen — reacts live, mid-drag, so this
-    // isn't waiting for a drag to end before it can act (unlike the onscreen-correction below,
-    // which only matters once a position settles).
+    // Mount-time correction, THEN — only then — start watching for a real drag taking the window
+    // (almost) entirely offscreen. One sequential effect, not two independent ones.
     //
-    // Debounced, not just `.drop(1)`-ed, because more than one mount-time layout pass can land
-    // before anything settles: AzWindow does its OWN internal onGloballyPositioned-driven clamp
-    // (`AzWindowState.onPositioned`, a "minimal sliver" guarantee, separate from and prior to the
-    // onscreen-correction effect below), and several [FloatingWindow]s cascade their initial
-    // position diagonally toward the corner — so a window whose content is tall enough to want more
-    // than `MaxWindowHeight` (the colour picker's wheel-plus-tabs-plus-swatches easily does), opened
-    // as the Nth cascaded window, can measure two or more distinct raw/sliver-clamped frames before
-    // the correction effect ever gets to fully place it onscreen, and a fixed `.drop(1)` only ever
-    // accounts for exactly one of them. Evaluating an intermediate, not-yet-corrected frame here
-    // read as a drag that had already finished, so the window dismissed itself the instant it
-    // opened, before the user had touched it — and every reopen re-ran the same race, so it never
-    // seemed to come back. Waiting for `liveRect` to stop changing for a beat means this only ever
-    // judges a position the window is actually resting at — after every mount-time settle/correction
-    // pass, or after the user's finger stops moving — never one it merely passed through.
-    LaunchedEffect(containerSize) {
-        snapshotFlow { liveRect }
-            .filterNotNull()
-            .debounce(150)
-            .drop(1)
-            .collect { rect ->
-                if (visibleFraction(rect, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) onDismiss()
-            }
-    }
-
-    // AzWindow's own mount-time clamp only guarantees the same minimal sliver a live drag does —
-    // not full containment, which only kicks in once a drag actually settles (`snapFullyOnscreen`
-    // above). Apply that same full correction once up front too, so a freshly-(re)opened window
-    // never has to wait for a drag before it's somewhere reachable.
+    // This used to be two separate `LaunchedEffect`s: one applying the onscreen/rail-avoidance
+    // correction below, the other independently watching `liveRect` (debounced, with a `.drop(1)`)
+    // to auto-close a window dragged off screen. Compose gives no guarantee about the relative
+    // timing of two sibling LaunchedEffects, so the watcher's subscription could start — and its
+    // `debounce(150).drop(1)` could settle on a frame — *before* the correction effect had even
+    // run, let alone before its `moveTo()` call had propagated back through recomposition into a
+    // new `liveRect`. AzWindow's own internal mount-time clamp (`AzWindowState.onPositioned`, a
+    // "minimal sliver" guarantee, separate from and prior to this correction) adds more raw layout
+    // passes on top, and several [FloatingWindow]s cascade their initial position diagonally toward
+    // the corner — so a window whose content wants more than `MaxWindowHeight` (the colour picker's
+    // wheel-plus-tabs-plus-swatches easily does), opened as the Nth cascaded window, could still
+    // read one of those pre-correction frames as "a drag that already finished" and dismiss itself
+    // the instant it opened, before the user had touched it. A longer debounce only narrows that
+    // race; it can't close it, because the two effects have no ordering relationship at all.
+    //
+    // Sequencing them removes the race by construction: the watcher's `snapshotFlow` subscription
+    // is created by a line of code that cannot execute until the correction call above it already
+    // has, so its very first observed `liveRect` is guaranteed to be at-or-after that correction —
+    // never a frame from before it. `debounce(150)` is kept for what it's actually good for: however
+    // many *further* layout passes AzWindow's own internals contribute after that point (a pending
+    // `moveTo()`'s own relayout included) are simply more values this already-correctly-scoped
+    // watch absorbs into the same quiet period, not a second race to win.
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
         val safe = clampFullyOnscreen(rect.topLeft, Offset(rect.width, rect.height), containerSize, obstruction)
@@ -188,6 +180,13 @@ fun FloatingWindow(
                 windowState.offsetY + (safe.y - rect.top),
             )
         }
+
+        snapshotFlow { liveRect }
+            .filterNotNull()
+            .debounce(150)
+            .collect { r ->
+                if (visibleFraction(r, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) onDismiss()
+            }
     }
 }
 
