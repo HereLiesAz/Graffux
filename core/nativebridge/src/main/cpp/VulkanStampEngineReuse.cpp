@@ -90,10 +90,16 @@ bool VulkanStampEngine::clear() {
 
     if (!reuseCheck(vkResetFences(device_, 1, &fence_), "vkResetFences(clear)")) return false;
     if (!reuseCheck(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(clear)")) return false;
-    return reuseCheck(
-        vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
-        "vkWaitForFences(clear)"
-    );
+    if (!reuseCheck(
+            vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+            "vkWaitForFences(clear)"
+        )) {
+        return false;
+    }
+    // A clear touches every pixel, so the next readback() must copy the whole layer regardless of
+    // whatever narrower region a prior stampDabs()/stampMaskedDabs() call had left dirty.
+    markLayerFullyDirty();
+    return true;
 }
 
 }  // namespace graffux

@@ -57,7 +57,7 @@ internal object BrushTipMaskCache {
             hardness1000 = (hardness.coerceIn(0f, 1f) * 1000f).roundToInt(),
         )
         tips.get(key)?.takeIf { !it.isRecycled }?.let { return it }
-        val created = if (source == null) generatedTip(width, height, hardness) else scaledSource(source, width, height)
+        val created = if (source == null) generatedTip(width, height, hardness) else scaledSource(source, width, height, hardness)
         tips.put(key, created)
         return created
     }
@@ -132,7 +132,7 @@ internal object BrushTipMaskCache {
         }
     }
 
-    private fun scaledSource(source: Bitmap, width: Int, height: Int): Bitmap {
+    private fun scaledSource(source: Bitmap, width: Int, height: Int, hardness: Float): Bitmap {
         val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         canvas.drawBitmap(
@@ -141,6 +141,31 @@ internal object BrushTipMaskCache {
             Rect(0, 0, width, height),
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
         )
+        // Was scaling the source and stopping there -- hardness never touched a textured tip's
+        // pixels, only the shapeless generated tip's (see generatedTip below), so the Hardness
+        // slider had no effect on any brush with a real tip image at all. Same radial coverage
+        // function as generatedTip and the GPU shader (BrushStamps.stampCoverage), applied here as
+        // an alpha multiplier on top of whatever the source's own alpha shape already is.
+        if (hardness >= 1f) return out
+        val cx = width / 2f
+        val cy = height / 2f
+        val rx = (width / 2f).coerceAtLeast(0.5f)
+        val ry = (height / 2f).coerceAtLeast(0.5f)
+        val pixels = IntArray(width * height)
+        out.getPixels(pixels, 0, width, 0, 0, width, height)
+        var i = 0
+        for (y in 0 until height) {
+            val ny = (y + 0.5f - cy) / ry
+            for (x in 0 until width) {
+                val nx = (x + 0.5f - cx) / rx
+                val coverage = BrushStamps.stampCoverage(hypot(nx, ny), hardness)
+                val p = pixels[i]
+                val a = (Color.alpha(p) * coverage).roundToInt().coerceIn(0, 255)
+                pixels[i] = (a shl 24) or (p and 0x00FFFFFF)
+                i++
+            }
+        }
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
         return out
     }
 }

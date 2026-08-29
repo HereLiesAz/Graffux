@@ -608,9 +608,16 @@ bool VulkanStampEngine::colorSmudge(
 
     const uint32_t tile = smudgeBenchmark_.selectedTileSize;
     const VkPipeline pipeline = tile == 8 ? smudgePipeline8_ : smudgePipeline16_;
-    return runColorSmudgePlan(
-        dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile, dilution,
-        hasSampleMerged);
+    if (!runColorSmudgePlan(
+            dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, pipeline, tile, dilution,
+            hasSampleMerged)) {
+        return false;
+    }
+    // Unlike stampDabs()/stampMaskedDabs(), Color Smudge doesn't track its own per-dispatch
+    // bounding box yet, so the conservative-but-correct choice is to mark the whole layer dirty --
+    // narrowing this to the dabs' actual footprint is a separate, not-yet-done optimization.
+    markLayerFullyDirty();
+    return true;
 }
 
 void VulkanStampEngine::destroyColorSmudgeResources() {

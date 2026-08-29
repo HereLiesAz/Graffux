@@ -53,6 +53,17 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    // The androidTest APK pulls in both this module's own libc++_shared.so (from the NDK build
+    // above) and the OpenCV AAR's copy of the same file, which MergeNativeLibsTask otherwise
+    // rejects as a duplicate. app/build.gradle.kts has the identical fix for the same conflict in
+    // the main app APK; this module's own androidTest variant needed it separately since it builds
+    // its own APK.
+    packaging {
+        jniLibs {
+            pickFirsts += "**/libc++_shared.so"
+        }
+    }
 }
 
 dependencies {

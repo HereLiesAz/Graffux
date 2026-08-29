@@ -753,6 +753,29 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         azConfig(
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
+                            showFooter = false,
+                            trigger = AzDropdownTrigger.Hamburger,
+                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
+                        )
+                        fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
+                            azToggle(
+                                isChecked = checked,
+                                toggleOnText = label,
+                                toggleOffText = label,
+                                color = menuItemColor,
+                                onToggle = onToggle,
+                            )
+                        areaToggle("Animation rail", showAnimationRail) { showAnimationRail = it }
+                        areaToggle("3D rail", showModelRail) { showModelRail = it }
+                        areaToggle("Reference rail", showReferenceRail) { showReferenceRail = it }
+                        areaToggle("Figma rail", showFigmaRail) { showFigmaRail = it }
+                        areaToggle("Extensions rail", showExtensionsRail) { showExtensionsRail = it }
+                    }
+
+                    AzDropdownMenu(navController = navController) {
+                        azConfig(
+                            design = AzDropdownDesign.MENU,
+                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
                             trigger = AzDropdownTrigger.MoreVert,
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
@@ -815,29 +838,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     })
                     azDivider()
                         menuItem(text = "Settings", onClick = { showSettings = true })
-                    }
-
-                    AzDropdownMenu(navController = navController) {
-                        azConfig(
-                            design = AzDropdownDesign.MENU,
-                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            showFooter = false,
-                            trigger = AzDropdownTrigger.Hamburger,
-                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
-                        )
-                        fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
-                            azToggle(
-                                isChecked = checked,
-                                toggleOnText = label,
-                                toggleOffText = label,
-                                color = menuItemColor,
-                                onToggle = onToggle,
-                            )
-                        areaToggle("Animation rail", showAnimationRail) { showAnimationRail = it }
-                        areaToggle("3D rail", showModelRail) { showModelRail = it }
-                        areaToggle("Reference rail", showReferenceRail) { showReferenceRail = it }
-                        areaToggle("Figma rail", showFigmaRail) { showFigmaRail = it }
-                        areaToggle("Extensions rail", showExtensionsRail) { showExtensionsRail = it }
                     }
                 }
             }

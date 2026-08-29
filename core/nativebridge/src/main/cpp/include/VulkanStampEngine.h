@@ -204,6 +204,20 @@ public:
     // no padding — the same layout AndroidBitmap_lockPixels hands back for ARGB_8888, modulo the
     // R/B channel order the caller is responsible for reconciling, since this engine works in
     // RGBA to match the shader's `vec4`/imageStore convention rather than Android's packed ARGB).
+    //
+    // Only the region tracked by dirtyOriginX_/dirtyOriginY_/dirtyWidth_/dirtyHeight_ is actually
+    // copied off the GPU — everywhere else in `outRgba8` is left exactly as the caller's buffer
+    // already had it. This is correct ONLY because every caller in this codebase reuses the same
+    // buffer across an entire stroke's readback() calls (EditorViewModel's `work`/`stampLiveBitmap`
+    // Bitmap), so untouched pixels already hold the right value from a prior readback. A caller
+    // that reused a *different* buffer between calls, or expects a full-canvas snapshot from a
+    // single call, would see stale/garbage data outside the dirty rect — this is a live-preview
+    // primitive, not a general "give me the whole layer" accessor (that's what upload()'s inverse,
+    // a full-image readback, was before this — this comment marks the contract that changed).
+    // On a live brush stroke this rect is a small fraction of a large canvas (a touch sample's
+    // dab batch, not the whole layer), which is the entire point: this was previously the
+    // dominant per-touch-sample cost (a full-canvas GPU->CPU copy every call, independent of how
+    // much actually changed) -- see docs/Native Rendering Engine Design.md §9's on-device timing.
     bool readback(uint8_t* outRgba8, size_t outCapacityBytes);
 
     // Releases every Vulkan resource. Safe to call multiple times; init() may be called again
@@ -269,6 +283,18 @@ private:
     // layouts per-operation. Must be called at the start of any command buffer that touches
     // layerImage_, before the actual compute dispatch or copy command.
     void ensureLayerImageGeneral(VkCommandBuffer cmd);
+
+    // Grows [dirtyOriginX_, dirtyOriginY_, dirtyWidth_, dirtyHeight_] to also cover the given
+    // layer-image-space rectangle -- a no-op if w/h <= 0 (a dispatch that touched nothing, e.g. a
+    // scattered dab that drifted entirely off-canvas). Called by every writer of layerImage_ after
+    // a successful write, so the accumulated rect always covers everything changed since the last
+    // successful readback() -- see readback()'s own doc comment for why this exists.
+    void expandDirtyRect(int32_t originX, int32_t originY, int32_t w, int32_t h);
+    // Marks the whole layer dirty -- the safe/correct default for any writer that doesn't (yet)
+    // track its own bounding box: init()/initWithHardwareBuffer() (freshly created, readback must
+    // reflect the whole thing), upload() (replaces every pixel), clear() (same), and colorSmudge()
+    // (VulkanColorSmudge.cpp; its own dab-bbox tracking is a separate, not-yet-done optimization).
+    void markLayerFullyDirty();
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
@@ -417,6 +443,14 @@ private:
     VkImageLayout secondaryMaskImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     // Content hash of the last-uploaded secondary mask, for the same reason as maskContentHash_.
     uint64_t secondaryMaskContentHash_ = 0;
+
+    // Bounding box (layer-image pixel coordinates, [origin, origin+extent)) of everything written
+    // to layerImage_ since the last successful readback() -- see readback()'s doc comment. A
+    // width/height of 0 means nothing is outstanding (a readback right now would be a no-op).
+    int32_t dirtyOriginX_ = 0;
+    int32_t dirtyOriginY_ = 0;
+    int32_t dirtyWidth_ = 0;
+    int32_t dirtyHeight_ = 0;
 };
 
 }  // namespace graffux

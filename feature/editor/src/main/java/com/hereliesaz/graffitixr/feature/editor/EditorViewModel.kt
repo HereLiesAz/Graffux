@@ -303,6 +303,108 @@ private const val CONTINUOUS_EDIT_IDLE_MS = 400L
  */
 private val RESAMPLING_TOOLS = setOf(Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE)
 
+// Mirrors ImageProcessor.applyToolToBitmap's BLUR/SHARPEN cheapBlur() factors exactly, at the same
+// intensity = 0.5f every StrokeCommand call site in this file hardcodes: BLUR's factor formula is
+// (2 + intensity * 12).coerceIn(2, 16); SHARPEN's "soft" reference blur is always factor 2,
+// independent of intensity. Used by the live-preview reference blur below.
+private const val RESAMPLE_BLUR_FACTOR = 8
+private const val RESAMPLE_SHARPEN_SOFT_FACTOR = 2
+// The same fixed intensity every StrokeCommand call site in this file hardcodes for BLUR/SHARPEN.
+private const val RESAMPLE_INTENSITY = 0.5f
+
+/**
+ * BLUR's live-preview composite: stamps [reference] (the stroke-independent full blur computed
+ * once in onStrokeStart) into [work] only where [mapped]'s stroke path covers, via the identical
+ * opaque-mask-then-SRC_IN technique ImageProcessor.applyToolToBitmap's Tool.BLUR branch uses on
+ * commit — see that branch's own comments for why SRC_IN over a fresh mask (rather than composing
+ * translucently straight onto [work]) is what keeps a self-overlapping stroke from double-darkening.
+ * Whole-canvas, redone from scratch every touch sample on a cancellable background job (mirrors
+ * Tool.LIQUIFY's existing live-preview cost/architecture) rather than scoped to the stroke's own
+ * bounding box — a real, not-yet-done follow-up optimization if this proves too slow on very large
+ * canvases, parallel to readback()'s dirty-rect fix.
+ */
+private fun liveBlurComposite(
+    work: Bitmap,
+    reference: Bitmap,
+    mapped: List<Offset>,
+    brushSizePx: Float,
+    feathering: Float,
+    wrapAroundMode: Boolean,
+    symmetryMode: SymmetryMode,
+) {
+    val w = work.width
+    val h = work.height
+    val maskBmp = SafeBitmap.create(w, h) ?: return
+    val maskCanvas = Canvas(maskBmp)
+    val maskPaint = Paint().apply {
+        strokeWidth = brushSizePx
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+    }
+    ImageProcessor.drawStroke(maskCanvas, mapped, maskPaint, wrapAroundMode, symmetryMode)
+    maskCanvas.drawBitmap(reference, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
+    Canvas(work).drawBitmap(maskBmp, 0f, 0f, null)
+    maskBmp.recycle()
+}
+
+/**
+ * SHARPEN's live-preview composite: the identical per-pixel unsharp-mask formula
+ * ImageProcessor.applyToolToBitmap's Tool.SHARPEN branch uses on commit (result = original +
+ * amount × (original − blur), lerped by mask coverage, alpha untouched) — see that branch's own
+ * comments for why a per-pixel lerp rather than BLUR's SRC_IN stamp is what this tool needs. Same
+ * whole-canvas-per-frame cost tradeoff as [liveBlurComposite].
+ */
+private fun liveSharpenComposite(
+    work: Bitmap,
+    reference: Bitmap,
+    mapped: List<Offset>,
+    brushSizePx: Float,
+    feathering: Float,
+    wrapAroundMode: Boolean,
+    symmetryMode: SymmetryMode,
+) {
+    val amount = 0.4f + RESAMPLE_INTENSITY * 1.6f
+    val w = work.width
+    val h = work.height
+    val maskBmp = SafeBitmap.create(w, h) ?: return
+    val maskPaint = Paint().apply {
+        strokeWidth = brushSizePx
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
+    }
+    ImageProcessor.drawStroke(Canvas(maskBmp), mapped, maskPaint, wrapAroundMode, symmetryMode)
+
+    val n = w * h
+    val out = IntArray(n)
+    val blur = IntArray(n)
+    val mask = IntArray(n)
+    work.getPixels(out, 0, w, 0, 0, w, h)
+    reference.getPixels(blur, 0, w, 0, 0, w, h)
+    maskBmp.getPixels(mask, 0, w, 0, 0, w, h)
+    maskBmp.recycle()
+    for (i in 0 until n) {
+        val coverage = mask[i] ushr 24 and 0xFF
+        if (coverage == 0) continue
+        val p = out[i]
+        val q = blur[i]
+        val k = amount * coverage / 255f
+        val pr = p shr 16 and 0xFF
+        val pg = p shr 8 and 0xFF
+        val pb = p and 0xFF
+        val r = (pr + k * (pr - (q shr 16 and 0xFF))).roundToInt().coerceIn(0, 255)
+        val g = (pg + k * (pg - (q shr 8 and 0xFF))).roundToInt().coerceIn(0, 255)
+        val b = (pb + k * (pb - (q and 0xFF))).roundToInt().coerceIn(0, 255)
+        out[i] = (p.toLong() and 0xFF000000L).toInt() or (r shl 16) or (g shl 8) or b
+    }
+    work.setPixels(out, 0, w, 0, 0, w, h)
+}
+
 // Round-brush dab spacing as a fraction of dab diameter — shared by [EditorViewModel.drawCurveRun]
 // (live preview) and [ImageProcessor.drawStrokeDynamic] (authoritative commit/replay), both of
 // which stamp the round brush as a train of solid filled dabs rather than stroke a variable-width
@@ -542,6 +644,27 @@ class EditorViewModel @Inject constructor(
     // Liquify live-preview state — valid only between onStrokeStart and onStrokeEnd for LIQUIFY.
     private var liquifyJob: kotlinx.coroutines.Job? = null
     private var liquifyOriginalBitmap: Bitmap? = null
+
+    // Blur/Sharpen/Smudge (RESAMPLING_TOOLS) live-preview state — valid only between onStrokeStart
+    // and onStrokeEnd for one of those three tools. These tools previously had NO live preview at
+    // all (a fully transparent Paint — see buildStrokePaint's RESAMPLING_TOOLS branch), applying
+    // only once on finger-up via ImageProcessor.applyToolToBitmap/DrawingEngine's Color Smudge
+    // branch; while dragging, nothing rendered. Mirrors liquifyJob/liquifyOriginalBitmap's pattern:
+    // recompute the whole effect from the pristine per-stroke original on Dispatchers.Default each
+    // touch sample, cancelling any still-running prior recompute — the commit-time path above is
+    // completely untouched and stays the single source of truth for what actually gets painted.
+    private var resampleJob: kotlinx.coroutines.Job? = null
+    private var resampleOriginalBitmap: Bitmap? = null
+    // BLUR's full blur / SHARPEN's tight "soft" reference blur — independent of the stroke path, so
+    // computed once per stroke rather than on every touch sample. Unused (stays null) for SMUDGE,
+    // which has no such stroke-independent reference.
+    private var resampleBlurReference: Bitmap? = null
+    // SMUDGE only: fixed once per stroke so every live-preview frame's ColorSmudgeEngine.apply call
+    // (each a from-scratch replay of the whole stroke so far, not an incremental append — see
+    // onStrokePoint's RESAMPLING_TOOLS branch) resolves any seed-dependent dynamics identically
+    // frame to frame. Independent of the real commit seed (System.nanoTime() at onStrokeEnd), the
+    // same "live preview is presentation-only" gap every other tool here already has.
+    private var resampleSeed: Long = 0L
 
     // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
     // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
@@ -3346,6 +3469,49 @@ class EditorViewModel @Inject constructor(
             return
         }
 
+        if (state.activeTool in RESAMPLING_TOOLS) {
+            // Blur/Sharpen/Smudge previously had NO live preview at all -- buildStrokePaint's
+            // RESAMPLING_TOOLS branch built a fully transparent Paint, so nothing rendered while
+            // dragging; the whole effect only appeared on finger-up via ImageProcessor.
+            // applyToolToBitmap / DrawingEngine's Color Smudge branch. This recomputes the effect
+            // from a pristine per-stroke original on a background thread each touch sample
+            // (onStrokePoint), cancelling any still-running prior recompute -- the exact pattern
+            // liquifyJob/liquifyOriginalBitmap already uses. The commit path is completely
+            // untouched and stays the sole source of truth for what actually gets painted.
+            resampleJob?.cancel()
+            resampleJob = null
+            resampleOriginalBitmap = null
+            resampleBlurReference = null
+            resampleSeed = System.nanoTime()
+            val tool = state.activeTool
+            viewModelScope.launch(dispatchers.default) {
+                val original = SafeBitmap.copy(originalBitmap) ?: return@launch
+                if (generation != strokeGeneration || strokeLayerId != layerId) {
+                    original.recycle()
+                    return@launch
+                }
+                // Independent of the stroke path, so computed once rather than every touch sample.
+                // Matches ImageProcessor.applyToolToBitmap's BLUR/SHARPEN factors exactly (intensity
+                // is hardcoded to 0.5f at every StrokeCommand call site in this file already).
+                val reference = when (tool) {
+                    Tool.BLUR -> ImageProcessor.cheapBlur(original, RESAMPLE_BLUR_FACTOR)
+                    Tool.SHARPEN -> ImageProcessor.cheapBlur(original, RESAMPLE_SHARPEN_SOFT_FACTOR)
+                    else -> null
+                }
+                withContext(dispatchers.main) {
+                    if (generation != strokeGeneration || strokeLayerId != layerId) {
+                        original.recycle()
+                        reference?.recycle()
+                        return@withContext
+                    }
+                    resampleOriginalBitmap = original
+                    resampleBlurReference = reference
+                    _liveStroke.update { it.copy(layerId = layerId, bitmap = original, version = it.version + 1) }
+                }
+            }
+            return
+        }
+
         val tool = state.activeTool
         val argb = state.activeColor.toArgb()
         val brushSize = state.brushSize
@@ -3622,6 +3788,90 @@ class EditorViewModel @Inject constructor(
                             version = it.version + 1
                         )}
                     }
+                }
+            }
+            return
+        }
+
+        if (_uiState.value.activeTool in RESAMPLING_TOOLS) {
+            val original = resampleOriginalBitmap ?: return   // reference not ready yet; points still collected
+            val layerId = strokeLayerId ?: return
+            val tool = _uiState.value.activeTool
+            val points = snapshotStrokePoints()
+            if (points.size < 2) return
+            val mapped = ImageProcessor.mapScreenToBitmap(
+                points, strokeCanvasW, strokeCanvasH, original.width, original.height,
+                strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ,
+            )
+            if (mapped.size < 2) return
+            val brushScale = ImageProcessor.screenToBitmapScale(
+                strokeCanvasW, strokeCanvasH, original.width, original.height, strokeLayerScale,
+            )
+            val brushSizePx = _uiState.value.brushSize * brushScale
+            val feathering = _uiState.value.brushFeathering
+            val symmetry = strokeSymmetry
+            val wrap = strokeWrapAroundMode
+            val reference = resampleBlurReference
+            val generation = strokeGeneration
+            val paintColor = _uiState.value.activeColor.toArgb()
+            val baseSmudgeSettings = _colorSmudgeSettings.value
+            val seed = resampleSeed
+            // Aligned 1:1 with snapshotStrokePoints() -- both grow together via addStrokePoint --
+            // remapped to bitmap space at the same indices, exactly mirroring how DrawingEngine's
+            // own Color Smudge commit branch remaps stroke.brushSamples against `mapped`.
+            val mappedSamples = run {
+                val samples = snapshotStrokeSamples()
+                if (samples.size == mapped.size) {
+                    samples.mapIndexed { index, sample ->
+                        val p = mapped[index]
+                        sample.copy(x = p.x, y = p.y, predicted = false)
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+            resampleJob?.cancel()
+            resampleJob = viewModelScope.launch(dispatchers.default) {
+                val work = SafeBitmap.copy(original) ?: return@launch
+                when (tool) {
+                    Tool.BLUR -> if (reference != null) {
+                        liveBlurComposite(work, reference, mapped, brushSizePx, feathering, wrap, symmetry)
+                    }
+                    Tool.SHARPEN -> if (reference != null) {
+                        liveSharpenComposite(work, reference, mapped, brushSizePx, feathering, wrap, symmetry)
+                    }
+                    Tool.SMUDGE -> {
+                        // Sample Merged is intentionally not reproduced live (would need recompositing
+                        // every other visible layer on every touch sample, its own real cost) -- the
+                        // live preview falls back to single-layer sampling; commit always recomputes
+                        // the true composite, so the final artwork is unaffected either way.
+                        val settings = baseSmudgeSettings.copy(
+                            radiusPx = (brushSizePx / 2f).coerceAtLeast(1f),
+                            feathering = feathering,
+                            wrapAround = false,
+                            paintColor = paintColor,
+                            symmetryMode = symmetry,
+                        )
+                        val pixels = IntArray(work.width * work.height)
+                        work.getPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
+                        ColorSmudgeEngine.apply(
+                            pixels, work.width, work.height, mapped, settings,
+                            samples = mappedSamples, strokeSeed = seed, sampleSource = null,
+                        )
+                        work.setPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
+                    }
+                    else -> {}
+                }
+                if (isActive) {
+                    withContext(dispatchers.main) {
+                        if (strokeGeneration == generation && strokeLayerId == layerId) {
+                            _liveStroke.update { it.copy(bitmap = work, version = it.version + 1) }
+                        } else {
+                            work.recycle()
+                        }
+                    }
+                } else {
+                    work.recycle()
                 }
             }
             return
@@ -4524,6 +4774,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onStrokeCancel() {
         liquifyJob?.cancel()
+        resampleJob?.cancel()
         _liveStroke.update { it.copy(layerId = null, bitmap = null) }
         clearTransientStrokeState()
     }
@@ -6074,6 +6325,11 @@ class EditorViewModel @Inject constructor(
         liquifyJob?.cancel()
         liquifyJob = null
         liquifyOriginalBitmap = null
+
+        resampleJob?.cancel()
+        resampleJob = null
+        resampleOriginalBitmap = null
+        resampleBlurReference = null
 
         stampLiveBitmap = null
         stampLiveCanvas = null
