@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
 import com.hereliesaz.aznavrail.AzWindow
 import com.hereliesaz.aznavrail.AzWindowState
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
@@ -63,11 +62,6 @@ private val MaxWindowHeight = 480.dp
 // content there unreachable even though the window is technically "fully onscreen" by the numbers.
 // A modest inset from every edge sidesteps this without needing precise WindowInsets plumbing here.
 private val SafeEdgeMargin = 24.dp
-
-// A window more than this fraction offscreen is being thrown away, not just moved — closing it
-// beats leaving a barely-there sliver nobody can find their way back to. AzWindow itself has no
-// notion of this; it only ever guarantees a minimal sliver stays reachable.
-private const val CLOSE_OFFSCREEN_FRACTION = 0.9f
 
 /**
  * A floating, draggable, collapsible panel for tool options — Procreate-style, in place of a modal
@@ -167,52 +161,43 @@ fun FloatingWindow(
         }
     }
 
-    // Mount-time correction, THEN — only then — start watching for a real drag taking the window
-    // (almost) entirely offscreen. One sequential effect, not two independent ones.
+    // Mount-time correction: AzWindow is hard evidence that the SAME obstruction (`obstruction`,
+    // passed to AzWindow directly below) drives its own internal mount-time "minimal sliver" clamp
+    // independently of anything in this file. Logging `windowState.offsetX`/`offsetY` immediately
+    // after mount — with this effect's own `moveTo()` call disabled entirely — still showed `offsetY`
+    // already corrupted to the full container height (window pushed off the bottom edge) for a
+    // window opened next to a left-docked, full-height rail. AzNavRail's own internal obstruction-
+    // narrowing logic (decompiled: `AzWindow`'s own `LaunchedEffect` calls `AzWindowState.clampInto`,
+    // keyed on the same `containerSize`/`chromeHeightPx`/obstructions this effect watches) applies
+    // the identical bug this file's [clampFullyOnscreen] used to have: a full-height obstruction
+    // touches y=0 and y=height by construction regardless of which side it's docked on, and treating
+    // that alone as "this obstruction constrains the vertical range" pushes every window mounted next
+    // to a rail towards the bottom edge instead of merely clear of the rail horizontally. This is a
+    // bug to report/fix upstream in AzNavRail; it cannot be fixed from here.
     //
-    // Two distinct bugs lived here, found by instrumenting this effect against a real device:
+    // Reading and writing `windowState.offsetX`/`offsetY` directly — the one value AzWindow actually
+    // renders from (decompiled: `Modifier.offset { IntOffset(state.offsetX, state.offsetY) }` on the
+    // window's own Surface) — as an ABSOLUTE target, computed via this file's own (correctly
+    // axis-aware) [clampFullyOnscreen], using `liveRect` only for its WIDTH/HEIGHT. This runs
+    // unconditionally, not just when a raw mismatch is detected, specifically because AzWindow's own
+    // clamp corrupts `offsetX`/`offsetY` before this effect ever gets to inspect them.
     //
-    // 1. AzWindow is hard evidence that the SAME obstruction (`obstruction`, passed to AzWindow
-    //    directly below) drives its own internal mount-time "minimal sliver" clamp independently of
-    //    anything in this file. Logging `windowState.offsetX`/`offsetY` immediately after mount —
-    //    with this effect's own `moveTo()` call disabled entirely — still showed `offsetY` already
-    //    corrupted to the full container height (window pushed off the bottom edge) for a window
-    //    opened next to a left-docked, full-height rail. AzNavRail's own internal obstruction-
-    //    narrowing logic (`AzWindowState`'s `narrowForObstruction`/`onPositioned`, per this file's
-    //    own earlier doc comment claiming to mirror it) applies the identical bug this file's
-    //    [clampFullyOnscreen] used to have: a full-height obstruction touches y=0 and y=height by
-    //    construction regardless of which side it's docked on, and treating that alone as "this
-    //    obstruction constrains the vertical range" pushes every window mounted next to a rail
-    //    towards the bottom edge instead of merely clear of the rail horizontally. This is a bug to
-    //    report/fix upstream in AzNavRail; it cannot be fixed from here.
-    //
-    // 2. This file's OWN correction was computing its delta from `liveRect.topLeft` (measured via
-    //    `onGloballyPositioned` on the wrapping [Box] above) and adding it to `windowState.offsetX`/
-    //    `offsetY`. But `liveRect` never tracked AzWindow's actual rendered position at all — it
-    //    stayed pinned at (0, 0) across every observed frame regardless of what `windowState`'s
-    //    fields held (AzWindow evidently repositions its content by some means `onGloballyPositioned`
-    //    on an ancestor Box doesn't see, e.g. a graphics-layer translation applied inside AzWindow's
-    //    own tree rather than a layout-level offset the wrapping Box's own measured bounds would
-    //    move with). Adding a `liveRect`-derived delta to `windowState.offsetX`/`offsetY` therefore
-    //    computed a value with no relation to where the window was actually sitting, compounding
-    //    on top of bug 1's already-wrong offsetY rather than correcting it.
-    //
-    // Fixed by reading and writing `windowState.offsetX`/`offsetY` directly — the one value AzWindow
-    // actually renders from — as an ABSOLUTE target (not a delta against the unreliable `liveRect`),
-    // computed via this file's own (correctly axis-aware) [clampFullyOnscreen], using `liveRect`
-    // only for its WIDTH/HEIGHT (size is unaffected by the position-tracking mismatch above). This
-    // runs unconditionally, not just when a raw mismatch is detected, specifically because bug 1
-    // already corrupts `offsetX`/`offsetY` before this effect ever gets to inspect them.
-    //
-    // The auto-dismiss watcher was the follow-up the finding above flagged but didn't yet fix: it
-    // judged a drag's resting position from `liveRect` directly, which — per finding 2 above — never
-    // tracks AzWindow's actual rendered position; it stays pinned regardless of where the window
-    // visually sits. So this watcher could see a stale/wrong rect and dismiss a window that was, on
-    // screen, nowhere near 90% offscreen (the store, colour picker and text panels all share this
-    // FloatingWindow, which is why the same popping-shut behaviour showed up on all three). Fixed the
-    // same way the correction effect above was: use `windowState.offsetX`/`offsetY` for position —
-    // the one value AzWindow actually renders from — and `liveRect` only for its size, which finding
-    // 2 already established is unaffected by the position-tracking mismatch.
+    // There used to be a second effect here too: watch `liveRect` for a live drag taking the window
+    // (almost) entirely offscreen, and dismiss it — a "drag it away to close" gesture AzWindow doesn't
+    // offer on its own. Removed. Every attempted fix for it eventually reduced to the same problem:
+    // whatever position source it read (the always-stale `liveRect`, or `windowState.offsetX/offsetY`
+    // read live) can be transiently corrupted by AzWindow's own internal re-clamp above — not just at
+    // mount, but on every later re-run of that same effect, which is keyed on inputs (containerSize,
+    // chromeHeightPx, obstructions) that can recompute elsewhere in the tree for reasons that have
+    // nothing to do with this window being dragged. Decompiling `AzWindowChrome` (11.33) confirms the
+    // drag detector lives ONLY on the title-bar Row — tapping a button, a search field, or a list
+    // inside a window's content never touches `AzWindowState` at all — so "every popup (store, colour
+    // picker, text) closes itself the instant it's touched at all" was never content interaction
+    // racing this watcher; it was AzWindow's own upstream-buggy re-clamp intermittently shoving the
+    // window toward the bottom edge, which this watcher then correctly (by its own logic) read as
+    // "dragged mostly offscreen" and closed. A window is not lost without this — [snapFullyOnscreen]
+    // and the correction below still guarantee it settles back onscreen — so this trades an unverified
+    // "drag far enough to dismiss" convenience for windows that reliably stay open.
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
         val marginPx = with(density) { SafeEdgeMargin.toPx() }
@@ -226,13 +211,6 @@ fun FloatingWindow(
         if (safe.x != windowState.offsetX || safe.y != windowState.offsetY) {
             windowState.moveTo(safe.x, safe.y)
         }
-
-        snapshotFlow { liveRect?.let { Rect(Offset(windowState.offsetX, windowState.offsetY), it.size) } }
-            .filterNotNull()
-            .debounce(150)
-            .collect { r ->
-                if (visibleFraction(r, containerSize) <= 1f - CLOSE_OFFSCREEN_FRACTION) onDismiss()
-            }
     }
 }
 
@@ -243,17 +221,6 @@ private fun RailInset.asObstruction(containerSize: IntSize, density: Density): R
     val height = containerSize.height.toFloat()
     return if (dockedOnLeft) Rect(0f, 0f, widthPx, height)
     else Rect(containerSize.width - widthPx, 0f, containerSize.width.toFloat(), height)
-}
-
-/** Fraction of `rect`'s own area that overlaps the container — 1f fully onscreen, 0f fully off. */
-private fun visibleFraction(rect: Rect, containerSize: IntSize): Float {
-    val visibleLeft = maxOf(rect.left, 0f)
-    val visibleTop = maxOf(rect.top, 0f)
-    val visibleRight = minOf(rect.right, containerSize.width.toFloat())
-    val visibleBottom = minOf(rect.bottom, containerSize.height.toFloat())
-    val visibleArea = (visibleRight - visibleLeft).coerceAtLeast(0f) * (visibleBottom - visibleTop).coerceAtLeast(0f)
-    val totalArea = (rect.width * rect.height).coerceAtLeast(1f)
-    return visibleArea / totalArea
 }
 
 /**
