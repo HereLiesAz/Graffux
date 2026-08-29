@@ -776,6 +776,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
                     menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
                     menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
+                    // The azphalt store's only other door in was the "Extensions rail" toggle buried
+                    // in the second (title) dropdown below, off by default — nothing here pointed at
+                    // it, so there was no way to find the store without already knowing that toggle
+                    // existed. This is the direct, always-visible path in.
+                    menuItem(text = "Store…", onClick = { openAzphaltStore() })
                     // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
                     // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
                     // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
