@@ -573,6 +573,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onToolOptionsClicked = { showToolOptions = !showToolOptions },
                 toolOptionsOpen = showToolOptions,
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
+                showLayersRail = showLayersRail,
             )
 
             if (showAnimationRail) {
@@ -1664,6 +1665,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onToolOptionsClicked: () -> Unit,
     toolOptionsOpen: Boolean,
     onForgetSelectionRequested: (String) -> Unit,
+    showLayersRail: Boolean,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     val activeIds = activeRailClassifiers(
