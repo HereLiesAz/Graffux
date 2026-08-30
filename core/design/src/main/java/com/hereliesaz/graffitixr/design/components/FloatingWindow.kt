@@ -69,19 +69,16 @@ private val SafeEdgeMargin = 24.dp
  * never dims or blocks the canvas, so several can be open over the artwork at once, each positioned
  * and collapsed independently.
  *
- * **This is a thin wrapper over AzNavRail's [AzWindow]** (11.19+). Three things it adds on top:
+ * **This is a thin wrapper over AzNavRail's [AzWindow]** (11.19+). What it adds on top:
  *
- *  - **Rail avoidance and full-onscreen settling**, via [AzWindow]'s own `obstruction` and
- *    `snapFullyOnscreen` params — built from [LocalRailInset] here, so a window can never be
- *    dragged (or settle) under the rail, and always ends up fully back onscreen once a drag ends,
- *    not just leaving a minimal sliver reachable.
+ *  - **Rail avoidance**, via [AzWindow]'s own `obstruction` param, built from [LocalRailInset] here
+ *    — a window can never be dragged (or settle) under the rail. Full-onscreen settling and
+ *    drag-to-dismiss are [AzWindow]'s own job as of 11.38 (its abandonment timer — see the doc
+ *    comment further down); this file no longer duplicates either.
  *  - **A newly-(re)opened window is corrected too**, not just a dragged one: [AzWindow]'s own
- *    mount-time clamp only guarantees that same minimal sliver, so this wrapper additionally pulls
- *    a freshly-placed window fully onscreen and clear of the rail right after its first layout,
- *    using the now-public [AzWindowState.moveTo] — no drag required to reach a safe position.
- *  - **Closing past [CLOSE_OFFSCREEN_FRACTION] offscreen** — a "drag it away to dismiss" gesture
- *    AzWindow doesn't offer on its own — by watching the window's own reported bounds live and
- *    dismissing the moment they cross the threshold, mid-drag.
+ *    mount-time clamp only guarantees a minimal sliver stays reachable, so this wrapper additionally
+ *    pulls a freshly-placed window fully onscreen and clear of the rail right after its first
+ *    layout, using the now-public [AzWindowState.moveTo] — no drag required to reach a safe position.
  *
  * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
  * they get for free: the clamp, a fold control that matches every other AzNavRail surface, and an
@@ -144,7 +141,6 @@ fun FloatingWindow(
             surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
             onDismiss = onDismiss,
             obstruction = obstruction,
-            snapFullyOnscreen = true,
         ) {
             // AzWindow caps its own height at MaxWindowHeight, but does not scroll content that
             // exceeds it -- a plain Column measured that way gives every earlier child its full
@@ -178,8 +174,7 @@ fun FloatingWindow(
     // obstruction as a full-height strip — narrows X only — or a full-width strip — narrows Y only —
     // instead of testing each of the four edges independently; see its own `AzWindowStateObstructionTest`).
     // This file's mount-time correction below is left in place regardless: it's still the one thing
-    // that pulls a freshly-(re)opened window fully onscreen without waiting for a drag (AzWindow's own
-    // fixed clamp still only guarantees the same minimal sliver at mount that it always did), and
+    // that pulls a freshly-(re)opened window fully onscreen without waiting for a drag, and
     // duplicating a now-correct clamp is cheap next to the cost of getting the axis-narrowing subtly
     // wrong again on some future obstruction shape this file doesn't happen to test.
     //
@@ -189,17 +184,20 @@ fun FloatingWindow(
     // axis-aware) [clampFullyOnscreen], using `liveRect` only for its WIDTH/HEIGHT.
     //
     // There used to be a second effect here too: watch `liveRect` for a live drag taking the window
-    // (almost) entirely offscreen, and dismiss it — a "drag it away to close" gesture AzWindow doesn't
-    // offer on its own. Removed on 11.33: whatever position source it read (the always-stale
-    // `liveRect`, or `windowState.offsetX/offsetY` read live) could be transiently corrupted by
-    // AzWindow's own pre-11.37 obstruction bug above — not just at mount, but on every later re-run of
-    // that same internal effect — and this watcher then correctly (by its own logic) read the
-    // corrupted position as "dragged mostly offscreen" and closed the window on an ordinary touch
-    // (decompiling `AzWindowChrome` at the time confirmed the drag detector lives ONLY on the
-    // title-bar Row, so this was never a content-interaction race). Now that 11.37 has fixed the
-    // corruption at its source, re-adding this watcher (reading `windowState.offsetX`/`offsetY`, this
-    // time on solid ground) should be safe — not restored here without live verification on a device,
-    // since this exact file has twice shipped an unverified fix for this that made things worse.
+    // (almost) entirely offscreen, and dismiss it — a "drag it away to close" gesture AzWindow didn't
+    // offer on its own at the time. Removed on 11.33 (whatever position source it read could be
+    // transiently corrupted by AzWindow's own pre-11.37 obstruction bug above, and this watcher then
+    // correctly, by its own logic, read the corrupted position as "dragged mostly offscreen" and
+    // closed the window on an ordinary touch) and not restored on 11.37 for lack of a live device to
+    // verify against. Moot as of **11.38**: `AzWindow` now does this itself, and better — an
+    // abandonment timer (`AZ_WINDOW_ABANDONED_GRACE_MS` = 5s) that does nothing at all while a drag is
+    // in progress, only starts counting once a window is released still off-screen or over an
+    // obstruction, and restarts on any further movement; past the grace period it either settles the
+    // window fully onscreen or dismisses it, mirroring `snapFullyOnscreen` (now removed as an
+    // `AzWindow` param — the behavior is unconditional) and the "drag to dismiss" gesture this file
+    // used to attempt, without this file needing to read the window's position at all.
+    // `onDismiss` here still only ever fires from that (or the window's own Close button) — never
+    // this file.
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
         val marginPx = with(density) { SafeEdgeMargin.toPx() }
