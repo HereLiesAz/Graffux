@@ -46,7 +46,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -2256,7 +2258,17 @@ private fun AzNavHostScope.renderLayerRailItem(
         id = "layer.${layer.id}", classifiers = setOf("layer.${layer.id}"),
         hostId = hostId,
         text = layer.name,
-        content = if (isGroup) GraffuxIcons.LayerGroup else (layer.bitmap ?: GraffuxIcons.LayerThumbnail),
+        // A raw android.graphics.Bitmap doesn't match any of AzNavRailButton's explicit content
+        // branches (Color/Int-resource/String/ImageVector/Painter), so it fell through to Coil's
+        // rememberAsyncImagePainter -- the wrong tool for pixels that are already decoded and, worse,
+        // mutated/recycled in place by this app's own paint pipeline out from under whatever Coil
+        // cached. Wrapping it as a BitmapPainter hits AzNavRailButton's direct Painter branch instead
+        // -- a synchronous Image(painter) draw, no async load or cache to go stale.
+        content = when {
+            isGroup -> GraffuxIcons.LayerGroup
+            layer.bitmap != null -> BitmapPainter(layer.bitmap!!.asImageBitmap())
+            else -> GraffuxIcons.LayerThumbnail
+        },
         // Square, like the floating host these live in — and unlike a circular clip, it shows the
         // layer's thumbnail whole instead of cropping its corners. A group layer hosts its children's
         // nested rail, so it keeps a border at rest; a leaf layer stays borderless at rest and grows
