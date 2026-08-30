@@ -179,6 +179,9 @@ public class AnimatedGifEncoder {
 	    // reset for subsequent use
 	    transIndex = 0;
 	    out = null;
+	    if (image != null) {
+	      image.recycle();
+	    }
 	    image = null;
 	    pixels = null;
 	    indexedPixels = null;

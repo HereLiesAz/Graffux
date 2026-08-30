@@ -33,7 +33,7 @@ android {
     }
 }
 
-// Pin Kotlin's JVM target to match Java (17). Without this, Kotlin defaults to a lower target
+// Pin Kotlin's JVM target to match Java (21). Without this, Kotlin defaults to a lower target
 // than the Java sources, which AGP flags as an inconsistent JVM-target compatibility error.
 // Uses the same task-based approach as :app (no `kotlin {}` extension, which this module's
 // plugin set does not register).
