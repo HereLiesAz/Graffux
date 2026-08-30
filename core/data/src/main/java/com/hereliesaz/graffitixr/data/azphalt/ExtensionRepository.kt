@@ -150,12 +150,11 @@ class ExtensionRepository @Inject constructor(
         try {
             tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
             val installed = synchronized(lock) {
-                val result = tempFile.inputStream().use { installer.install(it, nowMs) }
-                val kind = result.manifest.kind
-                if (kind == ExtensionKind.APP || kind == ExtensionKind.MCP || kind == ExtensionKind.PACK) {
-                    File(result.dir).deleteRecursively()
-                    throw AzpInstaller.InstallException(
-                        "'${result.manifest.name}' is a ${kind.wire} extension, which this app cannot run"
+                val result = tempFile.inputStream().use {
+                    installer.install(
+                        it,
+                        nowMs,
+                        unsupportedKinds = setOf(ExtensionKind.APP, ExtensionKind.MCP, ExtensionKind.PACK),
                     )
                 }
                 _installed.value = scanInstalled()

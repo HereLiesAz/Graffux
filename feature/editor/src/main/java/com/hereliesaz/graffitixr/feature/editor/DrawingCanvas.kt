@@ -255,7 +255,12 @@ fun DrawingCanvas(
                             }
                             predictionTail = null
                             when {
-                                pickingCloneSource -> onPickCloneSource(down.position)
+                                // The lift position, not the touch-down one: aiming the clone source
+                                // is the same "tap, or lift" gesture shape as Fill below it, and a
+                                // hold is never perfectly stationary (see the eyedrop deadline comment
+                                // above) -- using down.position silently discarded any correction the
+                                // user made by drifting their finger before lifting.
+                                pickingCloneSource -> onPickCloneSource(change.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
                                 began -> {
                                     if (activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty()) {
