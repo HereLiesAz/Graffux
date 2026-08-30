@@ -920,10 +920,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     DocumentSizeDialog(
                         currentWidth = uiState.documentWidth,
                         currentHeight = uiState.documentHeight,
-                        onConfirm = { w, h ->
-                            vm.setDocumentSize(w, h)
-                            showDocDialog = false
-                        },
+                        // No Apply button: a preset applies and closes in one tap; a custom size
+                        // applies once, when the dialog closes.
+                        onConfirm = { w, h -> vm.setDocumentSize(w, h) },
                         onDismiss = { showDocDialog = false },
                     )
                 }
@@ -968,10 +967,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     key(uiState.activeLayerId) {
                         VectorStrokeDialog(
                             currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
-                            onApply = { w ->
-                                vm.setVectorStrokeWidth(w)
-                                showStrokeDialog = false
-                            },
+                            // No Apply button: the dialog itself fires this once, with the final
+                            // value, when it closes — see VectorStrokeDialog's own doc comment.
+                            onApply = { w -> vm.setVectorStrokeWidth(w) },
                             onDismiss = { showStrokeDialog = false },
                         )
                     }
@@ -983,10 +981,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     key(uiState.activeLayerId) {
                         CornerRadiusDialog(
                             currentRadius = rect?.cornerRadius ?: 0f,
-                            onApply = { r ->
-                                vm.setVectorCornerRadius(r)
-                                showCornerDialog = false
-                            },
+                            // No Apply button: fires once, on close — see CornerRadiusDialog's own
+                            // doc comment.
+                            onApply = { r -> vm.setVectorCornerRadius(r) },
                             onDismiss = { showCornerDialog = false },
                         )
                     }
@@ -1001,10 +998,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 currentWidth = shape.width,
                                 currentHeight = shape.height,
                                 isLine = shape.kind == ShapeKind.LINE,
-                                onConfirm = { w, h ->
-                                    vm.setVectorSize(w, h)
-                                    showShapeSizeDialog = false
-                                },
+                                // No Apply button: fires once, on close — see ShapeSizeDialog's own
+                                // doc comment.
+                                onConfirm = { w, h -> vm.setVectorSize(w, h) },
                                 onDismiss = { showShapeSizeDialog = false },
                             )
                         }
@@ -1018,10 +1014,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         key(uiState.activeLayerId) {
                             PolygonSidesDialog(
                                 currentSides = polygon.sides,
-                                onApply = { n ->
-                                    vm.setPolygonSides(n)
-                                    showSidesDialog = false
-                                },
+                                // No Apply button: fires once, on close — see PolygonSidesDialog's
+                                // own doc comment.
+                                onApply = { n -> vm.setPolygonSides(n) },
                                 onDismiss = { showSidesDialog = false },
                             )
                         }
