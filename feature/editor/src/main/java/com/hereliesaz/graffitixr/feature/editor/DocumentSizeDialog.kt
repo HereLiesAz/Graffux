@@ -24,8 +24,11 @@ import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
- * Picks the artboard / document size. Tapping a preset applies it immediately; "Custom" reveals
- * width/height fields (seeded from the current document) applied via the Apply button.
+ * Picks the artboard / document size. Tapping a preset applies it and closes the dialog in one
+ * step — it's a complete choice, nothing to preview first. "Custom" reveals width/height fields
+ * instead (seeded from the current document); no Apply button there either — typing only updates
+ * the local fields, and the values are pushed once, when the window closes. Closing the dialog
+ * (however it closes) *is* applying it.
  */
 @Composable
 fun DocumentSizeDialog(
@@ -38,7 +41,16 @@ fun DocumentSizeDialog(
     var widthText by remember { mutableStateOf(currentWidth.toString()) }
     var heightText by remember { mutableStateOf(currentHeight.toString()) }
 
-    FloatingWindow(title = "Document size", onDismiss = onDismiss) {
+    fun confirmAndDismiss() {
+        if (showCustom) {
+            val w = widthText.toIntOrNull() ?: currentWidth
+            val h = heightText.toIntOrNull() ?: currentHeight
+            onConfirm(w, h)
+        }
+        onDismiss()
+    }
+
+    FloatingWindow(title = "Document size", onDismiss = ::confirmAndDismiss) {
         Column(
             modifier = Modifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -53,7 +65,7 @@ fun DocumentSizeDialog(
                 } else {
                     AzButton(
                         text = "${preset.label}  (${preset.width}×${preset.height})",
-                        onClick = { onConfirm(preset.width, preset.height) },
+                        onClick = { onConfirm(preset.width, preset.height); onDismiss() },
                         shape = AzButtonShape.RECTANGLE,
                     )
                 }
@@ -81,18 +93,6 @@ fun DocumentSizeDialog(
                         modifier = Modifier.weight(1f),
                     )
                     }
-                }
-
-                if (showCustom) {
-                    AzButton(
-                        text = "Apply",
-                        onClick = {
-                            val w = widthText.toIntOrNull() ?: currentWidth
-                            val h = heightText.toIntOrNull() ?: currentHeight
-                            onConfirm(w, h)
-                        },
-                        shape = AzButtonShape.RECTANGLE,
-                    )
                 }
         }
     }

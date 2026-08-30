@@ -100,6 +100,15 @@ fun ColorPickerDialog(
         val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
         Color(argb).copy(alpha = workingAlpha)
     }
+    // No separate Apply step: every change to the working colour — wheel drag, brightness slider,
+    // a tapped palette/recent swatch — lands on the brush immediately. `target` is a key too, not
+    // just `selectedColor`, so switching Foreground/Background re-applies even when the two
+    // happen to already hold the same colour (selectedColor alone wouldn't change, and the effect
+    // wouldn't rerun to push it to the newly-selected target).
+    LaunchedEffect(selectedColor, target) {
+        if (target == BrushColorTarget.FOREGROUND) onSelectColor(selectedColor)
+        else onSelectSecondaryColor(selectedColor)
+    }
 
     var mode by remember { mutableStateOf(ColorPickerMode.DISC) }
     var harmony by remember { mutableStateOf(HarmonyMode.COMPLEMENTARY) }
@@ -218,17 +227,6 @@ fun ColorPickerDialog(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-
-            AzButton(
-                text = strings.common.apply,
-                onClick = {
-                    if (target == BrushColorTarget.FOREGROUND) onSelectColor(selectedColor)
-                    else onSelectSecondaryColor(selectedColor)
-                },
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -257,8 +255,10 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
 
 /**
  * The saved swatches, plus the recent-colour row. Tapping a swatch loads it as the working colour
- * (it is not applied until Apply, so a mis-tap costs nothing); long-pressing a *saved* swatch
- * removes it. Recents aren't removable — they are a rolling view, not something the user curates.
+ * — which, like every other change in this picker, lands on the brush immediately, no Apply step
+ * — undo is one tap away in the history stack if that was a mis-tap; long-pressing a *saved*
+ * swatch removes it. Recents aren't removable — they are a rolling view, not something the user
+ * curates.
  */
 @Composable
 private fun PalettesTab(

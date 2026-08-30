@@ -11,16 +11,14 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
 /**
  * Sets the outline (stroke) width for every shape on the active vector layer. 0 = no outline
- * (fill only). Seeded from [currentWidth]; [onApply] pushes the chosen width to the view model.
- * Stroke colour is handled separately (the colour picker recolours the active layer), so this
- * dialog is width-only — the one vector styling control the colour picker doesn't cover.
+ * (fill only). Seeded from [currentWidth]. No Apply button: dragging the slider only updates the
+ * local preview, and [onApply] fires once with the final value when the window closes — closing
+ * the dialog (however it closes) *is* applying it, rather than a separate step on top of it.
  */
 @Composable
 fun VectorStrokeDialog(
@@ -30,18 +28,13 @@ fun VectorStrokeDialog(
 ) {
     var width by remember { mutableFloatStateOf(currentWidth.coerceIn(0f, 100f)) }
 
-    FloatingWindow(title = "Stroke width", onDismiss = onDismiss) {
+    FloatingWindow(title = "Stroke width", onDismiss = { onApply(width); onDismiss() }) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(if (width < 0.5f) "No outline" else "${width.roundToInt()} px")
             Slider(
                 value = width,
                 onValueChange = { width = it },
                 valueRange = 0f..100f,
-            )
-            AzButton(
-                text = "Apply",
-                onClick = { onApply(width) },
-                shape = AzButtonShape.RECTANGLE,
             )
         }
     }
