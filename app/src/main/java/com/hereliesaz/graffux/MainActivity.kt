@@ -260,6 +260,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showReferenceRail by remember { mutableStateOf(false) }
     var showFigmaRail by remember { mutableStateOf(false) }
     var showExtensionsRail by remember { mutableStateOf(false) }
+    // Unlike the toolboxes above, on by default: the layers panel is core, not opt-in. The toggle
+    // exists as a recovery switch, not a way to hide it — declaring it (below) drops and recreates
+    // its AzNavRail-internal position state, so toggling it off and on is how to un-stick a panel
+    // that ends up rendered somewhere unreachable (a real failure mode of the FLOATING anchor's
+    // screen-edge-docking/persistence machinery, not merely a hypothetical one this app has hit).
+    var showLayersRail by remember { mutableStateOf(true) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -765,11 +771,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 color = menuItemColor,
                                 onToggle = onToggle,
                             )
-                        areaToggle("Animation rail", showAnimationRail) { showAnimationRail = it }
-                        areaToggle("3D rail", showModelRail) { showModelRail = it }
-                        areaToggle("Reference rail", showReferenceRail) { showReferenceRail = it }
-                        areaToggle("Figma rail", showFigmaRail) { showFigmaRail = it }
-                        areaToggle("Extensions rail", showExtensionsRail) { showExtensionsRail = it }
+                        areaToggle("Layers", showLayersRail) { showLayersRail = it }
+                        areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
+                        areaToggle("3D", showModelRail) { showModelRail = it }
+                        areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
+                        areaToggle("Figma", showFigmaRail) { showFigmaRail = it }
+                        areaToggle("Extensions", showExtensionsRail) { showExtensionsRail = it }
                     }
 
                     AzDropdownMenu(navController = navController) {
@@ -2098,55 +2105,70 @@ private fun AzNavHostScope.ConfigureRailItems(
     // pushing everything else aside. OPPOSITE locks it to the far edge of the screen, level with
     // the rail's own items, so it stays put and never drifts under a stray drag.
     //
+    // Was FLOATING (draggable, screen-edge-docking, position persisted per launch). Switched to
+    // OPPOSITE: FLOATING's docking/persistence machinery (AzNavRail 11.37/11.38's rewrite of it)
+    // is where this host went missing entirely on a real device — a floating host is free to end
+    // up rendered somewhere unreachable (off-screen, behind chrome, wherever a stale or malformed
+    // persisted position points), which is exactly the failure mode this doc comment already
+    // argued against ("stays put... never drifts") when FLOATING was chosen over it. OPPOSITE has
+    // a fixed screen position by construction — there is no persisted coordinate for a bug in
+    // that upstream machinery to corrupt — so it cannot go missing the same way. The cost is losing
+    // drag-to-reposition and rail-to-rail docking, which this host never really wanted per the
+    // comment above anyway.
+    //
     // Square, not the circle every rail group wears: a panel on the opposite edge is not a rail
     // group, and the shape is what says so before the user reads a label. It also matches what
     // the host contains — layer thumbnails are rectangular images, and a circular clip crops the
     // corners off every one of them.
     //
-    // Declared unconditionally: this used to be wrapped in `if (uiState.layers.isNotEmpty())`,
-    // which hid the whole host — button and all — the moment the document had zero layers (a
-    // fresh project, or the last layer just deleted). With no button left to tap, there was no
-    // way back to it short of guessing to pick a drawing tool; it read as the layers feature
-    // having vanished, not as an empty panel. The host itself always shows now; only its
-    // contents change.
-    azUnattachedHostItem(
-        id = "grp.layers",
-        text = strings.editor.layers,
-        anchor = AzUnattachedAnchor.FLOATING,
-        content = GraffuxIcons.Layers,
-        color = navItemColor,
-        shape = AzButtonShape.NONE_SQUARE,
-    )
-    uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
-        renderLayerRailItem(
-            layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
-            onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
+    // Gated on `showLayersRail` (default true — this is core, not opt-in, unlike the toolbox
+    // rails elsewhere in this file): the hamburger menu's "Layers rail" toggle exists purely as a
+    // recovery switch. Toggling it off then on drops and recreates this host's AzNavRail-internal
+    // state, which is the only way to un-stick a panel that manages to end up unreachable again —
+    // the toggle is always reachable even when the panel it controls is not, unlike the old
+    // `if (uiState.layers.isNotEmpty())` gate this replaced: hiding the whole host — button and
+    // all — the moment the document had zero layers (a fresh project, or the last layer just
+    // deleted) left no way back to it short of guessing to pick a drawing tool.
+    if (showLayersRail) {
+        azUnattachedHostItem(
+            id = "grp.layers",
+            text = strings.editor.layers,
+            anchor = AzUnattachedAnchor.OPPOSITE,
+            content = GraffuxIcons.Layers,
+            color = navItemColor,
+            shape = AzButtonShape.NONE_SQUARE,
         )
-    }
-    // Always present, not just when the document has zero layers: with one layer already in
-    // place, the only other way to add a blank one was a four-finger-hold radial menu whose
-    // "Layer" entry says nothing about layers, and nothing in the layers host itself, the rail
-    // strip, or the dropdown ever added a plain paint layer. A fixed position at the bottom of
-    // the stack (declared after every layer, since the host renders topmost-first), rather than
-    // sorted in with the layers, so it's always where the last visit left it — and at the
-    // bottom rather than the top so it doesn't shove every layer down a slot each time the list
-    // is scanned top-to-bottom.
-    azRailSubItem(
-        id = "layer.add", hostId = "grp.layers", text = "Add Layer",
-        content = GraffuxIcons.LayerAdd,
-        color = navItemColor,
-        onClick = { vm.onAddBlankLayer() },
-    )
-    uiState.activeLayerId?.let { activeId ->
+        uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
+            renderLayerRailItem(
+                layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
+                onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
+            )
+        }
+        // Always present, not just when the document has zero layers: with one layer already in
+        // place, the only other way to add a blank one was a four-finger-hold radial menu whose
+        // "Layer" entry says nothing about layers, and nothing in the layers host itself, the rail
+        // strip, or the dropdown ever added a plain paint layer. A fixed position at the bottom of
+        // the stack (declared after every layer, since the host renders topmost-first), rather than
+        // sorted in with the layers, so it's always where the last visit left it — and at the
+        // bottom rather than the top so it doesn't shove every layer down a slot each time the list
+        // is scanned top-to-bottom.
         azRailSubItem(
-            id = "layer.deleteActive", hostId = "grp.layers", text = "Delete Active Layer",
-            content = GraffuxIcons.LayerDelete, color = navItemColor,
-            onClick = {
-                val active = uiState.layers.firstOrNull { it.id == activeId }
-                if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
-                else vm.onLayerRemoved(activeId)
-            },
+            id = "layer.add", hostId = "grp.layers", text = "Add Layer",
+            content = GraffuxIcons.LayerAdd,
+            color = navItemColor,
+            onClick = { vm.onAddBlankLayer() },
         )
+        uiState.activeLayerId?.let { activeId ->
+            azRailSubItem(
+                id = "layer.deleteActive", hostId = "grp.layers", text = "Delete Active Layer",
+                content = GraffuxIcons.LayerDelete, color = navItemColor,
+                onClick = {
+                    val active = uiState.layers.firstOrNull { it.id == activeId }
+                    if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
+                    else vm.onLayerRemoved(activeId)
+                },
+            )
+        }
     }
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
