@@ -10,13 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -144,41 +141,58 @@ fun OpenProjectWindow(
             return@FloatingWindow
         }
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        // Plain Column of Rows, not LazyVerticalGrid: this window's content already sits inside
+        // FloatingWindow's own scrollable Column, and a lazy grid nested there is built on
+        // SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic measurement,
+        // which Compose refuses to do across a SubcomposeLayout boundary, crashing the instant
+        // this window opened. Chunking by 2 reproduces the fixed-2-column layout by hand; a
+        // device's on-disk + in-app project count is nowhere near where virtualization matters.
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 380.dp)
-                .padding(vertical = 10.dp),
         ) {
-            items(items, key = { it.key }) { item ->
-                when (item) {
-                    is OpenItem.InApp -> OpenCard(
-                        name = item.name,
-                        location = item.location,
-                        isCurrent = item.isCurrent,
-                        thumbnailKey = item.project.thumbnailUri?.path,
-                        loadThumbnail = {
-                            item.project.thumbnailUri?.path?.let { BitmapFactory.decodeFile(it) }
-                        },
-                        onOpen = { onOpenProject(item.project.id); onDismiss() },
-                        onDelete = { pendingDelete = item },
-                    )
-                    is OpenItem.OnDevice -> OpenCard(
-                        name = item.name,
-                        location = item.location,
-                        isCurrent = false,
-                        thumbnailKey = item.file.uri.toString(),
-                        loadThumbnail = {
-                            item.file.thumbnail?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-                        },
-                        onOpen = { onOpenFile(item.file.uri); onDismiss() },
-                        // Deleting someone's file off their device is not this screen's business —
-                        // a project inside the app is the app's to remove, a file on disk isn't.
-                        onDelete = null,
-                    )
+            items.chunked(2).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    row.forEach { item ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            when (item) {
+                                is OpenItem.InApp -> OpenCard(
+                                    name = item.name,
+                                    location = item.location,
+                                    isCurrent = item.isCurrent,
+                                    thumbnailKey = item.project.thumbnailUri?.path,
+                                    loadThumbnail = {
+                                        item.project.thumbnailUri?.path?.let { BitmapFactory.decodeFile(it) }
+                                    },
+                                    onOpen = { onOpenProject(item.project.id); onDismiss() },
+                                    onDelete = { pendingDelete = item },
+                                )
+                                is OpenItem.OnDevice -> OpenCard(
+                                    name = item.name,
+                                    location = item.location,
+                                    isCurrent = false,
+                                    thumbnailKey = item.file.uri.toString(),
+                                    loadThumbnail = {
+                                        item.file.thumbnail?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                                    },
+                                    onOpen = { onOpenFile(item.file.uri); onDismiss() },
+                                    // Deleting someone's file off their device is not this screen's
+                                    // business — a project inside the app is the app's to remove, a
+                                    // file on disk isn't.
+                                    onDelete = null,
+                                )
+                            }
+                        }
+                    }
+                    // An odd item out leaves a lone card in the last row without this — without a
+                    // matching weight(1f) spacer, Row would let it grow to fill the whole row
+                    // instead of sitting in its own half-width column like every other card.
+                    if (row.size == 1) {
+                        Box(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }

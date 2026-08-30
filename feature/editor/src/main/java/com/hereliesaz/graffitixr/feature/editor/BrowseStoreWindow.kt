@@ -10,10 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -102,11 +99,16 @@ fun BrowseStoreWindow(
                 )
             }
 
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 440.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(results, key = { it.id }) { pkg ->
+            // Plain Column, not LazyColumn: this whole window's content already sits inside
+            // FloatingWindow's own scrollable Column (its own doc comment explains why -- AzWindow
+            // caps height but doesn't scroll past it). A LazyColumn nested in there is a lazy
+            // list -- built on SubcomposeLayout -- and AzWindow's sizing asks its content for an
+            // intrinsic measurement, which Compose refuses to do across a SubcomposeLayout
+            // boundary ("Asking for intrinsic measurements of SubcomposeLayout layouts is not
+            // supported"), crashing the instant this window opened. Search results are a page at a
+            // time, not an infinite feed, so losing lazy virtualization costs nothing real here.
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                results.forEach { pkg ->
                     PackageCard(
                         pkg = pkg,
                         installed = pkg.id in installedIds,

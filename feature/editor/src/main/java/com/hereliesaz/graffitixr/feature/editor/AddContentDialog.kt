@@ -2,10 +2,10 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -39,18 +39,30 @@ fun AddContentDialog(
         "Hexagon" to onAddHexagon,
     )
     FloatingWindow(title = "Add", onDismiss = onDismiss) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        // Plain Column of Rows, not LazyVerticalGrid: this window's content already sits inside
+        // FloatingWindow's own scrollable Column, and a lazy grid nested there is built on
+        // SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic measurement,
+        // which Compose refuses to do across a SubcomposeLayout boundary, crashing the instant
+        // this window opened. Seven fixed choices have nothing to virtualize anyway.
+        Column(
             modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(choices) { (label, onSelect) ->
-                AzButton(
-                    text = label,
-                    onClick = { onSelect(); onDismiss() },
-                    shape = AzButtonShape.RECTANGLE,
-                )
+            choices.chunked(3).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    row.forEach { (label, onSelect) ->
+                        AzButton(
+                            text = label,
+                            onClick = { onSelect(); onDismiss() },
+                            shape = AzButtonShape.RECTANGLE,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }
+                }
             }
         }
     }

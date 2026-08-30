@@ -7,11 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -83,11 +80,17 @@ fun StoreWindow(
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 360.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(installed, key = { it.id }) { extension ->
+            // Plain Column, not LazyColumn: this whole window's content already sits inside
+            // FloatingWindow's own scrollable Column (its own doc comment explains why -- AzWindow
+            // caps height but doesn't scroll past it). A LazyColumn nested in there is a lazy
+            // list -- built on SubcomposeLayout -- and AzWindow's sizing asks its content for an
+            // intrinsic measurement, which Compose refuses to do across a SubcomposeLayout
+            // boundary ("Asking for intrinsic measurements of SubcomposeLayout layouts is not
+            // supported"), crashing the instant this window opened. Extension lists are small
+            // (installed count, not a full catalog), so losing lazy virtualization costs nothing
+            // real here.
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                installed.forEach { extension ->
                     InstalledExtensionCard(
                         extension = extension,
                         updateVersion = updatesAvailable[extension.id],

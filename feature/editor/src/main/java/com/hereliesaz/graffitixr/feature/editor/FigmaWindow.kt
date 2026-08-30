@@ -10,11 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -104,11 +101,14 @@ fun FigmaWindow(
                     Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(6.dp))
                 }
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 320.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(state.frames, key = { it.id }) { frame ->
+                // Plain Column, not LazyColumn: this window's content already sits inside
+                // FloatingWindow's own scrollable Column, and a lazy list nested there is built
+                // on SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic
+                // measurement, which Compose refuses to do across a SubcomposeLayout boundary,
+                // crashing the instant this window opened. One Figma file's frame list is short
+                // enough that virtualization was never buying anything here.
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.frames.forEach { frame ->
                         FrameRow(
                             frame = frame,
                             isSelected = frame.id in state.selectedIds,

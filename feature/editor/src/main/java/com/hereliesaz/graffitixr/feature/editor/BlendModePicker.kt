@@ -2,11 +2,9 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,8 +51,13 @@ fun BlendModePicker(
     onDismiss: () -> Unit,
 ) {
     FloatingWindow(title = "Blend mode", onDismiss = onDismiss) {
-        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-            items(BLEND_MODE_CHOICES) { (mode, label) ->
+        // Plain Column, not LazyColumn: this window's content already sits inside FloatingWindow's
+        // own scrollable Column, and a lazy list nested there is built on SubcomposeLayout --
+        // AzWindow's sizing asks its content for an intrinsic measurement, which Compose refuses
+        // to do across a SubcomposeLayout boundary, crashing the instant this window opened. A
+        // fixed 16-entry list has nothing to virtualize anyway.
+        Column {
+            BLEND_MODE_CHOICES.forEach { (mode, label) ->
                 val selected = mode == current
                 Text(
                     text = label,
