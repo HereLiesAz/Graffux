@@ -168,38 +168,36 @@ fun FloatingWindow(
     // already corrupted to the full container height (window pushed off the bottom edge) for a
     // window opened next to a left-docked, full-height rail. AzNavRail's own internal obstruction-
     // narrowing logic (decompiled: `AzWindow`'s own `LaunchedEffect` calls `AzWindowState.clampInto`,
-    // keyed on the same `containerSize`/`chromeHeightPx`/obstructions this effect watches) applied
+    // keyed on the same `containerSize`/`chromeHeightPx`/obstructions this effect watches) applies
     // the identical bug this file's [clampFullyOnscreen] used to have: a full-height obstruction
     // touches y=0 and y=height by construction regardless of which side it's docked on, and treating
-    // that alone as "this obstruction constrains the vertical range" pushed every window mounted next
-    // to a rail towards the bottom edge instead of merely clear of the rail horizontally.
-    //
-    // **Fixed upstream in AzNavRail 11.37** (`AzWindowState.narrowForObstruction` now classifies an
-    // obstruction as a full-height strip — narrows X only — or a full-width strip — narrows Y only —
-    // instead of testing each of the four edges independently; see its own `AzWindowStateObstructionTest`).
-    // This file's mount-time correction below is left in place regardless: it's still the one thing
-    // that pulls a freshly-(re)opened window fully onscreen without waiting for a drag (AzWindow's own
-    // fixed clamp still only guarantees the same minimal sliver at mount that it always did), and
-    // duplicating a now-correct clamp is cheap next to the cost of getting the axis-narrowing subtly
-    // wrong again on some future obstruction shape this file doesn't happen to test.
+    // that alone as "this obstruction constrains the vertical range" pushes every window mounted next
+    // to a rail towards the bottom edge instead of merely clear of the rail horizontally. This is a
+    // bug to report/fix upstream in AzNavRail; it cannot be fixed from here.
     //
     // Reading and writing `windowState.offsetX`/`offsetY` directly — the one value AzWindow actually
     // renders from (decompiled: `Modifier.offset { IntOffset(state.offsetX, state.offsetY) }` on the
     // window's own Surface) — as an ABSOLUTE target, computed via this file's own (correctly
-    // axis-aware) [clampFullyOnscreen], using `liveRect` only for its WIDTH/HEIGHT.
+    // axis-aware) [clampFullyOnscreen], using `liveRect` only for its WIDTH/HEIGHT. This runs
+    // unconditionally, not just when a raw mismatch is detected, specifically because AzWindow's own
+    // clamp corrupts `offsetX`/`offsetY` before this effect ever gets to inspect them.
     //
     // There used to be a second effect here too: watch `liveRect` for a live drag taking the window
     // (almost) entirely offscreen, and dismiss it — a "drag it away to close" gesture AzWindow doesn't
-    // offer on its own. Removed on 11.33: whatever position source it read (the always-stale
-    // `liveRect`, or `windowState.offsetX/offsetY` read live) could be transiently corrupted by
-    // AzWindow's own pre-11.37 obstruction bug above — not just at mount, but on every later re-run of
-    // that same internal effect — and this watcher then correctly (by its own logic) read the
-    // corrupted position as "dragged mostly offscreen" and closed the window on an ordinary touch
-    // (decompiling `AzWindowChrome` at the time confirmed the drag detector lives ONLY on the
-    // title-bar Row, so this was never a content-interaction race). Now that 11.37 has fixed the
-    // corruption at its source, re-adding this watcher (reading `windowState.offsetX`/`offsetY`, this
-    // time on solid ground) should be safe — not restored here without live verification on a device,
-    // since this exact file has twice shipped an unverified fix for this that made things worse.
+    // offer on its own. Removed. Every attempted fix for it eventually reduced to the same problem:
+    // whatever position source it read (the always-stale `liveRect`, or `windowState.offsetX/offsetY`
+    // read live) can be transiently corrupted by AzWindow's own internal re-clamp above — not just at
+    // mount, but on every later re-run of that same effect, which is keyed on inputs (containerSize,
+    // chromeHeightPx, obstructions) that can recompute elsewhere in the tree for reasons that have
+    // nothing to do with this window being dragged. Decompiling `AzWindowChrome` (11.33) confirms the
+    // drag detector lives ONLY on the title-bar Row — tapping a button, a search field, or a list
+    // inside a window's content never touches `AzWindowState` at all — so "every popup (store, colour
+    // picker, text) closes itself the instant it's touched at all" was never content interaction
+    // racing this watcher; it was AzWindow's own upstream-buggy re-clamp intermittently shoving the
+    // window toward the bottom edge, which this watcher then correctly (by its own logic) read as
+    // "dragged mostly offscreen" and closed. A window is not lost without this — [snapFullyOnscreen]
+    // and the correction below still guarantee it settles back onscreen — so this trades an unverified
+    // "drag far enough to dismiss" convenience for windows that reliably stay open.
     LaunchedEffect(containerSize, railInset) {
         val rect = snapshotFlow { liveRect }.filterNotNull().first()
         val marginPx = with(density) { SafeEdgeMargin.toPx() }
