@@ -80,7 +80,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
 }
 
-// Pin Kotlin's JVM target to match Java (17). Without this, Kotlin defaults to a lower target
+// Pin Kotlin's JVM target to match Java (21). Without this, Kotlin defaults to a lower target
 // than the Java sources, which AGP flags as an inconsistent JVM-target compatibility error.
 // Uses the same task-based approach as :app (this module applies only AGP + KSP, so the
 // `kotlin {}` extension is not registered).

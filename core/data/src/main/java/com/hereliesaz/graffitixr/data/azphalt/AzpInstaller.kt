@@ -44,7 +44,18 @@ class AzpInstaller(
      * Overwrites any prior install of the same id. Throws [InstallException] on any safety/integrity
      * failure, leaving no partial install for that id.
      */
-    fun install(input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false): InstalledExtension {
+    fun install(
+        input: InputStream,
+        nowMs: Long,
+        allowPublisherChange: Boolean = false,
+        // Checked before anything is written to disk — deliberately not left to the caller to check
+        // on the returned InstalledExtension, which by then already destructively swapped a same-id
+        // package into place (see the swap-and-delete-backup comment below): a caller that rejected
+        // an unsupported kind only after install() returned was, in practice, deleting a previously-
+        // working install of that id and replacing it with nothing, since install()'s own backup is
+        // already gone by the time it returns successfully.
+        unsupportedKinds: Set<ExtensionKind> = emptySet(),
+    ): InstalledExtension {
         // Read the whole archive into memory (we must parse the manifest to know the digests before we
         // trust any file). The source can be an attacker-controlled URL, so bound the CUMULATIVE
         // decompressed size while streaming and abort a zip bomb before it can OOM the app — never
@@ -113,6 +124,11 @@ class AzpInstaller(
         if (manifest.kind == ExtensionKind.UNKNOWN) {
             throw InstallException(
                 "This host does not install unknown extensions; '${manifest.id}' is kind=${manifest.kind.name.lowercase()}"
+            )
+        }
+        if (manifest.kind in unsupportedKinds) {
+            throw InstallException(
+                "'${manifest.name}' is a ${manifest.kind.wire} extension, which this app cannot run"
             )
         }
 

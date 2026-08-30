@@ -86,8 +86,10 @@ struct ColorSmudgeBenchmarkInfo {
  * readback into a caller-provided pixel buffer, matching how the CPU path already exposes its
  * result as an ARGB_8888 android.graphics.Bitmap.
  *
- * Not thread-safe: callers serialize access the same way GraffitiJNI.cpp already serializes
- * MobileGS/StereoProcessor/ImageWarper access (see gEngineMutex).
+ * Not thread-safe: unlike MobileGS/StereoProcessor/ImageWarper, GraffitiJNI.cpp's own JNI entry
+ * points for this engine do NOT take gEngineMutex or any other lock — the caller owns serializing
+ * its own use of one instance (a single jlong handle) entirely on its own; that contract, not a
+ * lock this class or its JNI bridge provides, is what has to make per-instance access safe.
  */
 class VulkanStampEngine {
 public:
@@ -200,10 +202,14 @@ public:
     ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const { return smudgeBenchmark_; }
 
     // Blocks until all dispatched work completes, then reads the layer image back into
-    // `outRgba8`, which must be at least width*height*4 bytes (RGBA8, straight alpha, row-major,
-    // no padding — the same layout AndroidBitmap_lockPixels hands back for ARGB_8888, modulo the
-    // R/B channel order the caller is responsible for reconciling, since this engine works in
-    // RGBA to match the shader's `vec4`/imageStore convention rather than Android's packed ARGB).
+    // `outRgba8`, which must be at least width*height*4 bytes (RGBA8, PREMULTIPLIED alpha,
+    // row-major, no padding — stamp.comp/stamp_masked.comp both compute the SRC_OVER blend as
+    // `dst.rgb = srcRgb*srcA + dst.rgb*(1-srcA)` with no un-premultiply before imageStore, so the
+    // bytes here are premultiplied, not straight; a translucent stroke's RGB channels are darkened
+    // by its own alpha). No R/B channel-order reconciliation is needed either: this happens to be
+    // byte-identical to Android's RGBA_8888 layout, and every consumer in this codebase (a
+    // premultiplied-by-default android.graphics.Bitmap) is a straight memcpy of this buffer with no
+    // channel swap — see GraffitiJNI.cpp's readback bridge.
     //
     // Only the region tracked by dirtyOriginX_/dirtyOriginY_/dirtyWidth_/dirtyHeight_ is actually
     // copied off the GPU — everywhere else in `outRgba8` is left exactly as the caller's buffer
