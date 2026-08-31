@@ -8,8 +8,6 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.PorterDuffXfermode
-import android.graphics.RadialGradient
-import android.graphics.Shader
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
@@ -127,6 +125,13 @@ internal object StampBrushRenderer {
         maskStamp: Bitmap? = null,
         seed: Long = 0L,
         secondaryColorArgb: Int = colorArgb,
+        // True for Airbrush's held-still dabs (AirbrushEngine.heldDabs): those represent genuinely
+        // separate time-based paint deposits at (roughly) the same spot -- "hold longer, get more
+        // opaque" -- and must keep compositing the old way (sequential SRC_OVER, each dab building on
+        // whatever the previous one left) or Airbrush stops building up at all. False (default) for
+        // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead --
+        // see that function's doc comment for why movement dabs must NOT use this same build-up.
+        allowBuildUp: Boolean = false,
     ) {
         if (dabs.isEmpty()) return
         val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
@@ -161,7 +166,26 @@ internal object StampBrushRenderer {
             return
         }
 
-        // Historical generated-round path: also intentionally unchanged.
+        // Historical generated-round path.
+        if (allowBuildUp) {
+            paintRoundDabsSequential(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
+        } else {
+            paintRoundDabsMaxCombined(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
+        }
+    }
+
+    /** The original per-dab `RadialGradient` + `SRC_OVER` compositing -- every dab builds on
+     *  whatever the previous one already painted. Correct (and required) for [allowBuildUp] dabs
+     *  like Airbrush's held-still deposits; see [paintRoundDabsMaxCombined]'s doc comment for why
+     *  ordinary movement dabs use that function instead. */
+    private fun paintRoundDabsSequential(
+        canvas: Canvas,
+        dabs: List<Dab>,
+        brush: AzphaltBrush,
+        colorArgb: Int,
+        secondaryColorArgb: Int,
+        flow: Float,
+    ) {
         val hardness = brush.hardness.coerceIn(0f, 1f)
         val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -175,15 +199,130 @@ internal object StampBrushRenderer {
                 ).toInt().coerceIn(0, 255)
             val core = rgbNoAlpha or (alphaVal shl 24)
             val edge = rgbNoAlpha
-            paint.shader = RadialGradient(
+            paint.shader = android.graphics.RadialGradient(
                 d.x, d.y, radius,
                 intArrayOf(core, core, edge),
                 stops,
-                Shader.TileMode.CLAMP,
+                android.graphics.Shader.TileMode.CLAMP,
             )
             canvas.drawCircle(d.x, d.y, radius, paint)
         }
         paint.shader = null
+    }
+
+    /**
+     * Renders round (tipRatio == 1, no custom tip image) dabs the way a soft brush is actually
+     * supposed to look on a drag, not just a tap.
+     *
+     * The previous implementation drew each dab as its own antialiased `RadialGradient` circle
+     * straight onto [canvas] with ordinary `SRC_OVER`. That is fine for one dab in isolation, but a
+     * dragged stroke at the default spacing (`AzphaltBrush.spacing` = 0.1× diameter) overlaps roughly
+     * 10-20 dabs at any given point along the stroke's soft edge band. Sequential `SRC_OVER` of that
+     * many partially-transparent falloff rings compounds via `1 - Π(1 - αᵢ)`, which converges to
+     * ~full opacity well inside the falloff band a single dab would show: at hardness 0.3, a point
+     * 70% of the way out to the radius reads at 43% alpha for a single tap but ~91% for a dragged
+     * stroke at default spacing (verified numerically). The stroke reads as hard-edged everywhere
+     * except a thin rim right at the very outer radius -- which is exactly "any drag does not render
+     * softness". Real soft-round brushes (Krita, Procreate) don't do this: a drag keeps the same
+     * soft edge a tap shows, because they don't sequentially alpha-composite each dab onto the
+     * visible layer.
+     *
+     * The fix: accumulate every dab's own local alpha (its radial coverage × its own opacity/flow
+     * strength) into a shared per-pixel buffer via MAX rather than the standard "over" combine, then
+     * composite that buffer onto [canvas] once. A pixel's final alpha is therefore whichever single
+     * dab covered it most strongly -- exactly what a lone tap at that same pixel would have produced
+     * -- rather than the compounded result of every dab that happened to reach it. This intentionally
+     * leaves flow's own per-PASS build-up alone (a second separate stroke, or this same stroke looping
+     * back over itself, still composites via the buffer's one-shot `SRC_OVER` onto whatever the layer
+     * already held): only the alpha *within this one dab list* stops compounding.
+     *
+     * The historical shaped-tip (`stamp` bitmap) and masked-tip ([paintMaskedDabs]) branches above
+     * this call still composite dab-by-dab and share the same limitation -- left alone here to keep
+     * this fix scoped to the common, no-custom-tip round brush every user starts from; porting the
+     * same buffer approach to those is real follow-up work, not a one-line change (grain/dual-tip
+     * masking would need the buffer to carry more than one channel).
+     */
+    private fun paintRoundDabsMaxCombined(
+        canvas: Canvas,
+        dabs: List<Dab>,
+        brush: AzphaltBrush,
+        colorArgb: Int,
+        secondaryColorArgb: Int,
+        flow: Float,
+    ) {
+        val hardness = brush.hardness.coerceIn(0f, 1f)
+        val baseFlow = flow.coerceIn(0f, 1f)
+
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (d in dabs) {
+            val r = max(d.radius, 0.5f)
+            if (d.x - r < minX) minX = d.x - r
+            if (d.x + r > maxX) maxX = d.x + r
+            if (d.y - r < minY) minY = d.y - r
+            if (d.y + r > maxY) maxY = d.y + r
+        }
+        if (minX > maxX || minY > maxY) return
+
+        val left = floor(minX).toInt()
+        val top = floor(minY).toInt()
+        val width = (ceil(maxX).toInt() - left).coerceAtLeast(1)
+        val height = (ceil(maxY).toInt() - top).coerceAtLeast(1)
+        val alphaBuf = FloatArray(width * height)
+        val colorBuf = IntArray(width * height)
+
+        for (d in dabs) {
+            val dabColor = resolvedColor(colorArgb, secondaryColorArgb, brush, d)
+            val rgb = dabColor and 0x00FFFFFF
+            val radius = max(d.radius, 0.5f)
+            val strength = (
+                Color.alpha(dabColor) / 255f * d.alpha * baseFlow * d.flowMultiplier.coerceAtLeast(0f)
+                ).coerceIn(0f, 1f)
+            if (strength <= 0f) continue
+
+            val dLeft = floor(d.x - radius).toInt().coerceAtLeast(left)
+            val dTop = floor(d.y - radius).toInt().coerceAtLeast(top)
+            val dRight = ceil(d.x + radius).toInt().coerceAtMost(left + width - 1)
+            val dBottom = ceil(d.y + radius).toInt().coerceAtMost(top + height - 1)
+
+            var py = dTop
+            while (py <= dBottom) {
+                val rowBase = (py - top) * width
+                val dy = py + 0.5f - d.y
+                var px = dLeft
+                while (px <= dRight) {
+                    val dx = px + 0.5f - d.x
+                    val rNorm = hypot(dx, dy) / radius
+                    if (rNorm < 1f) {
+                        val localAlpha = BrushStamps.stampCoverage(rNorm, hardness) * strength
+                        val idx = rowBase + (px - left)
+                        if (localAlpha > alphaBuf[idx]) {
+                            alphaBuf[idx] = localAlpha
+                            colorBuf[idx] = rgb
+                        }
+                    }
+                    px++
+                }
+                py++
+            }
+        }
+
+        val out = IntArray(width * height)
+        var any = false
+        for (i in out.indices) {
+            val a = alphaBuf[i]
+            if (a > 0f) {
+                any = true
+                out[i] = (a.coerceIn(0f, 1f) * 255f).roundToInt().shl(24) or colorBuf[i]
+            }
+        }
+        if (!any) return
+        val composite = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        composite.setPixels(out, 0, width, 0, 0, width, height)
+        canvas.drawBitmap(composite, left.toFloat(), top.toFloat(), null)
+        composite.recycle()
     }
 
     private fun paintMaskedDabs(

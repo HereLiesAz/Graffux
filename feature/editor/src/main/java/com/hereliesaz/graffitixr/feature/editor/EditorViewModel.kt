@@ -4306,7 +4306,7 @@ class EditorViewModel @Inject constructor(
                         StampBrushRenderer.paintDabs(
                             canvas, newHeldDabs, brush, colorArgb, rawFlow,
                             shape, grain, maskShape, seed,
-                            secondaryColorArgb,
+                            secondaryColorArgb, allowBuildUp = true,
                         )
                     }
                     // Item 12's live-preview follow-up: deposit height for exactly the dabs just

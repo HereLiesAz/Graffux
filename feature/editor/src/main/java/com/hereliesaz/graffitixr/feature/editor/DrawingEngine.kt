@@ -183,20 +183,32 @@ internal class DrawingEngine(
                 // same as sensor dynamics above it.
                 val diameterPx = stroke.brushSize * brushScale
                 val movementDabs = BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)
-                val allDabs = if (brush.airbrushDabsPerSecond > 0f) {
-                    movementDabs + AirbrushEngine.heldDabs(
+                val heldDabs = if (brush.airbrushDabsPerSecond > 0f) {
+                    AirbrushEngine.heldDabs(
                         mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
                         brush.airbrushStillnessRadiusPx, stroke.seed,
                     )
                 } else {
-                    movementDabs
+                    emptyList()
                 }
+                // Two calls, not one combined list: movement dabs must NOT build up on each other
+                // (paintDabs' default allowBuildUp = false -- see paintRoundDabsMaxCombined's doc
+                // comment), but Airbrush's held dabs must (allowBuildUp = true) -- matching the
+                // split EditorViewModel's own live-preview integration already uses for newDabs vs
+                // newHeldDabs, so the commit render agrees with what was previewed while dragging.
                 StampBrushRenderer.paintDabs(
-                    stampCanvas, allDabs, brush, stroke.brushColor, stroke.flow,
+                    stampCanvas, movementDabs, brush, stroke.brushColor, stroke.flow,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
                     stroke.secondaryBrushColor,
                 )
-                paintedDabs = allDabs
+                if (heldDabs.isNotEmpty()) {
+                    StampBrushRenderer.paintDabs(
+                        stampCanvas, heldDabs, brush, stroke.brushColor, stroke.flow,
+                        stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+                        stroke.secondaryBrushColor, allowBuildUp = true,
+                    )
+                }
+                paintedDabs = movementDabs + heldDabs
             } else {
                 StampBrushRenderer.paintStroke(
                     stampCanvas, pts, brush, stroke.brushColor,

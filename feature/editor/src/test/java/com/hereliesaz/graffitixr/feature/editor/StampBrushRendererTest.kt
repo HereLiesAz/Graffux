@@ -121,4 +121,55 @@ class StampBrushRendererTest {
             faintAlpha < fullAlpha,
         )
     }
+
+    /**
+     * The bug this guards against: a dragged stroke's soft edge reading as hard, even though a
+     * single tap at the same spot would show it clearly. Sequential `SRC_OVER` of many overlapping
+     * dabs at default (tight) spacing compounds via `1 - Π(1 - αᵢ)`, converging to ~full opacity
+     * well inside a single dab's own falloff band — see [paintRoundDabsMaxCombined]'s doc comment
+     * for the numbers. A point 70% of the way out from a hardness-0.3 dab's centre reads ~43% alpha
+     * from one dab alone; the old per-dab-compositing implementation put a dense drag's alpha there
+     * at ~91%.
+     */
+    @Test
+    fun `a dragged stroke's soft edge matches a single dab's own falloff, not a hardened build-up`() {
+        val soft = brush.copy(hardness = 0.3f, spacing = 0.1f)
+        val radius = 40f
+        val diameter = radius * 2f
+        // Dabs spaced at 10% of diameter along a straight horizontal line -- the tight, overlap-heavy
+        // spacing a real drag samples at, and exactly what regressed before this fix.
+        val interval = soft.spacing * diameter
+        val dabs = (-40..40).map { i ->
+            Dab(x = 100f + i * interval, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f)
+        }
+        val canvas = RenderTestBase.filled(200, 200, Color.TRANSPARENT)
+        StampBrushRenderer.paintDabs(
+            Canvas(canvas),
+            dabs = dabs,
+            brush = soft,
+            colorArgb = Color.BLACK or (0xFF shl 24),
+            flow = 1f,
+        )
+
+        // Sample perpendicular to the stroke, 70% of the way out to the radius, well clear of the
+        // start/end caps (x=100, the middle of the dab run).
+        val dragAlpha = Color.alpha(canvas.getPixel(100, (100 + radius * 0.7f).toInt()))
+
+        val singleTap = RenderTestBase.filled(200, 200, Color.TRANSPARENT)
+        StampBrushRenderer.paintDabs(
+            Canvas(singleTap),
+            dabs = listOf(Dab(x = 100f, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f)),
+            brush = soft,
+            colorArgb = Color.BLACK or (0xFF shl 24),
+            flow = 1f,
+        )
+        val tapAlpha = Color.alpha(singleTap.getPixel(100, (100 + radius * 0.7f).toInt()))
+
+        assertTrue(
+            "a dragged stroke's edge alpha ($dragAlpha) should be close to a single tap's own " +
+                "falloff at the same offset ($tapAlpha), not built up towards full opacity",
+            kotlin.math.abs(dragAlpha - tapAlpha) <= 15,
+        )
+        assertTrue("the edge should still read as visibly translucent, not hardened", dragAlpha < 200)
+    }
 }
