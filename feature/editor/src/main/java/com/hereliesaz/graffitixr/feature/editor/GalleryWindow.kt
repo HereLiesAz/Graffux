@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -66,7 +68,7 @@ fun GalleryWindow(
             text = "+ New canvas",
             onClick = onNew,
             shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
         )
         if (projects.isEmpty()) {
             Text(

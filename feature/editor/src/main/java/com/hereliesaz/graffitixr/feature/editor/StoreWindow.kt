@@ -40,6 +40,7 @@ import com.hereliesaz.graffitixr.common.azphalt.PackageSummary
 import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -278,6 +279,7 @@ private fun BrowseTab(
             shape = AzButtonShape.RECTANGLE,
             modifier = Modifier
                 .fillMaxWidth()
+                .height(AzFullWidthButtonHeight)
                 .padding(top = 4.dp),
         )
     }
@@ -362,7 +364,7 @@ private fun PackageCard(
                     onClick = onInstall,
                     shape = AzButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
 
                 // A plain label, not a button: AzButton has no confirmed "disabled" styling in this
@@ -381,7 +383,7 @@ private fun PackageCard(
                     onClick = onBuy,
                     shape = AzButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
 
                 else -> AzButton(
@@ -389,7 +391,7 @@ private fun PackageCard(
                     onClick = onInstall,
                     shape = AzButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
             }
         }
@@ -446,7 +448,7 @@ private fun InstalledExtensionCard(
                     onClick = onUpdate,
                     shape = AzButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -456,7 +458,7 @@ private fun InstalledExtensionCard(
             onClick = onUninstall,
             shape = AzButtonShape.RECTANGLE,
             contentPadding = CardActionPadding,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
         )
     }
 }

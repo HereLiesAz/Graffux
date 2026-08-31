@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +37,7 @@ import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.data.DiscoveredProjectFile
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlinx.coroutines.Dispatchers
@@ -129,13 +131,13 @@ fun OpenProjectWindow(
                     text = "+ New project",
                     onClick = { onNew(); onDismiss() },
                     shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
                 AzButton(
                     text = "Choose location…",
                     onClick = onChooseLocation,
                     shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
             }
             return@FloatingWindow
@@ -207,13 +209,13 @@ fun OpenProjectWindow(
             text = "+ New project",
             onClick = { onNew(); onDismiss() },
             shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
         )
         AzButton(
             text = "Choose location…",
             onClick = onChooseLocation,
             shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
         )
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -70,7 +71,7 @@ fun CustomBrushesWindow(
                 text = "New Brush",
                 onClick = onNew,
                 shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
             )
 
             if (brushes.isEmpty()) {
@@ -136,14 +137,14 @@ private fun BrushCard(
                 onClick = onEdit,
                 shape = AzButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).height(AzFullWidthButtonHeight),
             )
             AzButton(
                 text = "Delete",
                 onClick = onDeleteRequest,
                 shape = AzButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).height(AzFullWidthButtonHeight),
             )
         }
     }
