@@ -105,6 +105,7 @@ fun EditorUi(
             // 1c. Extensions Panel
             if (uiState.activePanel == EditorPanel.EXTENSIONS) {
                 val installedExtensions by actions.installedExtensions.collectAsState()
+                val activeExtension by actions.extensionContributionsFor.collectAsState()
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
@@ -113,7 +114,11 @@ fun EditorUi(
                 ) {
                     ExtensionsPanel(
                         extensions = installedExtensions,
+                        activeExtension = activeExtension,
+                        contributionsOf = actions::contributionsOf,
                         onSelect = actions::onExtensionSelected,
+                        onSelectContribution = actions::onExtensionContributionSelected,
+                        onBack = actions::onExtensionContributionsBack,
                         onClose = { actions.onDismissPanel() }
                     )
                 }

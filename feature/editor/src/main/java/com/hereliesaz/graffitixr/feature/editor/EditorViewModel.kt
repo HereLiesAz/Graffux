@@ -1490,6 +1490,25 @@ class EditorViewModel @Inject constructor(
         override fun layerCount(): Int = _uiState.value.layers.size
     }
 
+    // Non-null while ExtensionsPanel is showing one extension's declared filters/tools/commands
+    // instead of the top-level extension list — see [onExtensionSelected]'s doc comment for why
+    // this second level exists at all.
+    private val _extensionContributionsFor =
+        kotlinx.coroutines.flow.MutableStateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?>(null)
+    val extensionContributionsFor: StateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?> =
+        _extensionContributionsFor.asStateFlow()
+
+    /** [extension]'s own declared filters/tools/commands, each paired with which kind of
+     *  contribution it is (a code extension can offer more than one of each). Empty for an
+     *  extension with no `contributes` block at all — the single-entry-point kind that still runs
+     *  directly from [onExtensionSelected], same as before this list existed. */
+    fun contributionsOf(
+        extension: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension,
+    ): List<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>> {
+        val c = extension.manifest.contributes ?: return emptyList()
+        return c.filters.map { "Filter" to it } + c.tools.map { "Tool" to it } + c.commands.map { "Command" to it }
+    }
+
     fun onExtensionSelected(id: String) {
         // An asset-only (LUT) extension has no entry/runtime for executeCodeExtension to run — it
         // silently no-ops on kind != CODE/MIXED, so tapping a LUT in this panel used to just close
@@ -1500,11 +1519,39 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.DismissPanel)
             return
         }
+        // A code extension can declare several filters/tools/commands, each its OWN entry file
+        // (Contribution.entry) distinct from the manifest's single top-level entry — but this used
+        // to always run the top-level one regardless, ignoring `contributes` entirely. For an
+        // extension with more than one declared contribution that meant either running the wrong
+        // one, or — for a manifest with no top-level entry at all, only per-contribution ones —
+        // silently doing nothing every single tap. Show a picker over its contributions instead of
+        // guessing which one the user meant.
+        val ext = extensionRepository.installed.value.find { it.id == id }
+        val contributions = ext?.let(::contributionsOf).orEmpty()
+        if (ext != null && contributions.isNotEmpty()) {
+            _extensionContributionsFor.value = ext
+            return
+        }
+        runCodeExtension(id, entryPath = null)
+    }
+
+    /** Runs one specific contribution from the picker [onExtensionSelected] opened. */
+    fun onExtensionContributionSelected(id: String, contribution: com.hereliesaz.graffitixr.common.azphalt.Contribution) {
+        runCodeExtension(id, entryPath = contribution.entry)
+    }
+
+    /** Back out of the contributions picker to the extension list, without running anything. */
+    fun onExtensionContributionsBack() {
+        _extensionContributionsFor.value = null
+    }
+
+    private fun runCodeExtension(id: String, entryPath: String?) {
         viewModelScope.launch(dispatchers.io) {
             try {
-                extensionRepository.executeCodeExtension(id, sandboxHost)
+                extensionRepository.executeCodeExtension(id, sandboxHost, entryPath)
                 // If it succeeds, maybe dismiss the panel
                 withContext(dispatchers.main) {
+                    _extensionContributionsFor.value = null
                     dispatch(EditorIntent.DismissPanel)
                 }
             } catch (e: Exception) {
@@ -2618,7 +2665,12 @@ class EditorViewModel @Inject constructor(
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
     fun onExtensionsClicked() = dispatch(EditorIntent.ToggleExtensionsPanel)
-    override fun onDismissPanel() = dispatch(EditorIntent.DismissPanel)
+    override fun onDismissPanel() {
+        // Otherwise reopening the Extensions panel later could land straight back on a stale
+        // contributions picker instead of the extension list this dismiss was meant to leave.
+        _extensionContributionsFor.value = null
+        dispatch(EditorIntent.DismissPanel)
+    }
 
     /**
      * A tap on the canvas at [tap] (canvas pixels): selects the topmost layer under the point so a

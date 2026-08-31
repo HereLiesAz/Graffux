@@ -335,13 +335,24 @@ class ExtensionRepository @Inject constructor(
 
     /**
      * Executes a code extension's payload in an isolated sandbox, binding the given host capabilities.
+     *
+     * [entryPath] picks WHICH payload runs — a specific [com.hereliesaz.graffitixr.common.azphalt.Contribution.entry]
+     * from the manifest's `contributes.filters`/`.tools`/`.commands` (each of those declares its own
+     * entry file, distinct from the manifest's top-level one), so a multi-contribution extension can
+     * run any one of its declared filters/tools/commands rather than always its single default. Null
+     * falls back to the manifest's own top-level `entry` — the whole-module, single-purpose extension
+     * this always ran before [entryPath] existed.
      */
-    fun executeCodeExtension(id: String, host: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost) {
+    fun executeCodeExtension(
+        id: String,
+        host: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost,
+        entryPath: String? = null,
+    ) {
         val ext = _installed.value.find { it.id == id } ?: return
         if (ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE && ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED) return
-        
-        val entryPath = ext.manifest.entry ?: return
-        val resolvedPath = ext.filePath(entryPath) ?: return
+
+        val resolvedEntry = entryPath ?: ext.manifest.entry ?: return
+        val resolvedPath = ext.filePath(resolvedEntry) ?: return
         val file = File(resolvedPath)
         if (!file.exists()) return
         
