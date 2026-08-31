@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +31,13 @@ import coil.compose.AsyncImage
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.PackageSummary
+import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
+
+/** A card-row action button's content padding — AzButton's own default is sized for a primary,
+ *  standalone call to action; a repeated per-card "Get"/"Buy"/"Update" button reads as oversized
+ *  next to the card it belongs to at that size. */
+private val CardActionPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
 
 /**
  * In-app browse/search over the azphalt Repository API (spec/repository-api.md) — Graffux acting as a
@@ -150,7 +157,20 @@ private fun PackageCard(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
             .padding(10.dp),
     ) {
-        val previewUrl = pkg.preview?.image?.takeIf { it.startsWith("http") }
+        // The repository API's own preview.image is documented as EITHER an absolute https: URL OR
+        // an in-package-relative path (spec/extension-manifest.md § preview) -- but for a package
+        // that isn't installed yet there is no local package to resolve an in-package path against.
+        // What the real server (azphalt.store) actually sends for a relative preview is a
+        // site-relative path (e.g. "/previews/<id>.png"), fetchable straight off the same host this
+        // listing itself came from -- resolving it against that host, rather than discarding it,
+        // is the difference between every card showing its preview and none of them ever doing so.
+        val previewUrl = pkg.preview?.image?.let { image ->
+            when {
+                image.startsWith("http") -> image
+                image.startsWith("/") -> AzphaltStoreHandoff.WEB_STORE_URL + image
+                else -> null
+            }
+        }
         if (previewUrl != null) {
             AsyncImage(
                 model = previewUrl,
@@ -200,6 +220,7 @@ private fun PackageCard(
                     text = "Update to $updateVersion",
                     onClick = onInstall,
                     shape = AzButtonShape.RECTANGLE,
+                    contentPadding = CardActionPadding,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
@@ -218,6 +239,7 @@ private fun PackageCard(
                     text = "Buy",
                     onClick = onBuy,
                     shape = AzButtonShape.RECTANGLE,
+                    contentPadding = CardActionPadding,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
@@ -225,6 +247,7 @@ private fun PackageCard(
                     text = "Get",
                     onClick = onInstall,
                     shape = AzButtonShape.RECTANGLE,
+                    contentPadding = CardActionPadding,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

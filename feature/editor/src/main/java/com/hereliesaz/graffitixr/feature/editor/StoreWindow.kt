@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -153,6 +154,7 @@ private fun InstalledExtensionCard(
                     text = "Update to $updateVersion",
                     onClick = onUpdate,
                     shape = AzButtonShape.RECTANGLE,
+                    contentPadding = CardActionPadding,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -162,10 +164,15 @@ private fun InstalledExtensionCard(
             text = "Uninstall",
             onClick = onUninstall,
             shape = AzButtonShape.RECTANGLE,
+            contentPadding = CardActionPadding,
             modifier = Modifier.fillMaxWidth(),
         )
     }
 }
+
+/** Same reasoning as [BrowseStoreWindow]'s identical constant: AzButton's default content padding
+ *  is sized for a primary, standalone call to action, not a repeated per-card action button. */
+private val CardActionPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
 
 @Composable
 private fun SignatureBadge(status: SignatureStatus) {
