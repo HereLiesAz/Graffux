@@ -706,15 +706,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     classifiers = setOf("adj.extensions"), onClick = { vm.onExtensionsClicked() },
                 )
+                // One door, not two: "Manage Extensions" and "Get Extensions" used to be separate
+                // rail entries opening the same Store window on different tabs — Browse is still
+                // right there once the window's open (one tap on its own tab switcher), so a
+                // second rail entry just to land on it first bought nothing.
                 azRailSubItem(
-                    id = "extensions.manage", hostId = "area.extensions", text = "Manage Extensions",
+                    id = "extensions.manage", hostId = "area.extensions", text = "Extensions",
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     onClick = { storeTab = StoreTab.INSTALLED; showStore = true },
-                )
-                azRailSubItem(
-                    id = "extensions.get", hostId = "area.extensions", text = "Get Extensions",
-                    content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    onClick = { openAzphaltStore() },
                 )
             }
 
