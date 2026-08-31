@@ -62,14 +62,13 @@ fun EditorUi(
                 currentColor = uiState.activeColor,
                 secondaryColor = uiState.secondaryColor,
                 history = emptyList(),
-                onSelectColor = { color ->
-                    actions.setActiveColor(color)
-                    actions.onColorPickerDismissed()
-                },
-                onSelectSecondaryColor = { color ->
-                    actions.setSecondaryColor(color)
-                    actions.onColorPickerDismissed()
-                },
+                // Fires continuously now (SketchToolsDialog's own LaunchedEffect(selectedColor,
+                // target), including once immediately on mount with the picker's initial colour) —
+                // it's the live-apply path, not a user "I'm done" signal, so it must never also
+                // dismiss the panel. Dismissal is onDismiss only: the window's own close button, an
+                // outside tap, or AzWindow's abandonment timer.
+                onSelectColor = { color -> actions.setActiveColor(color) },
+                onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
                 onSwapColors = actions::swapBrushColors,
                 onDismiss = { actions.onColorPickerDismissed() },
                 strings = strings,

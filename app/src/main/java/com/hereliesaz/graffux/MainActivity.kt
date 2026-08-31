@@ -95,6 +95,7 @@ import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
+import com.hereliesaz.graffitixr.feature.editor.CustomBrushesWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.CurvesDialog
 import com.hereliesaz.graffitixr.feature.editor.DocumentSizeDialog
@@ -236,6 +237,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showCornerDialog by remember { mutableStateOf(false) }
     var showShapeSizeDialog by remember { mutableStateOf(false) }
     var showSidesDialog by remember { mutableStateOf(false) }
+    var showBrushGallery by remember { mutableStateOf(false) }
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
     var showBgDialog by remember { mutableStateOf(false) }
     // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
@@ -580,6 +582,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 toolOptionsOpen = showToolOptions,
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
                 showLayersRail = showLayersRail,
+                onOpenBrushGallery = { showBrushGallery = true },
             )
 
             if (showAnimationRail) {
@@ -1355,6 +1358,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onDismiss = { vm.onCloseBrushStudio() },
                     )
                 }
+
+                if (showBrushGallery) {
+                    CustomBrushesWindow(
+                        brushes = customBrushes,
+                        activeBrushName = uiState.activeBrushName,
+                        brushColor = uiState.activeColor,
+                        secondaryColor = uiState.secondaryColor,
+                        onSelect = { id -> vm.selectCustomBrush(id); showBrushGallery = false },
+                        onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
+                        onDelete = { id -> vm.onDeleteCustomBrush(id) },
+                        onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
+                        onDismiss = { showBrushGallery = false },
+                    )
+                }
             }
         }
     }
@@ -1667,6 +1684,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     toolOptionsOpen: Boolean,
     onForgetSelectionRequested: (String) -> Unit,
     showLayersRail: Boolean,
+    onOpenBrushGallery: () -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     val activeIds = activeRailClassifiers(
@@ -2082,6 +2100,15 @@ private fun AzNavHostScope.ConfigureRailItems(
             vm.selectCustomBrush(custom.id)
         }
     }
+    // A gallery over every saved custom brush — pick one, edit it, or delete it — distinct from the
+    // flat per-brush entries just above (which only ever select) and from Brush Studio below (which
+    // only ever holds the one brush currently being edited).
+    azRailSubItem(
+        id = "brush.gallery", hostId = "grp.brushes", text = "My Brushes",
+        content = GraffuxIcons.BrushLibrary,
+        color = railColor("grp.brushes"),
+        onClick = onOpenBrushGallery,
+    )
     // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when one is
     // selected and "make a new one" when it isn't — Procreate's own behaviour.
     stateSubItem(

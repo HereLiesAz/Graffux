@@ -368,8 +368,13 @@ private fun ParamSlider(
  * BrushStudioWindow), not a one-line fix, so it's left as a known gap rather than guessed at here.
  */
 @Composable
-private fun BrushPreview(brush: AzphaltBrush, color: Color, secondaryColor: Color) {
-    Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
+internal fun BrushPreview(
+    brush: AzphaltBrush,
+    color: Color,
+    secondaryColor: Color,
+    height: androidx.compose.ui.unit.Dp = 72.dp,
+) {
+    Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
         val diameter = canvasHeight / 3f
