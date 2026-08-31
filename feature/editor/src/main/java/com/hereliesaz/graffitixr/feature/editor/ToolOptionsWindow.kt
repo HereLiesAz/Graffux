@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -17,6 +18,7 @@ import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import kotlin.math.roundToInt
@@ -73,7 +75,7 @@ fun ToolOptionsWindow(
                         else mode.name.lowercase().replaceFirstChar { it.uppercase() },
                         onClick = { onSetColorSmudgeMode(mode) },
                         shape = AzButtonShape.RECTANGLE,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                     )
                 }
                 Text("Smudge  ${(smudge.smudgeRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
@@ -85,7 +87,7 @@ fun ToolOptionsWindow(
                     text = if (showWetMix) "Wet Mix ▴" else "Wet Mix ▾",
                     onClick = { showWetMix = !showWetMix },
                     shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
                 if (showWetMix) {
                     Text(
@@ -120,13 +122,13 @@ fun ToolOptionsWindow(
                     text = if (smudge.smearAlpha) "Carry alpha ✓" else "Preserve destination alpha",
                     onClick = { onSetColorSmudgeAlphaCarry(!smudge.smearAlpha) },
                     shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
                 AzButton(
                     text = if (smudge.sampleMerged) "Sample Merged ✓" else "Sample Merged",
                     onClick = { onSetColorSmudgeSampleMerged(!smudge.sampleMerged) },
                     shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                 )
                 Text(
                     "Picks up colour from every visible layer, not just this one.",
@@ -147,7 +149,7 @@ fun ToolOptionsWindow(
                         text = if (algo == stabilizerAlgorithm) "${algo.label} ✓" else algo.label,
                         onClick = { onSetStabilizerAlgorithm(algo) },
                         shape = AzButtonShape.RECTANGLE,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                     )
                 }
             }
@@ -175,7 +177,7 @@ fun ToolOptionsWindow(
                         text = if (mode == symmetryMode) "${mode.label} ✓" else mode.label,
                         onClick = { onSetSymmetryMode(mode) },
                         shape = AzButtonShape.RECTANGLE,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
                     )
                 }
             }

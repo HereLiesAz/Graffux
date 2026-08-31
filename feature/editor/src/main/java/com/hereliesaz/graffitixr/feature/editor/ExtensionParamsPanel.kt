@@ -23,6 +23,7 @@ import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.ParamValue
 import com.hereliesaz.graffitixr.common.azphalt.UiControl
 import com.hereliesaz.graffitixr.common.azphalt.UiSchema
+import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 
 /**
  * Renders one code contribution's own control panel (spec `docs/specs/ui-schema.md`) natively —
@@ -84,7 +85,7 @@ fun ExtensionParamsPanel(
                 text = "Run",
                 onClick = onRun,
                 shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
             )
         }
     }
@@ -229,7 +230,7 @@ private fun ControlRow(
                 text = control.label.ifBlank { "Run" },
                 onClick = onRun,
                 shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight).padding(vertical = 4.dp),
             )
         }
 
