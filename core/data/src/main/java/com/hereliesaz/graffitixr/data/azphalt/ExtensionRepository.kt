@@ -334,6 +334,24 @@ class ExtensionRepository @Inject constructor(
     }
 
     /**
+     * Loads and parses a [com.hereliesaz.graffitixr.common.azphalt.Contribution.ui] path (spec/
+     * ui-schema.md) into its control list, or null if the extension is gone, the path is absent/
+     * blank, the file is missing, or it doesn't parse as a UI schema. A malformed panel degrades
+     * to "no panel" (the contribution still runs with whatever its own defaults are) rather than
+     * refusing to run the contribution at all over a broken control list.
+     */
+    fun uiSchemaFor(id: String, uiPath: String?): com.hereliesaz.graffitixr.common.azphalt.UiSchema? {
+        if (uiPath.isNullOrBlank()) return null
+        val ext = _installed.value.find { it.id == id } ?: return null
+        val path = ext.filePath(uiPath) ?: return null
+        val file = File(path)
+        if (!file.exists()) return null
+        return runCatching {
+            com.hereliesaz.graffitixr.common.azphalt.parseUiSchema(file.readText())
+        }.getOrNull()
+    }
+
+    /**
      * Executes a code extension's payload in an isolated sandbox, binding the given host capabilities.
      *
      * [entryPath] picks WHICH payload runs — a specific [com.hereliesaz.graffitixr.common.azphalt.Contribution.entry]

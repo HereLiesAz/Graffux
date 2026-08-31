@@ -64,7 +64,9 @@ dependencies {
     api(libs.az.nav.rail)
 
     // Serialization (Fixes Unresolved reference 'serializer')
-    implementation(libs.kotlinx.serialization.json)
+    // `api` for json: UiSchema/UiControl (azphalt/UiSchema.kt) expose JsonElement in their own
+    // public API, so downstream modules (feature:editor) need it on their compile classpath too.
+    api(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.serialization.cbor)
 
     // Crypto: Ed25519 signature + trust verification for azphalt `.azp` packages

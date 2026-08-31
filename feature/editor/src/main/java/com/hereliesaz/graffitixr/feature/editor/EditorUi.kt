@@ -106,21 +106,38 @@ fun EditorUi(
             if (uiState.activePanel == EditorPanel.EXTENSIONS) {
                 val installedExtensions by actions.installedExtensions.collectAsState()
                 val activeExtension by actions.extensionContributionsFor.collectAsState()
+                val activeContribution by actions.activeContribution.collectAsState()
+                val activeContributionSchema by actions.activeContributionSchema.collectAsState()
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
                         .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
-                    ExtensionsPanel(
-                        extensions = installedExtensions,
-                        activeExtension = activeExtension,
-                        contributionsOf = actions::contributionsOf,
-                        onSelect = actions::onExtensionSelected,
-                        onSelectContribution = actions::onExtensionContributionSelected,
-                        onBack = actions::onExtensionContributionsBack,
-                        onClose = { actions.onDismissPanel() }
-                    )
+                    val schema = activeContributionSchema
+                    val contribution = activeContribution
+                    if (schema != null && contribution != null) {
+                        val contributionParams by actions.contributionParams.collectAsState()
+                        ExtensionParamsPanel(
+                            contributionName = contribution.second.name,
+                            schema = schema,
+                            params = contributionParams,
+                            onParamChanged = actions::onContributionParamChanged,
+                            onRun = actions::onContributionRun,
+                            onBack = actions::onContributionParamsBack,
+                            onClose = { actions.onDismissPanel() },
+                        )
+                    } else {
+                        ExtensionsPanel(
+                            extensions = installedExtensions,
+                            activeExtension = activeExtension,
+                            contributionsOf = actions::contributionsOf,
+                            onSelect = actions::onExtensionSelected,
+                            onSelectContribution = actions::onExtensionContributionSelected,
+                            onBack = actions::onExtensionContributionsBack,
+                            onClose = { actions.onDismissPanel() }
+                        )
+                    }
                 }
             }
 

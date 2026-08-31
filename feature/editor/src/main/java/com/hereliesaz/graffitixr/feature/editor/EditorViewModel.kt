@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -1475,9 +1476,12 @@ class EditorViewModel @Inject constructor(
         override fun canvasHeight(): Int = _uiState.value.documentHeight
         override fun canvasDpi(): Int = context.resources.displayMetrics.densityDpi
         
-        override fun paramNumber(key: String): Double? = null
-        override fun paramBool(key: String): Boolean? = null
-        override fun paramString(key: String): String? = null
+        override fun paramNumber(key: String): Double? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Num)?.value
+        override fun paramBool(key: String): Boolean? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Bool)?.value
+        override fun paramString(key: String): String? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Str)?.value
         
         override fun colorActive(): Int = _uiState.value.activeColor.toArgb()
         override fun colorSetActive(rgba: Int) {
@@ -1497,6 +1501,42 @@ class EditorViewModel @Inject constructor(
         kotlinx.coroutines.flow.MutableStateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?>(null)
     val extensionContributionsFor: StateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?> =
         _extensionContributionsFor.asStateFlow()
+
+    // Non-null while a contribution's own control panel (spec `docs/specs/ui-schema.md`) is showing
+    // instead of the contributions list — the extension id + Contribution it belongs to, so onRun
+    // knows what to execute.
+    private val _activeContribution =
+        kotlinx.coroutines.flow.MutableStateFlow<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>?>(null)
+    val activeContribution: StateFlow<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>?> =
+        _activeContribution.asStateFlow()
+
+    private val _activeContributionSchema =
+        kotlinx.coroutines.flow.MutableStateFlow<com.hereliesaz.graffitixr.common.azphalt.UiSchema?>(null)
+    val activeContributionSchema: StateFlow<com.hereliesaz.graffitixr.common.azphalt.UiSchema?> =
+        _activeContributionSchema.asStateFlow()
+
+    // Live control values for the panel above, keyed by UiControl.key — this is exactly what
+    // sandboxHost.paramNumber/paramBool/paramString read from at execution time.
+    private val _contributionParams =
+        kotlinx.coroutines.flow.MutableStateFlow<Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>>(emptyMap())
+    val contributionParams: StateFlow<Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>> =
+        _contributionParams.asStateFlow()
+
+    /** Flattens a schema's controls (including nested `group` children) into their seed values, by
+     *  [com.hereliesaz.graffitixr.common.azphalt.UiControl.key]. */
+    private fun seedParams(
+        controls: List<com.hereliesaz.graffitixr.common.azphalt.UiControl>,
+    ): Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue> {
+        val out = mutableMapOf<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>()
+        fun visit(list: List<com.hereliesaz.graffitixr.common.azphalt.UiControl>) {
+            list.forEach { control ->
+                control.defaultParamValue()?.let { out[control.key] = it }
+                if (control.controls.isNotEmpty()) visit(control.controls)
+            }
+        }
+        visit(controls)
+        return out
+    }
 
     /** [extension]'s own declared filters/tools/commands, each paired with which kind of
      *  contribution it is (a code extension can offer more than one of each). Empty for an
@@ -1535,14 +1575,48 @@ class EditorViewModel @Inject constructor(
         runCodeExtension(id, entryPath = null)
     }
 
-    /** Runs one specific contribution from the picker [onExtensionSelected] opened. */
+    /** Runs one specific contribution from the picker [onExtensionSelected] opened — or, when it
+     *  declares its own control panel (spec `docs/specs/ui-schema.md`), shows that panel instead so
+     *  the user can set parameters before anything actually executes. */
     fun onExtensionContributionSelected(id: String, contribution: com.hereliesaz.graffitixr.common.azphalt.Contribution) {
+        val schema = extensionRepository.uiSchemaFor(id, contribution.ui)
+        if (schema != null && schema.controls.isNotEmpty()) {
+            _activeContribution.value = id to contribution
+            _activeContributionSchema.value = schema
+            _contributionParams.value = seedParams(schema.controls)
+            return
+        }
         runCodeExtension(id, entryPath = contribution.entry)
     }
 
     /** Back out of the contributions picker to the extension list, without running anything. */
     fun onExtensionContributionsBack() {
         _extensionContributionsFor.value = null
+    }
+
+    /** Updates one control's live value in the active contribution's params panel. */
+    fun onContributionParamChanged(key: String, value: com.hereliesaz.graffitixr.common.azphalt.ParamValue) {
+        _contributionParams.value = _contributionParams.value + (key to value)
+    }
+
+    /** Runs the active contribution with its current param values — the params panel's "Run"/
+     *  declared `button` action (spec: "the apply/commit path for expensive operations"). */
+    fun onContributionRun() {
+        // sandboxHost.paramNumber/paramBool/paramString read _contributionParams live from inside
+        // runCodeExtension's coroutine, so the map has to survive until that finishes — cleared by
+        // onExtensionContributionSelected re-seeding it (or onContributionParamsBack/onDismissPanel),
+        // never eagerly here.
+        val (id, contribution) = _activeContribution.value ?: return
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        runCodeExtension(id, entryPath = contribution.entry)
+    }
+
+    /** Back out of the params panel to the contributions list, without running anything. */
+    fun onContributionParamsBack() {
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        _contributionParams.value = emptyMap()
     }
 
     private fun runCodeExtension(id: String, entryPath: String?) {
@@ -2669,6 +2743,9 @@ class EditorViewModel @Inject constructor(
         // Otherwise reopening the Extensions panel later could land straight back on a stale
         // contributions picker instead of the extension list this dismiss was meant to leave.
         _extensionContributionsFor.value = null
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        _contributionParams.value = emptyMap()
         dispatch(EditorIntent.DismissPanel)
     }
 
