@@ -113,8 +113,8 @@ import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
 import com.hereliesaz.graffitixr.feature.editor.SizePickerDialog
-import com.hereliesaz.graffitixr.feature.editor.BrowseStoreWindow
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
+import com.hereliesaz.graffitixr.feature.editor.StoreTab
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
 import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
@@ -242,9 +242,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // live behind a single rail item that opens one of these instead.
     var showAddDialog by remember { mutableStateOf(false) }
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
-    var showStoreDialog by remember { mutableStateOf(false) }
+    // One window, two tabs (StoreWindow's own doc comment) — showStore alone gates it; storeTab
+    // says which tab it opens on, set by whichever entry point (Manage/Get Extensions, the
+    // Extensions toggle, "Store…") raised showStore, and freely switchable once open.
+    var showStore by remember { mutableStateOf(false) }
+    var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
-    var showBrowseStore by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -418,13 +421,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val brushes by vm.installedBrushes.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
 
-    // The rail's "Get Extensions" entry point. In-app browse (BrowseStoreWindow) is the primary way
-    // in now, not the delegated store chooser below — that used to be the only door, and this button
-    // still opened it directly, so the button a user would actually tap to get a brush routed them
-    // straight out to a browser/store app instead of the searchable in-app catalogue one tap away
-    // inside "Manage Extensions". The chooser is still reachable from BrowseStoreWindow's own "Other
-    // sources" button, for what only a real store app can do (Play Billing, chiefly).
-    val openAzphaltStore: () -> Unit = { showBrowseStore = true }
+    // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
+    // the primary way in now, not the delegated store chooser below — that used to be the only
+    // door, and this button still opened it directly, so the button a user would actually tap to
+    // get a brush routed them straight out to a browser/store app instead of the searchable in-app
+    // catalogue one tap away inside "Manage Extensions". The chooser is still reachable from
+    // StoreWindow's own "Other sources" button, for what only a real store app can do (Play
+    // Billing, chiefly).
+    val openAzphaltStore: () -> Unit = { storeTab = StoreTab.BROWSE; showStore = true }
 
     /** Android: browse in the installed store app, or go get one when there isn't one. */
     val browseAzphaltAndroid: () -> Unit = {
@@ -477,7 +481,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (showModelDialog) add("area.model")
         if (showReferenceWindow) add("area.reference")
         if (showFigmaWindow) add("area.figma")
-        if (uiState.activePanel == EditorPanel.EXTENSIONS || showStoreDialog) add("area.extensions")
+        if (uiState.activePanel == EditorPanel.EXTENSIONS || showStore) add("area.extensions")
     }.toSet()
 
     val navItemColor = Color.White
@@ -702,15 +706,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     classifiers = setOf("adj.extensions"), onClick = { vm.onExtensionsClicked() },
                 )
+                // One door, not two: "Manage Extensions" and "Get Extensions" used to be separate
+                // rail entries opening the same Store window on different tabs — Browse is still
+                // right there once the window's open (one tap on its own tab switcher), so a
+                // second rail entry just to land on it first bought nothing.
                 azRailSubItem(
-                    id = "extensions.manage", hostId = "area.extensions", text = "Manage Extensions",
+                    id = "extensions.manage", hostId = "area.extensions", text = "Extensions",
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    onClick = { showStoreDialog = true },
-                )
-                azRailSubItem(
-                    id = "extensions.get", hostId = "area.extensions", text = "Get Extensions",
-                    content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    onClick = { openAzphaltStore() },
+                    onClick = { storeTab = StoreTab.INSTALLED; showStore = true },
                 )
             }
 
@@ -779,7 +782,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
                         areaToggle("Figma", showFigmaRail) { showFigmaRail = it }
-                        areaToggle("Extensions", showExtensionsRail) { showExtensionsRail = it }
+                        // Unlike the other toggles here, turning this ON also opens the Extensions
+                        // window straight to Installed — azToggle's whole row is one tap target
+                        // (the sanctioned DSL has no way to give the label and the switch separate
+                        // ones), so "tap the label to open Installed, tap the switch to just show/
+                        // hide the rail" isn't directly buildable; treating a check as "yes, show me
+                        // what I have" is the closest match. Turning it back off only hides the
+                        // rail, same as ever — no navigation on the way out.
+                        areaToggle("Extensions", showExtensionsRail) { checked ->
+                            showExtensionsRail = checked
+                            if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
+                        }
                     }
 
                     AzDropdownMenu(navController = navController) {
@@ -1182,36 +1195,27 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
 
-                if (showStoreDialog) {
+                // The azphalt extensions window: one FloatingWindow, two tabs (Installed/Browse) —
+                // see StoreWindow's own doc comment for why this replaced two separate windows.
+                // "Other sources…" still reaches the delegated handoff (StoreChooserDialog) below,
+                // for what only a real store app can do (Play Billing).
+                if (showStore) {
                     LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
                     StoreWindow(
+                        initialTab = storeTab,
                         installed = allInstalledExtensions,
                         updatesAvailable = uiState.storeUpdatesAvailable,
                         installingIds = uiState.storeInstallingIds,
-                        onBrowse = { showStoreDialog = false; showBrowseStore = true },
                         onUpdate = { ext ->
                             uiState.storeUpdatesAvailable[ext.id]?.let { latest ->
                                 vm.installFromRepository(ext.id, latest)
                             }
                         },
                         onUninstall = { vm.uninstallExtension(it) },
-                        onDismiss = { showStoreDialog = false },
-                    )
-                }
-
-                // In-app azphalt store browse (spec/repository-api.md): the primary way to get
-                // extensions now — search, view and install straight from the Repository API, no
-                // separate store app required. "Other sources…" still reaches the delegated handoff
-                // (StoreChooserDialog) below, for what only a real store app can do (Play Billing).
-                if (showBrowseStore) {
-                    BrowseStoreWindow(
                         query = uiState.storeBrowseQuery,
                         results = uiState.storeBrowseResults,
                         loading = uiState.storeBrowseLoading,
                         error = uiState.storeBrowseError,
-                        installedIds = allInstalledExtensions.map { it.id }.toSet(),
-                        updatesAvailable = uiState.storeUpdatesAvailable,
-                        installingIds = uiState.storeInstallingIds,
                         onQueryChanged = { vm.onStoreBrowseQueryChanged(it) },
                         onSearch = { vm.onStoreSearch() },
                         onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
@@ -1228,8 +1232,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 )
                             }
                         },
-                        onOtherSources = { showBrowseStore = false; showStoreChooser = true },
-                        onDismiss = { showBrowseStore = false },
+                        onOtherSources = { showStore = false; showStoreChooser = true },
+                        onDismiss = { showStore = false },
                     )
                 }
 

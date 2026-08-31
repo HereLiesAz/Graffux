@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -1475,9 +1476,12 @@ class EditorViewModel @Inject constructor(
         override fun canvasHeight(): Int = _uiState.value.documentHeight
         override fun canvasDpi(): Int = context.resources.displayMetrics.densityDpi
         
-        override fun paramNumber(key: String): Double? = null
-        override fun paramBool(key: String): Boolean? = null
-        override fun paramString(key: String): String? = null
+        override fun paramNumber(key: String): Double? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Num)?.value
+        override fun paramBool(key: String): Boolean? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Bool)?.value
+        override fun paramString(key: String): String? =
+            (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Str)?.value
         
         override fun colorActive(): Int = _uiState.value.activeColor.toArgb()
         override fun colorSetActive(rgba: Int) {
@@ -1490,6 +1494,61 @@ class EditorViewModel @Inject constructor(
         override fun layerCount(): Int = _uiState.value.layers.size
     }
 
+    // Non-null while ExtensionsPanel is showing one extension's declared filters/tools/commands
+    // instead of the top-level extension list — see [onExtensionSelected]'s doc comment for why
+    // this second level exists at all.
+    private val _extensionContributionsFor =
+        kotlinx.coroutines.flow.MutableStateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?>(null)
+    val extensionContributionsFor: StateFlow<com.hereliesaz.graffitixr.data.azphalt.InstalledExtension?> =
+        _extensionContributionsFor.asStateFlow()
+
+    // Non-null while a contribution's own control panel (spec `docs/specs/ui-schema.md`) is showing
+    // instead of the contributions list — the extension id + Contribution it belongs to, so onRun
+    // knows what to execute.
+    private val _activeContribution =
+        kotlinx.coroutines.flow.MutableStateFlow<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>?>(null)
+    val activeContribution: StateFlow<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>?> =
+        _activeContribution.asStateFlow()
+
+    private val _activeContributionSchema =
+        kotlinx.coroutines.flow.MutableStateFlow<com.hereliesaz.graffitixr.common.azphalt.UiSchema?>(null)
+    val activeContributionSchema: StateFlow<com.hereliesaz.graffitixr.common.azphalt.UiSchema?> =
+        _activeContributionSchema.asStateFlow()
+
+    // Live control values for the panel above, keyed by UiControl.key — this is exactly what
+    // sandboxHost.paramNumber/paramBool/paramString read from at execution time.
+    private val _contributionParams =
+        kotlinx.coroutines.flow.MutableStateFlow<Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>>(emptyMap())
+    val contributionParams: StateFlow<Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>> =
+        _contributionParams.asStateFlow()
+
+    /** Flattens a schema's controls (including nested `group` children) into their seed values, by
+     *  [com.hereliesaz.graffitixr.common.azphalt.UiControl.key]. */
+    private fun seedParams(
+        controls: List<com.hereliesaz.graffitixr.common.azphalt.UiControl>,
+    ): Map<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue> {
+        val out = mutableMapOf<String, com.hereliesaz.graffitixr.common.azphalt.ParamValue>()
+        fun visit(list: List<com.hereliesaz.graffitixr.common.azphalt.UiControl>) {
+            list.forEach { control ->
+                control.defaultParamValue()?.let { out[control.key] = it }
+                if (control.controls.isNotEmpty()) visit(control.controls)
+            }
+        }
+        visit(controls)
+        return out
+    }
+
+    /** [extension]'s own declared filters/tools/commands, each paired with which kind of
+     *  contribution it is (a code extension can offer more than one of each). Empty for an
+     *  extension with no `contributes` block at all — the single-entry-point kind that still runs
+     *  directly from [onExtensionSelected], same as before this list existed. */
+    fun contributionsOf(
+        extension: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension,
+    ): List<Pair<String, com.hereliesaz.graffitixr.common.azphalt.Contribution>> {
+        val c = extension.manifest.contributes ?: return emptyList()
+        return c.filters.map { "Filter" to it } + c.tools.map { "Tool" to it } + c.commands.map { "Command" to it }
+    }
+
     fun onExtensionSelected(id: String) {
         // An asset-only (LUT) extension has no entry/runtime for executeCodeExtension to run — it
         // silently no-ops on kind != CODE/MIXED, so tapping a LUT in this panel used to just close
@@ -1500,11 +1559,73 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.DismissPanel)
             return
         }
+        // A code extension can declare several filters/tools/commands, each its OWN entry file
+        // (Contribution.entry) distinct from the manifest's single top-level entry — but this used
+        // to always run the top-level one regardless, ignoring `contributes` entirely. For an
+        // extension with more than one declared contribution that meant either running the wrong
+        // one, or — for a manifest with no top-level entry at all, only per-contribution ones —
+        // silently doing nothing every single tap. Show a picker over its contributions instead of
+        // guessing which one the user meant.
+        val ext = extensionRepository.installed.value.find { it.id == id }
+        val contributions = ext?.let(::contributionsOf).orEmpty()
+        if (ext != null && contributions.isNotEmpty()) {
+            _extensionContributionsFor.value = ext
+            return
+        }
+        runCodeExtension(id, entryPath = null)
+    }
+
+    /** Runs one specific contribution from the picker [onExtensionSelected] opened — or, when it
+     *  declares its own control panel (spec `docs/specs/ui-schema.md`), shows that panel instead so
+     *  the user can set parameters before anything actually executes. */
+    fun onExtensionContributionSelected(id: String, contribution: com.hereliesaz.graffitixr.common.azphalt.Contribution) {
+        val schema = extensionRepository.uiSchemaFor(id, contribution.ui)
+        if (schema != null && schema.controls.isNotEmpty()) {
+            _activeContribution.value = id to contribution
+            _activeContributionSchema.value = schema
+            _contributionParams.value = seedParams(schema.controls)
+            return
+        }
+        runCodeExtension(id, entryPath = contribution.entry)
+    }
+
+    /** Back out of the contributions picker to the extension list, without running anything. */
+    fun onExtensionContributionsBack() {
+        _extensionContributionsFor.value = null
+    }
+
+    /** Updates one control's live value in the active contribution's params panel. */
+    fun onContributionParamChanged(key: String, value: com.hereliesaz.graffitixr.common.azphalt.ParamValue) {
+        _contributionParams.value = _contributionParams.value + (key to value)
+    }
+
+    /** Runs the active contribution with its current param values — the params panel's "Run"/
+     *  declared `button` action (spec: "the apply/commit path for expensive operations"). */
+    fun onContributionRun() {
+        // sandboxHost.paramNumber/paramBool/paramString read _contributionParams live from inside
+        // runCodeExtension's coroutine, so the map has to survive until that finishes — cleared by
+        // onExtensionContributionSelected re-seeding it (or onContributionParamsBack/onDismissPanel),
+        // never eagerly here.
+        val (id, contribution) = _activeContribution.value ?: return
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        runCodeExtension(id, entryPath = contribution.entry)
+    }
+
+    /** Back out of the params panel to the contributions list, without running anything. */
+    fun onContributionParamsBack() {
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        _contributionParams.value = emptyMap()
+    }
+
+    private fun runCodeExtension(id: String, entryPath: String?) {
         viewModelScope.launch(dispatchers.io) {
             try {
-                extensionRepository.executeCodeExtension(id, sandboxHost)
+                extensionRepository.executeCodeExtension(id, sandboxHost, entryPath)
                 // If it succeeds, maybe dismiss the panel
                 withContext(dispatchers.main) {
+                    _extensionContributionsFor.value = null
                     dispatch(EditorIntent.DismissPanel)
                 }
             } catch (e: Exception) {
@@ -2618,7 +2739,15 @@ class EditorViewModel @Inject constructor(
     fun onTransformClicked() = dispatch(EditorIntent.ToggleTransformPanel)
     fun onBalanceClicked() = dispatch(EditorIntent.ToggleColorPanel)
     fun onExtensionsClicked() = dispatch(EditorIntent.ToggleExtensionsPanel)
-    override fun onDismissPanel() = dispatch(EditorIntent.DismissPanel)
+    override fun onDismissPanel() {
+        // Otherwise reopening the Extensions panel later could land straight back on a stale
+        // contributions picker instead of the extension list this dismiss was meant to leave.
+        _extensionContributionsFor.value = null
+        _activeContribution.value = null
+        _activeContributionSchema.value = null
+        _contributionParams.value = emptyMap()
+        dispatch(EditorIntent.DismissPanel)
+    }
 
     /**
      * A tap on the canvas at [tap] (canvas pixels): selects the topmost layer under the point so a

@@ -237,6 +237,10 @@ data class Contribution(
     val id: String,
     val name: String,
     val entry: String,
+    /** In-package path to this contribution's own control panel (spec/ui-schema.md) — null means
+     *  it takes no parameters and just runs. Not a manifest reference the way [entry] is verified
+     *  against [AzphaltManifest.files]' digests up front; a host resolves and parses it (via
+     *  [parseUiSchema]) only once the contribution is actually opened. */
     val ui: String? = null,
 )
 
