@@ -81,9 +81,17 @@ class ColorSourceMixTest {
             ),
         )
         val builder = BrushSampleBuilder()
+        // Several samples held at pressure=1, not just one right after the initial 0 -- pressure now
+        // runs through BrushSampleBuilder's own EMA smoothing (see its doc comment: every sensor
+        // route reads a noise-filtered value, not the raw per-sample reading), so a single 0->1 step
+        // only gets partway there. A real stroke ramps over many samples anyway; this mirrors that
+        // instead of asserting the pre-smoothing snap-to-target behaviour.
         val samples = listOf(
             builder.add(8f, 12f, 0L, pressure = 0f),
-            builder.add(40f, 12f, 16L, pressure = 1f),
+            builder.add(16f, 12f, 8L, pressure = 1f),
+            builder.add(24f, 12f, 16L, pressure = 1f),
+            builder.add(32f, 12f, 24L, pressure = 1f),
+            builder.add(40f, 12f, 32L, pressure = 1f),
         )
         val dabs = BrushStamps.dynamicDabs(samples, 10f, brush, 55L)
         assertTrue(dabs.first().colorMix < 0.1f)

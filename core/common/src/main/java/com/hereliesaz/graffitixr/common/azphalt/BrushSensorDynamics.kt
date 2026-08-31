@@ -45,6 +45,20 @@ data class BrushSample(
 class BrushSampleBuilder {
     private var previous: BrushSample? = null
 
+    // Every SIZE/OPACITY/SPACING/etc. sensor route reads sample.speedPxPerMs/pressure straight
+    // through BrushSensorEngine, which is a pure, stateless resolver with no filtering of its own
+    // -- so an unfiltered spike in either becomes a visibly jagged dab-to-dab size jump. Speed in
+    // particular is a tiny per-event distance divided by a tiny per-event time delta, both of which
+    // are noisy on real touch/stylus hardware (irregular batching, sub-ms jitter); pressure is
+    // steadier on a real stylus but can jitter hard for a finger's synthesized reading. An EMA here,
+    // upstream of every consumer, smooths both once rather than asking each binding to do it. This
+    // is independent of (and stacks with) StrokeStabilizer's own position/pressure smoothing --
+    // that one shapes the drawn PATH per the user's chosen algorithm/level; this one exists
+    // regardless of stabilizer settings, because dynamics jaggedness is a sensor-noise problem, not
+    // a stroke-shape one.
+    private var smoothedSpeed: Float? = null
+    private var smoothedPressure: Float? = null
+
     fun add(
         x: Float,
         y: Float,
@@ -60,15 +74,35 @@ class BrushSampleBuilder {
         val segment = if (prev == null) 0f else hypot(dx, dy)
         val dt = if (prev == null) 0L else (uptimeMillis - prev.uptimeMillis).coerceAtLeast(1L)
         val angle = if (segment > 0f) atan2(dy, dx) * RAD_TO_DEG else prev?.drawingAngleDeg ?: 0f
+        val clampedPressure = pressure.coerceIn(0f, 1f)
+
+        // Bootstrapped rather than blended from zero on the first observation, in both cases, so a
+        // stroke's first dab still reflects the actual starting pressure/speed instead of easing up
+        // to it. A predicted sample blends against the CURRENT filter state but never commits its
+        // own reading back into it -- same "disposable, must not contaminate the authoritative
+        // stroke" rule [previous] itself already follows below, for the same reason: a bad
+        // prediction must not bias the filter the next genuine sample blends against.
+        val speed = if (prev == null) {
+            0f
+        } else {
+            val rawSpeed = segment / dt.toFloat()
+            val filtered = smoothedSpeed?.let { it + (rawSpeed - it) * SPEED_SMOOTHING_ALPHA } ?: rawSpeed
+            if (!predicted) smoothedSpeed = filtered
+            filtered
+        }
+        val filteredPressure = smoothedPressure?.let { it + (clampedPressure - it) * PRESSURE_SMOOTHING_ALPHA }
+            ?: clampedPressure
+        if (!predicted) smoothedPressure = filteredPressure
+
         val sample = BrushSample(
             x = x,
             y = y,
             uptimeMillis = uptimeMillis,
-            pressure = pressure.coerceIn(0f, 1f),
+            pressure = filteredPressure,
             tiltRadians = tiltRadians.coerceIn(0f, (PI / 2.0).toFloat()),
             orientationRadians = orientationRadians.coerceIn((-PI).toFloat(), PI.toFloat()),
             distancePx = (prev?.distancePx ?: 0f) + segment,
-            speedPxPerMs = if (prev == null) 0f else segment / dt.toFloat(),
+            speedPxPerMs = speed,
             drawingAngleDeg = angle,
             predicted = predicted,
         )
@@ -81,6 +115,16 @@ class BrushSampleBuilder {
 
     fun reset() {
         previous = null
+        smoothedSpeed = null
+        smoothedPressure = null
+    }
+
+    private companion object {
+        // Lower = more smoothing/lag, higher = closer to raw passthrough. Speed gets the heavier
+        // filter: it's a derivative of two already-noisy per-event measurements (distance, time),
+        // where pressure is at least a direct reading.
+        const val SPEED_SMOOTHING_ALPHA = 0.35f
+        const val PRESSURE_SMOOTHING_ALPHA = 0.45f
     }
 }
 
