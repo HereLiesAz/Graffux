@@ -81,8 +81,8 @@ private val SafeEdgeMargin = 24.dp
  *    layout, using the now-public [AzWindowState.moveTo] — no drag required to reach a safe position.
  *
  * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
- * they get for free: the clamp, a fold control that matches every other AzNavRail surface, and an
- * accent that follows the rail's rather than being independently themed here — plus a place in the
+ * they get for free: the clamp, an accent that follows the rail's rather than being independently
+ * themed here (no fold control — `minimizable` is forced off below), and a place in the
  * stack: every call site shares [FloatingWindowStacking] through the same un-keyed defaults, so a
  * window opened after another always lands on top of it and doesn't start at the exact same point
  * on screen. Before this, all two dozen call sites defaulted to the identical fixed position and
@@ -91,9 +91,9 @@ private val SafeEdgeMargin = 24.dp
  * nothing to do with which window the user actually asked for most recently.
  *
  * [initialOffset] seeds the position once. Hoist an [AzWindowState] via [rememberFloatingWindowState]
- * and pass it as [state] when a window's placement or folded state has to outlive the window itself
- * — a hoisted state still gets the same rail-avoidance/onscreen correction, since [AzWindowState]
- * exposes those operations publicly regardless of who created it.
+ * and pass it as [state] when a window's placement has to outlive the window itself — a hoisted
+ * state still gets the same rail-avoidance/onscreen correction, since [AzWindowState] exposes those
+ * operations publicly regardless of who created it.
  */
 @Composable
 fun FloatingWindow(
@@ -139,6 +139,12 @@ fun FloatingWindow(
             // accent is tuned to read against the rail rather than against whatever the user is painting.
             accent = MaterialTheme.colorScheme.outlineVariant,
             surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+            // No fold control on any FloatingWindow: a folded window collapses to a bare title
+            // bar that can end up looking like a stray, unexplained close button once dragged
+            // away from its content -- see the "always-there X in the corner" report this
+            // disables. Closing (onDismiss) is still the only way out, so the window can never
+            // be left in a state that neither shows its content nor goes away.
+            minimizable = false,
             onDismiss = onDismiss,
             obstruction = obstruction,
         ) {
@@ -272,8 +278,9 @@ private fun clampFullyOnscreen(topLeft: Offset, size: Offset, containerSize: Int
 }
 
 /**
- * Position + folded state for a [FloatingWindow], for the caller that needs it to survive the
- * window closing. `remember`ed against [initialOffset], so a window given a fresh starting position
+ * Position (and the now-unused `minimized` flag `AzWindowState` still carries) for a
+ * [FloatingWindow], for the caller that needs it to survive the window closing. `remember`ed
+ * against [initialOffset], so a window given a fresh starting position
  * takes it rather than silently keeping the first one it was ever handed.
  */
 @Composable
