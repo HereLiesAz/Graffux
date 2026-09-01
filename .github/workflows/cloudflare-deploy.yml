@@ -1,0 +1,41 @@
+# Deploys the Cloudflare Worker (static docs/ site) via wrangler, run by us
+# instead of Cloudflare's dashboard-managed "Workers Builds" GitHub App
+# integration -- that integration fails instantly on every run with no
+# visible log (started_at == completed_at, no output text via the GitHub
+# API), and its build settings live in the Cloudflare dashboard, outside
+# this repo. This workflow gives the same deploy a real, inspectable log.
+#
+# Requires two repo secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   - a token with "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID  - the account ID shown in the Cloudflare dashboard
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/cloudflare-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Deploy with Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
