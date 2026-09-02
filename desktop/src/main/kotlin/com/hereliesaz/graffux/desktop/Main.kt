@@ -75,8 +75,10 @@ fun main() = application {
     val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
     // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
     // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
-    // Android's touch-only editor has no equivalent shortcut for -- can reach it directly.
+    // Android's touch-only editor has no equivalent shortcut for -- can reach it directly. Same
+    // reason `lastSavedPath` (Ctrl+S's own feedback label) lives here too.
     val canvasState = remember { CanvasState() }
+    var lastSavedPath by remember { mutableStateOf<String?>(null) }
     Window(
         onCloseRequest = ::exitApplication,
         title = "Graffux",
@@ -88,6 +90,7 @@ fun main() = application {
                 event.key == Key.Z && !event.isShiftPressed -> { canvasState.undo(); true }
                 event.key == Key.Z && event.isShiftPressed -> { canvasState.redo(); true }
                 event.key == Key.Y -> { canvasState.redo(); true }
+                event.key == Key.S -> { lastSavedPath = canvasState.exportPng()?.absolutePath; true }
                 else -> false
             }
         },
@@ -98,20 +101,23 @@ fun main() = application {
                 // is provided by hand (matches the pattern aznavrail's own CMP demo app uses).
                 LocalAzAppMeta provides AzAppMeta(name = "Graffux", packageId = "com.hereliesaz.graffux"),
             ) {
-                GraffuxDesktopApp(canvasState)
+                GraffuxDesktopApp(canvasState, lastSavedPath) { lastSavedPath = it }
             }
         }
     }
 }
 
 @Composable
-private fun GraffuxDesktopApp(canvasState: CanvasState) {
+private fun GraffuxDesktopApp(
+    canvasState: CanvasState,
+    lastSavedPath: String?,
+    onSaved: (String?) -> Unit,
+) {
     val navController = rememberNavController()
     var brushRadius by remember { mutableFloatStateOf(24f) }
     var brushFlow by remember { mutableFloatStateOf(1f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
-    var lastSavedPath by remember { mutableStateOf<String?>(null) }
     var showColorWheel by remember { mutableStateOf(false) }
 
     AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
@@ -167,7 +173,7 @@ private fun GraffuxDesktopApp(canvasState: CanvasState) {
             id = "action.save",
             text = "Save",
             disabled = canvasState.committed == null,
-            onClick = { lastSavedPath = canvasState.exportPng()?.absolutePath },
+            onClick = { onSaved(canvasState.exportPng()?.absolutePath) },
         )
 
         background(weight = 0) {

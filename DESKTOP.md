@@ -97,24 +97,29 @@ sound finished — see each claim's own verification note.
   end-to-end**: drew a stroke at 100% flow (solid), lowered the slider to 17%, drew a second stroke,
   and confirmed by screenshot that the second stroke rendered visibly and correctly lighter than the
   first — not just that the slider moved, that the pixels it produced actually differ.
-- **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y keyboard shortcuts for Undo/Redo.** A genuine desktop-only
-  addition — Android's touch-only editor has no keyboard, so there's no Android behavior to match
-  here, just the standard desktop convention. Wired via `Window`'s own `onKeyEvent` parameter in
-  `main()` (which is why `CanvasState` is created there now, one level up from the rest of this
-  app's UI state in `GraffuxDesktopApp`, instead of down inside it — `onKeyEvent` needs to reach it
-  directly). **Verified functionally correct via debug instrumentation** — logging every `KeyEvent`
-  confirmed Ctrl+Z is recognized and dispatched exactly once per press, and logging
-  `undoStack.size` inside `CanvasState.undo()` confirmed each press pops exactly one entry and that
-  the entry it pops matches whatever the stack actually holds at that moment (`size=0` → no-op,
-  `size=1` → one real pop, consistent across repeated presses). **Visual, pixel-level verification
-  was confounded** by the same pre-existing Xvfb+Robot stroke-release quirk documented below (a
-  fresh window's first stroke sometimes fails to fire its release event, leaving the gesture loop
-  "stuck" so the next stroke's samples get appended to the first instead of starting fresh) — not a
-  defect in this feature, but it made it impractical to get a clean, unambiguous "drew one stroke,
-  Ctrl+Z, exactly that one stroke disappeared" screenshot in this session's time budget. The
-  mechanism (key recognition + correct stack manipulation) is proven correct; the end-to-end visual
-  behavior should be re-verified on a real desktop OS where the underlying release-detection quirk
-  doesn't apply.
+- **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / Ctrl+S keyboard shortcuts (Undo/Redo/Save).** A genuine
+  desktop-only addition — Android's touch-only editor has no keyboard, so there's no Android
+  behavior to match here, just the standard desktop convention. Wired via `Window`'s own
+  `onKeyEvent` parameter in `main()` (which is why `CanvasState` and `lastSavedPath` are created
+  there now, one level up from the rest of this app's UI state in `GraffuxDesktopApp`, instead of
+  down inside it — `onKeyEvent` needs to reach them directly).
+  - **Ctrl+S verified fully end-to-end**: warmed up the window, drew a stroke, pressed Ctrl+S,
+    confirmed a real PNG landed on disk (same `CanvasState.exportPng()` the Save rail item calls)
+    and that reading it back matched the exact stroke on screen, and confirmed the "Saved to ..."
+    label updated exactly as clicking Save would.
+  - **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y verified functionally correct via debug instrumentation** —
+    logging every `KeyEvent` confirmed Ctrl+Z is recognized and dispatched exactly once per press,
+    and logging `undoStack.size` inside `CanvasState.undo()` confirmed each press pops exactly one
+    entry matching whatever the stack actually holds (`size=0` → no-op, `size=1` → one real pop,
+    consistent across repeated presses). **Clean visual, pixel-level verification was confounded**
+    by the same pre-existing Xvfb+Robot stroke-release quirk documented below (a fresh window's
+    first stroke sometimes fails to fire its release event, leaving the gesture loop "stuck" so the
+    next stroke's samples get appended to the first instead of starting fresh) — not a defect in
+    this feature (Ctrl+S, going through the exact same canvas/pointer pipeline, verified cleanly),
+    but it made an unambiguous "drew one stroke, Ctrl+Z, exactly that one stroke disappeared"
+    screenshot impractical in this session's time budget. The mechanism (key recognition + correct
+    stack manipulation) is proven correct; full visual behavior should be re-verified on a real
+    desktop OS where the underlying release-detection quirk doesn't apply.
 - **A real HSV disc colour picker (`ColorWheel.kt`), not just the 8-swatch palette.** Android's
   `feature:editor` already has one (`ColorPickerDialog`/`ColorWheel` in `SketchToolsDialog.kt`) built
   on `android.graphics.Color.HSVToColor`/`RGBToHSV` and `android.graphics.Bitmap` — neither exists on
