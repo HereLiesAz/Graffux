@@ -57,6 +57,7 @@ fun BrushStudioWindow(
     var showTexture by remember { mutableStateOf(false) }
     var showMaskedTip by remember { mutableStateOf(false) }
     var showTaper by remember { mutableStateOf(false) }
+    var showBlot by remember { mutableStateOf(false) }
     var showAirbrush by remember { mutableStateOf(false) }
     var showImpasto by remember { mutableStateOf(false) }
 
@@ -261,6 +262,40 @@ fun BrushStudioWindow(
                 Text(
                     "Fades size/opacity near the start and end of a stroke. Finger lift-off additionally " +
                         "slows the end fade with recorded speed, so a slow lift tapers more than a fast one.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            AzButton(
+                text = if (showBlot) "Blot ▴" else "Blot ▾",
+                onClick = { showBlot = !showBlot },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showBlot) {
+                val blot = draft.blot
+                ParamSlider("Length", blot.lengthPx, 0f..600f, unit = "px") { v ->
+                    onEdit { it.copy(blot = blot.copy(lengthPx = v)) }
+                }
+                ParamSlider("Size spike", blot.sizeMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(sizeMultiplier = v)) }
+                }
+                ParamSlider("Opacity spike", blot.opacityMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(opacityMultiplier = v)) }
+                }
+                ParamSlider("Extra stamps", blot.extraStamps.toFloat(), 0f..8f) { v ->
+                    onEdit { it.copy(blot = blot.copy(extraStamps = v.toInt())) }
+                }
+                ParamSlider("Angle jitter", blot.angleJitterDeg, 0f..180f, unit = "°") { v ->
+                    onEdit { it.copy(blot = blot.copy(angleJitterDeg = v)) }
+                }
+                ParamSlider("Position jitter", blot.positionJitter, 0f..1f) { v ->
+                    onEdit { it.copy(blot = blot.copy(positionJitter = v)) }
+                }
+                Text(
+                    "An outsized first mark where the stroke touches down, like a loaded ink brush's " +
+                        "initial contact, fading to the resting size/opacity over Length. Extra stamps add " +
+                        "randomly re-angled copies of the tip near the touchdown for a ragged, bristle-like " +
+                        "pattern instead of a uniform scale-up.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

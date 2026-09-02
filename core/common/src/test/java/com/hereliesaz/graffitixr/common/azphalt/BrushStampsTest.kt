@@ -234,4 +234,73 @@ class BrushStampsTest {
         assertTrue(dabs.isNotEmpty())
         dabs.forEach { assertEquals(0.5f, it.tipRatio, 1e-4f) }
     }
+
+    // ---- First-touch blot ----
+
+    private fun straightLineSamples(lengthPx: Float, steps: Int): List<BrushSample> =
+        (0..steps).map { i ->
+            val x = lengthPx * i / steps
+            BrushSample(x = x, y = 0f, uptimeMillis = (i * 10).toLong())
+        }
+
+    @Test
+    fun blotSpikesTheVeryFirstDabsSizeThenDecaysToNormalByLengthPx() {
+        val brush = AzphaltBrush(
+            name = "B",
+            blot = BrushBlot(lengthPx = 100f, sizeMultiplier = 3f, opacityMultiplier = 1f),
+        )
+        val dabs = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 40), diameterPx = 10f, brush = brush, seed = 3L,
+        )
+        assertTrue(dabs.isNotEmpty())
+        // The very first dab should be near the full 3x spike (radius ~15 vs the resting 5).
+        assertTrue("first dab should be spiked, was radius=${dabs.first().radius}", dabs.first().radius > 10f)
+        // Far past lengthPx, dabs should have settled back to the resting radius (~5).
+        val settled = dabs.last()
+        assertEquals(5f, settled.radius, 0.5f)
+    }
+
+    @Test
+    fun blotDisabledByDefaultMatchesUnblottedOutput() {
+        val samples = straightLineSamples(50f, steps = 10)
+        val plain = AzphaltBrush(name = "B")
+        val withZeroBlot = plain.copy(blot = BrushBlot())
+        assertEquals(
+            BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = plain, seed = 9L),
+            BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = withZeroBlot, seed = 9L),
+        )
+    }
+
+    @Test
+    fun blotExtraStampsAddRandomlyRealignedCopiesNearTheTouchdownOnly() {
+        val brush = AzphaltBrush(
+            name = "B",
+            spacing = 0.05f,
+            blot = BrushBlot(lengthPx = 30f, extraStamps = 4, angleJitterDeg = 180f),
+        )
+        val withExtras = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 60), diameterPx = 10f, brush = brush, seed = 11L,
+        )
+        val withoutExtras = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 60),
+            diameterPx = 10f,
+            brush = brush.copy(blot = brush.blot.copy(extraStamps = 0)),
+            seed = 11L,
+        )
+        // Extra stamps only fire near the touchdown (blotT < 1, i.e. within lengthPx), so the
+        // extras-enabled run must emit strictly more dabs, but the two runs converge once past
+        // the blot window (same tail count of "real" placement points either way).
+        assertTrue(withExtras.size > withoutExtras.size)
+        // Each extra stamp should carry a random rotation somewhere in the jitter range, not all
+        // identical to the primary dab's own heading-following angle.
+        val anglesNearStart = withExtras.take(10).map { it.angleDeg }.toSet()
+        assertTrue("expected varied angles from random realignment, got $anglesNearStart", anglesNearStart.size > 1)
+    }
+
+    @Test
+    fun blotExtraStampsDisabledByDefault() {
+        assertEquals(0, BrushBlot().extraStamps)
+        assertTrue(!BrushBlot().isActive())
+        assertTrue(!BrushBlot(lengthPx = 10f).isActive())
+    }
 }

@@ -67,6 +67,49 @@ data class BrushTaper(
     fun isActive(): Boolean = startLengthPx > 0f || endLengthPx > 0f
 }
 
+/**
+ * First-touch "blot": a real loaded ink/paint brush deposits an outsized, darker mark the instant
+ * it touches down, before its stroke settles to its normal footprint. [BrushTaper]'s own start
+ * zone only ever shrinks towards a stroke's beginning (`minSize`/`minOpacity` are clamped to
+ * 0..1) -- it can't model an initial mark LARGER than the brush's resting size, which is the
+ * opposite direction this needs. Independent of taper so a brush can shrink into its stroke AND
+ * spike at the very first dab; the two compose multiplicatively.
+ *
+ * [sizeMultiplier]/[opacityMultiplier] apply in full at distance 0 along the stroke and decay
+ * linearly to 1 (no effect) over [lengthPx]; [lengthPx] = 0 (the default) disables blotting
+ * entirely regardless of the multipliers, matching [BrushTaper]'s own "zero length = off"
+ * contract.
+ *
+ * The blot's ragged, irregular PATTERN doesn't come from just scaling the primary dab up -- a
+ * real brush's bristles splay out in random directions on first contact, not evenly in every
+ * direction at once. [extraStamps] additional copies of the same tip are stamped on top of the
+ * primary dab, each with its own random rotation ([angleJitterDeg]) and small positional offset
+ * ([positionJitter], as a fraction of the dab's diameter) -- a random realignment of the brush tip
+ * itself, not a uniform scale-up. Each extra copy fades out over the same [lengthPx] window as the
+ * primary spike. 0 (the default) disables the extra copies entirely.
+ */
+@Serializable
+data class BrushBlot(
+    val lengthPx: Float = 0f,
+    val sizeMultiplier: Float = 1f,
+    val opacityMultiplier: Float = 1f,
+    val extraStamps: Int = 0,
+    val angleJitterDeg: Float = 180f,
+    val positionJitter: Float = 0.3f,
+) {
+    fun sanitized(): BrushBlot = copy(
+        lengthPx = lengthPx.coerceAtLeast(0f),
+        sizeMultiplier = sizeMultiplier.coerceIn(0f, 8f),
+        opacityMultiplier = opacityMultiplier.coerceIn(0f, 8f),
+        extraStamps = extraStamps.coerceIn(0, 8),
+        angleJitterDeg = angleJitterDeg.coerceIn(0f, 180f),
+        positionJitter = positionJitter.coerceIn(0f, 1f),
+    )
+
+    fun isActive(): Boolean =
+        lengthPx > 0f && (sizeMultiplier != 1f || opacityMultiplier != 1f || extraStamps > 0)
+}
+
 @Serializable
 data class MaskedBrushConfig(
     val shapePath: String? = null,
@@ -143,6 +186,8 @@ data class AzphaltBrush(
     val dynamics: List<BrushSensorBinding> = emptyList(),
     /** Default disables both zones, so existing brushes render exactly as before. */
     val taper: BrushTaper = BrushTaper(),
+    /** Default disables it, so existing brushes render exactly as before -- see [BrushBlot]. */
+    val blot: BrushBlot = BrushBlot(),
     /** Airbrush build-up (roadmap item 13, [AirbrushEngine.heldDabs]): additional dabs deposited
      *  at this cadence while the pointer is held roughly still. 0 (the default) disables it
      *  entirely, matching [AirbrushEngine.heldDabs]'s own "non-positive disables" contract, so
@@ -194,6 +239,7 @@ data class AzphaltBrush(
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
         taper = taper.sanitized(),
+        blot = blot.sanitized(),
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
         airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
         impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
@@ -232,6 +278,9 @@ data class AzphaltBrush(
             val taper = params?.get("taper")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<BrushTaper>(element) }.getOrNull()
             }?.sanitized() ?: BrushTaper()
+            val blot = params?.get("blot")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<BrushBlot>(element) }.getOrNull()
+            }?.sanitized() ?: BrushBlot()
 
             return AzphaltBrush(
                 name = name,
@@ -261,6 +310,7 @@ data class AzphaltBrush(
                 maskedBrush = maskedBrush,
                 dynamics = dynamics,
                 taper = taper,
+                blot = blot,
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
                 airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
                 impastoThicknessRate = (f("impastoThicknessRate") ?: 0f).coerceAtLeast(0f),

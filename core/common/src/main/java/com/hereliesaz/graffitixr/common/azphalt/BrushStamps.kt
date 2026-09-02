@@ -14,6 +14,7 @@ private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
 private const val MASK_LONGITUDINAL_SEED_SALT = 0x4D41534B5F4C4F4EL // "MASK_LON"
 private const val COUNT_SEED_SALT = 0x434F554E545F4A54L // "COUNT_JT"
+private const val BLOT_SEED_SALT = 0x424C4F545F534841L // "BLOT_SHA"
 
 /** How many dabs [AzphaltBrush.count]/[AzphaltBrush.countJitter] emit at one placement point.
  *  count<=1 always returns 1, and count without jitter returns count unchanged, so this draws no
@@ -179,7 +180,8 @@ object BrushStamps {
         if (real.isEmpty() || diameter <= 0f) return emptyList()
         val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
         val taper = brush.taper
-        if (brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive()) {
+        val blot = brush.blot
+        if (brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive() && !blot.isActive()) {
             val points = ArrayList<Float>(real.size * 2)
             real.forEach { points.add(it.x); points.add(it.y) }
             return dabs(points, diameter, brush, seed)
@@ -194,6 +196,7 @@ object BrushStamps {
         val colorRng = Random(seed xor COLOR_SEED_SALT)
         val longRng = Random(seed xor LONGITUDINAL_SEED_SALT)
         val countRng = Random(seed xor COUNT_SEED_SALT)
+        val blotRng = Random(seed xor BLOT_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
         // Only needed for lift-off's velocity-derived synthetic pressure; harmless when unused.
@@ -218,7 +221,14 @@ object BrushStamps {
             val taperT = minOf(startTaperT, endTaperT)
             val taperSize = lerp(taper.minSize, 1f, taperT)
             val taperOpacity = lerp(taper.minOpacity, 1f, taperT)
-            val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize
+            // First-touch blot: full strength at at=0, linearly decayed away by blot.lengthPx --
+            // independent of (and composes with) the shrink-only taper above, since this spikes
+            // ABOVE the resting size/opacity rather than fading towards it. See BrushBlot's doc
+            // comment for why taper's own 0..1-clamped minSize/minOpacity can't model this.
+            val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
+            val blotSize = lerp(blot.sizeMultiplier, 1f, blotT)
+            val blotOpacity = lerp(blot.opacityMultiplier, 1f, blotT)
+            val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize * blotSize
             val headingDeg = sample.drawingAngleDeg
 
             repeat(resolveDabCount(brush, countRng)) {
@@ -227,9 +237,11 @@ object BrushStamps {
                 val scatR = rng.nextFloat()
                 val longR = longRng.nextFloat()
 
-                val radius = baseRadius * dynamic.sizeMultiplier * taperSize * (1f - brush.sizeJitter * sizeR)
+                val radius = baseRadius * dynamic.sizeMultiplier * taperSize * blotSize *
+                    (1f - brush.sizeJitter * sizeR)
                 val alpha = (
-                    brush.opacity * dynamic.opacityMultiplier * taperOpacity * (1f - brush.opacityJitter * opacR)
+                    brush.opacity * dynamic.opacityMultiplier * taperOpacity * blotOpacity *
+                        (1f - brush.opacityJitter * opacR)
                     ).coerceIn(0f, 1f)
 
                 var x = sample.x
@@ -285,6 +297,37 @@ object BrushStamps {
                         mask = mask,
                     )
                 )
+
+                // First-touch blot pattern: extra copies of the same tip, each randomly re-angled
+                // and nudged, layered on top of the primary dab above -- a real brush's bristles
+                // splay in random directions on first contact rather than the mark growing evenly
+                // in every direction. Fades out over the same blot window as the primary spike.
+                if (blot.extraStamps > 0 && blotT < 1f) {
+                    val fade = (1f - blotT).coerceIn(0f, 1f)
+                    repeat(blot.extraStamps) {
+                        val jitterAngle = (blotRng.nextFloat() * 2f - 1f) * blot.angleJitterDeg
+                        val jitterMag = blot.positionJitter * resolvedDiameter * blotRng.nextFloat()
+                        val jitterDir = blotRng.nextFloat() * 360f * DEG_TO_RAD
+                        out.add(
+                            Dab(
+                                x = x + jitterMag * cos(jitterDir),
+                                y = y + jitterMag * sin(jitterDir),
+                                radius = radius.coerceAtLeast(0f),
+                                alpha = (alpha * fade).coerceIn(0f, 1f),
+                                angleDeg = angle + jitterAngle,
+                                tipRatio = (brush.tipRatio * dynamic.tipRatioMultiplier).coerceIn(0.05f, 1f),
+                                hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
+                                flowMultiplier = dynamic.flowMultiplier,
+                                hueShiftDeg = dynamic.hueShiftDeg,
+                                saturationMultiplier = dynamic.saturationMultiplier,
+                                valueMultiplier = dynamic.valueMultiplier,
+                                colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
+                                sourceRandom = colorRng.nextFloat(),
+                                mask = null,
+                            )
+                        )
+                    }
+                }
             }
 
             if (total <= 0f) break
