@@ -14,7 +14,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -24,6 +27,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -94,6 +98,7 @@ import com.hereliesaz.graffitixr.feature.editor.ToolOptionsWindow
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
+import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.CustomBrushesWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
@@ -273,6 +278,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // that ends up rendered somewhere unreachable (a real failure mode of the FLOATING anchor's
     // screen-edge-docking/persistence machinery, not merely a hypothetical one this app has hit).
     var showLayersRail by remember { mutableStateOf(true) }
+    // Same "core, not opt-in" contract as showLayersRail above: a quick-pick strip of brush
+    // thumbnails, always reachable while painting, rather than only through the rail's collapsed
+    // "Brushes" group or the full "My Brushes" gallery window -- neither of which stays visible
+    // while a stroke is in progress the way this does.
+    var showBrushRail by remember { mutableStateOf(true) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -582,6 +592,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 toolOptionsOpen = showToolOptions,
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
                 showLayersRail = showLayersRail,
+                showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
             )
 
@@ -781,6 +792,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 onToggle = onToggle,
                             )
                         areaToggle("Layers", showLayersRail) { showLayersRail = it }
+                        areaToggle("Brushes", showBrushRail) { showBrushRail = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
@@ -1388,69 +1400,102 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
     // value through an accessible slider (SizePickerDialog) instead, without touching the drag
     // gesture setters below it depends on.
     var showSizePicker by remember { mutableStateOf(false) }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged { itemPx = it.width.toFloat() }
-            .clickable(onClickLabel = "Set brush size") { showSizePicker = true }
-            .pointerInput(Unit) {
-                detectDragGestures { change, drag ->
-                    change.consume()
-                    if (drag.y != 0f) {
-                        val cur = vm.uiState.value.brushSize
-                        // Clamped to the brush's real range, NOT to this pad's rendered width. The
-                        // pad used to cap the value at its own measured size, which was harmless
-                        // only while a rail slider could still reach 200 px; it is the sole size
-                        // control now, so that ceiling would silently become the maximum brush in
-                        // the app — and a pad narrower than the current size would snap it down on
-                        // the first touch. The width still bounds the *preview* below, which is all
-                        // it was ever entitled to bound.
-                        vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
-                    }
-                    if (drag.x != 0f) {
-                        // Hardness, always — never flow. The axis used to mean feathering for the
-                        // round brush and stamp-brush flow for anything else, so the same gesture
-                        // did two unrelated things depending on state you could not see from the
-                        // pad, and the preview had to show opacity to reflect it. Flow is a stamp
-                        // brush's own parameter and lives in Tool Options with the other dials.
-                        val cur = vm.uiState.value.brushFeathering
-                        vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
+    val feather = state.brushFeathering.coerceIn(0f, 1f)
+    val hardnessPercent = ((1f - feather) * 100f).roundToInt()
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val feather = state.brushFeathering.coerceIn(0f, 1f)
-        // The preview is the brush's actual footprint at its actual size, so what you see while
-        // dragging is what the next stroke puts down.
-        //
-        // **Softness, drawn as softness.** A hard brush is a disc with a hard edge; a soft one fades
-        // out over its radius; and the horizontal drag moves continuously between the two, which is
-        // exactly what a radial gradient expresses. This used to be a flat 30%-alpha ring around a
-        // shrunken solid core — two hard edges standing in for one soft one, which reads as a
-        // translucent brush rather than a soft one. The pad ended up demonstrating *opacity*, the
-        // one property it does not control.
-        //
-        // Nothing here is ever drawn translucent. Alpha is opacity, the pad does not set opacity,
-        // and a preview that dims is a preview that lies about which dial you are on.
-        Canvas(Modifier.fillMaxSize()) {
-            val maxR = maxOf(minOf(size.width, size.height) / 2f, 1f)
-            val radius = (state.brushSize / 2f).coerceIn(1.5f, maxR)
-            // Where the solid core ends and the falloff begins: the whole radius when hard, the
-            // centre point when fully soft.
-            val core = (1f - feather).coerceIn(0f, 1f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    // Two stops at the same offset give the hard-edged case a genuine hard edge
-                    // rather than a one-pixel ramp.
-                    0f to Cyan,
-                    core to Cyan,
-                    1f to Cyan.copy(alpha = 0f),
-                    center = center,
-                    radius = radius,
-                ),
-                radius = radius,
-                center = center,
+        // Size, above the preview: the number the drag's vertical axis is currently set to, read
+        // at a glance without waiting for the drag to settle or opening SizePickerDialog.
+        Text(
+            text = "${state.brushSize.roundToInt()}px",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { itemPx = it.width.toFloat() }
+                .clickable(onClickLabel = "Set brush size") { showSizePicker = true }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        if (drag.y != 0f) {
+                            val cur = vm.uiState.value.brushSize
+                            // Clamped to the brush's real range, NOT to this pad's rendered width. The
+                            // pad used to cap the value at its own measured size, which was harmless
+                            // only while a rail slider could still reach 200 px; it is the sole size
+                            // control now, so that ceiling would silently become the maximum brush in
+                            // the app — and a pad narrower than the current size would snap it down on
+                            // the first touch. The width still bounds the *preview* below, which is all
+                            // it was ever entitled to bound.
+                            vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
+                        }
+                        if (drag.x != 0f) {
+                            // Hardness, always — never flow. The axis used to mean feathering for the
+                            // round brush and stamp-brush flow for anything else, so the same gesture
+                            // did two unrelated things depending on state you could not see from the
+                            // pad, and the preview had to show opacity to reflect it. Flow is a stamp
+                            // brush's own parameter and lives in Tool Options with the other dials.
+                            val cur = vm.uiState.value.brushFeathering
+                            vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
+                        }
+                    }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The preview is the brush's actual footprint at its actual size, so what you see while
+            // dragging is what the next stroke puts down.
+            //
+            // **Softness, drawn as softness.** A hard brush is a disc with a hard edge; a soft one
+            // fades out over its radius; and the horizontal drag moves continuously between the two,
+            // which is exactly what a radial gradient expresses. This used to be a flat 30%-alpha ring
+            // around a shrunken solid core — two hard edges standing in for one soft one, which reads
+            // as a translucent brush rather than a soft one. The pad ended up demonstrating
+            // *opacity*, the one property it does not control.
+            //
+            // Nothing here is ever drawn translucent. Alpha is opacity, the pad does not set opacity,
+            // and a preview that dims is a preview that lies about which dial you are on.
+            //
+            // The swatch behind the dab now matches the document's own canvas background rather than
+            // this composable's own (transparent/rail) background, so the preview's contrast reads
+            // the same as painting onto the actual document would.
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    drawRect(color = state.canvasBackground)
+                    val maxR = maxOf(minOf(size.width, size.height) / 2f, 1f)
+                    val radius = (state.brushSize / 2f).coerceIn(1.5f, maxR)
+                    // Where the solid core ends and the falloff begins: the whole radius when hard,
+                    // the centre point when fully soft.
+                    val core = (1f - feather).coerceIn(0f, 1f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            // Two stops at the same offset give the hard-edged case a genuine hard
+                            // edge rather than a one-pixel ramp.
+                            0f to Cyan,
+                            core to Cyan,
+                            1f to Cyan.copy(alpha = 0f),
+                            center = center,
+                            radius = radius,
+                        ),
+                        radius = radius,
+                        center = center,
+                    )
+                }
+            }
+            // Hardness, to the right of the preview -- the number the drag's horizontal axis is
+            // currently set to.
+            Text(
+                text = "$hardnessPercent%",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
             )
         }
     }
@@ -1684,6 +1729,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     toolOptionsOpen: Boolean,
     onForgetSelectionRequested: (String) -> Unit,
     showLayersRail: Boolean,
+    showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
@@ -2201,6 +2247,76 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
+    // Brushes, as a persistent quick-pick strip of thumbnails on the opposite screen edge from the
+    // main rail -- the same OPPOSITE-anchored, always-reachable-while-painting pattern grp.layers
+    // uses just above (see that host's own doc comment for why OPPOSITE rather than FLOATING).
+    // Stacks below grp.layers in that column automatically; the two were never meant to compete for
+    // the same reach the way an expand-collapse rail group would.
+    //
+    // Distinct from the flat "brush.*" entries still living inside grp.brushes (the collapsed rail
+    // group): those exist for discovery and for Brush Studio/My Brushes, which stay there. This
+    // strip is for switching mid-painting without opening anything. Every item here reuses that
+    // group's own classifiers (`classifiers = setOf("brush.…")`, not `id`) so the two stay in sync
+    // automatically through railColor()/activeRailClassifiers() -- picking a brush here lights the
+    // same entry there, and vice versa, with no separate highlight bookkeeping.
+    //
+    // Each item's own content IS the brush's preview -- BrushPreview (BrushStudioWindow.kt),
+    // already used as My Brushes' own gallery thumbnail, reused directly rather than rendering a
+    // second thumbnail pipeline from scratch. Brush extensions (the `brushes` list) fall back to a
+    // plain icon: resolving an installed extension's actual AzphaltBrush here would mean plumbing
+    // its asset resolver through this builder for a preview alone, real work of its own rather than
+    // a one-line addition -- left as a known gap rather than guessed at.
+    if (showBrushRail) {
+        azUnattachedHostItem(
+            id = "grp.brushRail",
+            text = "Brushes",
+            anchor = AzUnattachedAnchor.OPPOSITE,
+            content = GraffuxIcons.BrushLibrary,
+            color = navItemColor,
+            shape = AzButtonShape.NONE_SQUARE,
+        )
+        azRailSubItem(
+            id = "brushRail.round", hostId = "grp.brushRail", text = "Round",
+            content = GraffuxIcons.BrushCursor,
+            classifiers = setOf("brush.round"),
+            color = railColor("grp.brushes"),
+            onClick = { vm.selectBrushExtension(null) },
+        )
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.forEach { preset ->
+            azRailSubItem(
+                id = "brushRail.builtin.${preset.name}", hostId = "grp.brushRail", text = preset.name,
+                content = AzComposableContent {
+                    BrushPreview(preset, uiState.activeColor, uiState.secondaryColor, height = 32.dp)
+                },
+                classifiers = setOf("brush.builtin.${preset.name}"),
+                color = railColor("brush.builtin.${preset.name}"),
+                shape = AzButtonShape.SQUARE,
+                onClick = { vm.selectBuiltInBrush(preset.name) },
+            )
+        }
+        customBrushes.forEach { custom ->
+            azRailSubItem(
+                id = "brushRail.custom.${custom.id}", hostId = "grp.brushRail", text = custom.brush.name,
+                content = AzComposableContent {
+                    BrushPreview(custom.brush, uiState.activeColor, uiState.secondaryColor, height = 32.dp)
+                },
+                classifiers = setOf("brush.custom.${custom.id}"),
+                color = railColor("brush.custom.${custom.id}"),
+                shape = AzButtonShape.SQUARE,
+                onClick = { vm.selectCustomBrush(custom.id) },
+            )
+        }
+        brushes.forEach { (id, name) ->
+            azRailSubItem(
+                id = "brushRail.ext.$id", hostId = "grp.brushRail", text = name,
+                content = GraffuxIcons.BrushImport,
+                classifiers = setOf("brush.$id"),
+                color = railColor("brush.$id"),
+                onClick = { vm.selectBrushExtension(id) },
+            )
+        }
+    }
+
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
@@ -2233,6 +2349,9 @@ private fun AzNavHostScope.ConfigureRailItems(
     // colour swatch, every tool glyph, the mode pickers. A badge repeating what the button already
     // draws is noise in a strip this dense.
     azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
+    // The Brush tool's own glyph doesn't say a size at all -- unlike the drag pad above, whose
+    // preview already is the size. Same number, so the two never disagree.
+    azItemState(id = "tool.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
     // Top-level count, matching what the host actually renders (the `parentId == null` filter
     // above) — not uiState.layers.size, which is the flat list and includes every group's
     // children. With one group of two children plus a loose layer, the flat count is 3 but the
