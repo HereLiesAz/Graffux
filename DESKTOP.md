@@ -65,6 +65,17 @@ sound finished — see each claim's own verification note.
   harness, despite roughly a dozen coordinate/timing/warm-up-click variations that all worked for
   Undo — so Redo's rail button is implemented and its logic is verified, but its click path is
   unverified end-to-end pending on-device (or non-headless) testing.
+- **Clear.** `CanvasState.clear()` wipes the canvas to a blank `BufferedImage` the same size as the
+  current one, pushing the pre-clear content onto the undo stack first (so Clear is itself undoable)
+  and dropping the redo stack, exactly like any other edit. A "Clear" rail item is wired to it,
+  disabled only when there's no canvas yet (`committed == null`, i.e. before the surface has ever been
+  sized). **Verified end-to-end, click included** — unlike Redo above, this one reproduced cleanly:
+  a scripted drag painted a stroke (screenshot confirms it on screen), clicking Clear removed it
+  (screenshot confirms a blank canvas), and debug instrumentation on `canUndo`/`canRedo` confirmed the
+  state transition was exactly right — `canUndo` was `false` before the stroke, `true` after it
+  committed, and *still* `true` after Clear (the pre-clear stroke is sitting in the undo stack, so
+  Undo would bring it back), while `canRedo` stayed `false` throughout (Clear cleared the redo stack,
+  same as it started). No Xvfb-focus quirk was hit this time — the click registered on the first try.
 
 ### A real bug this session's own testing found and fixed: release detection
 

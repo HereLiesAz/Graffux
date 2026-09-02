@@ -98,10 +98,10 @@ private fun GraffuxDesktopApp() {
             noMenu = true,
             packButtons = true,
             activeClassifiers = setOf(selectedBrush.name),
-            // The library's fixed "About" footer is pinned below the rail's item list regardless
-            // of how many items precede it; with 5 real items (4 presets + Undo) in this small
-            // window it visually overlapped the last item and silently absorbed its clicks. This
-            // app doesn't call azAbout() anyway, so there's nothing the footer would show.
+            // This app doesn't call azAbout(), so there is nothing the library's own "About"
+            // footer would show. (The rail item cut off below the window's visible area, further
+            // down in this file's history, turned out to be the *window* running out of vertical
+            // room, not this footer -- see the Window() call's own comment.)
             showFooter = false,
         )
         BuiltInBrushes.presets.forEach { preset ->
@@ -123,6 +123,12 @@ private fun GraffuxDesktopApp() {
             text = "Redo",
             disabled = !canvasState.canRedo,
             onClick = { canvasState.redo() },
+        )
+        azRailItem(
+            id = "action.clear",
+            text = "Clear",
+            disabled = canvasState.committed == null,
+            onClick = { canvasState.clear() },
         )
 
         background(weight = 0) {

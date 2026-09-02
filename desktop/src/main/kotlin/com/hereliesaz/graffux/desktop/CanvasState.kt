@@ -49,4 +49,13 @@ class CanvasState {
     fun replaceWithoutHistory(frame: BufferedImage) {
         committed = frame
     }
+
+    /** Wipes the canvas back to blank, same size as the current one -- pushes the current content
+     *  onto the undo stack first, so "Clear" is itself undoable like any other edit. */
+    fun clear() {
+        val current = committed ?: return
+        undoStack.add(current)
+        redoStack.clear()
+        committed = BufferedImage(current.width, current.height, BufferedImage.TYPE_INT_ARGB)
+    }
 }
