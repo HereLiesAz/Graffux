@@ -88,6 +88,15 @@ sound finished — see each claim's own verification note.
   placeholder. **Verified end-to-end**: drew a stroke, clicked Save, confirmed a real PNG landed on
   disk at the exact path the UI reported, and confirmed by reading that PNG back that its pixel
   content is the same stroke that was on screen (not a blank or corrupt file).
+- **Brush flow.** Android's `feature:editor` (`EditorViewModel.brushFlow`) exposes a real flow
+  control -- per-dab colour build-up along a stroke, distinct from opacity -- that `EditorViewModel`
+  threads into the shared engine's `compositeTileParallel(..., flow = ...)`. The desktop app's
+  `DesktopStampCanvas` already called that exact function but had `flow` hardcoded to `1f`; it's now
+  a real parameter threaded from a "Flow" slider next to the brush-size one in `Main.kt`, through
+  `DesktopStampCanvas(flow = ...)`, into the same shared compositor call Android uses. **Verified
+  end-to-end**: drew a stroke at 100% flow (solid), lowered the slider to 17%, drew a second stroke,
+  and confirmed by screenshot that the second stroke rendered visibly and correctly lighter than the
+  first — not just that the slider moved, that the pixels it produced actually differ.
 - **A real HSV disc colour picker (`ColorWheel.kt`), not just the 8-swatch palette.** Android's
   `feature:editor` already has one (`ColorPickerDialog`/`ColorWheel` in `SketchToolsDialog.kt`) built
   on `android.graphics.Color.HSVToColor`/`RGBToHSV` and `android.graphics.Bitmap` — neither exists on

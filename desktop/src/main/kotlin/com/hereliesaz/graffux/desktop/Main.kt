@@ -84,6 +84,7 @@ fun main() = application {
 private fun GraffuxDesktopApp() {
     val navController = rememberNavController()
     var brushRadius by remember { mutableFloatStateOf(24f) }
+    var brushFlow by remember { mutableFloatStateOf(1f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     val canvasState = remember { CanvasState() }
@@ -159,6 +160,19 @@ private fun GraffuxDesktopApp() {
                         )
                     }
                     Spacer(modifier = Modifier.width(24.dp))
+                    Column {
+                        // Android's brushFlow (feature:editor's EditorViewModel) -- per-dab colour
+                        // build-up along a stroke, same shared engine param compositeTileParallel
+                        // already accepted here but had hardcoded to 1f until now.
+                        Text("Flow: ${(brushFlow * 100).toInt()}%")
+                        Slider(
+                            value = brushFlow,
+                            onValueChange = { brushFlow = it },
+                            valueRange = 0.05f..1f,
+                            modifier = Modifier.width(160.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(24.dp))
                     Row {
                         PALETTE.forEach { color ->
                             Spacer(modifier = Modifier.width(6.dp))
@@ -220,6 +234,7 @@ private fun GraffuxDesktopApp() {
                     brush = selectedBrush,
                     brushRadiusPx = brushRadius,
                     colorArgb = selectedColor.toArgb(),
+                    flow = brushFlow,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 )
             }

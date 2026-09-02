@@ -59,6 +59,7 @@ fun DesktopStampCanvas(
     brush: AzphaltBrush,
     brushRadiusPx: Float,
     colorArgb: Int,
+    flow: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -89,7 +90,7 @@ fun DesktopStampCanvas(
                     state.replaceWithoutHistory(fresh)
                 }
             }
-            .pointerInput(brush, brushRadiusPx, colorArgb) {
+            .pointerInput(brush, brushRadiusPx, colorArgb, flow) {
                 val sampleBuilder = BrushSampleBuilder()
                 val samples = ArrayList<BrushSample>()
                 var strokeBase: BufferedImage? = null
@@ -105,7 +106,7 @@ fun DesktopStampCanvas(
                         colorArgb = colorArgb,
                         secondaryColorArgb = colorArgb,
                         colorSource = BrushColorSource.PLAIN,
-                        flow = 1f,
+                        flow = flow,
                     )
                     val pixels = IntArray(base.width * base.height)
                     base.getRGB(0, 0, base.width, base.height, pixels, 0, base.width)
