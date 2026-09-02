@@ -23,9 +23,10 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Graffux"
 include(":app")
-include(":core:common", ":core:domain", ":core:data", ":core:nativebridge", ":core:design")
+include(":core:common", ":core:domain", ":core:data", ":core:nativebridge", ":core:design", ":core:engine")
 include(":feature:editor")
 include(":tools:hotreload-preview")
+include(":desktop")
 
 // OpenCV (Java + native C++) is imported as a normal Maven Central dependency (org.opencv:opencv),
 // not vendored. Since 4.9.0 that artifact ships a Prefab part, so `find_package(OpenCV)` in native

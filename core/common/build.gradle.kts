@@ -42,6 +42,11 @@ tasks.withType<KotlinCompile>().configureEach {
 }
 
 dependencies {
+    // The azphalt stamp-brush engine — pure Kotlin, shared with the desktop Compose Multiplatform
+    // app via core:engine's jvm("desktop") target. `api` because UiSchema/AzphaltBrush/etc. leak
+    // into this module's own public API (feature:editor sees them transitively today).
+    api(project(":core:engine"))
+
     // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
