@@ -11,11 +11,11 @@ using graffux::VulkanStampEngine;
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolvedDabs(
-        JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jfloat hardness) {
+        JNIEnv* env, jobject, jlong handle, jfloatArray dabData) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabData);
-    constexpr int kStride = 10;  // x,y,radius,alpha,angle,r,g,b,a,flow
+    constexpr int kStride = 11;  // x,y,radius,alpha,angle,r,g,b,a,flow,hardness
     if (count <= 0 || count % kStride != 0) return JNI_FALSE;
 
     jfloat* data = env->GetFloatArrayElements(dabData, nullptr);
@@ -35,11 +35,16 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
         d.colorA = std::clamp(data[i + 8], 0.0f, 1.0f);
         d.flow = std::max(data[i + 9], 0.0f);
         d.resolved = 1.0f;
+        // Repurposed trailing float -- see GpuDab's doc comment: stamp.comp reads this as this
+        // dab's own resolved hardness (not tipRatio) whenever `resolved` is set, as it always is
+        // here.
+        d.tipRatio = std::clamp(data[i + 10], 0.0f, 1.0f);
         dabs.push_back(d);
     }
     env->ReleaseFloatArrayElements(dabData, data, JNI_ABORT);
-    return engine->stampDabs(dabs, 0xFFFFFFFFu, std::clamp(hardness, 0.0f, 1.0f))
-        ? JNI_TRUE : JNI_FALSE;
+    // pc.hardness is unused by the shader for every dab in this call (all resolved=1, so each
+    // reads its own d.tipRatio-as-hardness instead) -- the value passed here is a placeholder.
+    return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

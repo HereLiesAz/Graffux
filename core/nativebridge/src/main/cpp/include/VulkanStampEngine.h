@@ -24,6 +24,10 @@ namespace graffux {
 // (a round/square tip) is meaningful only to a stampMaskedDabs() caller, which must set it per dab
 // explicitly rather than relying on this default; there is no "legacy" masked caller to preserve
 // compatibility for the way `resolved` preserves stamp.comp's original five-field callers.
+// stamp.comp (the plain round-dab shader) instead repurposes this same trailing float, for a
+// *resolved* dab only, as that dab's own hardness override (see AzphaltBrush.hardness / a
+// HARDNESS BrushSensorBinding) -- the two shaders never share a dab list, so there is no conflict
+// between the two interpretations of this field.
 struct GpuDab {
     float x;
     float y;

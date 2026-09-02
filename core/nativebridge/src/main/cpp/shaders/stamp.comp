@@ -4,10 +4,15 @@ layout(local_size_x = 16, local_size_y = 16) in;
 // Explicit 3×vec4 std430 layout: exactly 48 bytes per dab, matching GpuDab's twelve floats.
 // This avoids relying on compiler-specific intuition about the array stride of a scalar-only struct.
 // Legacy JNI leaves paint1.z (`resolved`) zero, so existing callers keep using push-constant paint.
+// paint1.w is unused by THIS shader's own tip (stamp_masked.comp repurposes the identical byte
+// offset as `tipRatio`); a resolved dab (paint1.z >= 0.5) instead carries its per-dab resolved
+// hardness there -- see BrushStamps.dynamicDabs/AzphaltBrush.hardness and
+// VulkanStampEngine.ResolvedBrushDab.hardness on the Kotlin side. A legacy (unresolved) dab falls
+// back to the push-constant `pc.hardness`, matching its pre-existing behavior exactly.
 struct Dab {
     vec4 geometry; // x, y, radius, alpha
     vec4 paint0;   // angleDeg, colorR, colorG, colorB
-    vec4 paint1;   // colorA, flow, resolved, padding
+    vec4 paint1;   // colorA, flow, resolved, hardness (resolved dabs only)
 };
 
 layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
@@ -47,10 +52,11 @@ void main() {
         float radius = max(d.geometry.z, 0.5);
         float dabAlpha = d.geometry.w;
         if (abs(p.x - center.x) > radius || abs(p.y - center.y) > radius) continue;
-        float coverage = stampCoverage(distance(p, center), radius, pc.hardness);
+        bool hasResolvedPaint = d.paint1.z >= 0.5;
+        float dabHardness = hasResolvedPaint ? d.paint1.w : pc.hardness;
+        float coverage = stampCoverage(distance(p, center), radius, dabHardness);
         if (coverage <= 0.0) continue;
 
-        bool hasResolvedPaint = d.paint1.z >= 0.5;
         vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);
         float baseAlpha = hasResolvedPaint ? d.paint1.x : pc.baseAlpha;
         float dabFlow = hasResolvedPaint ? max(d.paint1.y, 0.0) : 1.0;
