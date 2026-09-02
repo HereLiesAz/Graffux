@@ -32,6 +32,23 @@ sound finished — see each claim's own verification note.
   concrete "optimized for Surface Pro hardware" lever in this pass: Surface Pro devices are
   multi-core (no discrete GPU compute available to a portable Compose Desktop app — see below), so
   spreading rasterization across cores is the real, portable win available here.
+- **The real AzNavRail UI.** `aznavrail-cmp` (`com.github.HereLiesAz.AzNavRail:aznavrail-cmp`,
+  bumped to 11.44 for this) is a genuine Compose Multiplatform port of the same DSL the Android app
+  uses — `AzHostActivityLayout`, `azConfig`, `azTheme`, `azRailItem`, all package-compatible — with
+  a published `jvm("desktop")` target. An earlier draft of this document claimed AzNavRail was
+  Android-AAR-only; that was wrong (checked only the locally-resolved Gradle cache, not the
+  upstream repo's actual module list). The desktop app now runs the real rail, not a placeholder
+  Material3 scaffold: **verified** by `:desktop:run` under Xvfb showing the rail (hamburger menu,
+  a "Brush" item with a live size badge, the library's own built-in help item) rendered alongside a
+  working canvas, and a scripted drag still painting correctly with the rail present.
+- **Brush presets and dab generation now use the SAME shared engine calls Android does**, not a
+  desktop-only approximation. `DesktopStampCanvas` builds `BrushSample`s via `BrushSampleBuilder`
+  and calls `BrushStamps.dynamicDabs(samples, diameter, brush, seed)` — the shared entry point that
+  resolves sensor-bound dynamics (`BrushSensorEngine.resolve`), taper, first-touch blot and jitter,
+  exactly like the Android stroke pipeline — instead of a hand-rolled pressure→size curve. The rail
+  offers `BuiltInBrushes.presets` (Soft Round, Hard Round, Airbrush, Ink Pen) — the same shared,
+  pure-Kotlin brush definitions Android ships with. **Verified**: compiles, and a scripted drag
+  still paints a correct soft-falloff stroke through this path (screenshot captured).
 
 ## What's deliberately NOT done in this pass, and why
 
@@ -45,21 +62,23 @@ sound finished — see each claim's own verification note.
 - **No stylus tilt.** Compose Multiplatform Desktop currently exposes pointer pressure and
   `PointerType`, not tilt/orientation, so tilt-driven brush behavior (available on Android via
   `BrushSample.tiltRadians`) has no desktop input source yet.
-- **No AzNavRail UI.** AzNavRail ships as an Android AAR only (confirmed: only Android release
-  variants are ever resolved in this build's Gradle cache); it has no desktop-JVM Compose
-  Multiplatform target. The desktop app's UI is a minimal Material3 scaffold, not a port of the
-  Android rail/tool UI.
-- **No Hilt DI, OpenCV, CameraX, or the full editor.** Those are Android-only dependencies
-  (`core:common`'s AR/vision/import pipeline) not touched or ported this session. The desktop app
-  is a standalone drawing-canvas vertical slice proving the shared engine and desktop renderer,
-  not a port of `feature:editor`'s full stroke pipeline (sensor-binding UI, shaped/masked tips,
-  layers, undo, grain, airbrush hold-to-build-up, etc.).
-- **`BrushStamps.place`'s arc-length dab placement is not wired into the desktop canvas.** The
-  desktop app stamps a dab per pointer-move event past a minimum spacing threshold, rather than
-  resampling the path at fixed arc-length intervals with interpolated pressure the way the Android
-  editor does. This is simpler and correctly exercises the shared falloff/compositing math, but a
-  faithful port of arc-length placement (which needs per-dab pressure interpolation along the
-  resampled path, not just at the original sample points) is real follow-up work.
+- **The rail only has a brush-preset switcher and an 8-swatch palette.** `AzHostActivityLayout`/
+  `azConfig`/`azRailItem` are real and wired up (see above), and colour selection genuinely works
+  (a fixed swatch row, not a full HSV picker), but the desktop app doesn't yet reproduce the rest of
+  the Android rail's tool set (layers, selection tools, Brush Studio, undo/redo, extensions manager,
+  About/Help screens the library provides for free but this app hasn't populated with app-specific
+  content). This is a UI population gap now, not a library-capability gap.
+- **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
+  dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
+  no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as
+  a near-term follow-up.
+- **No layers, undo/redo, or project persistence** (save/load a `.graffux` project, export). The
+  desktop canvas is a single always-live bitmap.
+- **Shaped/masked brush tips, grain, and the masked-brush dual-tip compositor are not wired in** —
+  `BrushStamps.dynamicDabs` resolves them when a preset declares them, but no built-in preset does
+  and the desktop app has no extension-install flow to bring in tip/grain assets yet, so this is
+  untested on desktop specifically (it IS tested via the Android-side azphalt suite, which still
+  passes against the same shared code).
 - **Windows packaging is configured but unverified.** `nativeDistributions` in
   `desktop/build.gradle.kts` declares `Msi` alongside Linux's `Deb`/`Rpm`. Building an actual `.msi`
   needs the WiX Toolset, which only runs on a Windows host/CI runner — not available here, so the
