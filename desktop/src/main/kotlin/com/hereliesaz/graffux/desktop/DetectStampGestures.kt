@@ -3,7 +3,6 @@ package com.hereliesaz.graffux.desktop
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.changedToUp
 
 /**
  * A hand-rolled press/drag/release gesture loop, deliberately NOT [androidx.compose.foundation.gestures.detectDragGestures]:
@@ -44,7 +43,7 @@ suspend fun PointerInputScope.detectStampGestures(
                 val event = awaitPointerEvent()
                 event.changes.firstOrNull { it.id == pointerId }?.also { it.consume() }
             } ?: break
-            if (change.changedToUp()) {
+            if (!change.pressed) {
                 onEnd()
                 break
             }

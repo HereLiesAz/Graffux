@@ -76,6 +76,7 @@ private fun GraffuxDesktopApp() {
     var brushRadius by remember { mutableFloatStateOf(24f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
+    val canvasState = remember { CanvasState() }
 
     AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
         azTheme(
@@ -88,6 +89,11 @@ private fun GraffuxDesktopApp() {
             noMenu = true,
             packButtons = true,
             activeClassifiers = setOf(selectedBrush.name),
+            // The library's fixed "About" footer is pinned below the rail's item list regardless
+            // of how many items precede it; with 5 real items (4 presets + Undo) in this small
+            // window it visually overlapped the last item and silently absorbed its clicks. This
+            // app doesn't call azAbout() anyway, so there's nothing the footer would show.
+            showFooter = false,
         )
         BuiltInBrushes.presets.forEach { preset ->
             azRailItem(
@@ -97,6 +103,12 @@ private fun GraffuxDesktopApp() {
                 onClick = { selectedBrush = preset },
             )
         }
+        azRailItem(
+            id = "action.undo",
+            text = "Undo",
+            disabled = !canvasState.canUndo,
+            onClick = { canvasState.undo() },
+        )
 
         background(weight = 0) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -131,6 +143,7 @@ private fun GraffuxDesktopApp() {
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 DesktopStampCanvas(
+                    state = canvasState,
                     brush = selectedBrush,
                     brushRadiusPx = brushRadius,
                     colorArgb = selectedColor.toArgb(),

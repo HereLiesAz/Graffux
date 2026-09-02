@@ -49,6 +49,49 @@ sound finished — see each claim's own verification note.
   offers `BuiltInBrushes.presets` (Soft Round, Hard Round, Airbrush, Ink Pen) — the same shared,
   pure-Kotlin brush definitions Android ships with. **Verified**: compiles, and a scripted drag
   still paints a correct soft-falloff stroke through this path (screenshot captured).
+- **Real Undo.** `CanvasState` keeps a whole-canvas-snapshot stack (`commitStroke` pushes the
+  pre-stroke bitmap on every release, `undo` pops it back); an "Undo" rail item wired to it, disabled
+  when the stack is empty. **Verified**: after fixing the release-detection bug below, drawing two
+  strokes and clicking Undo removes exactly the second stroke, leaving the first — confirmed by
+  screenshot, reproduced twice. This is a real (if simple, whole-snapshot-per-step) history, not a
+  single always-live bitmap with no way back.
+
+### A real bug this session's own testing found and fixed: release detection
+
+`DetectStampGestures.kt` originally ended a stroke on `PointerInputChange.changedToUp()`. Under this
+container's Xvfb + `java.awt.Robot`-driven testing, that check **never fired** — not occasionally,
+never. Every scripted "stroke" was silently becoming part of one never-ending gesture: `onEnd` (and
+therefore `CanvasState.commitStroke`) had not run a single time all session, despite strokes visibly
+painting and appearing to stack correctly (each frame's `displayBitmap` update alone was enough to
+*look* right, which is exactly how this went undetected — a single isolated stroke, or even several
+in sequence, looks indistinguishable on screen whether or not they're separately committed). Only
+adding Undo — which depends on strokes actually committing — surfaced it.
+
+Root cause traced with temporary `System.err.println` instrumentation (confirmed present in the
+running jar via `unzip | strings`, then confirmed the `onEnd`/`commitStroke` debug lines never
+appeared across two full strokes). Fixed by checking `!change.pressed` directly instead of
+`changedToUp()`, which depends on the change's `previous` state being chained correctly — something
+the AWT/Robot-driven synthetic pointer stream apparently wasn't providing. After the fix, `onEnd`
+fired for every real stroke and each one now composites and commits independently (confirmed: two
+sequential drags now paint as two independent strokes with correct dab counts each, not one
+concatenated stroke with dabs from both).
+
+**This was not a testing-only artifact** — it changes real behavior: before the fix, `samples` in
+`DesktopStampCanvas` never got cleared between strokes (`onEnd`'s cleanup never ran), so every stroke
+in a session was accumulating into one ever-growing sample list, recomposited from scratch each
+frame. That's both incorrect (no stroke boundary ever existed) and a growing-memory/CPU problem the
+longer a session ran. Whether `changedToUp()` also fails on real Linux/Windows desktop pointer input
+(vs. being an Xvfb+Robot-specific synthetic-event quirk) is **not established** — `!change.pressed`
+is the more defensive check either way and is what shipped.
+
+A second, separate finding while chasing this: clicking the **Undo** rail item specifically did not
+register on the very first attempt after a canvas drag, but worked reliably once preceded by a click
+on any other rail item. This reproduced consistently and is almost certainly an artifact of this
+environment (Xvfb has no window manager, so a synthetic `Robot` click may not transfer input focus to
+the window the way a real user's click does) rather than an app bug — every other explanation (state
+logic, `disabled` wiring, rail layout/footer overlap) was ruled out with debug instrumentation before
+landing on this one. Flagged here rather than silently working around it, since it could not be
+fully confirmed from this container.
 
 ## What's deliberately NOT done in this pass, and why
 
@@ -124,3 +167,7 @@ stands after these fixes, not the first draft glee reviewed.
   `jpackage` path as `Deb`, just a different target format, so it's expected to behave the same, but
   that's an expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the
   WiX Toolset, only available on a Windows host/CI runner (see above).
+- The real AzNavRail rail, brush-preset switching, colour palette, and Undo were all re-verified
+  after the release-detection fix above: two scripted strokes, click Undo, screenshot confirms only
+  the second stroke is removed (reproduced twice). `:core:engine:desktopTest`,
+  `:core:engine:testAndroidHostTest`, and `:desktop:assemble` all still pass after these changes.

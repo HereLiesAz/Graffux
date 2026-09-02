@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,21 +41,30 @@ import kotlin.random.Random
  *
  * What this still does NOT attempt (see DESKTOP.md): shaped/masked brush tips (a null tip renders
  * a generated round mask, same as [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes]' own
- * presets do without an installed extension), grain, layers/undo, or project persistence -- a first,
+ * presets do without an installed extension), grain, layers, or project persistence -- a first,
  * honestly-scoped vertical slice proving the shared engine and a pen-aware, multi-core-parallel
  * desktop renderer actually work end to end against the SAME dab-generation code Android runs, not
- * a full port of feature:editor's surrounding UI/state.
+ * a full port of feature:editor's surrounding UI/state. [CanvasState] does give it real Undo,
+ * though -- a whole-canvas snapshot stack, not tile-diffed the way Android's history eventually
+ * might be, but genuinely functional.
  */
 @Composable
 fun DesktopStampCanvas(
+    state: CanvasState,
     brush: AzphaltBrush,
     brushRadiusPx: Float,
     colorArgb: Int,
     modifier: Modifier = Modifier,
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-    var committed by remember { mutableStateOf<BufferedImage?>(null) }
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // Keeps the displayed bitmap in sync with `state.committed` when it changes from OUTSIDE a
+    // live stroke -- Undo, most notably. A stroke in progress updates `displayBitmap` itself, more
+    // often than `state.committed` changes (only once, on release), so this never fights it.
+    LaunchedEffect(state.committed) {
+        displayBitmap = state.committed?.toComposeImageBitmap()
+    }
 
     Box(
         modifier = modifier
@@ -62,15 +72,15 @@ fun DesktopStampCanvas(
                 if (size.width > 0 && size.height > 0 && size != canvasSize) {
                     canvasSize = size
                     val fresh = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
-                    val old = committed
+                    val old = state.committed
                     if (old != null) {
                         fresh.createGraphics().apply {
                             drawImage(old, 0, 0, null)
                             dispose()
                         }
                     }
-                    committed = fresh
-                    displayBitmap = fresh.toComposeImageBitmap()
+                    // `displayBitmap` follows via the LaunchedEffect above.
+                    state.replaceWithoutHistory(fresh)
                 }
             }
             .pointerInput(brush, brushRadiusPx, colorArgb) {
@@ -102,7 +112,7 @@ fun DesktopStampCanvas(
 
                 detectStampGestures(
                     onStart = { position, pressure ->
-                        val base = committed
+                        val base = state.committed
                         if (base != null) {
                             strokeBase = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB).apply {
                                 createGraphics().apply { drawImage(base, 0, 0, null); dispose() }
@@ -138,7 +148,7 @@ fun DesktopStampCanvas(
                         // The last `onMove`'s renderStroke call has already been awaited by the time
                         // this runs (see the class doc comment), so `lastRenderedFrame` is exactly
                         // what's on screen -- bake it in as the next stroke's starting point.
-                        lastRenderedFrame?.let { committed = it }
+                        lastRenderedFrame?.let { state.commitStroke(it) }
                         strokeBase = null
                         lastRenderedFrame = null
                         samples.clear()
