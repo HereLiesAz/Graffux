@@ -109,6 +109,12 @@ private fun GraffuxDesktopApp() {
             disabled = !canvasState.canUndo,
             onClick = { canvasState.undo() },
         )
+        azRailItem(
+            id = "action.redo",
+            text = "Redo",
+            disabled = !canvasState.canRedo,
+            onClick = { canvasState.redo() },
+        )
 
         background(weight = 0) {
             Column(modifier = Modifier.fillMaxSize()) {

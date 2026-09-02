@@ -55,6 +55,13 @@ sound finished — see each claim's own verification note.
   strokes and clicking Undo removes exactly the second stroke, leaving the first — confirmed by
   screenshot, reproduced twice. This is a real (if simple, whole-snapshot-per-step) history, not a
   single always-live bitmap with no way back.
+- **Redo, added alongside Undo, same mechanism (a second stack, cleared on any new stroke) — code
+  compiles and follows the identical, verified-working Undo pattern, but its rail item did NOT
+  visibly render in this container's fixed 800px-tall test window** once a 6th rail item (Soft
+  Round/Hard Round/Airbrush/Ink Pen/Undo/Redo) was added — the rail showed only the first five, with
+  no overflow/scroll indicator, rather than clipping or scrolling to it. **Not verified**: whether
+  this is a real capacity limit of `AzHostActivityLayout` at this window size (fixable with a taller
+  window, `azConfig(collapsedWidth=…)`, or scrolling) or something else — not resolved this session.
 
 ### A real bug this session's own testing found and fixed: release detection
 

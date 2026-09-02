@@ -18,17 +18,30 @@ class CanvasState {
         private set
 
     private val undoStack = mutableStateListOf<BufferedImage>()
+    private val redoStack = mutableStateListOf<BufferedImage>()
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
+    val canRedo: Boolean get() = redoStack.isNotEmpty()
 
-    /** Called once per finished stroke (see [DesktopStampCanvas]'s `onEnd`). */
+    /** Called once per finished stroke (see [DesktopStampCanvas]'s `onEnd`). A newly committed
+     *  stroke invalidates any redo history -- same convention every undo/redo stack uses: redo
+     *  only replays what undo itself just took back, not an alternate future after a fresh edit. */
     fun commitStroke(frame: BufferedImage) {
         committed?.let { undoStack.add(it) }
         committed = frame
+        redoStack.clear()
     }
 
     fun undo() {
-        committed = undoStack.removeLastOrNull() ?: return
+        val previous = undoStack.removeLastOrNull() ?: return
+        committed?.let { redoStack.add(it) }
+        committed = previous
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        committed?.let { undoStack.add(it) }
+        committed = next
     }
 
     /** Called only when the canvas is resized (no prior content to preserve past its own bounds) --
