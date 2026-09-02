@@ -175,6 +175,73 @@ internal object StampBrushRenderer {
         }
     }
 
+    /**
+     * Live-preview repaint for the plain round (no custom tip, no grain, no masked/dual-tip),
+     * non-build-up path -- the one that renders via [paintRoundDabsMaxCombined].
+     *
+     * A live stroke used to be painted incrementally: each new frame's own handful of new dabs was
+     * `SRC_OVER`'d onto the same accumulating bitmap `paintDabs` had already drawn the previous
+     * frame's dabs onto. That matched a full re-render back when every dab composited the same way
+     * -- one more `SRC_OVER` on top of the last, in any grouping -- but [paintRoundDabsMaxCombined]
+     * breaks that equivalence: it only takes the max of alphas *within the one dabs list it's given
+     * in a single call*. Painting frame 1's three dabs as their own max-combined batch, then frame
+     * 2's three NEW dabs as a second, separate max-combined batch `SRC_OVER`'d on top of the first,
+     * reproduces exactly the hardened-edge-on-a-drag bug max-combine exists to prevent -- just at
+     * frame granularity instead of per-dab. Visibly, a live stroke shows distinct hard-edged dabs
+     * (each frame's own tiny batch) that only resolve into one smooth soft stroke once the finger
+     * lifts and the whole thing is committed as a single [paintDabs] call.
+     *
+     * The fix: every frame, restore this stroke's own bounding box from [baseBitmap] (a pristine
+     * snapshot of the layer from before this stroke's first dab -- undoing whatever the previous
+     * frame's own composite left there) and then max-combine the ENTIRE stroke's dabs so far in one
+     * call, via [paintRoundDabsMaxCombined]. Every frame is therefore a genuine full re-render of
+     * the stroke, matching what committing it produces, and the redraw cost tracks the stroke's own
+     * screen-space footprint (via [paintRoundDabsMaxCombined]'s own tight bounding box) rather than
+     * the whole canvas or the whole document.
+     *
+     * Not used for the shaped-tip, masked, grained, or build-up paths: those all composite
+     * sequentially (`SRC_OVER`, dab over dab), which genuinely IS stable incrementally frame to
+     * frame -- a later frame's `SRC_OVER` on top of an earlier frame's is exactly what committing
+     * those brushes does too, so they were never affected by this bug and keep using [paintDabs]
+     * with only each frame's new dabs.
+     */
+    fun repaintRoundStrokeFromBase(
+        canvas: Canvas,
+        baseBitmap: Bitmap,
+        dabs: List<Dab>,
+        brush: AzphaltBrush,
+        colorArgb: Int,
+        flow: Float,
+        secondaryColorArgb: Int = colorArgb,
+    ) {
+        if (dabs.isEmpty()) return
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (d in dabs) {
+            val r = max(d.radius, 0.5f)
+            if (d.x - r < minX) minX = d.x - r
+            if (d.x + r > maxX) maxX = d.x + r
+            if (d.y - r < minY) minY = d.y - r
+            if (d.y + r > maxY) maxY = d.y + r
+        }
+        if (minX > maxX || minY > maxY) return
+        val left = floor(minX).toInt().coerceIn(0, baseBitmap.width)
+        val top = floor(minY).toInt().coerceIn(0, baseBitmap.height)
+        val right = ceil(maxX).toInt().coerceIn(0, baseBitmap.width)
+        val bottom = ceil(maxY).toInt().coerceIn(0, baseBitmap.height)
+        if (right <= left || bottom <= top) return
+        // SRC, not the default SRC_OVER a null Paint would use: the base is frequently transparent
+        // there (nothing painted outside the document, or simply nothing there yet), and blending a
+        // transparent source over whatever the previous frame already drew is a no-op -- it must
+        // REPLACE this region's pixels with the base's, not composite over them.
+        val restorePaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
+        val region = android.graphics.Rect(left, top, right, bottom)
+        canvas.drawBitmap(baseBitmap, region, region, restorePaint)
+        paintRoundDabsMaxCombined(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
+    }
+
     /** The original per-dab `RadialGradient` + `SRC_OVER` compositing -- every dab builds on
      *  whatever the previous one already painted. Correct (and required) for [allowBuildUp] dabs
      *  like Airbrush's held-still deposits; see [paintRoundDabsMaxCombined]'s doc comment for why

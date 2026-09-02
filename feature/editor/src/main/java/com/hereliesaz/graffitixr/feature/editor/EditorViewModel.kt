@@ -714,6 +714,14 @@ class EditorViewModel @Inject constructor(
     // preview, the commit, and history replay all render identically.
     private var stampLiveBitmap: Bitmap? = null
     private var stampLiveCanvas: Canvas? = null
+    // A pristine snapshot of [stampLiveBitmap] taken once, before this stroke's first dab -- never
+    // touched again. Needed by StampBrushRenderer.repaintRoundStrokeFromBase (see its own doc
+    // comment): a live plain-round, non-build-up stroke re-composites its ENTIRE dab list from
+    // scratch every frame rather than SRC_OVER-ing only each frame's new dabs onto whatever the
+    // previous frame already drew, which is what actually keeps a live drag's soft edge matching a
+    // committed stroke's -- and that full re-composite needs to start from what the layer looked
+    // like before this stroke, not from stampLiveBitmap's own already-mutated pixels.
+    private var stampLivePreStrokeBase: Bitmap? = null
     private var stampStampedCount: Int = 0
     // Item 13's airbrush held-run dabs (AirbrushEngine.heldDabs) are tracked as their own
     // independent incremental prefix, painted after each frame's new movement dabs -- see the
@@ -3532,6 +3540,7 @@ class EditorViewModel @Inject constructor(
             stampLiveCanvas = null
             stampLiveHeightMap = null
             stampLiveShadedBitmap = null
+            stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
             // to call defensively and a leaked Vulkan device is not). Locked: a previous stroke's
@@ -3607,6 +3616,10 @@ class EditorViewModel @Inject constructor(
                     layerStore.heightBase(layerId, work.width * work.height).copyOf()
                 } else null
                 val shadedBitmapSeed = heightMapSeed?.let { SafeBitmap.copy(work) }
+                // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
+                // `work` from before this stroke's first dab, needed to fully re-composite a live
+                // plain-round stroke from scratch every frame.
+                val preStrokeBaseSeed = SafeBitmap.copy(work)
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -3624,6 +3637,7 @@ class EditorViewModel @Inject constructor(
                         }
                         stampLiveHeightMap = heightMapSeed
                         stampLiveShadedBitmap = shadedBitmapSeed
+                        stampLivePreStrokeBase = preStrokeBaseSeed
                         // Locked: a background onStrokePoint batch (see stampGpuJob) can read/swap
                         // stampGpuEngine concurrently with this publish -- see stampLiveLock's doc
                         // comment for why an unlocked write here would leave that read unsafe.
@@ -4074,6 +4088,7 @@ class EditorViewModel @Inject constructor(
             // prefix, so re-drawing dabs beyond the count already stamped matches a full re-render.
             val canvas = stampLiveCanvas ?: return          // copy not ready yet; points still collected
             val work = stampLiveBitmap ?: return
+            val preStrokeBase = stampLivePreStrokeBase
             // Map only the points not yet mapped (per-point transform, so a tail maps the same as the
             // whole) and append to the cache — avoids re-mapping the full stroke every drag frame.
             val all = snapshotStrokePoints()
@@ -4330,11 +4345,31 @@ class EditorViewModel @Inject constructor(
                                 }
                             }
                         }
-                        StampBrushRenderer.paintDabs(
-                            canvas, newDabs, brush, colorArgb, rawFlow,
-                            shape, grain, maskShape, seed,
-                            secondaryColorArgb,
-                        )
+                        // The plain round, non-build-up path composites via max-combine (see
+                        // StampBrushRenderer.paintRoundDabsMaxCombined's doc comment), which only
+                        // takes the max WITHIN one call's own dabs -- SRC_OVER-ing each frame's own
+                        // tiny new-dab batch on top of the previous frame's reproduces the exact
+                        // hardened-edge-on-a-drag bug that compositor exists to prevent, just at
+                        // frame granularity instead of per-dab (a live stroke reads as distinct hard
+                        // dots that only resolve into one smooth stroke once the finger lifts and
+                        // the whole thing commits as a single paintDabs call). Repainting the WHOLE
+                        // stroke's dabs from preStrokeBase every frame instead -- what
+                        // repaintRoundStrokeFromBase is for -- keeps every frame a genuine full
+                        // re-render, matching commit. Every other path (shaped tip, grain, masked/
+                        // dual-tip, build-up) composites sequentially, which IS stable incrementally
+                        // frame to frame, so those keep painting only each frame's new dabs.
+                        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
+                        if (!advancedMaskPipeline && shape == null && !brush.buildUp && preStrokeBase != null) {
+                            StampBrushRenderer.repaintRoundStrokeFromBase(
+                                canvas, preStrokeBase, dabs, brush, colorArgb, rawFlow, secondaryColorArgb,
+                            )
+                        } else {
+                            StampBrushRenderer.paintDabs(
+                                canvas, newDabs, brush, colorArgb, rawFlow,
+                                shape, grain, maskShape, seed,
+                                secondaryColorArgb,
+                            )
+                        }
                     }
                     if (hasNewHeldDabs) {
                         // Airbrush held dabs are always painted on the CPU, matching the reference
@@ -6634,6 +6669,7 @@ class EditorViewModel @Inject constructor(
         stampLiveCanvas = null
         stampLiveHeightMap = null
         stampLiveShadedBitmap = null
+        stampLivePreStrokeBase = null
         stampStampedCount = 0
         stampHeldStampedCount = 0
         stampBrushForStroke = null
