@@ -76,6 +76,18 @@ sound finished — see each claim's own verification note.
   committed, and *still* `true` after Clear (the pre-clear stroke is sitting in the undo stack, so
   Undo would bring it back), while `canRedo` stayed `false` throughout (Clear cleared the redo stack,
   same as it started). No Xvfb-focus quirk was hit this time — the click registered on the first try.
+- **Save (export to PNG).** `CanvasState.exportPng()` writes the current canvas to a timestamped
+  `graffux-yyyyMMdd-HHmmss.png` under `~/Graffux` (created if missing) via `javax.imageio.ImageIO`,
+  and returns the `File` written. A "Save" rail item is wired to it (disabled before the canvas has
+  ever been sized), and the app shows the written path under the toolbar row on success. **This is
+  deliberately not a save/save-as file-chooser dialog** — Compose Desktop has none built in, and a
+  blocking AWT `FileDialog` under this session's Xvfb-without-a-window-manager test harness is its
+  own risk (a modal dialog with no way to dismiss it via the same synthetic-click approach used
+  everywhere else could hang the process rather than fail loudly) — so this first pass is a fixed,
+  predictable destination, the same "real, if minimal" scoping this file uses throughout, not a
+  placeholder. **Verified end-to-end**: drew a stroke, clicked Save, confirmed a real PNG landed on
+  disk at the exact path the UI reported, and confirmed by reading that PNG back that its pixel
+  content is the same stroke that was on screen (not a blank or corrupt file).
 
 ### A real bug this session's own testing found and fixed: release detection
 
@@ -136,8 +148,9 @@ fully confirmed from this container.
   dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
   no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as
   a near-term follow-up.
-- **No layers, undo/redo, or project persistence** (save/load a `.graffux` project, export). The
-  desktop canvas is a single always-live bitmap.
+- **No layers or `.graffux` project save/load.** Undo/redo and flattened PNG export are real and
+  verified (see above) — what's still missing is a layer stack and round-tripping the app's own
+  project format, not history or "getting pixels out" in general.
 - **Shaped/masked brush tips, grain, and the masked-brush dual-tip compositor are not wired in** —
   `BrushStamps.dynamicDabs` resolves them when a preset declares them, but no built-in preset does
   and the desktop app has no extension-install flow to bring in tip/grain assets yet, so this is

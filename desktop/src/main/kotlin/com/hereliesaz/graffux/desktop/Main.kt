@@ -86,6 +86,7 @@ private fun GraffuxDesktopApp() {
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     val canvasState = remember { CanvasState() }
+    var lastSavedPath by remember { mutableStateOf<String?>(null) }
 
     AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
         azTheme(
@@ -130,6 +131,12 @@ private fun GraffuxDesktopApp() {
             disabled = canvasState.committed == null,
             onClick = { canvasState.clear() },
         )
+        azRailItem(
+            id = "action.save",
+            text = "Save",
+            disabled = canvasState.committed == null,
+            onClick = { lastSavedPath = canvasState.exportPng()?.absolutePath },
+        )
 
         background(weight = 0) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -161,6 +168,13 @@ private fun GraffuxDesktopApp() {
                             )
                         }
                     }
+                }
+                lastSavedPath?.let { path ->
+                    Text(
+                        text = "Saved to $path",
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = Color(0xFF43A047),
+                    )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 DesktopStampCanvas(

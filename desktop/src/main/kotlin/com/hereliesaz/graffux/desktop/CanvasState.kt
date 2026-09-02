@@ -5,6 +5,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.awt.image.BufferedImage
+import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import javax.imageio.ImageIO
 
 /**
  * Hoisted canvas state, shared between [DesktopStampCanvas] (which paints into it) and the rail
@@ -57,5 +61,19 @@ class CanvasState {
         undoStack.add(current)
         redoStack.clear()
         committed = BufferedImage(current.width, current.height, BufferedImage.TYPE_INT_ARGB)
+    }
+
+    /** Exports the current canvas as a timestamped PNG under [directory] (created if missing) and
+     *  returns the file written, or `null` if there's nothing to export yet. A first pass -- no
+     *  native save/save-as file-chooser dialog (Compose Desktop has none built in, and a blocking
+     *  AWT `FileDialog` is a real thing to wire up on its own -- see DESKTOP.md), just a genuine
+     *  file landing on disk, not a placeholder. */
+    fun exportPng(directory: File = File(System.getProperty("user.home"), "Graffux")): File? {
+        val frame = committed ?: return null
+        directory.mkdirs()
+        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+        val file = File(directory, "graffux-$timestamp.png")
+        ImageIO.write(frame, "png", file)
+        return file
     }
 }
