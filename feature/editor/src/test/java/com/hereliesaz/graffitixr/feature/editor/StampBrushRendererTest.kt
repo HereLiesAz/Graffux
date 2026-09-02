@@ -172,4 +172,62 @@ class StampBrushRendererTest {
         )
         assertTrue("the edge should still read as visibly translucent, not hardened", dragAlpha < 200)
     }
+
+    /**
+     * The bug this guards against: a LIVE stroke (painted incrementally, frame by frame, as more
+     * dabs arrive) reading as hard-edged even though the exact same dabs painted all at once (what
+     * committing the stroke does) read as soft -- i.e. the live preview visibly not matching what
+     * lifting the finger produces. [EditorViewModel.onStrokePoint]'s own doc comment always assumed
+     * "re-drawing dabs beyond the count already stamped matches a full re-render"; that stopped
+     * being true the moment overlapping dabs started compositing via
+     * [StampBrushRenderer]'s own max-combine (each frame's own small new-dab batch got its own
+     * separate max-combined composite, `SRC_OVER`'d on top of the previous frame's -- exactly the
+     * hardening bug max-combine exists to prevent, just recurring at frame granularity).
+     * [StampBrushRenderer.repaintRoundStrokeFromBase] is the fix: this test is the actual
+     * "incremental repaint equals one full repaint" property it exists to restore.
+     */
+    @Test
+    fun `repainting a growing stroke frame by frame from its own base matches painting it all at once`() {
+        val soft = brush.copy(hardness = 0.3f, spacing = 0.1f)
+        val radius = 30f
+        val diameter = radius * 2f
+        val interval = soft.spacing * diameter
+        val allDabs = (0..30).map { i ->
+            Dab(x = 50f + i * interval, y = 80f, radius = radius, alpha = 1f, angleDeg = 0f, hardness = soft.hardness)
+        }
+        val colorArgb = Color.BLACK or (0xFF shl 24)
+
+        // "Lifting the finger": every dab painted in one call, straight onto a transparent canvas.
+        val committed = RenderTestBase.filled(400, 200, Color.TRANSPARENT)
+        StampBrushRenderer.paintDabs(Canvas(committed), allDabs, soft, colorArgb, flow = 1f)
+
+        // "Dragging": the same dabs arrive a handful at a time, each frame re-painting the WHOLE
+        // stroke so far from a pristine (never-drawn-on) base -- exactly what repaintRoundStrokeFromBase
+        // is for.
+        val base = RenderTestBase.filled(400, 200, Color.TRANSPARENT)
+        val live = RenderTestBase.filled(400, 200, Color.TRANSPARENT)
+        val liveCanvas = Canvas(live)
+        var stamped = 0
+        val frameSize = 4
+        while (stamped < allDabs.size) {
+            stamped = (stamped + frameSize).coerceAtMost(allDabs.size)
+            StampBrushRenderer.repaintRoundStrokeFromBase(
+                liveCanvas, base, allDabs.subList(0, stamped), soft, colorArgb, flow = 1f,
+            )
+        }
+
+        // Sample along the dragged path's soft edge, well clear of the start/end caps, where the
+        // old per-frame-batch bug showed hardening.
+        for (y in intArrayOf(80 - (radius * 0.7f).toInt(), 80 + (radius * 0.7f).toInt())) {
+            for (x in intArrayOf(150, 200, 250)) {
+                val committedAlpha = Color.alpha(committed.getPixel(x, y))
+                val liveAlpha = Color.alpha(live.getPixel(x, y))
+                assertTrue(
+                    "at ($x,$y): live-drag alpha ($liveAlpha) should match the committed alpha " +
+                        "($committedAlpha), not read as hardened from per-frame batching",
+                    kotlin.math.abs(liveAlpha - committedAlpha) <= 2,
+                )
+            }
+        }
+    }
 }
