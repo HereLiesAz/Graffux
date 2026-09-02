@@ -100,6 +100,7 @@ import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
+import com.hereliesaz.graffitixr.feature.editor.BrushTipsManagerWindow
 import com.hereliesaz.graffitixr.feature.editor.CustomBrushesWindow
 import com.hereliesaz.graffitixr.feature.editor.CornerRadiusDialog
 import com.hereliesaz.graffitixr.feature.editor.CurvesDialog
@@ -243,6 +244,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showShapeSizeDialog by remember { mutableStateOf(false) }
     var showSidesDialog by remember { mutableStateOf(false) }
     var showBrushGallery by remember { mutableStateOf(false) }
+    var showBrushTipsManager by remember { mutableStateOf(false) }
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
     var showBgDialog by remember { mutableStateOf(false) }
     // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
@@ -594,6 +596,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 showLayersRail = showLayersRail,
                 showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
+                onOpenBrushTipsManager = { showBrushTipsManager = true },
             )
 
             if (showAnimationRail) {
@@ -1384,6 +1387,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onDismiss = { showBrushGallery = false },
                     )
                 }
+
+                if (showBrushTipsManager) {
+                    val allBrushAssets by vm.allInstalledBrushAssets.collectAsState()
+                    val hiddenBrushTipIds by vm.hiddenBrushTipIds.collectAsState()
+                    BrushTipsManagerWindow(
+                        allBrushAssets = allBrushAssets,
+                        hiddenIds = hiddenBrushTipIds,
+                        onSetHidden = { id, hidden -> vm.setBrushTipHidden(id, hidden) },
+                        onDismiss = { showBrushTipsManager = false },
+                    )
+                }
             }
         }
     }
@@ -1731,6 +1745,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     showLayersRail: Boolean,
     showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
+    onOpenBrushTipsManager: () -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     val activeIds = activeRailClassifiers(
@@ -2315,6 +2330,16 @@ private fun AzNavHostScope.ConfigureRailItems(
                 onClick = { vm.selectBrushExtension(id) },
             )
         }
+        // An extension can bundle several brushes, and this strip is reached for constantly while
+        // painting -- not every one of them earns a permanent slot in it. Opens the hide/show list
+        // rather than hiding one directly (no long-press on a plain rail item yet -- see
+        // BrushTipsManagerWindow's own doc comment).
+        azRailSubItem(
+            id = "brushRail.manage", hostId = "grp.brushRail", text = "Manage Brush Tips",
+            content = GraffuxIcons.BrushSettings,
+            color = navItemColor,
+            onClick = onOpenBrushTipsManager,
+        )
     }
 
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's

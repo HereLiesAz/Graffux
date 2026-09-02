@@ -62,6 +62,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -261,6 +262,13 @@ internal fun gpuPipelineUsesMaskedShader(
  *  sampling using that dab's own radius/tipRatio, the same way [BrushTipMaskCache]'s square
  *  [BrushTipMaskCache.tipMask] source is scaled into a non-square CPU dab bitmap per call. */
 private const val GPU_MASK_REFERENCE_SIZE = 128
+
+/** Joins an installed brush asset's extension id and its `assetIndex` within that extension's own
+ *  usable brush assets (see [com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledBrushAsset])
+ *  into the one composite id [EditorViewModel.installedBrushes]/[EditorViewModel.selectBrushExtension]
+ *  and [SettingsRepository.hiddenBrushTipIds] all key by. `::` rather than a character a real
+ *  extension id could itself contain (ids are validated slugs elsewhere in the manifest pipeline). */
+private const val BRUSH_ASSET_ID_SEPARATOR = "::"
 
 /** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
  *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
@@ -6787,13 +6795,40 @@ class EditorViewModel @Inject constructor(
         _colorSmudgeSettings.update { it.copy(dynamics = bindings) }
 
     /**
-     * Installed azphalt brush extensions available to paint with (id + display name), reactive so a
-     * freshly-installed brush shows up in the picker without a manual refresh.
+     * Installed azphalt brush assets available to paint with (composite id + display name), reactive
+     * so a freshly-installed brush shows up in the picker without a manual refresh. An extension
+     * bundling more than one brush ("a brush pack") contributes one entry per brush -- see
+     * [ExtensionRepository.installedBrushAssets] -- not one entry per extension the way this used to.
+     * The composite id is `"<extensionId>::<assetIndex>"`, which [selectBrushExtension] parses back
+     * apart; it doubles as the key [SettingsRepository.hiddenBrushTipIds] hides by.
+     *
+     * Hidden ids are filtered out here rather than at each picker's own call site, so every picker
+     * (the brush rail, the collapsed brush group) agrees on what's visible without each repeating
+     * the filter itself.
      */
     val installedBrushes: StateFlow<List<Pair<String, String>>> =
+        combine(extensionRepository.installed, settingsRepository.hiddenBrushTipIds) { _, hidden ->
+            extensionRepository.installedBrushAssets()
+                .map { "${it.extensionId}$BRUSH_ASSET_ID_SEPARATOR${it.assetIndex}" to it.name }
+                .filter { (id, _) -> id !in hidden }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Every installed brush asset's composite id (hidden or not) + display name, for a management
+     *  UI that needs to offer hiding/unhiding rather than just what's currently visible. */
+    val allInstalledBrushAssets: StateFlow<List<Pair<String, String>>> =
         extensionRepository.installed
-            .map { extensionRepository.installedBrushes().map { ext -> ext.id to ext.manifest.name } }
+            .map { extensionRepository.installedBrushAssets()
+                .map { "${it.extensionId}$BRUSH_ASSET_ID_SEPARATOR${it.assetIndex}" to it.name } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Which composite brush-asset ids are currently hidden from pickers -- see [allInstalledBrushAssets]. */
+    val hiddenBrushTipIds: StateFlow<Set<String>> =
+        settingsRepository.hiddenBrushTipIds
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun setBrushTipHidden(compositeId: String, hidden: Boolean) {
+        viewModelScope.launch { settingsRepository.setBrushTipHidden(compositeId, hidden) }
+    }
 
     /**
      * The user's saved colour swatches (the colour picker's Palettes tab), reactive so a swatch
@@ -7852,8 +7887,13 @@ class EditorViewModel @Inject constructor(
      * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
      * round brush. The active-brush name drives the UI and switches the size control's second axis to flow.
      */
-    fun selectBrushExtension(id: String?) {
-        if (id == null) {
+    /** [compositeId] is `"<extensionId>::<assetIndex>"` (see [BRUSH_ASSET_ID_SEPARATOR]) as produced
+     *  by [installedBrushes]/[allInstalledBrushAssets] -- not a bare extension id, since one
+     *  extension may now bundle more than one brush. A malformed id (missing the separator, or a
+     *  non-numeric index) is treated as "not found", same as an id for an extension that was
+     *  uninstalled since the picker was drawn. */
+    fun selectBrushExtension(compositeId: String?) {
+        if (compositeId == null) {
             activeStampBrush = null
             activeStampShape = null
             activeStampGrain = null
@@ -7861,9 +7901,16 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.SetActiveBrush(null))
             return
         }
+        val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)
+        val id = if (separatorIndex >= 0) compositeId.substring(0, separatorIndex) else compositeId
+        val assetIndex = if (separatorIndex >= 0) {
+            compositeId.substring(separatorIndex + BRUSH_ASSET_ID_SEPARATOR.length).toIntOrNull() ?: 0
+        } else {
+            0
+        }
         // loadBrush + the tip-image decode both read from disk — do them off the main thread.
         viewModelScope.launch(dispatchers.io) {
-            val brush = extensionRepository.loadBrush(id)
+            val brush = extensionRepository.loadBrush(id, assetIndex)
             fun decodeAsset(relativePath: String?): Bitmap? = relativePath
                 ?.let { extensionRepository.assetFilePath(id, it) }
                 ?.let { path -> runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull() }

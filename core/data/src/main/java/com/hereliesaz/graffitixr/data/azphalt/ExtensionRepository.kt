@@ -294,19 +294,66 @@ class ExtensionRepository @Inject constructor(
         _installed.value.filter { ext -> ext.manifest.assets.any(::isUsableBrush) }
 
     /**
-     * Parse the first usable brush of an installed extension into a normalized [AzphaltBrush] (the
-     * declarative stamp + dynamics the editor renders), or null if it has none. The brush's name comes
-     * from the manifest; its behaviour from the asset's `params` via [AzphaltBrush.fromParams].
+     * Parse one usable brush of an installed extension into a normalized [AzphaltBrush] (the
+     * declarative stamp + dynamics the editor renders), or null if it has none at [assetIndex].
+     * [assetIndex] selects among that extension's own usable brush assets in manifest order (an
+     * extension bundling more than one -- a "brush pack" -- contributes more than one); 0 (the
+     * default) is the first, preserving every existing single-brush-extension caller's behaviour
+     * unchanged. The brush's name is [brushAssetName]; its behaviour from the asset's `params` via
+     * [AzphaltBrush.fromParams].
      */
-    fun loadBrush(id: String): AzphaltBrush? {
+    fun loadBrush(id: String, assetIndex: Int = 0): AzphaltBrush? {
         val ext = _installed.value.find { it.id == id } ?: return null
-        val asset = ext.manifest.assets.firstOrNull(::isUsableBrush) ?: return null
-        return AzphaltBrush.fromParams(ext.manifest.name, asset.params)
+        val usable = ext.manifest.assets.filter(::isUsableBrush)
+        val asset = usable.getOrNull(assetIndex) ?: return null
+        return AzphaltBrush.fromParams(brushAssetName(ext, asset, assetIndex, usable.size), asset.params)
     }
 
     /** A brush asset this host can paint with: standalone (not code-dependent). Stamp path is optional. */
     private fun isUsableBrush(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
         asset.type == AssetType.BRUSH && asset.standalone
+
+    /**
+     * A brush asset's display name: its own `params.name` if the manifest declares one (needed once
+     * an extension bundles more than one brush, since [AzphaltBrush.fromParams] otherwise has nothing
+     * but the whole extension's own name to give it); otherwise the extension's name alone when it's
+     * the only brush there, or "<extension name> <position>" when it's one of several undeclared ones.
+     */
+    private fun brushAssetName(
+        ext: InstalledExtension,
+        asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution,
+        assetIndex: Int,
+        totalUsable: Int,
+    ): String {
+        val declared = (asset.params?.get("name") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+        if (declared != null) return declared
+        return if (totalUsable > 1) "${ext.manifest.name} ${assetIndex + 1}" else ext.manifest.name
+    }
+
+    /**
+     * One paintable brush bundled by an installed extension -- an extension bundling more than one
+     * (a "brush pack") contributes one entry per brush here, unlike [installedBrushes] which only
+     * ever answers per-extension. [assetIndex] is stable within one manifest (its position among
+     * that extension's own usable brush assets, in manifest order) and is what [loadBrush] needs
+     * alongside [extensionId] to load this exact one back out again.
+     */
+    data class InstalledBrushAsset(
+        val extensionId: String,
+        val assetIndex: Int,
+        val name: String,
+    )
+
+    /** Every usable brush asset bundled by every installed extension -- see [InstalledBrushAsset]. */
+    fun installedBrushAssets(): List<InstalledBrushAsset> = _installed.value.flatMap { ext ->
+        val usable = ext.manifest.assets.filter(::isUsableBrush)
+        usable.mapIndexed { index, asset ->
+            InstalledBrushAsset(
+                extensionId = ext.id,
+                assetIndex = index,
+                name = brushAssetName(ext, asset, index, usable.size),
+            )
+        }
+    }
 
     /**
      * Installed code or mixed extensions that contribute filters.

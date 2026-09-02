@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.ArScanMode
@@ -54,6 +55,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val STEREO_CAPABILITY = intPreferencesKey("depth_triangulation_capability")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
+    private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
     private val PARALLAX_MIN_DEG = floatPreferencesKey("parallax_min_degrees")
     private val CAMERA_TARGET_FPS = intPreferencesKey("camera_target_fps")
@@ -174,6 +176,17 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setBrushSizeFixedOnScreen(fixed: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[BRUSH_SIZE_FIXED_ON_SCREEN] = fixed
+        }
+    }
+
+    override val hiddenBrushTipIds: Flow<Set<String>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[HIDDEN_BRUSH_TIP_IDS] ?: emptySet() }
+
+    override suspend fun setBrushTipHidden(compositeId: String, hidden: Boolean) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_BRUSH_TIP_IDS] ?: emptySet()
+            preferences[HIDDEN_BRUSH_TIP_IDS] = if (hidden) current + compositeId else current - compositeId
         }
     }
 
