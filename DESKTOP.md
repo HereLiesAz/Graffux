@@ -116,6 +116,39 @@ sound finished — see each claim's own verification note.
   at the exact cursor position with the exact configured radius and that nothing was painted, then
   moved again and confirmed the circle tracked to the new position.
 
+### Investigated and deliberately NOT shipped: `azAbout()` — a real crash, not a testing artifact
+
+Android's `MainActivity.kt` calls `azAbout(dedupeAbout = true)` with every other argument left at
+its default. Mirroring that exactly on desktop compiled cleanly and, on its own, rendered a real "?"
+rail item that opened a genuine "About" overlay (title, a close `X`, an empty body — expected, since
+neither Android nor desktop passes an `appRepositoryUrl` for the in-app reader to fetch content
+from). **Closing that overlay crashed the composition**: `java.lang.IllegalStateException: Check
+failed.` inside `org.jetbrains.skia.paragraph.TextStyle.setHeight`, reached through
+`aznavrail-cmp`'s own `AutoSizeText` (`AutoSizeTextKt.shouldShrink` → `TextMeasurer.measure` →
+`ParagraphBuilder.build` → the Skia paragraph builder) during a `BoxWithConstraints` re-subcomposition
+— most likely the close transition animating the container's width down to something Skia's text
+layout can't handle at very small/zero sizes, though the exact trigger wasn't pinned down further.
+Reproduced twice with the same click sequence (open the "?" item, click the overlay's close button);
+the app process itself survived (Compose "captured" the error in composition) but a Swing "Check
+failed." error dialog popped up over the app — not a UI a user should ever see.
+
+This is inside the third-party `aznavrail-cmp` library's own `internal` text-sizing code, not
+anything in this repo's `desktop/` module, so it isn't fixable here. Two things worth knowing for
+whoever revisits this:
+
+1. **`aboutRailItem` is not something `azAbout()` opts into — it's on by default** (`AzAdvancedConfig
+   .aboutRailItem = true`) and has to be explicitly turned off. Simply never calling `azAbout()` does
+   NOT remove the auto "?" item, which is why the fix here is an explicit
+   `azAbout(aboutRailItem = false)` call, not just deleting the `azAbout()` line. (This surfaced only
+   because the window had finally grown tall enough — see the `Window()` size history above — for a
+   9th rail item to actually be visible; it was very likely present, and just as likely to crash on
+   close, well before this pass touched it.)
+2. Whether this reproduces on a real (non-Xvfb, non-software-rendered) Linux or Windows desktop, or
+   only under this container's `SKIKO_RENDER_API=SOFTWARE` software rendering path, is **not
+   established** — this was only ever tested in this container. If a future pass wants to re-enable
+   it, that's the first thing to check, along with whether a newer `aznavrail-cmp`/Compose
+   Multiplatform release has since fixed the underlying Skia assertion.
+
 ### A real bug this session's own testing found and fixed: release detection
 
 `DetectStampGestures.kt` originally ended a stroke on `PointerInputChange.changedToUp()`. Under this
@@ -168,9 +201,9 @@ fully confirmed from this container.
 - **The rail has a brush-preset switcher and edit actions (Undo/Redo/Clear/Save), but not the rest
   of the Android rail's tool set.** `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired
   up (see above), and colour selection has both a fixed 8-swatch row and a real HSV disc picker (see
-  below), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, an
-  extensions manager, or About/Help screens the library provides for free but this app hasn't
-  populated with app-specific content. This is a UI population gap now, not a library-capability gap.
+  below), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, or an
+  extensions manager. This is a UI population gap now, not a library-capability gap. **About/Help was
+  attempted and deliberately reverted** — see the crash writeup further down.
 - **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
   dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
   no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as

@@ -63,9 +63,10 @@ fun main() = application {
     // The library's default 800x600 window ran out of vertical room for a 6th rail item (Undo +
     // Redo pushed the rail's total height past 600px, so Redo silently rendered off the bottom of
     // the window with no scroll/overflow indicator -- not a rail capacity bug, just too small a
-    // window for how many tools this app now has). 1000x900 leaves real headroom to keep adding
-    // rail items without repeating this.
-    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 900.dp))
+    // window for how many tools this app now has). 1000x1100 leaves real headroom to keep adding
+    // rail items without repeating this (bumped from an earlier 900 while testing a 9th item -- see
+    // DESKTOP.md on why that item, azAbout()'s auto "?" button, isn't wired in yet).
+    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
     Window(onCloseRequest = ::exitApplication, title = "Graffux", state = windowState) {
         MaterialTheme {
             CompositionLocalProvider(
@@ -106,6 +107,12 @@ private fun GraffuxDesktopApp() {
             // room, not this footer -- see the Window() call's own comment.)
             showFooter = false,
         )
+        // `aboutRailItem` defaults to true in the library's own AzAdvancedConfig -- the auto "?"
+        // rail item is NOT something azAbout() opts into, it's on by default and has to be opted
+        // OUT of. It's suppressed here rather than left in a half-wired state: see DESKTOP.md for
+        // the crash this surfaced (a Skia text-layout assertion inside the library's own
+        // AutoSizeText, during the About overlay's close transition) and why it isn't wired in yet.
+        azAbout(aboutRailItem = false)
         BuiltInBrushes.presets.forEach { preset ->
             azRailItem(
                 id = "brush.${preset.name}",
