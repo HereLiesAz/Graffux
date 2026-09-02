@@ -55,13 +55,16 @@ sound finished — see each claim's own verification note.
   strokes and clicking Undo removes exactly the second stroke, leaving the first — confirmed by
   screenshot, reproduced twice. This is a real (if simple, whole-snapshot-per-step) history, not a
   single always-live bitmap with no way back.
-- **Redo, added alongside Undo, same mechanism (a second stack, cleared on any new stroke) — code
-  compiles and follows the identical, verified-working Undo pattern, but its rail item did NOT
-  visibly render in this container's fixed 800px-tall test window** once a 6th rail item (Soft
-  Round/Hard Round/Airbrush/Ink Pen/Undo/Redo) was added — the rail showed only the first five, with
-  no overflow/scroll indicator, rather than clipping or scrolling to it. **Not verified**: whether
-  this is a real capacity limit of `AzHostActivityLayout` at this window size (fixable with a taller
-  window, `azConfig(collapsedWidth=…)`, or scrolling) or something else — not resolved this session.
+- **Redo, added alongside Undo, same mechanism (a second stack, cleared on any new stroke commit).**
+  The window's default 800x600 size was too short for a 6th rail item (Undo + Redo pushed the rail
+  past 600px tall, so Redo silently rendered off the bottom with no overflow/scroll indicator) — that
+  part is fixed: the window now opens at 1000x900 and Redo is visible. **State logic verified
+  correct** via debug instrumentation: `undoStack`/`redoStack` sizes update exactly as expected
+  through a full commit → commit → undo → (would-be redo) sequence, symmetric with the already-proven
+  Undo path. **The click itself could not be reproduced working** in this session's Xvfb/Robot test
+  harness, despite roughly a dozen coordinate/timing/warm-up-click variations that all worked for
+  Undo — so Redo's rail button is implemented and its logic is verified, but its click path is
+  unverified end-to-end pending on-device (or non-headless) testing.
 
 ### A real bug this session's own testing found and fixed: release detection
 

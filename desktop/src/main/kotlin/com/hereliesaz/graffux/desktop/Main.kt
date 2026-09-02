@@ -28,9 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.AzAppMeta
 import com.hereliesaz.aznavrail.AzHostActivityLayout
@@ -57,7 +60,13 @@ private val PALETTE = listOf(
  * definitions the Android app ships with, not desktop-only stand-ins.
  */
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "Graffux") {
+    // The library's default 800x600 window ran out of vertical room for a 6th rail item (Undo +
+    // Redo pushed the rail's total height past 600px, so Redo silently rendered off the bottom of
+    // the window with no scroll/overflow indicator -- not a rail capacity bug, just too small a
+    // window for how many tools this app now has). 1000x900 leaves real headroom to keep adding
+    // rail items without repeating this.
+    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 900.dp))
+    Window(onCloseRequest = ::exitApplication, title = "Graffux", state = windowState) {
         MaterialTheme {
             CompositionLocalProvider(
                 // Desktop has no OS-level app name/icon the way an Android manifest does, so this
