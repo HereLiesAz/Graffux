@@ -43,8 +43,8 @@ import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import kotlin.math.roundToInt
 
-/** A small, real palette — not exhaustive (Android's colour picker is a full HSV wheel this app
- *  doesn't have yet, see DESKTOP.md), but a genuine choice, not a hardcoded single colour. */
+/** A small, real palette for quick picks -- the last swatch in the row opens [ColorWheel], a real
+ *  HSV disc picker, for anything not in this fixed set. */
 private val PALETTE = listOf(
     Color(0xFF141414), Color(0xFFFFFFFF), Color(0xFFE53935), Color(0xFF1E88E5),
     Color(0xFF43A047), Color(0xFFFDD835), Color(0xFF8E24AA), Color(0xFFFF6F00),
@@ -87,6 +87,7 @@ private fun GraffuxDesktopApp() {
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     val canvasState = remember { CanvasState() }
     var lastSavedPath by remember { mutableStateOf<String?>(null) }
+    var showColorWheel by remember { mutableStateOf(false) }
 
     AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
         azTheme(
@@ -164,10 +165,40 @@ private fun GraffuxDesktopApp() {
                                         color = if (color == selectedColor) Color(0xFF7C4DFF) else Color.Gray,
                                         shape = CircleShape,
                                     )
-                                    .clickable { selectedColor = color },
+                                    .clickable {
+                                        selectedColor = color
+                                        showColorWheel = false
+                                    },
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        // The swatch row above is a fixed 8-colour palette, not the full HSV wheel
+                        // Android's ColorPickerDialog offers -- this toggle opens a real one (see
+                        // ColorWheel.kt) rather than leaving custom colour choice unreachable.
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(selectedColor)
+                                .border(
+                                    width = if (showColorWheel) 3.dp else 1.dp,
+                                    color = if (showColorWheel) Color(0xFF7C4DFF) else Color.Gray,
+                                    shape = CircleShape,
+                                )
+                                .clickable { showColorWheel = !showColorWheel },
+                        )
                     }
+                }
+                if (showColorWheel) {
+                    // The rail is a translucent overlay floating on top of this full-bleed content
+                    // column, not an inset that shrinks it (nothing before this ever grew tall
+                    // enough to reach the rail's own item region to notice) -- a left inset here
+                    // clears the expanded rail's ~88dp width so the wheel doesn't render under it.
+                    ColorWheel(
+                        currentColor = selectedColor,
+                        onColorSelected = { selectedColor = it },
+                        modifier = Modifier.padding(start = 100.dp, end = 16.dp),
+                    )
                 }
                 lastSavedPath?.let { path ->
                     Text(

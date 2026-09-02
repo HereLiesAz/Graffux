@@ -88,6 +88,23 @@ sound finished — see each claim's own verification note.
   placeholder. **Verified end-to-end**: drew a stroke, clicked Save, confirmed a real PNG landed on
   disk at the exact path the UI reported, and confirmed by reading that PNG back that its pixel
   content is the same stroke that was on screen (not a blank or corrupt file).
+- **A real HSV disc colour picker (`ColorWheel.kt`), not just the 8-swatch palette.** Android's
+  `feature:editor` already has one (`ColorPickerDialog`/`ColorWheel` in `SketchToolsDialog.kt`) built
+  on `android.graphics.Color.HSVToColor`/`RGBToHSV` and `android.graphics.Bitmap` — neither exists on
+  desktop JVM, so this isn't a straight port. Instead it's rebuilt on the shared, pure-Kotlin HSV<->RGB
+  math already in `core:engine`'s `ArgbColor` (used by Android's own dab-color resolution, so it's
+  the same math, not a second hand-rolled implementation) plus a JVM `BufferedImage` for the wheel
+  raster instead of `android.graphics.Bitmap`. A swatch at the end of the palette row toggles the
+  wheel; picking a hue/saturation point or dragging the brightness slider updates the selected colour
+  live, same as Android's dialog (no "Apply" step). **Verified end-to-end**: opened the wheel,
+  confirmed it renders as a real hue/saturation disc (not a placeholder swatch), dragged brightness up
+  from near-black, clicked a point on the disc, confirmed the custom swatch updated to the exact
+  picked hue, then drew a stroke and confirmed it painted in that exact colour — the full
+  pick-to-paint path, not just the picker rendering. One layout issue was caught and fixed in the
+  same pass: `AzHostActivityLayout`'s rail floats as a translucent overlay on top of full-bleed
+  content rather than insetting it (nothing before this grew tall enough to visibly reach into the
+  rail's item region to notice), so the wheel initially rendered partially under the rail; a
+  `padding(start = 100.dp)` clears the expanded rail's width.
 
 ### A real bug this session's own testing found and fixed: release detection
 
@@ -140,8 +157,8 @@ fully confirmed from this container.
   `BrushSample.tiltRadians`) has no desktop input source yet.
 - **The rail has a brush-preset switcher and edit actions (Undo/Redo/Clear/Save), but not the rest
   of the Android rail's tool set.** `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired
-  up (see above), and colour selection genuinely works (a fixed swatch row, not a full HSV picker
-  yet), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, an
+  up (see above), and colour selection has both a fixed 8-swatch row and a real HSV disc picker (see
+  below), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, an
   extensions manager, or About/Help screens the library provides for free but this app hasn't
   populated with app-specific content. This is a UI population gap now, not a library-capability gap.
 - **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
