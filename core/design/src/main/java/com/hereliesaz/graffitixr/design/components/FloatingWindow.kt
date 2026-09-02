@@ -138,7 +138,12 @@ fun FloatingWindow(
             // Not the rail's accent by default here: these panels sit over the artwork, and the rail's
             // accent is tuned to read against the rail rather than against whatever the user is painting.
             accent = MaterialTheme.colorScheme.outlineVariant,
-            surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+            // Semi-transparent rather than the near-opaque 0.97 this used to be: every floating
+            // window sits directly over the artwork (a color picker, brush options, layers...),
+            // and a panel the user can still see the canvas through, at least faintly, keeps them
+            // oriented in the document while it's up instead of blanking out whatever was behind
+            // it. One shared value here means every FloatingWindow gets it at once.
+            surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
             // No fold control on any FloatingWindow: a folded window collapses to a bare title
             // bar that can end up looking like a stray, unexplained close button once dragged
             // away from its content -- see the "always-there X in the corner" report this

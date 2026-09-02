@@ -234,4 +234,185 @@ class BrushStampsTest {
         assertTrue(dabs.isNotEmpty())
         dabs.forEach { assertEquals(0.5f, it.tipRatio, 1e-4f) }
     }
+
+    // ---- First-touch blot ----
+
+    private fun straightLineSamples(lengthPx: Float, steps: Int): List<BrushSample> =
+        (0..steps).map { i ->
+            val x = lengthPx * i / steps
+            BrushSample(x = x, y = 0f, uptimeMillis = (i * 10).toLong())
+        }
+
+    @Test
+    fun blotSpikesTheVeryFirstDabsSizeThenDecaysToNormalByLengthPx() {
+        val brush = AzphaltBrush(
+            name = "B",
+            blot = BrushBlot(lengthPx = 100f, sizeMultiplier = 3f, opacityMultiplier = 1f),
+        )
+        val dabs = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 40), diameterPx = 10f, brush = brush, seed = 3L,
+        )
+        assertTrue(dabs.isNotEmpty())
+        // The very first dab should be near the full 3x spike (radius ~15 vs the resting 5).
+        assertTrue("first dab should be spiked, was radius=${dabs.first().radius}", dabs.first().radius > 10f)
+        // Far past lengthPx, dabs should have settled back to the resting radius (~5).
+        val settled = dabs.last()
+        assertEquals(5f, settled.radius, 0.5f)
+    }
+
+    @Test
+    fun blotDisabledByDefaultMatchesUnblottedOutput() {
+        val samples = straightLineSamples(50f, steps = 10)
+        val plain = AzphaltBrush(name = "B")
+        val withZeroBlot = plain.copy(blot = BrushBlot())
+        assertEquals(
+            BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = plain, seed = 9L),
+            BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = withZeroBlot, seed = 9L),
+        )
+    }
+
+    @Test
+    fun blotExtraStampsAddRandomlyRealignedCopiesNearTheTouchdownOnly() {
+        val brush = AzphaltBrush(
+            name = "B",
+            spacing = 0.05f,
+            blot = BrushBlot(lengthPx = 30f, extraStamps = 4, angleJitterDeg = 180f),
+        )
+        val withExtras = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 60), diameterPx = 10f, brush = brush, seed = 11L,
+        )
+        val withoutExtras = BrushStamps.dynamicDabs(
+            straightLineSamples(200f, steps = 60),
+            diameterPx = 10f,
+            brush = brush.copy(blot = brush.blot.copy(extraStamps = 0)),
+            seed = 11L,
+        )
+        // Extra stamps only fire near the touchdown (blotT < 1, i.e. within lengthPx), so the
+        // extras-enabled run must emit strictly more dabs, but the two runs converge once past
+        // the blot window (same tail count of "real" placement points either way).
+        assertTrue(withExtras.size > withoutExtras.size)
+        // Each extra stamp should carry a random rotation somewhere in the jitter range, not all
+        // identical to the primary dab's own heading-following angle.
+        val anglesNearStart = withExtras.take(10).map { it.angleDeg }.toSet()
+        assertTrue("expected varied angles from random realignment, got $anglesNearStart", anglesNearStart.size > 1)
+    }
+
+    @Test
+    fun blotExtraStampsDisabledByDefault() {
+        assertEquals(0, BrushBlot().extraStamps)
+        assertTrue(!BrushBlot().isActive())
+        assertTrue(!BrushBlot(lengthPx = 10f).isActive())
+    }
+
+    // ---- Blot dwell growth: holding still on first contact pools more ink ----
+
+    /** Sits at (0,0) for [dwellMs], well inside the default airbrushStillnessRadiusPx, then walks a
+     *  straight line away -- the touchdown-then-move shape dwell growth needs to observe. */
+    private fun dwellThenMoveSamples(dwellMs: Long, moveLengthPx: Float, moveSteps: Int): List<BrushSample> {
+        val dwell = listOf(
+            BrushSample(x = 0f, y = 0f, uptimeMillis = 0L),
+            BrushSample(x = 0f, y = 0f, uptimeMillis = dwellMs),
+        )
+        val move = (1..moveSteps).map { i ->
+            BrushSample(x = moveLengthPx * i / moveSteps, y = 0f, uptimeMillis = dwellMs + i * 10L)
+        }
+        return dwell + move
+    }
+
+    @Test
+    fun noDwellLeavesTheSpikeAtItsBaseSizeMultiplier() {
+        val brush = AzphaltBrush(
+            name = "B",
+            blot = BrushBlot(lengthPx = 200f, sizeMultiplier = 1f, dwellGrowthMultiplier = 3f, dwellRampMs = 500f),
+        )
+        // Zero dwell: the first two samples are already at the anchor at uptimeMillis=0, so moving
+        // immediately (dwellMs=0) should leave dwellGrowthFactor at 1 (no extra growth).
+        val dabs = BrushStamps.dynamicDabs(
+            dwellThenMoveSamples(dwellMs = 0L, moveLengthPx = 200f, moveSteps = 20),
+            diameterPx = 10f, brush = brush, seed = 5L,
+        )
+        assertEquals(5f, dabs.first().radius, 0.25f) // base radius, no spike and no growth
+    }
+
+    @Test
+    fun longerDwellGrowsTheFirstDabBiggerViaAnEaseOutCurve() {
+        fun firstDabRadius(dwellMs: Long): Float {
+            val brush = AzphaltBrush(
+                name = "B",
+                blot = BrushBlot(lengthPx = 300f, sizeMultiplier = 1f, dwellGrowthMultiplier = 3f, dwellRampMs = 500f),
+            )
+            return BrushStamps.dynamicDabs(
+                dwellThenMoveSamples(dwellMs, moveLengthPx = 200f, moveSteps = 20),
+                diameterPx = 10f, brush = brush, seed = 5L,
+            ).first().radius
+        }
+
+        val none = firstDabRadius(0L)
+        val quarterRamp = firstDabRadius(125L) // 25% of dwellRampMs
+        val fullRamp = firstDabRadius(500L) // 100% of dwellRampMs
+        val overRamp = firstDabRadius(5000L) // past dwellRampMs -- must coerce, not overshoot
+
+        // Base radius is 5; dwellGrowthMultiplier=3 means the ceiling is 3x = 15.
+        assertEquals(5f, none, 0.25f)
+        assertEquals(15f, fullRamp, 0.25f)
+        assertEquals(15f, overRamp, 0.25f) // coerced at the ramp's own ceiling, never past it
+        // Ease-out (sqrt): at 25% of the dwell ramp, growth should already be HALFWAY to the
+        // ceiling (sqrt(0.25) = 0.5) -- i.e. radius ~10, not the ~7.5 a straight linear ramp
+        // would give at the same 25% mark. This is the "grows faster at first" property.
+        assertEquals(10f, quarterRamp, 0.5f)
+        // Concavity check at evenly time-spaced points: growth over the ramp's first half must
+        // exceed growth over its second half.
+        val halfRamp = firstDabRadius(250L)
+        assertTrue(
+            "expected front-loaded growth, got none=$none halfRamp=$halfRamp fullRamp=$fullRamp",
+            (halfRamp - none) > (fullRamp - halfRamp),
+        )
+    }
+
+    @Test
+    fun dwellGrowthDisabledByDefault() {
+        assertEquals(1f, BrushBlot().dwellGrowthMultiplier, 0f)
+        assertEquals(0f, BrushBlot().dwellRampMs, 0f)
+        assertTrue(!BrushBlot(lengthPx = 10f, dwellGrowthMultiplier = 3f).isActive()) // dwellRampMs still 0
+    }
+
+    // ---- Blot sharpness: a hard, sudden tap blots more than a soft, gradual one ----
+
+    private fun tapSamples(firstPressure: Float, secondPressure: Float, dtMs: Long): List<BrushSample> =
+        listOf(
+            BrushSample(x = 0f, y = 0f, uptimeMillis = 0L, pressure = firstPressure),
+            BrushSample(x = 0f, y = 0f, uptimeMillis = dtMs, pressure = secondPressure),
+            BrushSample(x = 100f, y = 0f, uptimeMillis = dtMs + 200L, pressure = secondPressure),
+        )
+
+    @Test
+    fun aSharperTapGrowsTheFirstDabMoreThanAGradualOne() {
+        fun firstDabRadius(firstPressure: Float, secondPressure: Float, dtMs: Long): Float {
+            val brush = AzphaltBrush(
+                name = "B",
+                blot = BrushBlot(
+                    lengthPx = 300f, sizeMultiplier = 1f,
+                    sharpnessMultiplier = 3f, sharpnessRampMsPerUnit = 80f,
+                ),
+            )
+            return BrushStamps.dynamicDabs(
+                tapSamples(firstPressure, secondPressure, dtMs), diameterPx = 10f, brush = brush, seed = 5L,
+            ).first().radius
+        }
+
+        // A gentle press: pressure barely rises over 80ms -- sharpnessT ~ 0, no extra growth.
+        val gradual = firstDabRadius(firstPressure = 0.1f, secondPressure = 0.2f, dtMs = 80L)
+        // A hard, sudden press: full 0->1 rise inside 80ms -- sharpnessT saturates at 1, full 3x.
+        val sharp = firstDabRadius(firstPressure = 0f, secondPressure = 1f, dtMs = 80L)
+
+        assertEquals(6f, gradual, 0.25f) // sharpnessT = 0.1 -> factor 1.2 -> radius 6
+        assertEquals(15f, sharp, 0.25f)
+        assertTrue("expected a sharper tap to blot more, gradual=$gradual sharp=$sharp", sharp > gradual)
+    }
+
+    @Test
+    fun sharpnessDisabledByDefault() {
+        assertEquals(1f, BrushBlot().sharpnessMultiplier, 0f)
+        assertTrue(!BrushBlot(lengthPx = 10f).isActive())
+    }
 }

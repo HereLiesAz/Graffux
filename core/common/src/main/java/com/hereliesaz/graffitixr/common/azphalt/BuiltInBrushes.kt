@@ -17,12 +17,17 @@ object BuiltInBrushes {
     val presets: List<AzphaltBrush> = listOf(
         // A soft, pressure-responsive round -- the brush most painting apps default to. Tapers in
         // size and opacity as pressure eases off, the same "Pressure -> Size"/"Pressure -> Opacity"
-        // combination Brush Studio's own quick-start presets offer.
+        // combination Brush Studio's own quick-start presets offer. A mild hold-to-build-up (see
+        // AzphaltBrush.airbrushDabsPerSecond's doc comment -- not just for the Airbrush preset
+        // below) lets it pool a little more paint if the stroke pauses, the way a loaded soft brush
+        // realistically would.
         AzphaltBrush(
             name = "Soft Round",
             hardness = 0.35f,
             opacity = 0.9f,
             spacing = 0.08f,
+            airbrushDabsPerSecond = 4f,
+            airbrushStillnessRadiusPx = 4f,
             dynamics = listOf(
                 BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.SIZE, outputMin = 0.3f, outputMax = 1f),
                 BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.OPACITY, outputMin = 0.4f, outputMax = 1f),
@@ -36,7 +41,7 @@ object BuiltInBrushes {
             opacity = 1f,
             spacing = 0.06f,
         ),
-        // A soft-edged, low-opacity tip with Airbrush build-up (item 13): holding the stroke still
+        // A soft-edged, low-opacity tip with hold-to-build-up (item 13): holding the stroke still
         // keeps depositing paint, the same behaviour Krita/Procreate's own airbrush tools have.
         AzphaltBrush(
             name = "Airbrush",
@@ -46,6 +51,31 @@ object BuiltInBrushes {
             airbrushDabsPerSecond = 12f,
             dynamics = listOf(
                 BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.OPACITY, outputMin = 0.3f, outputMax = 1f),
+            ),
+        ),
+        // A loaded ink pen: touching down leaves an outsized, ragged blot that fades into the
+        // resting line width, growing further the harder/more suddenly it's tapped down
+        // (BrushBlot.sharpnessMultiplier) or the longer it dwells before the stroke starts moving
+        // (BrushBlot.dwellGrowthMultiplier) -- and keeps a light hold-to-build-up of its own for a
+        // pause mid-stroke, all three of this session's dwell/sharpness/build-up additions in one
+        // brush.
+        AzphaltBrush(
+            name = "Ink Pen",
+            hardness = 0.9f,
+            opacity = 1f,
+            spacing = 0.05f,
+            airbrushDabsPerSecond = 3f,
+            airbrushStillnessRadiusPx = 3f,
+            blot = BrushBlot(
+                lengthPx = 60f,
+                sizeMultiplier = 1.8f,
+                opacityMultiplier = 1.2f,
+                extraStamps = 3,
+                angleJitterDeg = 45f,
+                positionJitter = 0.25f,
+                dwellGrowthMultiplier = 2.5f,
+                dwellRampMs = 400f,
+                sharpnessMultiplier = 2f,
             ),
         ),
     )

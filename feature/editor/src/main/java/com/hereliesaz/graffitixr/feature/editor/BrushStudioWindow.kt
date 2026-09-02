@@ -57,6 +57,7 @@ fun BrushStudioWindow(
     var showTexture by remember { mutableStateOf(false) }
     var showMaskedTip by remember { mutableStateOf(false) }
     var showTaper by remember { mutableStateOf(false) }
+    var showBlot by remember { mutableStateOf(false) }
     var showAirbrush by remember { mutableStateOf(false) }
     var showImpasto by remember { mutableStateOf(false) }
 
@@ -266,7 +267,58 @@ fun BrushStudioWindow(
             }
 
             AzButton(
-                text = if (showAirbrush) "Airbrush ▴" else "Airbrush ▾",
+                text = if (showBlot) "Blot ▴" else "Blot ▾",
+                onClick = { showBlot = !showBlot },
+                shape = AzButtonShape.RECTANGLE,
+            )
+            if (showBlot) {
+                val blot = draft.blot
+                ParamSlider("Length", blot.lengthPx, 0f..600f, unit = "px") { v ->
+                    onEdit { it.copy(blot = blot.copy(lengthPx = v)) }
+                }
+                ParamSlider("Size spike", blot.sizeMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(sizeMultiplier = v)) }
+                }
+                ParamSlider("Opacity spike", blot.opacityMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(opacityMultiplier = v)) }
+                }
+                ParamSlider("Extra stamps", blot.extraStamps.toFloat(), 0f..8f) { v ->
+                    onEdit { it.copy(blot = blot.copy(extraStamps = v.toInt())) }
+                }
+                ParamSlider("Angle jitter", blot.angleJitterDeg, 0f..180f, unit = "°") { v ->
+                    onEdit { it.copy(blot = blot.copy(angleJitterDeg = v)) }
+                }
+                ParamSlider("Position jitter", blot.positionJitter, 0f..1f) { v ->
+                    onEdit { it.copy(blot = blot.copy(positionJitter = v)) }
+                }
+                ParamSlider("Dwell growth", blot.dwellGrowthMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(dwellGrowthMultiplier = v)) }
+                }
+                ParamSlider("Dwell ramp", blot.dwellRampMs, 0f..2000f, unit = "ms") { v ->
+                    onEdit { it.copy(blot = blot.copy(dwellRampMs = v)) }
+                }
+                ParamSlider("Tap sharpness", blot.sharpnessMultiplier, 1f..5f) { v ->
+                    onEdit { it.copy(blot = blot.copy(sharpnessMultiplier = v)) }
+                }
+                Text(
+                    "An outsized first mark where the stroke touches down, like a loaded ink brush's " +
+                        "initial contact, fading to the resting size/opacity over Length. Extra stamps add " +
+                        "randomly re-angled copies of the tip near the touchdown for a ragged, bristle-like " +
+                        "pattern instead of a uniform scale-up. Dwell growth additionally pools more ink the " +
+                        "longer the stylus holds still on first contact (needs Dwell ramp above 0, and reuses " +
+                        "Held-still radius below); Tap sharpness adds more from a hard, sudden press alone, " +
+                        "even with no dwelling at all -- stylus only, since finger input has no real pressure.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            // "Hold to Build Up", not "Airbrush": these two fields drive any brush that should keep
+            // depositing while the pointer holds still -- an airbrush spray, but just as much an
+            // ink or watercolour pooling under a stationary tip. Naming this section after one
+            // preset buried the setting from every other brush that could use it; Blot's own Dwell
+            // growth above reuses this same "Held-still radius" for exactly that reason.
+            AzButton(
+                text = if (showAirbrush) "Hold to Build Up ▴" else "Hold to Build Up ▾",
                 onClick = { showAirbrush = !showAirbrush },
                 shape = AzButtonShape.RECTANGLE,
             )
@@ -274,13 +326,14 @@ fun BrushStudioWindow(
                 ParamSlider("Rate", draft.airbrushDabsPerSecond, 0f..60f, unit = "/s") { v ->
                     onEdit { it.copy(airbrushDabsPerSecond = v) }
                 }
-                ParamSlider("Stillness radius", draft.airbrushStillnessRadiusPx, 0f..40f, unit = "px") { v ->
+                ParamSlider("Held-still radius", draft.airbrushStillnessRadiusPx, 0f..40f, unit = "px") { v ->
                     onEdit { it.copy(airbrushStillnessRadiusPx = v) }
                 }
                 Text(
-                    "0 disables airbrush. Above 0, holding the pointer roughly still keeps depositing paint " +
+                    "0 disables this. Above 0, holding the pointer roughly still keeps depositing paint " +
                         "at this rate, on top of ordinary movement dabs -- visible live while dragging, not " +
-                        "just once the stroke is released.",
+                        "just once the stroke is released. Not just for an airbrush: any brush can use this " +
+                        "to pool paint or ink the longer it dwells in one spot.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -368,7 +421,7 @@ private fun ParamSlider(
  * BrushStudioWindow), not a one-line fix, so it's left as a known gap rather than guessed at here.
  */
 @Composable
-internal fun BrushPreview(
+fun BrushPreview(
     brush: AzphaltBrush,
     color: Color,
     secondaryColor: Color,

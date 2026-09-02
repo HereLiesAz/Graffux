@@ -83,6 +83,18 @@ interface SettingsRepository {
 
     suspend fun setBrushSizeFixedOnScreen(fixed: Boolean)
 
+    /**
+     * Installed brush-tip ids the user has hidden from pickers (the brush rail, the brush group) --
+     * an extension can bundle many brushes, and not every one belongs in a strip reached for
+     * mid-painting. Each id is `"<extensionId>::<assetIndex>"`, matching
+     * `ExtensionRepository.InstalledBrushAsset`. Hiding is presentation-only: a hidden brush still
+     * loads and paints fine if selected some other way (Brush Studio editing it, say); it just
+     * doesn't show up in a picker. Empty by default -- nothing is hidden until the user hides it.
+     */
+    val hiddenBrushTipIds: Flow<Set<String>>
+
+    suspend fun setBrushTipHidden(compositeId: String, hidden: Boolean)
+
     /** Canvas background color as ARGB Int. Default is opaque black (0xFF000000). */
     val backgroundColor: Flow<Int>
     suspend fun setBackgroundColor(argb: Int)
