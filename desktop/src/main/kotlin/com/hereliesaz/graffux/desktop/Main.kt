@@ -28,6 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -67,27 +73,44 @@ fun main() = application {
     // rail items without repeating this (bumped from an earlier 900 while testing a 9th item -- see
     // DESKTOP.md on why that item, azAbout()'s auto "?" button, isn't wired in yet).
     val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
-    Window(onCloseRequest = ::exitApplication, title = "Graffux", state = windowState) {
+    // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
+    // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
+    // Android's touch-only editor has no equivalent shortcut for -- can reach it directly.
+    val canvasState = remember { CanvasState() }
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = "Graffux",
+        state = windowState,
+        onKeyEvent = { event ->
+            if (event.type != KeyEventType.KeyDown || !event.isCtrlPressed) {
+                false
+            } else when {
+                event.key == Key.Z && !event.isShiftPressed -> { canvasState.undo(); true }
+                event.key == Key.Z && event.isShiftPressed -> { canvasState.redo(); true }
+                event.key == Key.Y -> { canvasState.redo(); true }
+                else -> false
+            }
+        },
+    ) {
         MaterialTheme {
             CompositionLocalProvider(
                 // Desktop has no OS-level app name/icon the way an Android manifest does, so this
                 // is provided by hand (matches the pattern aznavrail's own CMP demo app uses).
                 LocalAzAppMeta provides AzAppMeta(name = "Graffux", packageId = "com.hereliesaz.graffux"),
             ) {
-                GraffuxDesktopApp()
+                GraffuxDesktopApp(canvasState)
             }
         }
     }
 }
 
 @Composable
-private fun GraffuxDesktopApp() {
+private fun GraffuxDesktopApp(canvasState: CanvasState) {
     val navController = rememberNavController()
     var brushRadius by remember { mutableFloatStateOf(24f) }
     var brushFlow by remember { mutableFloatStateOf(1f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
-    val canvasState = remember { CanvasState() }
     var lastSavedPath by remember { mutableStateOf<String?>(null) }
     var showColorWheel by remember { mutableStateOf(false) }
 
