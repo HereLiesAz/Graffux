@@ -65,6 +65,30 @@ sound finished — see each claim's own verification note.
   needs the WiX Toolset, which only runs on a Windows host/CI runner — not available here, so the
   Windows installer output itself has never been produced or tested, only configured.
 
+## Caught by adversarial review (glee), fixed before this was pushed
+
+A `glee` review pass (per the user's explicit request to use it "along the way") found the first
+draft's two headline claims were both false as implemented:
+
+1. **The stroke's last dab(s) were silently dropped on every release.** The move handler fired a
+   `scope.launch` per pointer-move and the release handler baked `displayBitmap` synchronously,
+   with nothing joining the in-flight render job first — so release routinely ran before the last
+   move's render had even started. Fixed by replacing `detectDragGestures` (whose callbacks are
+   plain, non-suspend lambdas — the root cause of the fire-and-forget) with a hand-rolled gesture
+   loop (`detectStampGestures` in `DetectStampGestures.kt`) whose start/move/end callbacks are
+   suspend functions invoked sequentially from one coroutine: each move's render is awaited before
+   the next pointer event is even read.
+2. **"Tile-parallel" compositing never left one thread.** `compositeTileParallel`'s `async { }`
+   calls never specified `Dispatchers.Default`, so they inherited the caller's own dispatcher —
+   `rememberCoroutineScope()`'s single-threaded composition-bound one — meaning every tile
+   rasterized sequentially despite the doc comments (and this file) claiming multi-core use. Fixed
+   by explicitly launching each tile's `async` on `Dispatchers.Default`.
+
+Both fixes were re-verified the same way as the first pass (`:desktop:compileKotlin`, a fresh
+`:desktop:run` under Xvfb, and a scripted drag + screenshot confirming the stroke now reaches its
+actual endpoint instead of stopping short). The "verified" claims below reflect the code as it
+stands after these fixes, not the first draft glee reviewed.
+
 ## Verification performed this session
 
 - `:core:engine:desktopTest`, `:core:engine:testAndroidHostTest` — pass.
@@ -73,8 +97,8 @@ sound finished — see each claim's own verification note.
   renderer or its own regression tests, including the live-preview hardening fix).
 - `:desktop:compileKotlin`, `:desktop:assemble` — succeed.
 - `:desktop:run` under Xvfb with software Skia rendering — launches, shows the canvas, and a
-  scripted pointer drag visibly paints a soft-edged stroke (screenshot captured during this
-  session).
+  scripted pointer drag visibly paints a soft-edged stroke reaching its actual endpoint (screenshots
+  captured during this session, before and after the glee-caught fixes above).
 - `:desktop:packageDeb` was run to completion and produced a real, installable
   `graffux_1.0.0_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
   layout under `/opt/graffux`). `packageRpm` was not separately exercised this session (same
