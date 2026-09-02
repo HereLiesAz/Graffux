@@ -105,6 +105,16 @@ sound finished — see each claim's own verification note.
   content rather than insetting it (nothing before this grew tall enough to visibly reach into the
   rail's item region to notice), so the wheel initially rendered partially under the rail; a
   `padding(start = 100.dp)` clears the expanded rail's width.
+- **A live brush-size cursor preview on hover.** A thin circle outline, radius matched to the current
+  brush size, tracks the mouse over the canvas — mouse hover has no equivalent on Android's
+  touch/stylus input, so this is a genuine desktop-only addition, not a port of anything. Implemented
+  as a second, passive `pointerInput` block on `DesktopStampCanvas` (`awaitPointerEventScope` reading
+  `PointerEventType.Move`/`Exit`) that only observes position, layered as a `Canvas` overlay in the
+  same `Box` as the stroke-drawing surface — it never consumes an event, so it coexists with (and
+  doesn't interfere with) the actual stroke-drawing `pointerInput` already there. **Verified
+  end-to-end**: moved the mouse over the canvas with no button pressed, confirmed the circle rendered
+  at the exact cursor position with the exact configured radius and that nothing was painted, then
+  moved again and confirmed the circle tracked to the new position.
 
 ### A real bug this session's own testing found and fixed: release detection
 
