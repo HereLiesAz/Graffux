@@ -73,6 +73,16 @@ interface SettingsRepository {
 
     suspend fun setImperialUnits(imperial: Boolean)
 
+    /**
+     * Whether the brush size slider is a document-space footprint (off, default -- the same slider
+     * value paints the same real mark on the artwork at any zoom, matching Photoshop/Procreate) or an
+     * on-screen footprint (on -- the brush looks the same size on screen at any zoom, so the real
+     * mark it leaves shrinks zoomed in and grows zoomed out instead).
+     */
+    val brushSizeFixedOnScreen: Flow<Boolean>
+
+    suspend fun setBrushSizeFixedOnScreen(fixed: Boolean)
+
     /** Canvas background color as ARGB Int. Default is opaque black (0xFF000000). */
     val backgroundColor: Flow<Int>
     suspend fun setBackgroundColor(argb: Int)

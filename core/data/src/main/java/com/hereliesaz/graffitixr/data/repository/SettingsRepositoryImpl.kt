@@ -53,6 +53,7 @@ class SettingsRepositoryImpl @Inject constructor(
     // and re-probed under the stricter test. Reading the new key returns -1 (unprobed) on old installs.
     private val STEREO_CAPABILITY = intPreferencesKey("depth_triangulation_capability")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
+    private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
     private val PARALLAX_MIN_DEG = floatPreferencesKey("parallax_min_degrees")
     private val CAMERA_TARGET_FPS = intPreferencesKey("camera_target_fps")
@@ -163,6 +164,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setImperialUnits(imperial: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[IS_IMPERIAL_UNITS] = imperial
+        }
+    }
+
+    override val brushSizeFixedOnScreen: Flow<Boolean> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[BRUSH_SIZE_FIXED_ON_SCREEN] ?: false }
+
+    override suspend fun setBrushSizeFixedOnScreen(fixed: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[BRUSH_SIZE_FIXED_ON_SCREEN] = fixed
         }
     }
 

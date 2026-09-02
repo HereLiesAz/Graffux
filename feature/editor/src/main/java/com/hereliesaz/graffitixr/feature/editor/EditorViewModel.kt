@@ -165,6 +165,32 @@ data class StrokeCommand(
 )
 
 /**
+ * [EditorUiState.brushSize] compensated for the "Brush size locked to screen" setting
+ * ([EditorUiState.brushSizeFixedOnScreen]) — the single place that setting is applied. Every call
+ * site that turns the brush-size slider into an actual painted radius (a live-preview
+ * `brushSize * brushScale` computation, or a [StrokeCommand.brushSize] recorded for commit/replay)
+ * reads this instead of the raw field directly, so the slider's own on-screen readout stays exactly
+ * what the user set it to — only the painted footprint changes.
+ *
+ * Off (the default, [EditorUiState.brushSizeFixedOnScreen] false): returns [EditorUiState.brushSize]
+ * unchanged. `brushSize` already flows into a document-pixel radius with no zoom term anywhere in
+ * that path (`ImageProcessor.screenToBitmapScale` uses only the canvas widget's fixed layout size,
+ * the bitmap's own pixel size, and the per-layer pinch transform — never the camera), so a stroke's
+ * real footprint on the artwork is already invariant to [EditorUiState.viewportZoom] — Photoshop/
+ * Procreate's own default brush-size behaviour.
+ *
+ * On: dividing by `viewportZoom` here is what makes the *opposite* true instead — since the whole
+ * layer stack renders inside a `graphicsLayer` scaled by `viewportZoom` (see EditorScreen's camera
+ * transform), a document-pixel radius shrunk by that same factor renders back out at exactly the
+ * un-shrunk on-screen size regardless of zoom: painting the same on-screen footprint at any zoom
+ * level instead of the same document footprint. `coerceAtLeast` matches this file's other
+ * `viewportZoom` divisions (see [onCommitPenPath]/[applyMoveSnap]) against a theoretical
+ * zero/negative zoom rather than crashing on one.
+ */
+internal fun EditorUiState.effectivePaintBrushSize(): Float =
+    if (brushSizeFixedOnScreen) brushSize / viewportZoom.coerceAtLeast(0.01f) else brushSize
+
+/**
  * How many edits deep undo goes — and therefore how many strokes a layer must keep replayable.
  * Shared by [EditHistory] and the stroke baker so they can't drift apart: if the history were ever
  * deeper than the strokes kept, an undo would silently restore the wrong pixels.
@@ -841,6 +867,13 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.isImperialUnits.collect { imperial ->
                 dispatch(EditorIntent.SetImperialUnits(imperial))
+            }
+        }
+        // Same gap pattern as handedness/units: the Settings screen's "Brush size locked to screen"
+        // toggle needs to reach effectivePaintBrushSize() below, which reads it off live UiState.
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.brushSizeFixedOnScreen.collect { fixed ->
+                dispatch(EditorIntent.SetBrushSizeFixedOnScreen(fixed))
             }
         }
         viewModelScope.launch(dispatchers.main) {
@@ -3664,7 +3697,7 @@ class EditorViewModel @Inject constructor(
 
         val tool = state.activeTool
         val argb = state.activeColor.toArgb()
-        val brushSize = state.brushSize
+        val brushSize = state.effectivePaintBrushSize()
         val feathering = state.brushFeathering
 
         // Copy the bitmap on a background thread (can be ~10-50 ms for large images).
@@ -3957,7 +3990,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, original.width, original.height, strokeLayerScale,
             )
-            val brushSizePx = _uiState.value.brushSize * brushScale
+            val brushSizePx = _uiState.value.effectivePaintBrushSize() * brushScale
             val feathering = _uiState.value.brushFeathering
             val symmetry = strokeSymmetry
             val wrap = strokeWrapAroundMode
@@ -4047,7 +4080,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, work.width, work.height, strokeLayerScale
             )
-            val diameterPx = _uiState.value.brushSize * brushScale
+            val diameterPx = _uiState.value.effectivePaintBrushSize() * brushScale
             val allSamples = snapshotStrokeSamples()
             val mappedSamples = if (allSamples.size * 2 == stampMappedPoints.size) {
                 allSamples.mapIndexed { index, sample ->
@@ -4373,7 +4406,7 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
             )
-            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.brushSize * brushScale, stabilizedPressure)
+            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.effectivePaintBrushSize() * brushScale, stabilizedPressure)
             feedLiveCurvePoint(
                 canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
                 strokeWrapAroundMode, mapped, width, workBitmap,
@@ -4457,7 +4490,7 @@ class EditorViewModel @Inject constructor(
                 colorSmudgeSettings = _colorSmudgeSettings.value.takeIf { state.activeTool == Tool.SMUDGE },
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
-                brushSize = state.brushSize,
+                brushSize = state.effectivePaintBrushSize(),
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 seed = if (state.activeTool == Tool.SMUDGE) System.nanoTime() else 0L,
@@ -4524,7 +4557,7 @@ class EditorViewModel @Inject constructor(
                     BrushStroke(
                         points = coopPoints.flatMap { listOf(it.x, it.y) },
                         colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
-                        brushSize = state.brushSize,
+                        brushSize = state.effectivePaintBrushSize(),
                         brushFeathering = state.brushFeathering,
                         blendModeOrdinal = command.tool.ordinal,
                     )
@@ -4547,7 +4580,7 @@ class EditorViewModel @Inject constructor(
                 brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = Tool.CLONE,
-                brushSize = state.brushSize,
+                brushSize = state.effectivePaintBrushSize(),
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
@@ -4602,7 +4635,7 @@ class EditorViewModel @Inject constructor(
                 brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = Tool.LIQUIFY,
-                brushSize = state.brushSize,
+                brushSize = state.effectivePaintBrushSize(),
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
@@ -4661,7 +4694,7 @@ class EditorViewModel @Inject constructor(
                         canvasW, canvasH, target.width, target.height, capturedScale
                     )
                     val paint = buildStrokePaint(
-                        state.activeTool, state.activeColor.toArgb(), state.brushSize * brushScale,
+                        state.activeTool, state.activeColor.toArgb(), state.effectivePaintBrushSize() * brushScale,
                         state.brushFeathering, strokeAlphaLock, strokeOpacity
                     )
                     val mapped = ImageProcessor.mapScreenToBitmap(
@@ -4709,7 +4742,7 @@ class EditorViewModel @Inject constructor(
                         // true touch-sample spacing); geometry is Catmull-Rom-curved per original
                         // segment, same technique as ImageProcessor.drawStrokeDynamic — see its
                         // doc comment for why the two don't share input.
-                        val widths = BrushDynamics.segmentWidths(mapped, state.brushSize * brushScale, pressures)
+                        val widths = BrushDynamics.segmentWidths(mapped, state.effectivePaintBrushSize() * brushScale, pressures)
                         val flatMapped = ArrayList<Float>(mapped.size * 2)
                         mapped.forEach { flatMapped.add(it.x); flatMapped.add(it.y) }
                         val curvedSegments = CatmullRom.segments(flatMapped)
@@ -4742,7 +4775,7 @@ class EditorViewModel @Inject constructor(
                 brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
-                brushSize = state.brushSize,
+                brushSize = state.effectivePaintBrushSize(),
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
@@ -4781,7 +4814,7 @@ class EditorViewModel @Inject constructor(
                 brushSamples = brushSamples,
                 canvasSize = IntSize(canvasW, canvasH),
                 tool = state.activeTool,
-                brushSize = state.brushSize,
+                brushSize = state.effectivePaintBrushSize(),
                 brushColor = state.activeColor.toArgb(),
                 intensity = 0.5f,
                 feathering = state.brushFeathering,
@@ -4869,7 +4902,7 @@ class EditorViewModel @Inject constructor(
                 val brushStroke = BrushStroke(
                     points = pointsFlat,
                     colorArgb = state.activeColor.toArgb().toLong() and 0xFFFFFFFFL,
-                    brushSize = state.brushSize,
+                    brushSize = state.effectivePaintBrushSize(),
                     brushFeathering = state.brushFeathering,
                     blendModeOrdinal = state.activeTool.ordinal,
                     opacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f,
@@ -4919,7 +4952,7 @@ class EditorViewModel @Inject constructor(
         val base = layer.bitmap ?: return
         if (points.isEmpty()) return
         val color = state.activeColor.toArgb()
-        val brushSize = state.brushSize
+        val brushSize = state.effectivePaintBrushSize()
         val flow = state.brushFlow
         val command = StrokeCommand(
             path = points,
