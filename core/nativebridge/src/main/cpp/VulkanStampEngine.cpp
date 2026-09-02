@@ -45,6 +45,11 @@ struct PushConstants {
     float baseAlpha;
     int32_t originX;
     int32_t originY;
+    // >0.5 = sequential SRC_OVER build-up (Airbrush-style, the historical/only behavior);
+    // <=0.5 (the default) = per-pixel max-of-coverage combine, matching
+    // StampBrushRenderer.paintRoundDabsMaxCombined -- see stamp.comp's own doc comment for why a
+    // dragged soft round brush needs this to not read as hardened. Mirrors AzphaltBrush.buildUp.
+    float buildUp;
 };
 
 // Push constants for stamp_masked.comp -- same first 8 fields as PushConstants above (kept
@@ -873,7 +878,8 @@ bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     return true;
 }
 
-bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness) {
+bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
+                                   bool buildUp) {
     if (!isInitialized() || dabs.empty()) return false;
     if (!createDabBuffer(dabs.size())) return false;
 
@@ -958,6 +964,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
         pc.baseAlpha = static_cast<float>((colorArgb >> 24) & 0xFF) / 255.0f;
         pc.originX = originX;
         pc.originY = originY;
+        pc.buildUp = buildUp ? 1.0f : 0.0f;
         vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 

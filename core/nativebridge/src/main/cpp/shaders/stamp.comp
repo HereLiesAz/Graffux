@@ -27,6 +27,13 @@ layout(push_constant) uniform PushConstants {
     float baseAlpha;
     int originX;
     int originY;
+    // >0.5 = sequential SRC_OVER build-up in submission order (the historical/Airbrush-style
+    // behavior); <=0.5 (the default) = this pixel's single strongest dab wins, composited once --
+    // see the doc comment on VulkanStampEngine::stampDabs's `buildUp` parameter for why the
+    // default must NOT keep compounding every overlapping dab (a dragged soft round brush would
+    // read as hardened well inside its own falloff band, matching
+    // StampBrushRenderer.paintRoundDabsMaxCombined's fix for the identical CPU-side bug).
+    float buildUp;
 } pc;
 
 float stampCoverage(float distFromCenter, float radius, float hardness) {
@@ -45,6 +52,13 @@ void main() {
 
     vec4 dst = imageLoad(layerImage, pixel);
     vec2 p = vec2(pixel) + vec2(0.5);
+    bool sequential = pc.buildUp > 0.5;
+
+    // Max-combine mode (the default) tracks this pixel's single strongest dab across the whole
+    // call instead of compositing every overlapping one -- composited onto dst exactly once below,
+    // after the loop.
+    float bestA = 0.0;
+    vec3 bestRgb = vec3(0.0);
 
     for (uint i = 0u; i < pc.dabCount; i++) {
         Dab d = dabs[i];
@@ -63,8 +77,18 @@ void main() {
         float srcA = baseAlpha * dabAlpha * dabFlow * coverage;
         if (srcA <= 0.0) continue;
 
-        dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
-        dst.a = srcA + dst.a * (1.0 - srcA);
+        if (sequential) {
+            dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
+            dst.a = srcA + dst.a * (1.0 - srcA);
+            dst = round(dst * 255.0) / 255.0;
+        } else if (srcA > bestA) {
+            bestA = srcA;
+            bestRgb = srcRgb;
+        }
+    }
+    if (!sequential && bestA > 0.0) {
+        dst.rgb = bestRgb * bestA + dst.rgb * (1.0 - bestA);
+        dst.a = bestA + dst.a * (1.0 - bestA);
         dst = round(dst * 255.0) / 255.0;
     }
     imageStore(layerImage, pixel, dst);

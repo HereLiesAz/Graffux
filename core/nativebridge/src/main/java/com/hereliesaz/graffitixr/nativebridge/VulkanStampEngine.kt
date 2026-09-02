@@ -113,8 +113,16 @@ class VulkanStampEngine {
         return nativeStampDabs(nativeHandle, flat, colorArgb, hardness).also { if (!it) healthy = false }
     }
 
-    /** Widened Krita-style entry point: every dab owns its resolved colour, flow and hardness. */
-    fun stampResolvedDabs(dabs: List<ResolvedBrushDab>): Boolean {
+    /**
+     * Widened Krita-style entry point: every dab owns its resolved colour, flow and hardness.
+     *
+     * [buildUp] (default false) mirrors [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush.
+     * buildUp] / StampBrushRenderer.paintDabs' own compositing choice: false takes each pixel's
+     * single strongest dab in this call rather than compounding every overlap (matching
+     * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
+     * live-paint path either); true composites sequentially in submission order instead.
+     */
+    fun stampResolvedDabs(dabs: List<ResolvedBrushDab>, buildUp: Boolean = false): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         val flat = FloatArray(dabs.size * 11)
         for (i in dabs.indices) {
@@ -132,7 +140,7 @@ class VulkanStampEngine {
             flat[base + 9] = d.flow
             flat[base + 10] = d.hardness.coerceIn(0f, 1f)
         }
-        return nativeStampResolvedDabs(nativeHandle, flat).also { if (!it) healthy = false }
+        return nativeStampResolvedDabs(nativeHandle, flat, buildUp).also { if (!it) healthy = false }
     }
 
     /**
@@ -342,7 +350,7 @@ class VulkanStampEngine {
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
-    private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray): Boolean
+    private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, buildUp: Boolean): Boolean
     private external fun nativeStampMaskedDabs(
         handle: Long,
         dabData: FloatArray,

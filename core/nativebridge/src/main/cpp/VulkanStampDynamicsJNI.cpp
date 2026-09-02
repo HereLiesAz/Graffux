@@ -11,7 +11,7 @@ using graffux::VulkanStampEngine;
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolvedDabs(
-        JNIEnv* env, jobject, jlong handle, jfloatArray dabData) {
+        JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jboolean buildUp) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabData);
@@ -44,7 +44,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
     env->ReleaseFloatArrayElements(dabData, data, JNI_ABORT);
     // pc.hardness is unused by the shader for every dab in this call (all resolved=1, so each
     // reads its own d.tipRatio-as-hardness instead) -- the value passed here is a placeholder.
-    return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f) ? JNI_TRUE : JNI_FALSE;
+    return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f, buildUp == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

@@ -144,10 +144,15 @@ public:
     bool upload(const uint8_t* inRgba8, size_t inSizeBytes);
 
     // Uploads `dabs` and dispatches the compute shader to stamp them onto the layer image using
-    // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness). Composites
-    // in submission order, matching the CPU path's sequential canvas.drawCircle calls. No-op
-    // (returns false) if the engine failed init() or `dabs` is empty.
-    bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness);
+    // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness).
+    // `buildUp` (default false) selects the compositing mode within THIS call's dab list, mirroring
+    // AzphaltBrush.buildUp / StampBrushRenderer.paintDabs' own allowBuildUp/brush.buildUp branch:
+    // false (the default) takes each pixel's strongest single dab rather than compounding overlaps,
+    // matching paintRoundDabsMaxCombined and avoiding a dragged soft brush reading as hardened;
+    // true composites sequentially in submission order instead, matching the historical/
+    // Airbrush-style behavior. No-op (returns false) if the engine failed init() or `dabs` is empty.
+    bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
+                    bool buildUp = false);
 
     // shaders/stamp_masked.comp counterpart to stampDabs(): each dab samples `maskAlpha8` (an
     // R8_UNORM alpha-only tip texture, `maskWidth`x`maskHeight`, white=full coverage) in its own

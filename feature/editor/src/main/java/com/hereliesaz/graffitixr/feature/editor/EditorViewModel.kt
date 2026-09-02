@@ -4292,7 +4292,8 @@ class EditorViewModel @Inject constructor(
                                     hardness = dab.hardness,
                                 )
                             }
-                            engine.stampResolvedDabs(gpuDabs) && engine.readback(work)
+                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
+                                engine.readback(work)
                         }
                     }
                     if (hasNewMovementDabs && !gpuHandled) {
