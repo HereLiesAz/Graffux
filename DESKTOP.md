@@ -138,12 +138,12 @@ fully confirmed from this container.
 - **No stylus tilt.** Compose Multiplatform Desktop currently exposes pointer pressure and
   `PointerType`, not tilt/orientation, so tilt-driven brush behavior (available on Android via
   `BrushSample.tiltRadians`) has no desktop input source yet.
-- **The rail only has a brush-preset switcher and an 8-swatch palette.** `AzHostActivityLayout`/
-  `azConfig`/`azRailItem` are real and wired up (see above), and colour selection genuinely works
-  (a fixed swatch row, not a full HSV picker), but the desktop app doesn't yet reproduce the rest of
-  the Android rail's tool set (layers, selection tools, Brush Studio, undo/redo, extensions manager,
-  About/Help screens the library provides for free but this app hasn't populated with app-specific
-  content). This is a UI population gap now, not a library-capability gap.
+- **The rail has a brush-preset switcher and edit actions (Undo/Redo/Clear/Save), but not the rest
+  of the Android rail's tool set.** `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired
+  up (see above), and colour selection genuinely works (a fixed swatch row, not a full HSV picker
+  yet), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, an
+  extensions manager, or About/Help screens the library provides for free but this app hasn't
+  populated with app-specific content. This is a UI population gap now, not a library-capability gap.
 - **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
   dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
   no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as
