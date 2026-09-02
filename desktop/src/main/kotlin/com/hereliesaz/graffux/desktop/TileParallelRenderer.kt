@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.RoundStampCompositor
 import com.hereliesaz.graffitixr.common.azphalt.TileGrid
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -42,7 +43,11 @@ suspend fun compositeTileParallel(
     if (range.isEmpty) return@coroutineScope emptyList()
 
     range.indices().map { (tx, ty) ->
-        async {
+        // Explicitly on Dispatchers.Default, not the caller's own dispatcher: a coroutine started
+        // with plain `async {}` inherits its parent scope's dispatcher, and the only caller here is
+        // bound to Compose's single-threaded UI/composition dispatcher — without this, every tile
+        // would still composite one after another on that one thread, defeating the whole point.
+        async(Dispatchers.Default) {
             val bounds = grid.tileBounds(tx, ty)
             val relevant = dabs.filter { d ->
                 val r = d.radius.coerceAtLeast(0.5f)

@@ -7,7 +7,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -19,8 +18,6 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
 import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.Dab
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import java.awt.image.BufferedImage
 import kotlin.math.hypot
 
@@ -28,6 +25,14 @@ import kotlin.math.hypot
  * A real (not a mockup) stamp-brush drawing surface for the desktop app: pointer/pen input ->
  * [Dab] list -> [compositeTileParallel] (the shared azphalt engine's max-combine falloff, spread
  * across CPU cores) -> blitted onto a [BufferedImage] canvas.
+ *
+ * Every pointer callback ([detectStampGestures]'s `onStart`/`onMove`/`onEnd`) is a suspend function
+ * invoked directly from the single gesture-handling coroutine, and each one's own render is awaited
+ * before the next pointer event is even read. This is deliberate, not incidental: an earlier version
+ * fired a separate `scope.launch` per move with no join before baking the stroke on release, which
+ * silently dropped the tail of every stroke (the bake ran before the last frame's render had even
+ * started). Keeping it sequential trades a small amount of input-to-paint latency on a very dense
+ * drag for actually painting what was drawn -- correctness over responsiveness for this first pass.
  *
  * What this deliberately does NOT attempt (see DESKTOP.md): the full sensor-binding pipeline
  * ([com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine]) feature:editor's Android UI
@@ -42,11 +47,9 @@ fun DesktopStampCanvas(
     brushHardness: Float,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var committed by remember { mutableStateOf<BufferedImage?>(null) }
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    var renderJob by remember { mutableStateOf<Job?>(null) }
 
     Box(
         modifier = modifier
@@ -69,7 +72,7 @@ fun DesktopStampCanvas(
                 val strokeDabs = ArrayList<Dab>()
                 var lastDabPos: Offset? = null
                 var strokeBase: BufferedImage? = null
-                var generation = 0
+                var lastRenderedFrame: BufferedImage? = null
 
                 fun addDabIfFarEnough(position: Offset, pressure: Float) {
                     val minSpacing = (brushRadiusPx * 2f * 0.12f).coerceAtLeast(1.5f)
@@ -94,28 +97,23 @@ fun DesktopStampCanvas(
                     )
                 }
 
-                fun renderStroke(base: BufferedImage, dabs: List<Dab>, myGeneration: Int) {
-                    val job = scope.launch {
-                        val tiles = compositeTileParallel(
-                            dabs = dabs,
-                            canvasWidth = base.width,
-                            canvasHeight = base.height,
-                            colorArgb = ArgbColor.argb(255, 20, 20, 20),
-                            secondaryColorArgb = ArgbColor.argb(255, 20, 20, 20),
-                            colorSource = BrushColorSource.PLAIN,
-                            flow = 1f,
-                        )
-                        if (myGeneration != generation) return@launch // superseded by a newer frame
-                        val pixels = IntArray(base.width * base.height)
-                        base.getRGB(0, 0, base.width, base.height, pixels, 0, base.width)
-                        for (tile in tiles) blitSrcOver(pixels, base.width, base.height, tile)
-                        val frame = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
-                        frame.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
-                        if (myGeneration == generation) {
-                            displayBitmap = frame.toComposeImageBitmap()
-                        }
-                    }
-                    renderJob = job
+                suspend fun renderStroke(base: BufferedImage) {
+                    val tiles = compositeTileParallel(
+                        dabs = strokeDabs,
+                        canvasWidth = base.width,
+                        canvasHeight = base.height,
+                        colorArgb = ArgbColor.argb(255, 20, 20, 20),
+                        secondaryColorArgb = ArgbColor.argb(255, 20, 20, 20),
+                        colorSource = BrushColorSource.PLAIN,
+                        flow = 1f,
+                    )
+                    val pixels = IntArray(base.width * base.height)
+                    base.getRGB(0, 0, base.width, base.height, pixels, 0, base.width)
+                    for (tile in tiles) blitSrcOver(pixels, base.width, base.height, tile)
+                    val frame = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
+                    frame.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
+                    lastRenderedFrame = frame
+                    displayBitmap = frame.toComposeImageBitmap()
                 }
 
                 detectStampGestures(
@@ -127,33 +125,24 @@ fun DesktopStampCanvas(
                             }
                             strokeDabs.clear()
                             lastDabPos = null
-                            generation++
                             addDabIfFarEnough(position, pressure)
-                            renderStroke(strokeBase!!, strokeDabs.toList(), generation)
+                            renderStroke(strokeBase!!)
                         }
                     },
                     onMove = { position, pressure ->
                         val base = strokeBase
                         if (base != null) {
                             addDabIfFarEnough(position, pressure)
-                            generation++
-                            renderStroke(base, strokeDabs.toList(), generation)
+                            renderStroke(base)
                         }
                     },
                     onEnd = {
-                        // The last render's output is already sitting in `displayBitmap` -- bake
-                        // it into `committed` so the next stroke starts from exactly what's on
-                        // screen, without recomputing the composite a second time.
-                        val finalBitmap = displayBitmap
-                        val base = strokeBase
-                        if (base != null && finalBitmap != null) {
-                            val baked = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
-                            val pixels = IntArray(base.width * base.height)
-                            finalBitmap.readPixels(pixels, 0, 0, base.width, base.height)
-                            baked.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
-                            committed = baked
-                        }
+                        // The last `onMove`'s renderStroke call has already been awaited by the time
+                        // this runs (see the class doc comment), so `lastRenderedFrame` is exactly
+                        // what's on screen -- bake it in as the next stroke's starting point.
+                        lastRenderedFrame?.let { committed = it }
                         strokeBase = null
+                        lastRenderedFrame = null
                         strokeDabs.clear()
                         lastDabPos = null
                     },
