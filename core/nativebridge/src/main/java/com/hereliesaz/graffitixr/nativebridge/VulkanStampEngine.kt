@@ -113,13 +113,21 @@ class VulkanStampEngine {
         return nativeStampDabs(nativeHandle, flat, colorArgb, hardness).also { if (!it) healthy = false }
     }
 
-    /** Widened Krita-style entry point: every dab owns its resolved colour and flow. */
-    fun stampResolvedDabs(dabs: List<ResolvedBrushDab>, hardness: Float): Boolean {
+    /**
+     * Widened Krita-style entry point: every dab owns its resolved colour, flow and hardness.
+     *
+     * [buildUp] (default false) mirrors [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush.
+     * buildUp] / StampBrushRenderer.paintDabs' own compositing choice: false takes each pixel's
+     * single strongest dab in this call rather than compounding every overlap (matching
+     * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
+     * live-paint path either); true composites sequentially in submission order instead.
+     */
+    fun stampResolvedDabs(dabs: List<ResolvedBrushDab>, buildUp: Boolean = false): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
-        val flat = FloatArray(dabs.size * 10)
+        val flat = FloatArray(dabs.size * 11)
         for (i in dabs.indices) {
             val d = dabs[i]
-            val base = i * 10
+            val base = i * 11
             flat[base] = d.x
             flat[base + 1] = d.y
             flat[base + 2] = d.radius
@@ -130,8 +138,9 @@ class VulkanStampEngine {
             flat[base + 7] = Color.blue(d.colorArgb) / 255f
             flat[base + 8] = Color.alpha(d.colorArgb) / 255f
             flat[base + 9] = d.flow
+            flat[base + 10] = d.hardness.coerceIn(0f, 1f)
         }
-        return nativeStampResolvedDabs(nativeHandle, flat, hardness).also { if (!it) healthy = false }
+        return nativeStampResolvedDabs(nativeHandle, flat, buildUp).also { if (!it) healthy = false }
     }
 
     /**
@@ -341,7 +350,7 @@ class VulkanStampEngine {
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
-    private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, hardness: Float): Boolean
+    private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, buildUp: Boolean): Boolean
     private external fun nativeStampMaskedDabs(
         handle: Long,
         dabData: FloatArray,
@@ -406,6 +415,11 @@ data class ResolvedBrushDab(
     val angleDeg: Float,
     val colorArgb: Int,
     val flow: Float,
+    /** This dab's own resolved edge falloff (0 = soft, 1 = hard) -- see AzphaltBrush.hardness and
+     *  a HARDNESS BrushSensorBinding. Always sent per-dab (unlike the historical [stampDabs]
+     *  entry point) so a pressure/tilt-driven hardness dynamic renders identically on the GPU
+     *  path as it already does on StampBrushRenderer's CPU path. */
+    val hardness: Float = 1f,
 )
 
 /** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [VulkanStampEngine.stampMaskedDabs]. */

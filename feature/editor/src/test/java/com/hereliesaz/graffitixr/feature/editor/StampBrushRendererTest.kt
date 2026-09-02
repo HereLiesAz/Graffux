@@ -140,7 +140,7 @@ class StampBrushRendererTest {
         // spacing a real drag samples at, and exactly what regressed before this fix.
         val interval = soft.spacing * diameter
         val dabs = (-40..40).map { i ->
-            Dab(x = 100f + i * interval, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f)
+            Dab(x = 100f + i * interval, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f, hardness = soft.hardness)
         }
         val canvas = RenderTestBase.filled(200, 200, Color.TRANSPARENT)
         StampBrushRenderer.paintDabs(
@@ -158,7 +158,7 @@ class StampBrushRendererTest {
         val singleTap = RenderTestBase.filled(200, 200, Color.TRANSPARENT)
         StampBrushRenderer.paintDabs(
             Canvas(singleTap),
-            dabs = listOf(Dab(x = 100f, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f)),
+            dabs = listOf(Dab(x = 100f, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f, hardness = soft.hardness)),
             brush = soft,
             colorArgb = Color.BLACK or (0xFF shl 24),
             flow = 1f,

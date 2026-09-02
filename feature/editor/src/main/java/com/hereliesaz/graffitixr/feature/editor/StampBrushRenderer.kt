@@ -166,8 +166,9 @@ internal object StampBrushRenderer {
             return
         }
 
-        // Historical generated-round path.
-        if (allowBuildUp) {
+        // Historical generated-round path. A caller-forced allowBuildUp (Airbrush's held dabs) or
+        // the brush's own opt-in AzphaltBrush.buildUp both route to the same sequential compositor.
+        if (allowBuildUp || brush.buildUp) {
             paintRoundDabsSequential(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
         } else {
             paintRoundDabsMaxCombined(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
@@ -186,8 +187,6 @@ internal object StampBrushRenderer {
         secondaryColorArgb: Int,
         flow: Float,
     ) {
-        val hardness = brush.hardness.coerceIn(0f, 1f)
-        val stops = floatArrayOf(0f, hardness.coerceIn(0f, 0.999f), 1f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val baseFlow = flow.coerceIn(0f, 1f)
         for (d in dabs) {
@@ -199,6 +198,7 @@ internal object StampBrushRenderer {
                 ).toInt().coerceIn(0, 255)
             val core = rgbNoAlpha or (alphaVal shl 24)
             val edge = rgbNoAlpha
+            val stops = floatArrayOf(0f, d.hardness.coerceIn(0f, 0.999f), 1f)
             paint.shader = android.graphics.RadialGradient(
                 d.x, d.y, radius,
                 intArrayOf(core, core, edge),
@@ -250,7 +250,6 @@ internal object StampBrushRenderer {
         secondaryColorArgb: Int,
         flow: Float,
     ) {
-        val hardness = brush.hardness.coerceIn(0f, 1f)
         val baseFlow = flow.coerceIn(0f, 1f)
 
         var minX = Float.MAX_VALUE
@@ -296,7 +295,7 @@ internal object StampBrushRenderer {
                     val dx = px + 0.5f - d.x
                     val rNorm = hypot(dx, dy) / radius
                     if (rNorm < 1f) {
-                        val localAlpha = BrushStamps.stampCoverage(rNorm, hardness) * strength
+                        val localAlpha = BrushStamps.stampCoverage(rNorm, d.hardness) * strength
                         val idx = rowBase + (px - left)
                         if (localAlpha > alphaBuf[idx]) {
                             alphaBuf[idx] = localAlpha
@@ -365,7 +364,7 @@ internal object StampBrushRenderer {
                 val localPrimaryX = dab.x - left
                 val localPrimaryY = dab.y - top
                 val primaryMask = BrushTipMaskCache.tipMask(
-                    stamp, primaryWidth, primaryHeight, brush.hardness,
+                    stamp, primaryWidth, primaryHeight, dab.hardness,
                 )
                 drawCenteredMask(
                     scratch.primaryCanvas,

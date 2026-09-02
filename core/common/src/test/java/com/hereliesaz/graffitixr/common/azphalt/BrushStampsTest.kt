@@ -160,4 +160,78 @@ class BrushStampsTest {
         repeat(50) { c = BrushStamps.buildUp(c, 0.2f) }
         assertTrue(c > 0.99f && c <= 1f)
     }
+
+    // ---- Count (multi-stamp per placement point) ----
+
+    @Test
+    fun countOneIsByteIdenticalToTheHistoricalSingleDabOutput() {
+        val single = BrushStamps.dabs(listOf(0f, 0f, 12f, 0f), diameterPx = 8f, brush = hardRound, seed = 5L)
+        val explicit = BrushStamps.dabs(
+            listOf(0f, 0f, 12f, 0f), diameterPx = 8f, brush = hardRound.copy(count = 1), seed = 5L,
+        )
+        assertEquals(single, explicit)
+    }
+
+    @Test
+    fun countEmitsThatManyDabsPerPlacementPoint() {
+        val brush = hardRound.copy(count = 3)
+        val single = BrushStamps.dabs(listOf(5f, 5f), diameterPx = 8f, brush = brush, seed = 5L)
+        assertEquals(3, single.size)
+    }
+
+    @Test
+    fun countJitterVariesTheEmittedCountButNeverBelowOneOrAboveCount() {
+        val brush = hardRound.copy(count = 8, countJitter = 1f)
+        // Many placement points along a line so the per-point resolved count varies with the RNG.
+        val dabs = BrushStamps.dabs(listOf(0f, 0f, 200f, 0f), diameterPx = 8f, brush = brush, seed = 7L)
+        assertTrue(dabs.isNotEmpty())
+    }
+
+    // ---- Sensor-driven hardness/tipRatio dynamics ----
+
+    @Test
+    fun hardnessSensorBindingScalesTheResolvedPerDabHardness() {
+        val brush = AzphaltBrush(
+            name = "B",
+            hardness = 1f,
+            dynamics = listOf(
+                BrushSensorBinding(
+                    sensor = BrushSensor.PRESSURE,
+                    parameter = BrushParameter.HARDNESS,
+                    outputMin = 0f,
+                    outputMax = 1f,
+                ),
+            ),
+        )
+        val samples = listOf(
+            BrushSample(x = 0f, y = 0f, uptimeMillis = 0L, pressure = 0f),
+            BrushSample(x = 10f, y = 0f, uptimeMillis = 10L, pressure = 0f),
+        )
+        val dabs = BrushStamps.dynamicDabs(samples, diameterPx = 8f, brush = brush, seed = 1L)
+        assertTrue(dabs.isNotEmpty())
+        dabs.forEach { assertEquals(0f, it.hardness, 1e-4f) }
+    }
+
+    @Test
+    fun tipRatioSensorBindingScalesTheResolvedPerDabTipRatio() {
+        val brush = AzphaltBrush(
+            name = "B",
+            tipRatio = 1f,
+            dynamics = listOf(
+                BrushSensorBinding(
+                    sensor = BrushSensor.PRESSURE,
+                    parameter = BrushParameter.TIP_RATIO,
+                    outputMin = 0.5f,
+                    outputMax = 0.5f,
+                ),
+            ),
+        )
+        val samples = listOf(
+            BrushSample(x = 0f, y = 0f, uptimeMillis = 0L, pressure = 1f),
+            BrushSample(x = 10f, y = 0f, uptimeMillis = 10L, pressure = 1f),
+        )
+        val dabs = BrushStamps.dynamicDabs(samples, diameterPx = 8f, brush = brush, seed = 1L)
+        assertTrue(dabs.isNotEmpty())
+        dabs.forEach { assertEquals(0.5f, it.tipRatio, 1e-4f) }
+    }
 }

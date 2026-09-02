@@ -4289,9 +4289,10 @@ class EditorViewModel @Inject constructor(
                                         colorArgb, secondaryColorArgb, brush, dab,
                                     ),
                                     flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                    hardness = dab.hardness,
                                 )
                             }
-                            engine.stampResolvedDabs(gpuDabs, brush.hardness.coerceIn(0f, 1f)) &&
+                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
                                 engine.readback(work)
                         }
                     }

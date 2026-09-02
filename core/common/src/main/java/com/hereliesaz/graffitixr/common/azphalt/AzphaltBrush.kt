@@ -162,6 +162,21 @@ data class AzphaltBrush(
      *  stroke commit/replay (`DrawingEngine.kt`), which persists the height-map contribution onto
      *  the layer. */
     val impastoThicknessRate: Float = 0f,
+    /** When true, overlapping dabs within one stroke sequentially alpha-composite (build up
+     *  towards full opacity the way Airbrush's held dabs always have) instead of the default
+     *  "strongest single dab wins" combine described on [StampBrushRenderer.paintRoundDabsMaxCombined].
+     *  False (the default) matches every existing brush's current rendering exactly. Only the
+     *  no-custom-tip round path (`paintRoundDabsSequential`/`paintRoundDabsMaxCombined`) reads
+     *  this -- Airbrush already forces sequential build-up itself regardless of this flag. */
+    val buildUp: Boolean = false,
+    /** Number of dabs stamped at each placement point (Procreate/Photoshop "Count"). 1 (the
+     *  default) preserves every existing brush's exact dab-for-dab output. Copies beyond the
+     *  first are scattered independently using the same [scatter]/[scatterLongitudinal] radii so
+     *  they don't all land exactly on top of each other. */
+    val count: Int = 1,
+    /** Fraction of [count] that randomly varies per placement point (0 = always exactly [count]).
+     *  Mirrors Procreate's "Count Jitter". */
+    val countJitter: Float = 0f,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -182,6 +197,8 @@ data class AzphaltBrush(
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
         airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
         impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
+        count = count.coerceIn(1, 16),
+        countJitter = countJitter.coerceIn(0f, 1f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -247,6 +264,9 @@ data class AzphaltBrush(
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
                 airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
                 impastoThicknessRate = (f("impastoThicknessRate") ?: 0f).coerceAtLeast(0f),
+                buildUp = b("buildUp") ?: false,
+                count = (f("count") ?: 1f).toInt().coerceIn(1, 16),
+                countJitter = (f("countJitter") ?: 0f).coerceIn(0f, 1f),
             ).sanitized()
         }
     }

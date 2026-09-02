@@ -158,6 +158,8 @@ enum class BrushParameter {
     @SerialName("smudgeRate") SMUDGE_RATE,
     @SerialName("colorRate") COLOR_RATE,
     @SerialName("smudgeRadius") SMUDGE_RADIUS,
+    @SerialName("hardness") HARDNESS,
+    @SerialName("tipRatio") TIP_RATIO,
 }
 
 @Serializable
@@ -263,6 +265,8 @@ data class ResolvedBrushDynamics(
     val smudgeRateMultiplier: Float = 1f,
     val colorRateMultiplier: Float = 1f,
     val smudgeRadiusMultiplier: Float = 1f,
+    val hardnessMultiplier: Float = 1f,
+    val tipRatioMultiplier: Float = 1f,
 )
 
 /** Pure deterministic sensor resolver; no Android classes and no renderer dependencies. */
@@ -289,6 +293,8 @@ object BrushSensorEngine {
         var smudgeRate = 1f
         var colorRate = 1f
         var smudgeRadius = 1f
+        var hardness = 1f
+        var tipRatio = 1f
 
         for (binding in bindings) {
             val raw = sensorValue(sample, binding.sensor, strokeStartUptimeMillis, strokeSeed, dabIndex)
@@ -307,6 +313,8 @@ object BrushSensorEngine {
                 BrushParameter.SMUDGE_RATE -> smudgeRate *= mapped
                 BrushParameter.COLOR_RATE -> colorRate *= mapped
                 BrushParameter.SMUDGE_RADIUS -> smudgeRadius *= mapped
+                BrushParameter.HARDNESS -> hardness *= mapped
+                BrushParameter.TIP_RATIO -> tipRatio *= mapped
             }
         }
 
@@ -324,6 +332,8 @@ object BrushSensorEngine {
             smudgeRateMultiplier = smudgeRate.coerceAtLeast(0f),
             colorRateMultiplier = colorRate.coerceAtLeast(0f),
             smudgeRadiusMultiplier = smudgeRadius.coerceAtLeast(0.01f),
+            hardnessMultiplier = hardness.coerceAtLeast(0f),
+            tipRatioMultiplier = tipRatio.coerceAtLeast(0f),
         )
     }
 
