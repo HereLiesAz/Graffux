@@ -87,6 +87,26 @@ data class BrushTaper(
  * ([positionJitter], as a fraction of the dab's diameter) -- a random realignment of the brush tip
  * itself, not a uniform scale-up. Each extra copy fades out over the same [lengthPx] window as the
  * primary spike. 0 (the default) disables the extra copies entirely.
+ *
+ * A real loaded brush's blot doesn't just appear at full strength the instant it touches down --
+ * holding it still on first contact keeps pooling more ink, growing quickly at first and then
+ * levelling off (an ease-out curve, not a straight ramp) as the puddle approaches how much that
+ * spot can hold. [dwellGrowthMultiplier] is the extra factor on top of [sizeMultiplier]/
+ * [opacityMultiplier] reached after dwelling at the touchdown point for [dwellRampMs] before the
+ * pointer first moves away; "held still" reuses [AzphaltBrush.airbrushStillnessRadiusPx] as its
+ * radius, the same "how far counts as not moving" concept Airbrush build-up already has, rather
+ * than a third redundant radius field. [dwellRampMs] = 0 (the default) disables dwell growth
+ * entirely -- a touch-and-go stroke sees only the base spike, exactly as before.
+ *
+ * The blot is also a function of how sharply the tap itself lands, independent of how long it then
+ * dwells: slamming a loaded brush down splats more than gently setting it down, even before any
+ * holding-still happens. [sharpnessMultiplier] is the extra factor a hard, sudden initial press
+ * (rather than a soft, gradual one) additionally grows the blot by, stacking with
+ * [dwellGrowthMultiplier]. How "sharp" a tap was is read from how fast [BrushSample.pressure] rises
+ * between the stroke's first two recorded samples, normalized against [sharpnessRampMsPerUnit] (the
+ * milliseconds a full 0->1 pressure rise would take to count as maximally sharp -- smaller is more
+ * sensitive). Finger input with no real pressure axis reports a flat, instant 1.0 and so never
+ * triggers this; it only ever does anything with a stylus. 1 (the default) disables it.
  */
 @Serializable
 data class BrushBlot(
@@ -96,6 +116,10 @@ data class BrushBlot(
     val extraStamps: Int = 0,
     val angleJitterDeg: Float = 180f,
     val positionJitter: Float = 0.3f,
+    val dwellGrowthMultiplier: Float = 1f,
+    val dwellRampMs: Float = 0f,
+    val sharpnessMultiplier: Float = 1f,
+    val sharpnessRampMsPerUnit: Float = 80f,
 ) {
     fun sanitized(): BrushBlot = copy(
         lengthPx = lengthPx.coerceAtLeast(0f),
@@ -104,10 +128,16 @@ data class BrushBlot(
         extraStamps = extraStamps.coerceIn(0, 8),
         angleJitterDeg = angleJitterDeg.coerceIn(0f, 180f),
         positionJitter = positionJitter.coerceIn(0f, 1f),
+        dwellGrowthMultiplier = dwellGrowthMultiplier.coerceIn(1f, 8f),
+        dwellRampMs = dwellRampMs.coerceAtLeast(0f),
+        sharpnessMultiplier = sharpnessMultiplier.coerceIn(1f, 8f),
+        sharpnessRampMsPerUnit = sharpnessRampMsPerUnit.coerceAtLeast(1f),
     )
 
-    fun isActive(): Boolean =
-        lengthPx > 0f && (sizeMultiplier != 1f || opacityMultiplier != 1f || extraStamps > 0)
+    fun isActive(): Boolean = lengthPx > 0f && (
+        sizeMultiplier != 1f || opacityMultiplier != 1f || extraStamps > 0 ||
+            (dwellRampMs > 0f && dwellGrowthMultiplier != 1f) || sharpnessMultiplier != 1f
+        )
 }
 
 @Serializable

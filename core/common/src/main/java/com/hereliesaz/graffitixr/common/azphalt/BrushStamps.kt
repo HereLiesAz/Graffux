@@ -5,6 +5,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 private const val RAD_TO_DEG = 57.29578f
@@ -203,6 +204,36 @@ object BrushStamps {
         val peakSpeed = if (taper.liftOffSynthesizesPressure) {
             real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
         } else 1f
+        // How long the pointer dwelled at the touchdown point (within brush.airbrushStillnessRadiusPx
+        // of the first sample) before it first moved away -- feeds BrushBlot's dwellGrowthMultiplier/
+        // dwellRampMs. Computed once from the raw sample stream, same as peakSpeed above, since it's
+        // a property of the whole stroke's start rather than any one placement point.
+        val dwellMs = if (blot.dwellRampMs > 0f) {
+            val anchor = real.first()
+            val stillRadius = brush.airbrushStillnessRadiusPx
+            var lastStillIndex = 0
+            for (i in 1 until real.size) {
+                if (hypot(real[i].x - anchor.x, real[i].y - anchor.y) > stillRadius) break
+                lastStillIndex = i
+            }
+            (real[lastStillIndex].uptimeMillis - anchor.uptimeMillis).toFloat()
+        } else 0f
+        val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
+            val dwellT = (dwellMs / blot.dwellRampMs).coerceIn(0f, 1f)
+            // Ease-out: rises quickly at first, then levels off, rather than a straight ramp -- a
+            // real pooling blot doesn't grow at a constant rate all the way to its limit.
+            1f + (blot.dwellGrowthMultiplier - 1f) * sqrt(dwellT)
+        } else 1f
+        // How sharply the tap itself landed -- independent of dwellGrowthFactor above, which only
+        // measures what happens AFTER contact. Read from how fast pressure rose between the first
+        // two recorded samples; stacks multiplicatively with dwell growth.
+        val sharpnessFactor = if (blot.sharpnessMultiplier != 1f && real.size >= 2) {
+            val dt = (real[1].uptimeMillis - real[0].uptimeMillis).coerceAtLeast(1L).toFloat()
+            val pressureRatePerMs = (real[1].pressure - real[0].pressure).coerceAtLeast(0f) / dt
+            val sharpnessT = (pressureRatePerMs * blot.sharpnessRampMsPerUnit).coerceIn(0f, 1f)
+            1f + (blot.sharpnessMultiplier - 1f) * sharpnessT
+        } else 1f
+        val blotPeakFactor = dwellGrowthFactor * sharpnessFactor
         var at = 0f
         var index = 0
 
@@ -226,8 +257,8 @@ object BrushStamps {
             // ABOVE the resting size/opacity rather than fading towards it. See BrushBlot's doc
             // comment for why taper's own 0..1-clamped minSize/minOpacity can't model this.
             val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
-            val blotSize = lerp(blot.sizeMultiplier, 1f, blotT)
-            val blotOpacity = lerp(blot.opacityMultiplier, 1f, blotT)
+            val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
+            val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
             val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize * blotSize
             val headingDeg = sample.drawingAngleDeg
 
