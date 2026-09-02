@@ -214,6 +214,16 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `SetBrushSizeFixedOnScreen mirrors the persisted Settings toggle into UiState`() {
+        val s = state(lyr("a")).copy(brushSizeFixedOnScreen = false)
+        assertTrue(reduce(s, EditorIntent.SetBrushSizeFixedOnScreen(true)).brushSizeFixedOnScreen)
+        assertFalse(
+            reduce(s.copy(brushSizeFixedOnScreen = true), EditorIntent.SetBrushSizeFixedOnScreen(false))
+                .brushSizeFixedOnScreen,
+        )
+    }
+
+    @Test
     fun `AppendLayer adds without touching the active layer (spectator path)`() {
         val s = state(lyr("a"), active = "a")
         val out = reduce(s, EditorIntent.AppendLayer(lyr("b")))

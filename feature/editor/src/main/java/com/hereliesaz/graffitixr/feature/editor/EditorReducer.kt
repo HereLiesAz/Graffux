@@ -202,6 +202,7 @@ internal object EditorReducer {
         EditorIntent.ToggleHandedness -> state.copy(isRightHanded = !state.isRightHanded)
         is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
         is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
+        is EditorIntent.SetBrushSizeFixedOnScreen -> state.copy(brushSizeFixedOnScreen = intent.value)
         is EditorIntent.SetGestureMapping -> state.copy(gestureMapping = intent.mapping)
         EditorIntent.ToggleDiagOverlay -> state.copy(showDiagOverlay = !state.showDiagOverlay)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)

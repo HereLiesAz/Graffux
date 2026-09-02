@@ -253,6 +253,14 @@ data class EditorUiState(
     val redoCount: Int = 0,
     val isLoading: Boolean = false,
     val brushSize: Float = 50f,
+    // Mirrors the persisted Settings "Brush size locked to screen" toggle -- see EditorViewModel's
+    // init collector. Off (default): brushSize is a document-space footprint, like Photoshop/
+    // Procreate's default -- the same slider value paints the same real mark on the artwork
+    // regardless of zoom, so it looks bigger on screen zoomed in and smaller zoomed out. On: the
+    // slider value is instead the on-screen footprint -- the brush looks the same size at every zoom
+    // level, so the real mark it leaves shrinks as you zoom in and grows as you zoom out. See
+    // EditorViewModel.effectivePaintBrushSize, the single place this is applied.
+    val brushSizeFixedOnScreen: Boolean = false,
     // Feathering [0..1]: 0 = hard edge, 1 = fully soft (blur radius = brushSize)
     val brushFeathering: Float = 0f,
     // Stroke-level opacity ceiling [0..1] for the built-in round brush (Tool.BRUSH with no azphalt

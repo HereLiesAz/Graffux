@@ -71,6 +71,7 @@ fun SettingsScreen(
 
     val rightHanded by vm.isRightHanded.collectAsStateWithLifecycle()
     val imperial by vm.isImperialUnits.collectAsStateWithLifecycle()
+    val brushSizeFixedOnScreen by vm.brushSizeFixedOnScreen.collectAsStateWithLifecycle()
     val sampleRate by vm.inputSampleRateHz.collectAsStateWithLifecycle()
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
@@ -127,6 +128,14 @@ fun SettingsScreen(
                 subtitle = "Show ruler measurements in inches rather than centimetres.",
                 checked = imperial,
                 onCheckedChange = vm::setImperialUnits,
+            )
+            HorizontalDivider()
+            SwitchRow(
+                title = "Brush size locked to screen",
+                subtitle = "The brush stays the same size on screen at any zoom, instead of the " +
+                    "same size on the artwork.",
+                checked = brushSizeFixedOnScreen,
+                onCheckedChange = vm::setBrushSizeFixedOnScreen,
             )
             HorizontalDivider()
             // No language picker. The only translations `:core:design` carried were GraffitiXR's —

@@ -16,8 +16,9 @@ import javax.inject.Inject
 
 /**
  * Backs the Graffux [SettingsScreen] with the design-relevant slice of [SettingsRepository] —
- * handedness (which side the nav rail docks to), measurement units (used by the rulers), the two
- * performance dials and the gesture map, plus a tutorial reset. The AR-only preferences the
+ * handedness (which side the nav rail docks to), measurement units (used by the rulers), whether
+ * the brush size slider is locked to a constant on-screen footprint, the two performance dials and
+ * the gesture map, plus a tutorial reset. The AR-only preferences the
  * repository also holds aren't surfaced here, since Graffux is a design-only host. Each flow is
  * cached as a [StateFlow] for the UI; writes are persisted off the main thread.
  */
@@ -46,6 +47,13 @@ class SettingsViewModel @Inject constructor(
 
     fun setImperialUnits(imperial: Boolean) = viewModelScope.launch(dispatchers.io) {
         settings.setImperialUnits(imperial)
+    }
+
+    val brushSizeFixedOnScreen: StateFlow<Boolean> =
+        settings.brushSizeFixedOnScreen.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setBrushSizeFixedOnScreen(fixed: Boolean) = viewModelScope.launch(dispatchers.io) {
+        settings.setBrushSizeFixedOnScreen(fixed)
     }
 
     /**
