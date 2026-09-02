@@ -266,6 +266,18 @@ up next, alongside everything else in this file marked logic-verified-but-not-vi
 
 ## What's deliberately NOT done in this pass, and why
 
+- **No Opacity/Feathering/Stabilizer/Symmetry/Alpha-Lock/Wrap-Around controls — and this is not
+  actually a parity gap.** A first pass at "what other brush controls does Android's toolbar have
+  that desktop doesn't" turned these up, but tracing each one through `DrawingEngine.kt` shows they
+  all belong to `ImageProcessor.applyToolToBitmap`'s plain `Tool.BRUSH` path (`drawStrokeDynamic`,
+  a velocity-width curve stroke) — a *different, non-stamp* brush pipeline Android also has, not the
+  azphalt stamp-brush path (`stroke.stampBrush` → `BrushStamps.dynamicDabs` → `StampBrushRenderer`)
+  desktop exclusively uses. That stamp path only ever reads `stroke.flow` (already wired on
+  desktop) — never `opacity`, `feathering`, or any of the others; a comment on the opacity code
+  itself says as much ("as opposed to a stamp brush's per-dab Flow — see StampBrushRenderer,
+  deliberately left alone"). Wiring these on desktop would mean inventing behavior Android's own
+  stamp pipeline doesn't have, not closing a real gap. Noted here so a future pass doesn't
+  re-discover the same list and assume it's actionable without re-tracing it.
 - **No native GPU-accelerated engine rewrite.** The Android app's real GPU path
   (`core:nativebridge`, Vulkan via JNI/NDK) is Android-ABI-specific and cannot run on desktop JVM.
   A genuine GPU-accelerated desktop engine would mean a second native backend from scratch (Vulkan
