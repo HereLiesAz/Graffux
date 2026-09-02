@@ -75,6 +75,9 @@ sound finished — see each claim's own verification note.
 - `:desktop:run` under Xvfb with software Skia rendering — launches, shows the canvas, and a
   scripted pointer drag visibly paints a soft-edged stroke (screenshot captured during this
   session).
-- `Deb`/`Rpm` packaging was *configured*, not run to completion — `packageDeb`/`packageRpm`
-  themselves were not exercised this session; only compile/run were verified. `Msi` cannot be built
-  from Linux at all (see above).
+- `:desktop:packageDeb` was run to completion and produced a real, installable
+  `graffux_1.0.0_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
+  layout under `/opt/graffux`). `packageRpm` was not separately exercised this session (same
+  `jpackage` path as `Deb`, just a different target format, so it's expected to behave the same, but
+  that's an expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the
+  WiX Toolset, only available on a Windows host/CI runner (see above).
