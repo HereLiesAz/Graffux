@@ -3,6 +3,7 @@ package com.hereliesaz.graffux.desktop
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -24,6 +27,9 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.awt.image.BufferedImage
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -58,7 +64,18 @@ fun ColorWheel(
     var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
     var value by remember { mutableFloatStateOf(initialHsv[2]) }
 
-    val wheelBitmap = remember(value) { generateWheelBitmap(value).toComposeImageBitmap() }
+    // The 200x200 raster below is a real per-pixel HSV fill (40,000 trig-and-multiply pixels), not
+    // free -- and the brightness Slider fires `onValueChange` continuously while dragging, once per
+    // pointer-move, not just on release. Regenerating that raster synchronously on the composition
+    // thread for every one of those callbacks (an adversarial-review finding, not something this
+    // session's own manual testing had caught) is a real anti-pattern even if a single 200x200 pass
+    // is cheap enough not to visibly jank on typical desktop hardware today: it doesn't scale if
+    // WHEEL_SIZE_PX ever grows. Debounced and moved off the composition thread instead.
+    var wheelBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(value) {
+        delay(30)
+        wheelBitmap = withContext(Dispatchers.Default) { generateWheelBitmap(value) }.toComposeImageBitmap()
+    }
 
     fun pickFromOffset(offset: Offset, size: Int) {
         val center = size / 2f
@@ -74,9 +91,7 @@ fun ColorWheel(
     }
 
     Column(modifier = modifier) {
-        Image(
-            bitmap = wheelBitmap,
-            contentDescription = "Color wheel",
+        Box(
             modifier = Modifier
                 .size(WHEEL_SIZE_PX.dp)
                 .pointerInput(Unit) {
@@ -85,7 +100,14 @@ fun ColorWheel(
                 .pointerInput(Unit) {
                     detectDragGestures { change, _ -> pickFromOffset(change.position, WHEEL_SIZE_PX) }
                 },
-        )
+        ) {
+            // Null only for the first ~30ms after this composable enters, before the debounced
+            // effect above has produced its first raster -- the pointer-input area above is sized
+            // and ready to receive input from the very first frame regardless.
+            wheelBitmap?.let { bitmap ->
+                Image(bitmap = bitmap, contentDescription = "Color wheel", modifier = Modifier.size(WHEEL_SIZE_PX.dp))
+            }
+        }
         Row {
             Text("Brightness")
             Slider(

@@ -66,30 +66,40 @@ fun DesktopStampCanvas(
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var hoverPosition by remember { mutableStateOf<Offset?>(null) }
 
-    // Keeps the displayed bitmap in sync with `state.committed` when it changes from OUTSIDE a
-    // live stroke -- Undo, most notably. A stroke in progress updates `displayBitmap` itself, more
-    // often than `state.committed` changes (only once, on release), so this never fights it.
-    LaunchedEffect(state.committed) {
-        displayBitmap = state.committed?.toComposeImageBitmap()
+    // The ONE place that ever creates or resizes `state.committed`'s backing bitmap, covering
+    // three cases uniformly: the very first layout pass (`committed == null`), a live window
+    // resize, and -- caught by adversarial review, not something this file's own testing had
+    // exercised -- Undo/Redo restoring a snapshot taken before the window was last resized.
+    // `replaceWithoutHistory` used to be called only from `onSizeChanged`, so an undo/redo that
+    // crossed a resize left `committed` permanently smaller (or larger) than `canvasSize` with
+    // nothing to ever notice or fix it: `compositeTileParallel` composites and clips against
+    // `base.width`/`base.height` (the stale, wrong-sized `committed`), silently discarding paint
+    // outside that stale rectangle even though the visible window was the new, correct size.
+    // Keying this effect on both `state.committed` and `canvasSize` means ANY path that changes
+    // either one re-checks the other and re-syncs before ever touching `displayBitmap`.
+    LaunchedEffect(state.committed, canvasSize) {
+        val committed = state.committed
+        val sizeKnown = canvasSize.width > 0 && canvasSize.height > 0
+        if (sizeKnown && (committed == null || committed.width != canvasSize.width || committed.height != canvasSize.height)) {
+            val fresh = BufferedImage(canvasSize.width, canvasSize.height, BufferedImage.TYPE_INT_ARGB)
+            if (committed != null) {
+                fresh.createGraphics().apply {
+                    drawImage(committed, 0, 0, null)
+                    dispose()
+                }
+            }
+            // Deliberately NOT an undo-able edit -- see CanvasState.replaceWithoutHistory -- this
+            // re-triggers the effect above with matching dimensions, which then falls through to
+            // updating `displayBitmap` below.
+            state.replaceWithoutHistory(fresh)
+        } else {
+            displayBitmap = committed?.toComposeImageBitmap()
+        }
     }
 
     Box(
         modifier = modifier
-            .onSizeChanged { size ->
-                if (size.width > 0 && size.height > 0 && size != canvasSize) {
-                    canvasSize = size
-                    val fresh = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
-                    val old = state.committed
-                    if (old != null) {
-                        fresh.createGraphics().apply {
-                            drawImage(old, 0, 0, null)
-                            dispose()
-                        }
-                    }
-                    // `displayBitmap` follows via the LaunchedEffect above.
-                    state.replaceWithoutHistory(fresh)
-                }
-            }
+            .onSizeChanged { size -> canvasSize = size }
             .pointerInput(brush, brushRadiusPx, colorArgb, flow) {
                 val sampleBuilder = BrushSampleBuilder()
                 val samples = ArrayList<BrushSample>()

@@ -38,9 +38,13 @@ sound finished — see each claim's own verification note.
   a published `jvm("desktop")` target. An earlier draft of this document claimed AzNavRail was
   Android-AAR-only; that was wrong (checked only the locally-resolved Gradle cache, not the
   upstream repo's actual module list). The desktop app now runs the real rail, not a placeholder
-  Material3 scaffold: **verified** by `:desktop:run` under Xvfb showing the rail (hamburger menu,
-  a "Brush" item with a live size badge, the library's own built-in help item) rendered alongside a
-  working canvas, and a scripted drag still painting correctly with the rail present.
+  Material3 scaffold: **verified** by `:desktop:run` under Xvfb showing the rail (hamburger menu, a
+  "Brush" item with a live size badge) rendered alongside a working canvas, and a scripted drag
+  still painting correctly with the rail present. (That original verification pass's screenshot
+  also showed the library's automatic "?" help rail item, which was present by default at the
+  time; a later pass explicitly disabled it — `azAbout(aboutRailItem = false)` — after finding it
+  crashes on close, so it is no longer part of the shipped rail. See the `azAbout()` writeup
+  further down for the full story.)
 - **Brush presets and dab generation now use the SAME shared engine calls Android does**, not a
   desktop-only approximation. `DesktopStampCanvas` builds `BrushSample`s via `BrushSampleBuilder`
   and calls `BrushStamps.dynamicDabs(samples, diameter, brush, seed)` — the shared entry point that
@@ -58,7 +62,9 @@ sound finished — see each claim's own verification note.
 - **Redo, added alongside Undo, same mechanism (a second stack, cleared on any new stroke commit).**
   The window's default 800x600 size was too short for a 6th rail item (Undo + Redo pushed the rail
   past 600px tall, so Redo silently rendered off the bottom with no overflow/scroll indicator) — that
-  part is fixed: the window now opens at 1000x900 and Redo is visible. **State logic verified
+  part is fixed: the window now opens at 1000x1100 (bumped again from an intermediate 1000x900 —
+  see the window-size history in the `Window()` call's own comment) and Redo is visible. **State
+  logic verified
   correct** via debug instrumentation: `undoStack`/`redoStack` sizes update exactly as expected
   through a full commit → commit → undo → (would-be redo) sequence, symmetric with the already-proven
   Undo path. **The click itself could not be reproduced working** in this session's Xvfb/Robot test
@@ -136,7 +142,13 @@ sound finished — see each claim's own verification note.
   same pass: `AzHostActivityLayout`'s rail floats as a translucent overlay on top of full-bleed
   content rather than insetting it (nothing before this grew tall enough to visibly reach into the
   rail's item region to notice), so the wheel initially rendered partially under the rail; a
-  `padding(start = 100.dp)` clears the expanded rail's width.
+  `padding(start = 100.dp)` clears the expanded rail's width. A second issue was caught later by
+  adversarial review, not this session's own manual testing: the 200x200 per-pixel raster was
+  regenerated synchronously on the composition thread on every `onValueChange` tick of the
+  brightness slider (fired continuously while dragging, not just on release) — a real anti-pattern
+  even though a single pass is cheap enough not to visibly jank on typical desktop hardware today.
+  Fixed by debouncing the regeneration and moving it to `Dispatchers.Default`; re-verified the wheel
+  still opens, picks, and paints correctly after the change (screenshot-confirmed end to end).
 - **A live brush-size cursor preview on hover.** A thin circle outline, radius matched to the current
   brush size, tracks the mouse over the canvas — mouse hover has no equivalent on Android's
   touch/stylus input, so this is a genuine desktop-only addition, not a port of anything. Implemented
@@ -217,6 +229,40 @@ the window the way a real user's click does) rather than an app bug — every ot
 logic, `disabled` wiring, rail layout/footer overlap) was ruled out with debug instrumentation before
 landing on this one. Flagged here rather than silently working around it, since it could not be
 fully confirmed from this container.
+
+### A second real bug, caught by adversarial review: Undo/Redo across a window resize
+
+Not something this session's own manual testing exercised, but a `glee` adversarial-review pass
+over the Undo/Redo/Clear/Save/colour-wheel/cursor-preview/flow/keyboard-shortcut work traced a real
+one through the code: `DesktopStampCanvas`'s `onSizeChanged` used to be the *only* place that ever
+created or resized `CanvasState.committed`'s backing `BufferedImage`, and `CanvasState.undo()`/
+`redo()` restore whatever `BufferedImage` was pushed onto their stacks verbatim, at whatever size it
+was when it was pushed.
+
+Concretely: draw a stroke, resize the window (this rebuilds `committed` at the new size and blits
+the old content in — `replaceWithoutHistory`, which deliberately never touches the undo/redo
+stacks), draw a second stroke (this pushes the *new-sized* pre-stroke canvas onto `undoStack`).
+Press Undo twice: the first pop is fine (still new-sized); the second pop restores the *old-sized*
+snapshot from before the resize — and nothing ever re-checks it against the window's actual current
+layout size, because the only code that did that check was `onSizeChanged`, which doesn't fire again
+just because `committed` changed out from under it. Every stroke after that renders and composites
+against the stale, wrong `canvasWidth`/`canvasHeight`, and `compositeTileParallel`'s
+`DirtyRegion.clampTo(canvasWidth, canvasHeight)` silently clips or discards any dab outside that
+stale rectangle — painting in a large part of the actual window would silently do nothing, with no
+error or visual indication why.
+
+**Fixed** by unifying all three cases — first layout, live resize, and an undo/redo that crosses a
+resize — into the single `LaunchedEffect(state.committed, canvasSize)` that used to only update
+`displayBitmap`: it now checks `committed`'s dimensions against the live `canvasSize` every time
+*either* one changes (not just on layout events) and rebuilds/re-blits through
+`replaceWithoutHistory` whenever they disagree, before ever touching `displayBitmap`. `onSizeChanged`
+itself is now just `{ size -> canvasSize = size }` — one recorded size, one place that reacts to
+either input changing.
+
+Not re-verified with a scripted resize-then-undo repro in this container (the fix was traced and
+applied directly from the adversarial-review finding, which reasoned through the bug from the code
+as written rather than reproducing it interactively) — a reasonable next step for whoever picks this
+up next, alongside everything else in this file marked logic-verified-but-not-visually-confirmed.
 
 ## What's deliberately NOT done in this pass, and why
 
