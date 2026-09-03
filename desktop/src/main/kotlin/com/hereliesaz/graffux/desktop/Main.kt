@@ -70,8 +70,8 @@ fun main() = application {
     // Redo pushed the rail's total height past 600px, so Redo silently rendered off the bottom of
     // the window with no scroll/overflow indicator -- not a rail capacity bug, just too small a
     // window for how many tools this app now has). 1000x1100 leaves real headroom to keep adding
-    // rail items without repeating this (bumped from an earlier 900 while testing a 9th item -- see
-    // DESKTOP.md on why that item, azAbout()'s auto "?" button, isn't wired in yet).
+    // rail items without repeating this (bumped from an earlier 900 while testing a 9th item,
+    // azAbout()'s auto "?" button -- see DESKTOP.md).
     val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
     // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
     // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
@@ -131,18 +131,23 @@ private fun GraffuxDesktopApp(
             noMenu = true,
             packButtons = true,
             activeClassifiers = setOf(selectedBrush.name),
-            // This app doesn't call azAbout(), so there is nothing the library's own "About"
-            // footer would show. (The rail item cut off below the window's visible area, further
-            // down in this file's history, turned out to be the *window* running out of vertical
-            // room, not this footer -- see the Window() call's own comment.)
+            // This app doesn't populate its own footer content, so there is nothing the library's
+            // own "About" footer would show beyond the auto "?" item azAbout() below already
+            // covers. (The rail item cut off below the window's visible area, further down in
+            // this file's history, turned out to be the *window* running out of vertical room,
+            // not this footer -- see the Window() call's own comment.)
             showFooter = false,
         )
-        // `aboutRailItem` defaults to true in the library's own AzAdvancedConfig -- the auto "?"
-        // rail item is NOT something azAbout() opts into, it's on by default and has to be opted
-        // OUT of. It's suppressed here rather than left in a half-wired state: see DESKTOP.md for
-        // the crash this surfaced (a Skia text-layout assertion inside the library's own
-        // AutoSizeText, during the About overlay's close transition) and why it isn't wired in yet.
-        azAbout(aboutRailItem = false)
+        // Android's own MainActivity.kt calls azAbout(dedupeAbout = true) with every other
+        // argument left at its default -- no appRepositoryUrl is set there either -- so this
+        // mirrors that exactly. Previously shipped as `azAbout(aboutRailItem = false)`: the
+        // library's default "?" rail item crashed on close (a Skia text-layout assertion inside
+        // AutoSizeText, `TextStyle.setHeight` on a degenerate zero font-size candidate mid the
+        // overlay's close transition -- see DESKTOP.md's writeup). Fixed upstream in
+        // aznavrail-cmp 11.45 (commit 50c56cd, "Fix AutoSizeText crash on zero font-size
+        // candidate") -- the version bumped to alongside this change -- so the auto "?" item is
+        // safe to re-enable.
+        azAbout(dedupeAbout = true)
         BuiltInBrushes.presets.forEach { preset ->
             azRailItem(
                 id = "brush.${preset.name}",
