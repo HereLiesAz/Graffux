@@ -303,10 +303,31 @@ up next, alongside everything else in this file marked logic-verified-but-not-vi
   and the desktop app has no extension-install flow to bring in tip/grain assets yet, so this is
   untested on desktop specifically (it IS tested via the Android-side azphalt suite, which still
   passes against the same shared code).
-- **Windows packaging is configured but unverified.** `nativeDistributions` in
+- **Windows packaging is configured but unverified from this container.** `nativeDistributions` in
   `desktop/build.gradle.kts` declares `Msi` alongside Linux's `Deb`/`Rpm`. Building an actual `.msi`
   needs the WiX Toolset, which only runs on a Windows host/CI runner — not available here, so the
-  Windows installer output itself has never been produced or tested, only configured.
+  Windows installer output itself has never been produced or tested locally, only configured. A CI
+  job now exists that should build and verify it for real on every release — see below.
+
+## CI: desktop installers now ship alongside the APK
+
+`.github/workflows/release-apk.yml` (renamed in spirit to "Compile and Release APK + Desktop", same
+filename) builds the Android APK and all three desktop installers in parallel
+(`build-android`, `build-desktop-linux` for `.deb`/`.rpm`, `build-desktop-windows` for `.msi`), then
+a `publish-release` job downloads everything and attaches all four files to the one GitHub Release
+the APK job has always published to (tag `latest-release-v${MAJOR}.${MINOR}`) — a single manual
+`workflow_dispatch` now produces every platform's build in one place. None of the desktop jobs touch
+the Android signing keystore or any other secret.
+
+What's verified vs. not: the Linux job's two Gradle tasks (`packageDeb`, `packageRpm`) were both run
+to completion in this session (see the Verification section below) — genuinely producing an
+installable `.deb` and `.rpm` with the dynamic version wired up. The Windows job (WiX Toolset via
+Chocolatey, then `packageMsi`) has **never actually run** — there is no Windows runner available
+from this sandboxed authoring environment, so that job is reasoned-through-and-should-work, not
+verified. The workflow YAML itself was validated for syntax (`python3 -c "import yaml; ..."`) and
+its Gradle task names confirmed real (`:desktop:tasks --all`), but the workflow as a whole has never
+been run by GitHub Actions. The first real `workflow_dispatch` of this file is the actual test of
+the Windows leg — check that run's `build-desktop-windows` job log before trusting it.
 
 ## Caught by adversarial review (glee), fixed before this was pushed
 
@@ -348,10 +369,12 @@ stands after these fixes, not the first draft glee reviewed.
   `version.properties` (`desktop/build.gradle.kts`'s `desktopPackageVersion`, read-only — it does
   NOT advance the shared version counter the Android release pipeline owns), not a hardcoded
   placeholder, so a `.deb`/`.rpm`/`.msi` built alongside a given APK reports the same
-  major.minor.patch. `packageRpm` was not separately exercised this session (same `jpackage` path as
-  `Deb`, just a different target format, so it's expected to behave the same, but that's an
-  expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the WiX
-  Toolset, only available on a Windows host/CI runner (see above).
+  major.minor.patch. `:desktop:packageRpm` was also run to completion (after installing the `rpm`
+  package, which provides `rpmbuild`) and produced a real `graffux-1.39.74-1.x86_64.rpm`. `Msi`
+  still cannot be built from Linux at all — it needs the WiX Toolset, only available on a Windows
+  host/CI runner (see above, and see `.github/workflows/release-apk.yml`'s `build-desktop-windows`
+  job, which installs it via Chocolatey — that job has never run for real, no Windows runner being
+  available from this sandboxed session either).
 - The real AzNavRail rail, brush-preset switching, colour palette, and Undo were all re-verified
   after the release-detection fix above: two scripted strokes, click Undo, screenshot confirms only
   the second stroke is removed (reproduced twice). `:core:engine:desktopTest`,
