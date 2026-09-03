@@ -39,12 +39,10 @@ sound finished — see each claim's own verification note.
   Android-AAR-only; that was wrong (checked only the locally-resolved Gradle cache, not the
   upstream repo's actual module list). The desktop app now runs the real rail, not a placeholder
   Material3 scaffold: **verified** by `:desktop:run` under Xvfb showing the rail (hamburger menu, a
-  "Brush" item with a live size badge) rendered alongside a working canvas, and a scripted drag
-  still painting correctly with the rail present. (That original verification pass's screenshot
-  also showed the library's automatic "?" help rail item, which was present by default at the
-  time; a later pass explicitly disabled it — `azAbout(aboutRailItem = false)` — after finding it
-  crashes on close, so it is no longer part of the shipped rail. See the `azAbout()` writeup
-  further down for the full story.)
+  "Brush" item with a live size badge, the library's automatic "?" help rail item) rendered
+  alongside a working canvas, and a scripted drag still painting correctly with the rail present.
+  (That "?" item was briefly disabled after a crash was found in it, then re-enabled once the
+  upstream fix shipped — see the `azAbout()` writeup further down for the full story.)
 - **Brush presets and dab generation now use the SAME shared engine calls Android does**, not a
   desktop-only approximation. `DesktopStampCanvas` builds `BrushSample`s via `BrushSampleBuilder`
   and calls `BrushStamps.dynamicDabs(samples, diameter, brush, seed)` — the shared entry point that
@@ -160,7 +158,7 @@ sound finished — see each claim's own verification note.
   at the exact cursor position with the exact configured radius and that nothing was painted, then
   moved again and confirmed the circle tracked to the new position.
 
-### Investigated and deliberately NOT shipped: `azAbout()` — a real crash, not a testing artifact
+### Fixed: `azAbout()` — a real upstream crash, found, filed, fixed, re-enabled
 
 Android's `MainActivity.kt` calls `azAbout(dedupeAbout = true)` with every other argument left at
 its default. Mirroring that exactly on desktop compiled cleanly and, on its own, rendered a real "?"
@@ -170,28 +168,27 @@ from). **Closing that overlay crashed the composition**: `java.lang.IllegalState
 failed.` inside `org.jetbrains.skia.paragraph.TextStyle.setHeight`, reached through
 `aznavrail-cmp`'s own `AutoSizeText` (`AutoSizeTextKt.shouldShrink` → `TextMeasurer.measure` →
 `ParagraphBuilder.build` → the Skia paragraph builder) during a `BoxWithConstraints` re-subcomposition
-— most likely the close transition animating the container's width down to something Skia's text
-layout can't handle at very small/zero sizes, though the exact trigger wasn't pinned down further.
-Reproduced twice with the same click sequence (open the "?" item, click the overlay's close button);
-the app process itself survived (Compose "captured" the error in composition) but a Swing "Check
-failed." error dialog popped up over the app — not a UI a user should ever see.
+— the close transition animating the container's width down to zero collapsed the candidate
+font-size search to a single 0.sp entry, and measuring text at `fontSize=0` with a lineHeight scaled
+from it produces a 0/0 = NaN ratio, which trips a native Skia assertion. Reproduced twice with the
+same click sequence (open the "?" item, click the overlay's close button); the app process itself
+survived (Compose "captured" the error in composition) but a Swing "Check failed." error dialog
+popped up over the app — not a UI a user should ever see.
 
-This is inside the third-party `aznavrail-cmp` library's own `internal` text-sizing code, not
-anything in this repo's `desktop/` module, so it isn't fixable here. Two things worth knowing for
-whoever revisits this:
+This was inside the third-party `aznavrail-cmp` library's own `internal` text-sizing code, not
+anything in this repo's `desktop/` module, so it wasn't fixable here directly — it was filed as a
+follow-up task against `aznavrail-cmp` instead, with the full repro and root-cause analysis above.
+That task was picked up and fixed: `shouldShrink` now short-circuits on a non-finite or non-positive
+font size before ever calling `textMeasurer.measure`, released as **`aznavrail-cmp` 11.45** (commit
+`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.45 and
+re-enabled `azAbout(dedupeAbout = true)` (matching Android exactly again, no more
+`aboutRailItem = false` workaround) — **re-verified end-to-end**: opened the "?" item, closed it,
+confirmed no crash and no error dialog, and confirmed the rail was still fully functional afterward.
 
-1. **`aboutRailItem` is not something `azAbout()` opts into — it's on by default** (`AzAdvancedConfig
-   .aboutRailItem = true`) and has to be explicitly turned off. Simply never calling `azAbout()` does
-   NOT remove the auto "?" item, which is why the fix here is an explicit
-   `azAbout(aboutRailItem = false)` call, not just deleting the `azAbout()` line. (This surfaced only
-   because the window had finally grown tall enough — see the `Window()` size history above — for a
-   9th rail item to actually be visible; it was very likely present, and just as likely to crash on
-   close, well before this pass touched it.)
-2. Whether this reproduces on a real (non-Xvfb, non-software-rendered) Linux or Windows desktop, or
-   only under this container's `SKIKO_RENDER_API=SOFTWARE` software rendering path, is **not
-   established** — this was only ever tested in this container. If a future pass wants to re-enable
-   it, that's the first thing to check, along with whether a newer `aznavrail-cmp`/Compose
-   Multiplatform release has since fixed the underlying Skia assertion.
+One thing worth keeping in mind for whoever next touches this: **`aboutRailItem` is not something
+`azAbout()` opts into — it's on by default** (`AzAdvancedConfig.aboutRailItem = true`), so simply
+never calling `azAbout()` does not remove the auto "?" item; it has to be explicitly turned off with
+`aboutRailItem = false` if a future pass ever wants it gone again.
 
 ### A real bug this session's own testing found and fixed: release detection
 
@@ -288,12 +285,12 @@ up next, alongside everything else in this file marked logic-verified-but-not-vi
 - **No stylus tilt.** Compose Multiplatform Desktop currently exposes pointer pressure and
   `PointerType`, not tilt/orientation, so tilt-driven brush behavior (available on Android via
   `BrushSample.tiltRadians`) has no desktop input source yet.
-- **The rail has a brush-preset switcher and edit actions (Undo/Redo/Clear/Save), but not the rest
-  of the Android rail's tool set.** `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired
-  up (see above), and colour selection has both a fixed 8-swatch row and a real HSV disc picker (see
-  below), but the desktop app doesn't yet reproduce layers, selection tools, Brush Studio, or an
-  extensions manager. This is a UI population gap now, not a library-capability gap. **About/Help was
-  attempted and deliberately reverted** — see the crash writeup further down.
+- **The rail has a brush-preset switcher, a real About screen, and edit actions
+  (Undo/Redo/Clear/Save), but not the rest of the Android rail's tool set.**
+  `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired up (see above), and colour
+  selection has both a fixed 8-swatch row and a real HSV disc picker (see below), but the desktop
+  app doesn't yet reproduce layers, selection tools, Brush Studio, or an extensions manager. This is
+  a UI population gap now, not a library-capability gap.
 - **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
   dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
   no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as
@@ -306,10 +303,31 @@ up next, alongside everything else in this file marked logic-verified-but-not-vi
   and the desktop app has no extension-install flow to bring in tip/grain assets yet, so this is
   untested on desktop specifically (it IS tested via the Android-side azphalt suite, which still
   passes against the same shared code).
-- **Windows packaging is configured but unverified.** `nativeDistributions` in
+- **Windows packaging is configured but unverified from this container.** `nativeDistributions` in
   `desktop/build.gradle.kts` declares `Msi` alongside Linux's `Deb`/`Rpm`. Building an actual `.msi`
   needs the WiX Toolset, which only runs on a Windows host/CI runner — not available here, so the
-  Windows installer output itself has never been produced or tested, only configured.
+  Windows installer output itself has never been produced or tested locally, only configured. A CI
+  job now exists that should build and verify it for real on every release — see below.
+
+## CI: desktop installers now ship alongside the APK
+
+`.github/workflows/release-apk.yml` (renamed in spirit to "Compile and Release APK + Desktop", same
+filename) builds the Android APK and all three desktop installers in parallel
+(`build-android`, `build-desktop-linux` for `.deb`/`.rpm`, `build-desktop-windows` for `.msi`), then
+a `publish-release` job downloads everything and attaches all four files to the one GitHub Release
+the APK job has always published to (tag `latest-release-v${MAJOR}.${MINOR}`) — a single manual
+`workflow_dispatch` now produces every platform's build in one place. None of the desktop jobs touch
+the Android signing keystore or any other secret.
+
+What's verified vs. not: the Linux job's two Gradle tasks (`packageDeb`, `packageRpm`) were both run
+to completion in this session (see the Verification section below) — genuinely producing an
+installable `.deb` and `.rpm` with the dynamic version wired up. The Windows job (WiX Toolset via
+Chocolatey, then `packageMsi`) has **never actually run** — there is no Windows runner available
+from this sandboxed authoring environment, so that job is reasoned-through-and-should-work, not
+verified. The workflow YAML itself was validated for syntax (`python3 -c "import yaml; ..."`) and
+its Gradle task names confirmed real (`:desktop:tasks --all`), but the workflow as a whole has never
+been run by GitHub Actions. The first real `workflow_dispatch` of this file is the actual test of
+the Windows leg — check that run's `build-desktop-windows` job log before trusting it.
 
 ## Caught by adversarial review (glee), fixed before this was pushed
 
@@ -346,11 +364,17 @@ stands after these fixes, not the first draft glee reviewed.
   scripted pointer drag visibly paints a soft-edged stroke reaching its actual endpoint (screenshots
   captured during this session, before and after the glee-caught fixes above).
 - `:desktop:packageDeb` was run to completion and produced a real, installable
-  `graffux_1.0.0_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
-  layout under `/opt/graffux`). `packageRpm` was not separately exercised this session (same
-  `jpackage` path as `Deb`, just a different target format, so it's expected to behave the same, but
-  that's an expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the
-  WiX Toolset, only available on a Windows host/CI runner (see above).
+  `graffux_1.39.74_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
+  layout under `/opt/graffux`). The version in that filename is read live from the repo's own
+  `version.properties` (`desktop/build.gradle.kts`'s `desktopPackageVersion`, read-only — it does
+  NOT advance the shared version counter the Android release pipeline owns), not a hardcoded
+  placeholder, so a `.deb`/`.rpm`/`.msi` built alongside a given APK reports the same
+  major.minor.patch. `:desktop:packageRpm` was also run to completion (after installing the `rpm`
+  package, which provides `rpmbuild`) and produced a real `graffux-1.39.74-1.x86_64.rpm`. `Msi`
+  still cannot be built from Linux at all — it needs the WiX Toolset, only available on a Windows
+  host/CI runner (see above, and see `.github/workflows/release-apk.yml`'s `build-desktop-windows`
+  job, which installs it via Chocolatey — that job has never run for real, no Windows runner being
+  available from this sandboxed session either).
 - The real AzNavRail rail, brush-preset switching, colour palette, and Undo were all re-verified
   after the release-detection fix above: two scripted strokes, click Undo, screenshot confirms only
   the second stroke is removed (reproduced twice). `:core:engine:desktopTest`,

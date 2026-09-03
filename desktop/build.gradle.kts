@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.Properties
 
 // The real Graffux desktop app (Linux + Windows), distinct from `tools:hotreload-preview`'s throwaway
 // scratch sandbox. Reuses the azphalt engine's pure math (BrushStamps, AzphaltBrush,
@@ -29,6 +30,21 @@ dependencies {
     implementation(libs.az.nav.rail.cmp)
 }
 
+// Read-only: unlike app/build.gradle.kts, this does NOT increment versionPatch/versionBuild — a
+// desktop packaging pass has no business advancing the shared version counter the Android release
+// pipeline owns. It just reports whatever MAJOR.MINOR.PATCH is currently committed, so a `.deb`'s
+// `dpkg -s`/an `.msi`'s "Programs and Features" entry names the same release the APK does instead
+// of a permanently-stale placeholder.
+val versionProps = Properties().apply {
+    val file = rootProject.file("version.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+// WiX (jpackage's Windows Msi backend) requires each of the three version fields to fit in 0..255;
+// versionMajor/versionMinor/versionPatch already have to satisfy that for the Android versionName's
+// own sake, so no separate range check is added here.
+val desktopPackageVersion =
+    "${versionProps.getProperty("versionMajor", "1")}.${versionProps.getProperty("versionMinor", "0")}.${versionProps.getProperty("versionPatch", "0")}"
+
 compose.desktop {
     application {
         mainClass = "com.hereliesaz.graffux.desktop.MainKt"
@@ -36,7 +52,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
             packageName = "Graffux"
-            packageVersion = "1.0.0"
+            packageVersion = desktopPackageVersion
             description = "Graffux — graffiti/mural design and AR preview"
             vendor = "HereLiesAz"
 
