@@ -49,7 +49,7 @@ object ArgbColor {
     }
 
     /** Returns [hue (0..360), saturation (0..1), value (0..1)]. */
-    private fun rgbToHsv(r: Int, g: Int, b: Int): FloatArray {
+    fun rgbToHsv(r: Int, g: Int, b: Int): FloatArray {
         val rf = r / 255f
         val gf = g / 255f
         val bf = b / 255f
@@ -66,7 +66,7 @@ object ArgbColor {
         return floatArrayOf(hue, saturation, max)
     }
 
-    private fun hsvToRgb(h: Float, s: Float, v: Float): Triple<Int, Int, Int> {
+    fun hsvToRgb(h: Float, s: Float, v: Float): Triple<Int, Int, Int> {
         val c = v * s
         val x = c * (1f - kotlin.math.abs((h / 60f) % 2f - 1f))
         val m = v - c
