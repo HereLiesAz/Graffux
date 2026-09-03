@@ -180,6 +180,24 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 }
 
 /**
+ * The real [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush] behind [activeBrushName], for
+ * a live [BrushPreview] strip -- null both when the plain (non-stamp) round brush is active
+ * (`activeBrushName == null`) and, defensively, for an installed-extension brush name this device
+ * has no full brush data for yet (only [installedBrushes]' id/name pairs, not a decoded
+ * `AzphaltBrush` -- see [com.hereliesaz.graffitixr.feature.editor.EditorViewModel.
+ * selectBrushExtension]'s own async decode path). Mirrors the same built-in-then-custom lookup
+ * [rail item classifiers][ConfigureRailItems] already do, rather than a third independent one.
+ */
+private fun resolvePreviewBrush(
+    activeBrushName: String?,
+    customBrushes: List<CustomBrush>,
+): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? {
+    if (activeBrushName == null) return null
+    return com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.firstOrNull { it.name == activeBrushName }
+        ?: customBrushes.firstOrNull { it.brush.name == activeBrushName }?.brush
+}
+
+/**
  * Extracts an azphalt package download URL from an `azphalt://install` deep link, or null if this
  * launch isn't one. The web storefront redirects here after a purchase; the URI's `url` query
  * parameter carries the HTTPS download URL for the `.azp` package.
@@ -1334,6 +1352,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetBrushFlow = { vm.setBrushFlow(it) },
                         brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
+                        previewBrush = resolvePreviewBrush(uiState.activeBrushName, customBrushes),
+                        brushColor = uiState.activeColor,
+                        secondaryColor = uiState.secondaryColor,
                         colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },
                         onSetColorSmudgeMode = { vm.setColorSmudgeMode(it) },
                         onSetColorSmudgeRate = { vm.setColorSmudgeRate(it) },
@@ -1514,11 +1535,16 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
         }
     }
     if (showSizePicker) {
+        val customBrushes by vm.customBrushes.collectAsState()
         SizePickerDialog(
             currentSize = state.brushSize,
             onSizeChange = { vm.setBrushSize(it) },
             onDismiss = { showSizePicker = false },
             strings = strings,
+            previewBrush = resolvePreviewBrush(state.activeBrushName, customBrushes),
+            brushColor = state.activeColor,
+            secondaryColor = state.secondaryColor,
+            brushFeathering = feather,
         )
     }
 }
@@ -2159,54 +2185,18 @@ private fun AzNavHostScope.ConfigureRailItems(
     // value buildStrokePaint actually samples" when only one of fourteen tools ever read it.)
     stateItem("tool.options", "Tool Options", GraffuxIcons.BrushSettings) { onToolOptionsClicked() }
 
-    // The brush group is now unconditional: Brush Studio means there's always something to do here
-    // (make one), where previously the whole group vanished unless a brush extension was installed.
-    hostItem(id = "grp.brushes", text = "Brushes", content = GraffuxIcons.BrushLibrary, classifiers = setOf("grp.brushes"))
-    // The built-in round brush is "no extension selected", which is the state `grp.brushes` itself
-    // carries — so this entry tracks the host's colour rather than one of its own.
-    azRailSubItem(
-        id = "brush.round", hostId = "grp.brushes", text = "Round",
-        content = GraffuxIcons.BrushCursor,
-        color = railColor("grp.brushes"),
-        onClick = { vm.selectBrushExtension(null) },
-    )
-    // Ship with the app itself, unlike everything below -- so a fresh install has at least one
-    // brush that actually exercises the native stamp engine (dab dynamics, Airbrush, Impasto,
-    // GPU stamping) without an extension install or a trip through Brush Studio first.
-    com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.forEach { preset ->
-        stateSubItem("brush.builtin.${preset.name}", "grp.brushes", preset.name, GraffuxIcons.BrushImport) {
-            vm.selectBuiltInBrush(preset.name)
-        }
-    }
-    brushes.forEach { (id, name) ->
-        // BrushLibrary, not Brush: the plain brush glyph is the brush *tool*. Using it here too meant
-        // the tool, every installed brush and every custom brush were the same picture — verbatim the
-        // defect the comment on the tool strip claims to have fixed.
-        stateSubItem("brush.$id", "grp.brushes", name, GraffuxIcons.BrushImport) { vm.selectBrushExtension(id) }
-    }
-    customBrushes.forEach { custom ->
-        stateSubItem("brush.custom.${custom.id}", "grp.brushes", custom.brush.name, GraffuxIcons.BrushSettings) {
-            vm.selectCustomBrush(custom.id)
-        }
-    }
-    // A gallery over every saved custom brush — pick one, edit it, or delete it — distinct from the
-    // flat per-brush entries just above (which only ever select) and from Brush Studio below (which
-    // only ever holds the one brush currently being edited).
-    azRailSubItem(
-        id = "brush.gallery", hostId = "grp.brushes", text = "My Brushes",
-        content = GraffuxIcons.BrushLibrary,
-        color = railColor("grp.brushes"),
-        onClick = onOpenBrushGallery,
-    )
-    // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when one is
-    // selected and "make a new one" when it isn't — Procreate's own behaviour.
-    stateSubItem(
-        id = "brush.studio", hostId = "grp.brushes", text = "Brush Studio",
-        content = GraffuxIcons.BrushSettings, shape = AzButtonShape.SQUARE,
-    ) {
-        val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
-        vm.onOpenBrushStudio(editing)
-    }
+    // No brush group in the main rail strip: every brush (round, built-in, custom, and every
+    // installed extension) lives exclusively in the detached `grp.brushRail` below, alongside My
+    // Brushes and Brush Studio -- see that host's own doc comment. There used to be a second,
+    // near-identical `grp.brushes` collapsed rail group here too, which meant every brush the
+    // user owned was reachable from two different places in the UI at once for no reason, and its
+    // host button wore `GraffuxIcons.BrushLibrary` -- three stacked diamonds, a layers glyph, not
+    // a brush -- as the main rail's one entry point into painting tools.
+    //
+    // `"grp.brushes"` survives as a bare classifier string (see ConfigureRailItems' own use of it
+    // for "no extension selected") even with no rail item of that id anymore -- classifiers are
+    // just semantic keys railColor()/activeRailClassifiers() look up, independent of whether a
+    // host item shares the string.
 
     // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
     // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
@@ -2296,12 +2286,14 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Stacks below grp.layers in that column automatically; the two were never meant to compete for
     // the same reach the way an expand-collapse rail group would.
     //
-    // Distinct from the flat "brush.*" entries still living inside grp.brushes (the collapsed rail
-    // group): those exist for discovery and for Brush Studio/My Brushes, which stay there. This
-    // strip is for switching mid-painting without opening anything. Every item here reuses that
-    // group's own classifiers (`classifiers = setOf("brush.…")`, not `id`) so the two stay in sync
-    // automatically through railColor()/activeRailClassifiers() -- picking a brush here lights the
-    // same entry there, and vice versa, with no separate highlight bookkeeping.
+    // The ONLY brush entry point in the app: there used to be a second, near-identical `grp.brushes`
+    // group collapsed into the main rail strip too, which put every brush the user owned in two
+    // different places in the UI. My Brushes and Brush Studio, which that group used to host, moved
+    // down here alongside the flat per-brush entries (round/built-in/custom/every installed
+    // extension) rather than living anywhere else. Every flat entry's own classifier
+    // (`classifiers = setOf("brush.…")`) still matches what `ConfigureRailItems` (see its own
+    // "no rail item of that id anymore" comment above) tracks as the active brush, so
+    // railColor()/activeRailClassifiers() highlight the right one here with no separate bookkeeping.
     //
     // Each item's own content IS the brush's preview -- BrushPreview (BrushStudioWindow.kt),
     // already used as My Brushes' own gallery thumbnail, reused directly rather than rendering a
@@ -2309,12 +2301,17 @@ private fun AzNavHostScope.ConfigureRailItems(
     // plain icon: resolving an installed extension's actual AzphaltBrush here would mean plumbing
     // its asset resolver through this builder for a preview alone, real work of its own rather than
     // a one-line addition -- left as a known gap rather than guessed at.
+    //
+    // Host icon is GraffuxIcons.Brush -- an actual paintbrush silhouette -- not BrushLibrary (three
+    // stacked diamonds, which reads as a layers glyph, not a brush; a real user-reported defect).
+    // Yes, this duplicates the Tool.BRUSH rail item's own icon; a host button that looks like a
+    // brush is worth more than one that looks unique but wrong.
     if (showBrushRail) {
         azUnattachedHostItem(
             id = "grp.brushRail",
             text = "Brushes",
             anchor = AzUnattachedAnchor.OPPOSITE,
-            content = GraffuxIcons.BrushLibrary,
+            content = GraffuxIcons.Brush,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
         )
@@ -2357,6 +2354,22 @@ private fun AzNavHostScope.ConfigureRailItems(
                 color = railColor("brush.$id"),
                 onClick = { vm.selectBrushExtension(id) },
             )
+        }
+        // A gallery over every saved custom brush — pick one, edit it, or delete it — distinct from
+        // the flat per-brush entries above (which only ever select).
+        subItem(
+            id = "brush.gallery", hostId = "grp.brushRail", text = "My Brushes",
+            content = GraffuxIcons.BrushLibrary,
+            onClick = onOpenBrushGallery,
+        )
+        // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when
+        // one is selected and "make a new one" when it isn't — Procreate's own behaviour.
+        stateSubItem(
+            id = "brush.studio", hostId = "grp.brushRail", text = "Brush Studio",
+            content = GraffuxIcons.BrushSettings, shape = AzButtonShape.SQUARE,
+        ) {
+            val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
+            vm.onOpenBrushStudio(editing)
         }
         // An extension can bundle several brushes, and this strip is reached for constantly while
         // painting -- not every one of them earns a permanent slot in it. Opens the hide/show list
@@ -2414,7 +2427,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         badge = uiState.layers.count { it.parentId == null }.takeIf { it > 0 }?.toString(),
     )
     azItemState(
-        id = "grp.brushes",
+        id = "grp.brushRail",
         // +1 for the built-in round brush, which is a real choice in the list and not a placeholder.
         badge = (brushes.size + customBrushes.size + 1).toString(),
     )
