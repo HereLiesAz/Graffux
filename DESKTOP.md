@@ -343,11 +343,15 @@ stands after these fixes, not the first draft glee reviewed.
   scripted pointer drag visibly paints a soft-edged stroke reaching its actual endpoint (screenshots
   captured during this session, before and after the glee-caught fixes above).
 - `:desktop:packageDeb` was run to completion and produced a real, installable
-  `graffux_1.0.0_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
-  layout under `/opt/graffux`). `packageRpm` was not separately exercised this session (same
-  `jpackage` path as `Deb`, just a different target format, so it's expected to behave the same, but
-  that's an expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the
-  WiX Toolset, only available on a Windows host/CI runner (see above).
+  `graffux_1.39.74_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
+  layout under `/opt/graffux`). The version in that filename is read live from the repo's own
+  `version.properties` (`desktop/build.gradle.kts`'s `desktopPackageVersion`, read-only — it does
+  NOT advance the shared version counter the Android release pipeline owns), not a hardcoded
+  placeholder, so a `.deb`/`.rpm`/`.msi` built alongside a given APK reports the same
+  major.minor.patch. `packageRpm` was not separately exercised this session (same `jpackage` path as
+  `Deb`, just a different target format, so it's expected to behave the same, but that's an
+  expectation, not a verification). `Msi` cannot be built from Linux at all — it needs the WiX
+  Toolset, only available on a Windows host/CI runner (see above).
 - The real AzNavRail rail, brush-preset switching, colour palette, and Undo were all re-verified
   after the release-detection fix above: two scripted strokes, click Undo, screenshot confirms only
   the second stroke is removed (reproduced twice). `:core:engine:desktopTest`,
