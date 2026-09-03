@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -29,6 +30,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.toArgb
+import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.util.ColorHarmony
 import com.hereliesaz.graffitixr.common.util.HarmonyMode
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -481,12 +483,43 @@ fun SizePickerDialog(
     currentSize: Float,
     onSizeChange: (Float) -> Unit,
     onDismiss: () -> Unit,
-    strings: AppStrings
+    strings: AppStrings,
+    // The active azphalt stamp brush, for a real BrushPreview stroke at the size being dragged --
+    // null for the plain (non-stamp) round brush, which renders through a different pipeline
+    // (DrawingEngine's drawStrokeDynamic) that BrushPreview can't stand in for, so that case falls
+    // back to an accurate single dab (radius + [brushFeathering] falloff) instead, mirroring
+    // BrushSizePad's own rail preview.
+    previewBrush: AzphaltBrush? = null,
+    brushColor: Color = Color.White,
+    secondaryColor: Color = Color.Black,
+    brushFeathering: Float = 0f,
 ) {
     FloatingWindow(title = strings.editor.brushSize, onDismiss = onDismiss) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.height(100.dp)) {
-                Box(Modifier.size((currentSize).dp).background(Color.White, CircleShape))
+            if (previewBrush != null) {
+                BrushPreview(
+                    previewBrush, brushColor, secondaryColor,
+                    height = 100.dp, sizeOverridePx = currentSize,
+                )
+            } else {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(100.dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val maxR = maxOf(minOf(this.size.width, this.size.height) / 2f, 1f)
+                        val radius = (currentSize / 2f).coerceIn(1.5f, maxR)
+                        val core = (1f - brushFeathering.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                0f to brushColor,
+                                core to brushColor,
+                                1f to brushColor.copy(alpha = 0f),
+                                center = center,
+                                radius = radius,
+                            ),
+                            radius = radius,
+                            center = center,
+                        )
+                    }
+                }
             }
 
             Slider(value = currentSize, onValueChange = onSizeChange, valueRange = 5f..150f)

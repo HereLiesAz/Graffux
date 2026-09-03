@@ -180,6 +180,24 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 }
 
 /**
+ * The real [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush] behind [activeBrushName], for
+ * a live [BrushPreview] strip -- null both when the plain (non-stamp) round brush is active
+ * (`activeBrushName == null`) and, defensively, for an installed-extension brush name this device
+ * has no full brush data for yet (only [installedBrushes]' id/name pairs, not a decoded
+ * `AzphaltBrush` -- see [com.hereliesaz.graffitixr.feature.editor.EditorViewModel.
+ * selectBrushExtension]'s own async decode path). Mirrors the same built-in-then-custom lookup
+ * [rail item classifiers][ConfigureRailItems] already do, rather than a third independent one.
+ */
+private fun resolvePreviewBrush(
+    activeBrushName: String?,
+    customBrushes: List<CustomBrush>,
+): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? {
+    if (activeBrushName == null) return null
+    return com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.firstOrNull { it.name == activeBrushName }
+        ?: customBrushes.firstOrNull { it.brush.name == activeBrushName }?.brush
+}
+
+/**
  * Extracts an azphalt package download URL from an `azphalt://install` deep link, or null if this
  * launch isn't one. The web storefront redirects here after a purchase; the URI's `url` query
  * parameter carries the HTTPS download URL for the `.azp` package.
@@ -1334,6 +1352,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetBrushFlow = { vm.setBrushFlow(it) },
                         brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
+                        previewBrush = resolvePreviewBrush(uiState.activeBrushName, customBrushes),
+                        brushColor = uiState.activeColor,
+                        secondaryColor = uiState.secondaryColor,
                         colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },
                         onSetColorSmudgeMode = { vm.setColorSmudgeMode(it) },
                         onSetColorSmudgeRate = { vm.setColorSmudgeRate(it) },
@@ -1514,11 +1535,16 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
         }
     }
     if (showSizePicker) {
+        val customBrushes by vm.customBrushes.collectAsState()
         SizePickerDialog(
             currentSize = state.brushSize,
             onSizeChange = { vm.setBrushSize(it) },
             onDismiss = { showSizePicker = false },
             strings = strings,
+            previewBrush = resolvePreviewBrush(state.activeBrushName, customBrushes),
+            brushColor = state.activeColor,
+            secondaryColor = state.secondaryColor,
+            brushFeathering = feather,
         )
     }
 }
