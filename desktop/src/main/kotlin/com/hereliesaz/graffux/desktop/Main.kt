@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
@@ -34,6 +36,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -79,10 +82,16 @@ fun main() = application {
     // reason `lastSavedPath` (Ctrl+S's own feedback label) lives here too.
     val canvasState = remember { CanvasState() }
     var lastSavedPath by remember { mutableStateOf<String?>(null) }
+    // The same app icon Android's launcher uses (`branding/icon-512.png`) instead of the
+    // unbranded default JVM coffee-cup icon — part of UI parity, not just the in-window theme.
+    val windowIcon = remember {
+        object {}.javaClass.classLoader.getResourceAsStream("icon-512.png")?.use { loadImageBitmap(it) }
+    }
     Window(
         onCloseRequest = ::exitApplication,
         title = "Graffux",
         state = windowState,
+        icon = windowIcon?.let { androidx.compose.ui.graphics.painter.BitmapPainter(it) },
         onKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown || !event.isCtrlPressed) {
                 false
@@ -95,7 +104,7 @@ fun main() = application {
             }
         },
     ) {
-        MaterialTheme {
+        GraffuxDesktopTheme {
             CompositionLocalProvider(
                 // Desktop has no OS-level app name/icon the way an Android manifest does, so this
                 // is provided by hand (matches the pattern aznavrail's own CMP demo app uses).
@@ -119,13 +128,23 @@ private fun GraffuxDesktopApp(
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     var showColorWheel by remember { mutableStateOf(false) }
+    var showToolOptions by remember { mutableStateOf(true) }
+    // Real icons (the same master SVGs Android's `GraffuxIcons` generates from), not text-only
+    // rail labels -- see Icons.kt. Resolved here, in this composable's own scope, since the
+    // `AzHostActivityLayout` DSL block below is not itself `@Composable`.
+    val brushIcon = GraffuxDesktopIcons.brush()
+    val undoIcon = GraffuxDesktopIcons.undo()
+    val redoIcon = GraffuxDesktopIcons.redo()
+    val clearIcon = GraffuxDesktopIcons.clear()
+    val saveIcon = GraffuxDesktopIcons.save()
 
     AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
+        // Android's real rail accent (`core:design`'s `DarkColorScheme`), not an invented purple.
         azTheme(
-            activeColor = Color(0xFF7C4DFF),
-            focusColor = Color(0xFF7C4DFF),
+            activeColor = GraffuxColors.HotPink,
+            focusColor = GraffuxColors.HotPink,
             defaultShape = AzButtonShape.NONE_SQUARE,
-            translucentBackground = Color.Black.copy(alpha = 0.85f),
+            translucentBackground = GraffuxColors.Black.copy(alpha = 0.85f),
         )
         azConfig(
             noMenu = true,
@@ -152,6 +171,7 @@ private fun GraffuxDesktopApp(
             azRailItem(
                 id = "brush.${preset.name}",
                 text = preset.name,
+                content = brushIcon,
                 classifiers = setOf(preset.name),
                 onClick = { selectedBrush = preset },
             )
@@ -159,42 +179,67 @@ private fun GraffuxDesktopApp(
         azRailItem(
             id = "action.undo",
             text = "Undo",
+            content = undoIcon,
             disabled = !canvasState.canUndo,
             onClick = { canvasState.undo() },
         )
         azRailItem(
             id = "action.redo",
             text = "Redo",
+            content = redoIcon,
             disabled = !canvasState.canRedo,
             onClick = { canvasState.redo() },
         )
         azRailItem(
             id = "action.clear",
             text = "Clear",
+            content = clearIcon,
             disabled = canvasState.committed == null,
             onClick = { canvasState.clear() },
         )
         azRailItem(
             id = "action.save",
             text = "Save",
+            content = saveIcon,
             disabled = canvasState.committed == null,
             onClick = { onSaved(canvasState.exportPng()?.absolutePath) },
         )
+        // A rail item to reopen the tool-options panel once its own close button has been used --
+        // otherwise, once dismissed, brush size/flow/colour would have no way back onscreen.
+        azRailItem(
+            id = "action.toolOptions",
+            text = "Tool Options",
+            content = brushIcon,
+            onClick = { showToolOptions = true },
+        )
 
         background(weight = 0) {
+            // Android's own screens sit on `MaterialTheme.colorScheme.background` (black, per
+            // `GraffuxDarkColorScheme`) -- without an explicit Surface here the window's content
+            // pane defaults to plain white, the one background-color mismatch icons/accent/rail
+            // theming alone didn't fix.
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column {
+                // Procreate-style floating, draggable panel in place of the old fixed top toolbar
+                // Row -- matches Android's own `FloatingWindow`-based tool-option panels (both wrap
+                // the same `AzWindow`/`AzWindowState` primitive; see FloatingWindow.kt).
+                if (showToolOptions) {
+                    FloatingWindow(
+                        title = "Tool Options",
+                        onDismiss = { showToolOptions = false },
+                        initialOffset = Offset(120f, 80f),
+                    ) {
                         Text("Brush: ${selectedBrush.name} — ${brushRadius.toInt()}px")
                         Slider(
                             value = brushRadius,
                             onValueChange = { brushRadius = it },
                             valueRange = 4f..96f,
-                            modifier = Modifier.width(220.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                    Spacer(modifier = Modifier.width(24.dp))
-                    Column {
+                        Spacer(modifier = Modifier.height(8.dp))
                         // Android's brushFlow (feature:editor's EditorViewModel) -- per-dab colour
                         // build-up along a stroke, same shared engine param compositeTileParallel
                         // already accepted here but had hardcoded to 1f until now.
@@ -203,57 +248,60 @@ private fun GraffuxDesktopApp(
                             value = brushFlow,
                             onValueChange = { brushFlow = it },
                             valueRange = 0.05f..1f,
-                            modifier = Modifier.width(160.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                    Spacer(modifier = Modifier.width(24.dp))
-                    Row {
-                        PALETTE.forEach { color ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Color")
+                        Row {
+                            PALETTE.forEach { color ->
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (color == selectedColor) 3.dp else 1.dp,
+                                            color = if (color == selectedColor) GraffuxColors.HotPink else GraffuxColors.Gray,
+                                            shape = CircleShape,
+                                        )
+                                        .clickable {
+                                            selectedColor = color
+                                            showColorWheel = false
+                                        },
+                                )
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
+                            // The swatch row above is a fixed 8-colour palette, not the full HSV
+                            // wheel Android's ColorPickerDialog offers -- this toggle opens a real
+                            // one (see ColorWheel.kt), in its own floating panel, rather than
+                            // leaving custom colour choice unreachable.
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(color)
+                                    .background(selectedColor)
                                     .border(
-                                        width = if (color == selectedColor) 3.dp else 1.dp,
-                                        color = if (color == selectedColor) Color(0xFF7C4DFF) else Color.Gray,
+                                        width = if (showColorWheel) 3.dp else 1.dp,
+                                        color = if (showColorWheel) GraffuxColors.HotPink else GraffuxColors.Gray,
                                         shape = CircleShape,
                                     )
-                                    .clickable {
-                                        selectedColor = color
-                                        showColorWheel = false
-                                    },
+                                    .clickable { showColorWheel = !showColorWheel },
                             )
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        // The swatch row above is a fixed 8-colour palette, not the full HSV wheel
-                        // Android's ColorPickerDialog offers -- this toggle opens a real one (see
-                        // ColorWheel.kt) rather than leaving custom colour choice unreachable.
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(selectedColor)
-                                .border(
-                                    width = if (showColorWheel) 3.dp else 1.dp,
-                                    color = if (showColorWheel) Color(0xFF7C4DFF) else Color.Gray,
-                                    shape = CircleShape,
-                                )
-                                .clickable { showColorWheel = !showColorWheel },
-                        )
                     }
                 }
                 if (showColorWheel) {
-                    // The rail is a translucent overlay floating on top of this full-bleed content
-                    // column, not an inset that shrinks it (nothing before this ever grew tall
-                    // enough to reach the rail's own item region to notice) -- a left inset here
-                    // clears the expanded rail's ~88dp width so the wheel doesn't render under it.
-                    ColorWheel(
-                        currentColor = selectedColor,
-                        onColorSelected = { selectedColor = it },
-                        modifier = Modifier.padding(start = 100.dp, end = 16.dp),
-                    )
+                    FloatingWindow(
+                        title = "Color",
+                        onDismiss = { showColorWheel = false },
+                        initialOffset = Offset(120f, 340f),
+                    ) {
+                        ColorWheel(
+                            currentColor = selectedColor,
+                            onColorSelected = { selectedColor = it },
+                        )
+                    }
                 }
                 lastSavedPath?.let { path ->
                     Text(
@@ -271,6 +319,7 @@ private fun GraffuxDesktopApp(
                     flow = brushFlow,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 )
+            }
             }
         }
     }
