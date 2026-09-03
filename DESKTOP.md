@@ -261,6 +261,77 @@ applied directly from the adversarial-review finding, which reasoned through the
 as written rather than reproducing it interactively) — a reasonable next step for whoever picks this
 up next, alongside everything else in this file marked logic-verified-but-not-visually-confirmed.
 
+## UI parity: theme, icons, and layout, not just features
+
+"Parity" isn't just matching feature checkboxes — the desktop UI itself was, until this pass, its
+own invented look (a purple `#7C4DFF` accent, a bare unstyled `MaterialTheme`, no icons, a fixed
+top-toolbar `Row` of sliders) that had never been checked against Android's actual design system
+(`core:design`). This pass closes the checkable parts of that gap:
+
+- **Real color scheme.** `desktop/.../Theme.kt`'s `GraffuxColors`/`GraffuxDarkColorScheme` are the
+  same literal values as `core:design`'s `Color.kt`/`Theme.kt` (`HotPink = 0xFFFF00C8`,
+  `Cyan = 0xFF00FFFF`, `NeonGreen = 0xFF39FF14`, black background, dark-grey surface) — copied by
+  hand, since `core:design` is an `com.android.library` module (Google-Fonts-provider + non-CMP
+  AzNavRail dependencies) and can't be depended on directly from `:desktop`. The rail's
+  `azTheme(activeColor = ..., focusColor = ...)` and the whole window's `MaterialTheme` now both
+  use it; the content pane is wrapped in a `Surface(color = MaterialTheme.colorScheme.background)`
+  so the window background is actually black instead of Compose's plain-white default.
+- **Real icons.** `desktop/.../Icons.kt` (`GraffuxDesktopIcons`) loads the same portable master
+  SVGs Android's `GraffuxIcons.kt` generates its `@DrawableRes` set from
+  (`branding/icons/masters/*.svg` — undo, redo, clear-history, document-save, brush), copied into
+  `desktop/src/main/resources/icons` and rendered via `androidx.compose.ui.res.loadSvgPainter`.
+  Every rail item (brush presets, Undo, Redo, Clear, Save, the new "Tool Options" toggle) now shows
+  its real icon instead of a text-only label. Not exhaustive: only the icons this app's existing
+  six rail actions needed were ported, not the full 400+-icon set.
+- **Real app icon.** The desktop window/taskbar now uses `branding/icon-512.png` — the same
+  launcher icon Android ships — via `Window(icon = ...)`, instead of the unbranded default JVM
+  coffee-cup icon.
+- **Floating, draggable tool-option panels — the actual layout paradigm change, not just a
+  mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
+  gone. `desktop/.../FloatingWindow.kt` is a copy of `core:design`'s `FloatingWindow` composable,
+  adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
+  (11.45, already a `:desktop` dependency) — confirmed by decompiling
+  `aznavrail-cmp-desktop-11.45.jar` and reading `aznavrail-cmp`'s own `commonMain` source
+  (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real
+  floating-window mechanism (dragging, onscreen clamping, z-index stacking all come from the same
+  library code both platforms call), not a second hand-built implementation. "Tool Options" (brush
+  radius/flow/color swatches) and "Color" (the HSV wheel, see below) are now each their own
+  draggable, closable `FloatingWindow`, Procreate-style, matching how Android's
+  `SketchToolsDialog`/`ColorPickerDialog` present themselves — multiple can be open over the
+  artwork at once, and closing one doesn't block the canvas the way a modal dialog would.
+  Simplifications versus Android's version: no rail-avoidance obstruction (this app's rail is a
+  translucent overlay, not docked/inset, so there's no strip a panel needs to stay clear of) and no
+  mount-time re-clamp effect (`AzWindow` itself, 11.38+, already keeps a window onscreen on its
+  own).
+- Verified visually, not just by compiling: built and ran the real desktop app under Xvfb
+  (`:desktop:run`, software-rendered — `Cannot create Linux GL context` is expected in this
+  GPU-less container and Skiko falls back automatically) and screenshotted it. The black
+  background, hot-pink accent, draggable "Tool Options" panel with its close button, and real
+  icons on every rail item are all visible in the captured frame, not just present in source.
+
+**What "all the way" still doesn't cover, honestly:**
+
+- **No bundled Roboto Condensed typography.** Android's `Typography.kt` loads Roboto Condensed via
+  `androidx.compose.ui.text.googlefonts.GoogleFont.Provider`, a Google-Play-Services mechanism with
+  no desktop-JVM equivalent. The real TTF files were fetched from Google Fonts' CDN (Apache-2.0,
+  safe to bundle) with the intent of loading them directly, but this Compose Multiplatform version
+  (1.12.0)'s `androidx.compose.ui.text.font.Font` has no desktop-side `(String, ByteArray, ...)` or
+  file-based overload — confirmed by decompiling `ui-text-desktop-1.12.0.jar`, not assumed. The
+  real path is `org.jetbrains.compose.resources`' font-resource codegen (`composeResources/font/`,
+  a generated `Res.font.*` accessor) — a new Gradle-module convention, not just a dependency bump,
+  and out of scope for this pass. Desktop text still renders in Compose's stock default font.
+- **The `ColorWheel` FloatingWindow is still just the wheel + brightness slider** — no
+  foreground/background swap, no Disc/Harmony/Palettes tabs, no saved-palette/recent-color rows the
+  way Android's `ColorPickerDialog` has. It's in a real floating panel now, matching the layout
+  paradigm, but the picker's own contents inside that panel are unchanged from before this pass.
+- **Icon coverage is 5 icons, not 400+.** Every brush preset currently shares the single generic
+  "brush" icon rather than a per-brush icon — Android's `GraffuxIcons` almost certainly has
+  distinct icons per brush type, not looked up here.
+- Every other item in "What's deliberately NOT done in this pass" below (layers, selection tools,
+  Brush Studio, extensions manager, the AR/vision pipeline, GPU acceleration) is exactly as missing
+  from the UI as it was before — this pass is about how the existing surface *looks*, not about
+  growing that surface.
+
 ## What's deliberately NOT done in this pass, and why
 
 - **No Opacity/Feathering/Stabilizer/Symmetry/Alpha-Lock/Wrap-Around controls — and this is not
