@@ -91,7 +91,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "— adjust, blend mode, transform, alpha lock, clipping, styles, and so on. A layer marked " +
         "amber is linked to the one you are on and will move with it.",
     "layer.add" to "Add a new blank layer on top of the stack.",
-    "grp.brushes" to
+    "grp.brushRail" to
         "Installed brushes, plus Brush Studio for making your own. The plain round brush is the " +
         "one selected when none of the others are.",
     "brush.studio" to
