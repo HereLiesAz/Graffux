@@ -55,7 +55,10 @@ class SlamManager @Inject constructor(
     // thread calls them, and nothing else in Graffux ever has one current (the 3D model viewer's
     // GLSurfaceView is unrelated and not current while the 2D editor paints) -- without this,
     // nativeInitGl() had no thread to ever run on, so every Liquify stroke silently baked nothing.
-    private val liquifyGl by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    // A named Lazy (not a bare `by lazy` property) so destroy() can check liquifyGlLazy.isInitialized()
+    // without forcing creation just to tear down something that was never touched -- `by lazy`'s own
+    // KProperty0.isInitialized() reflection only works on an actual `lateinit var`, not a delegate.
+    private val liquifyGlLazy = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         LiquifyGlContext(onContextReady = {
             // Constructs gImageWarper alone -- never the full SLAM engine nativeInitialize()/
             // ensureInitialized() also boots. Liquify's own JNI calls never touch gSlamEngine.
@@ -63,6 +66,7 @@ class SlamManager @Inject constructor(
             nativeInitGl()
         })
     }
+    private val liquifyGl by liquifyGlLazy
 
     fun prepareLiquify(bitmap: Bitmap) = liquifyGl.runOnGlThread { nativePrepareLiquify(bitmap) }
     fun applyLiquify(stroke: FloatArray, brushSize: Float, intensity: Float) =
@@ -463,7 +467,7 @@ class SlamManager @Inject constructor(
             nativeDestroy()
             isInitialized = false
         }
-        if (::liquifyGl.isInitialized) liquifyGl.release()
+        if (liquifyGlLazy.isInitialized()) liquifyGl.release()
     }
 
     /**
