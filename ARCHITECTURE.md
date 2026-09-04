@@ -30,12 +30,16 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
-| `:core:nativebridge` | JNI bridge to the native (OpenCV) world used by Liquify and drawing. |
+| `:core:nativebridge` | JNI bridge to the native (OpenCV/Vulkan) world used by Liquify, drawing, and GPU compositing. |
+| `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. |
+| `:desktop` | The real Graffux desktop app (Linux/Windows, Compose Multiplatform) — not published from this table's other modules, but a third consumer of `:core:engine`'s shared math alongside Android Graffux and GraffitiXR. See `DESKTOP.md`. |
 
 `:core:*` and `:feature:editor` keep the `com.hereliesaz.graffitixr` namespace — they are the
 shared single source of truth also consumed by [GraffitiXR](https://github.com/HereLiesAz/GraffitiXR),
-which adds AR on top of the same editor stack. A change to any `:core:*` or `:feature:editor`
-file is a change to GraffitiXR too, whether or not this repo's CI can see that.
+which adds AR on top of the same editor stack, AND by `:desktop` in this same repo. A change to
+any `:core:*` or `:feature:editor` file is a change to GraffitiXR too, whether or not this repo's
+CI can see that — and, for `:core:engine` specifically, a change the desktop app's own `commonTest`
+suite in this repo *does* see, since it runs the identical brush-math tests against both targets.
 
 ---
 

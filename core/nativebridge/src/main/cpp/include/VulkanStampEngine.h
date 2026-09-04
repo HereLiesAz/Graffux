@@ -317,6 +317,14 @@ private:
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queueFamilyIndex_ = 0;
 
+    // 16 (256 invocations/workgroup) unless pickPhysicalDeviceAndQueueFamily() finds the selected
+    // device can't guarantee that -- the Vulkan core spec's guaranteed minimum for
+    // maxComputeWorkGroupInvocations is only 128, so a real device can legally reject the fixed
+    // 16x16 stamp/stamp_masked shaders that used to be the only variant compiled for them (unlike
+    // color_smudge, which already ships an 8x8 fallback). Falls back to 8 (64 invocations) then,
+    // which fits the guaranteed minimum with headroom.
+    uint32_t stampTileSize_ = 16;
+
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;

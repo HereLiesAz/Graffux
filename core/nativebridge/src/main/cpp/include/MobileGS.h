@@ -15,8 +15,6 @@
 #include <condition_variable>
 #include <GLES3/gl3.h>
 
-#include "NativeUtil.h"
-
 class MobileGS {
 public:
     MobileGS() {}

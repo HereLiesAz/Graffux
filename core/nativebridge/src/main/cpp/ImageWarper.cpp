@@ -171,15 +171,35 @@ void ImageWarper::applyLiquify(const std::vector<glm::vec2>& stroke, float brush
         glm::vec2 p1_norm = {p1.x / mWidth, p1.y / mHeight};
         glm::vec2 delta_norm = {delta.x / mWidth, delta.y / mHeight};
 
-        for (auto& v : mVertices) {
-            float d = glm::distance(v, p1_norm);
-            if (d < normBrushSize) {
-                // Standard Liquify: push pixels along the brush movement vector
-                // Weight based on distance from brush center (Gaussian-like falloff)
-                float weight = 1.0f - (d / normBrushSize);
-                weight = weight * weight * (3.0f - 2.0f * weight); // Smoothstep
+        // Only vertices within normBrushSize of p1_norm can ever be touched below, but scanning
+        // every one of (mGridDim+1)^2 vertices to find them ran on every accepted touch-move
+        // sample of a live Liquify drag (EditorViewModel.onStrokePoint), synchronously. mVertices
+        // is indexed row-major from reset()'s (mGridDim+1)x(mGridDim+1) grid, so a vertex's
+        // UNDEFORMED position is recoverable straight from its index (x/mGridDim, y/mGridDim) --
+        // used here only to convert the brush's normalized bbox into an index range to visit,
+        // not to test distance (that still uses each vertex's real, possibly-already-warped `v`
+        // below, unchanged). Padded by 2x normBrushSize past the exact bbox so a vertex that has
+        // already drifted from repeated warps earlier in the same stroke is still visited.
+        float pad = normBrushSize * 2.0f;
+        float xMin = p1_norm.x - normBrushSize - pad, xMax = p1_norm.x + normBrushSize + pad;
+        float yMin = p1_norm.y - normBrushSize - pad, yMax = p1_norm.y + normBrushSize + pad;
+        int xIdxMin = std::clamp(static_cast<int>(std::floor(xMin * mGridDim)), 0, mGridDim);
+        int xIdxMax = std::clamp(static_cast<int>(std::ceil(xMax * mGridDim)), 0, mGridDim);
+        int yIdxMin = std::clamp(static_cast<int>(std::floor(yMin * mGridDim)), 0, mGridDim);
+        int yIdxMax = std::clamp(static_cast<int>(std::ceil(yMax * mGridDim)), 0, mGridDim);
 
-                v += delta_norm * weight * intensity;
+        for (int gy = yIdxMin; gy <= yIdxMax; ++gy) {
+            for (int gx = xIdxMin; gx <= xIdxMax; ++gx) {
+                glm::vec2& v = mVertices[static_cast<size_t>(gy) * (mGridDim + 1) + gx];
+                float d = glm::distance(v, p1_norm);
+                if (d < normBrushSize) {
+                    // Standard Liquify: push pixels along the brush movement vector
+                    // Weight based on distance from brush center (Gaussian-like falloff)
+                    float weight = 1.0f - (d / normBrushSize);
+                    weight = weight * weight * (3.0f - 2.0f * weight); // Smoothstep
+
+                    v += delta_norm * weight * intensity;
+                }
             }
         }
     }
@@ -226,7 +246,12 @@ void ImageWarper::drawLocked(int viewportWidth, int viewportHeight) {
 
 bool ImageWarper::bakeToBitmap(uint8_t* outData, int outWidth, int outHeight) {
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mFbo || !mOffscreenTexture) return false;
+    // mFbo/mOffscreenTexture existing only means setSourceImage() ran; it says nothing about
+    // whether init() ever compiled the shader program drawLocked() below depends on. Without this,
+    // a caller that never wired up init() (see LiquifyGlContext.kt) got a silent success: drawLocked
+    // no-ops on `!mInitialized`, and glReadPixels then reads back whatever the never-rendered-to
+    // FBO texture happens to contain (see its own glTexImage2D(..., nullptr) allocation above).
+    if (!mInitialized || !mFbo || !mOffscreenTexture) return false;
 
     // glReadPixels below is sized off mWidth/mHeight, which is this (single, shared) instance's
     // *current* source image — not necessarily the one whose dimensions the caller's outData buffer

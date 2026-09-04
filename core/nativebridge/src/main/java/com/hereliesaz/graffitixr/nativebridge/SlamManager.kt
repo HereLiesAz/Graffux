@@ -50,10 +50,29 @@ class SlamManager @Inject constructor(
         }
     }
 
-    fun prepareLiquify(bitmap: Bitmap) = nativePrepareLiquify(bitmap)
-    fun applyLiquify(stroke: FloatArray, brushSize: Float, intensity: Float) = nativeApplyLiquify(stroke, brushSize, intensity)
-    fun drawLiquify(width: Int, height: Int) = nativeDrawLiquify(width, height)
-    fun bakeLiquify(outBitmap: Bitmap) = nativeBakeLiquify(outBitmap)
+    // Lazily created on first Liquify use and torn down in destroy(). See LiquifyGlContext's doc
+    // comment for why this exists: ImageWarper's GLES3 calls need a context current on whatever
+    // thread calls them, and nothing else in Graffux ever has one current (the 3D model viewer's
+    // GLSurfaceView is unrelated and not current while the 2D editor paints) -- without this,
+    // nativeInitGl() had no thread to ever run on, so every Liquify stroke silently baked nothing.
+    // A named Lazy (not a bare `by lazy` property) so destroy() can check liquifyGlLazy.isInitialized()
+    // without forcing creation just to tear down something that was never touched -- `by lazy`'s own
+    // KProperty0.isInitialized() reflection only works on an actual `lateinit var`, not a delegate.
+    private val liquifyGlLazy = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LiquifyGlContext(onContextReady = {
+            // Constructs gImageWarper alone -- never the full SLAM engine nativeInitialize()/
+            // ensureInitialized() also boots. Liquify's own JNI calls never touch gSlamEngine.
+            nativeInitImageWarper()
+            nativeInitGl()
+        })
+    }
+    private val liquifyGl by liquifyGlLazy
+
+    fun prepareLiquify(bitmap: Bitmap) = liquifyGl.runOnGlThread { nativePrepareLiquify(bitmap) }
+    fun applyLiquify(stroke: FloatArray, brushSize: Float, intensity: Float) =
+        liquifyGl.runOnGlThread { nativeApplyLiquify(stroke, brushSize, intensity) }
+    fun drawLiquify(width: Int, height: Int) = liquifyGl.runOnGlThread { nativeDrawLiquify(width, height) }
+    fun bakeLiquify(outBitmap: Bitmap) = liquifyGl.runOnGlThread { nativeBakeLiquify(outBitmap) }
 
     fun getSplatCount(): Int = nativeGetSplatCount()
     fun getImmutableSplatCount(): Int = nativeGetImmutableSplatCount()
@@ -61,7 +80,6 @@ class SlamManager @Inject constructor(
     fun getGlobalConfidenceAvg(): Float = nativeGetGlobalConfidenceAvg()
     fun setSplatsVisible(visible: Boolean) = nativeSetSplatsVisible(visible)
     fun getLastDepthTrace(): String = nativeGetLastDepthTrace()
-    fun getLastSplatTrace(): String = nativeGetLastSplatTrace()
 
     fun updateAnchorTransform(transform: FloatArray) = nativeUpdateAnchorTransform(transform)
 
@@ -441,11 +459,15 @@ class SlamManager @Inject constructor(
     fun destroy() {
         stopSensorCollection()
         synchronized(initLock) {
-            if (isInitialized) {
-                nativeDestroy()
-                isInitialized = false
-            }
+            // nativeDestroy() individually null-checks gSlamEngine/gStereoProcessor/gImageWarper
+            // before deleting each, so it's safe (and necessary) to call unconditionally: a
+            // Liquify-only session never sets isInitialized (it constructs gImageWarper through
+            // nativeInitImageWarper() instead, see LiquifyGlContext.kt's onContextReady), but still
+            // owns a real heap-allocated ImageWarper that only nativeDestroy() frees.
+            nativeDestroy()
+            isInitialized = false
         }
+        if (liquifyGlLazy.isInitialized()) liquifyGl.release()
     }
 
     /**
@@ -489,6 +511,7 @@ class SlamManager @Inject constructor(
     private external fun nativeGetKeypoints(bitmap: Bitmap): FloatArray?
     private external fun nativeGetFingerprintKeypoints(bitmap: Bitmap, mask: Bitmap?): FloatArray?
     private external fun nativeInitialize()
+    private external fun nativeInitImageWarper()
 
     private external fun nativeInitGl()
     private external fun nativeResetGlContext()
@@ -514,7 +537,6 @@ class SlamManager @Inject constructor(
     private external fun nativeGetGlobalConfidenceAvg(): Float
     private external fun nativeSetSplatsVisible(visible: Boolean)
     private external fun nativeGetLastDepthTrace(): String
-    private external fun nativeGetLastSplatTrace(): String
     private external fun nativeSetArCoreTrackingState(isTracking: Boolean)
     private external fun nativeClearMap()
     private external fun nativePruneByConfidence(threshold: Float)
