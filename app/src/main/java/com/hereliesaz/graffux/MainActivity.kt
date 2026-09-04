@@ -210,6 +210,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val railExpansion by vm.railExpansion.collectAsState()
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
@@ -577,6 +578,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ConfigureRailItems(
                 vm = vm,
                 uiState = uiState,
+                railExpansion = railExpansion,
                 brushes = brushes,
                 customBrushes = customBrushes,
                 installedExtensionCount = allInstalledExtensions.size,
@@ -605,6 +607,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.MotionTween, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.animation"),
+                    initiallyExpanded = railExpansion["area.animation"] ?: false,
+                    onExpandedChange = { vm.onRailHostExpansionChanged("area.animation", it) },
                 )
                 azRailSubItem(
                     id = "tool.animation", hostId = "area.animation",
@@ -660,6 +664,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     id = "area.model", text = "3D", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.GuideIsometric, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.model"),
+                    initiallyExpanded = railExpansion["area.model"] ?: false,
+                    onExpandedChange = { vm.onRailHostExpansionChanged("area.model", it) },
                 )
                 azRailSubItem(
                     id = "tool.model", hostId = "area.model", text = "3D Model",
@@ -678,6 +684,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     id = "area.reference", text = "Reference", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.LayerReference, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.reference"),
+                    initiallyExpanded = railExpansion["area.reference"] ?: false,
+                    onExpandedChange = { vm.onRailHostExpansionChanged("area.reference", it) },
                 )
                 azRailSubItem(
                     id = "reference.open", hostId = "area.reference", text = "Reference Image",
@@ -699,6 +707,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     id = "area.figma", text = "Figma", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.Artboard, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.figma"),
+                    initiallyExpanded = railExpansion["area.figma"] ?: false,
+                    onExpandedChange = { vm.onRailHostExpansionChanged("area.figma", it) },
                 )
                 azRailSubItem(
                     id = "figma.open", hostId = "area.figma", text = "Import from Figma",
@@ -717,6 +727,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     id = "area.extensions", text = "Extensions", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.extensions"),
+                    initiallyExpanded = railExpansion["area.extensions"] ?: false,
+                    onExpandedChange = { vm.onRailHostExpansionChanged("area.extensions", it) },
                 )
                 azRailSubItem(
                     id = "adj.extensions", hostId = "area.extensions", text = "Run Extension",
@@ -1725,6 +1737,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
     customBrushes: List<CustomBrush>,
+    // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't
+    // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and
+    // the colours below are passed in rather than read here).
+    railExpansion: Map<String, Boolean>,
     /** How many azphalt extensions are installed — badged on the Run Extension item. */
     installedExtensionCount: Int,
     strings: AppStrings,
@@ -1806,6 +1822,11 @@ private fun AzNavHostScope.ConfigureRailItems(
         azRailHostItem(
             id = id, text = text, content = content, classifiers = classifiers,
             color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
+            // Restores exactly as the user left it on reopen -- see EditorViewModel.railExpansion's
+            // doc comment. AzNavRail 11.44 (this app's pin) has carried per-host onExpandedChange
+            // since 10.11; nothing here ever actually read or wrote it before.
+            initiallyExpanded = railExpansion[id] ?: false,
+            onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
         )
 
     /**
@@ -2256,6 +2277,8 @@ private fun AzNavHostScope.ConfigureRailItems(
             content = GraffuxIcons.Layers,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
+            initiallyExpanded = railExpansion["grp.layers"] ?: false,
+            onExpandedChange = { vm.onRailHostExpansionChanged("grp.layers", it) },
         )
         uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
             renderLayerRailItem(
@@ -2317,6 +2340,8 @@ private fun AzNavHostScope.ConfigureRailItems(
             content = GraffuxIcons.BrushLibrary,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
+            initiallyExpanded = railExpansion["grp.brushRail"] ?: false,
+            onExpandedChange = { vm.onRailHostExpansionChanged("grp.brushRail", it) },
         )
         azRailSubItem(
             id = "brushRail.round", hostId = "grp.brushRail", text = "Round",
@@ -2525,6 +2550,15 @@ private fun AzNavHostScope.renderLayerRailItem(
             listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
             listItem("Clear", on { vm.onClearLayer() })
             listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+        }
+
+        // Only a top-level layer can be a frame in the first place (see AnimationFrames' doc
+        // comment) -- offered regardless of isGroup, since a GROUP frame is exactly as valid a
+        // frame as a plain one, and this only makes sense for a layer that would otherwise BE one.
+        if (layer.parentId == null) {
+            listItem(if (layer.isPinnedAcrossFrames) "Pinned Across Frames ✓" else "Pin Across Frames") {
+                vm.onTogglePinnedAcrossFrames(layer.id)
+            }
         }
 
         // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks

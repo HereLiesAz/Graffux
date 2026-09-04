@@ -250,6 +250,8 @@ internal sealed interface EditorIntent {
     data class UngroupLayer(val groupId: String) : EditorIntent
     /** Flips a layer's "clip to layer below" flag (Procreate's Clipping Mask). */
     data class ToggleClipToLayerBelow(val id: String) : EditorIntent
+    /** Flips a top-level layer's [Layer.isPinnedAcrossFrames] — see that field's doc comment. */
+    data class TogglePinnedAcrossFrames(val id: String) : EditorIntent
 
     // ── Panels / gestures / layer set / project lifecycle ─────────────────────
     data object ToggleColorPanel : EditorIntent

@@ -49,11 +49,13 @@ class InkStrokePredictor : AutoCloseable {
         if (nativeHandle == 0L || !hasInput) return null
         val values = nativePredict(nativeHandle) ?: return null
         if (values.size < 4) return null
+        // A double round-trips uptimeMillis exactly (a jfloat can't past ~4.6h of device uptime --
+        // see nativePredict's doc comment); position/pressure just widen back down from it losslessly.
         return Prediction(
-            x = values[0],
-            y = values[1],
+            x = values[0].toFloat(),
+            y = values[1].toFloat(),
             uptimeMillis = values[2].toLong(),
-            pressure = values[3].takeIf { it.isFinite() && it >= 0f } ?: 1f,
+            pressure = values[3].toFloat().takeIf { it.isFinite() && it >= 0f } ?: 1f,
         )
     }
 
@@ -75,6 +77,6 @@ class InkStrokePredictor : AutoCloseable {
         pressure: Float,
         isDown: Boolean,
     ): Boolean
-    private external fun nativePredict(handle: Long): FloatArray?
+    private external fun nativePredict(handle: Long): DoubleArray?
     private external fun nativeDestroy(handle: Long)
 }

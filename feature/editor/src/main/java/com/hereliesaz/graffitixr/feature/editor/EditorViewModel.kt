@@ -504,8 +504,9 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Per-host AzNavRail expansion state (host id -> expanded), surfaced from the current project so the
-     * rail can restore exactly as the user left it on reopen. Empty until [onRailHostExpansionChanged]
-     * populates it (which happens once AzNavRail exposes a per-host onExpandedChange — expected 10.11).
+     * rail can restore exactly as the user left it on reopen. Populated by [onRailHostExpansionChanged],
+     * wired to every host item's `onExpandedChange`/`initiallyExpanded` in MainActivity.kt's
+     * `ConfigureRailItems` — this used to be built and persisted but never actually connected to the UI.
      */
     val railExpansion: StateFlow<Map<String, Boolean>> =
         projectRepository.currentProject
@@ -1513,6 +1514,13 @@ class EditorViewModel @Inject constructor(
         // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
         timeLapseRecorder.finish()
         playbackJob?.cancel()
+        // Liquify lazily constructs a native ImageWarper plus a dedicated GL thread + EGL context
+        // on first use (LiquifyGlContext.kt) and neither was ever torn down before -- this is the
+        // one place in Graffux's own lifecycle that corresponds to "the editor screen is really
+        // going away" (ViewModel.onCleared, unlike a config change, only fires once nothing will
+        // read this ViewModel again). Harmless when Liquify was never touched this session: destroy()
+        // null-checks every native pointer and no-ops the GL release if the context was never built.
+        slamManager.destroy()
         super.onCleared()
     }
 
@@ -2149,6 +2157,7 @@ class EditorViewModel @Inject constructor(
         val newLayer = Layer(
             id = UUID.randomUUID().toString(),
             name = "$name ${count + 1}",
+            type = com.hereliesaz.graffitixr.common.model.LayerType.VECTOR,
             shapes = listOf(shape),
         )
         dispatch(EditorIntent.AddLayer(newLayer))
@@ -2174,6 +2183,7 @@ class EditorViewModel @Inject constructor(
         val newLayer = Layer(
             id = UUID.randomUUID().toString(),
             name = "Polygon ${count + 1}",
+            type = com.hereliesaz.graffitixr.common.model.LayerType.VECTOR,
             shapes = listOf(shape),
         )
         dispatch(EditorIntent.AddLayer(newLayer))
@@ -3363,6 +3373,7 @@ class EditorViewModel @Inject constructor(
         isInverted = isInverted,
         blendMode = blendMode,
         clipToLayerBelow = clipToLayerBelow,
+        isPinnedAcrossFrames = isPinnedAcrossFrames,
     )
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
@@ -3510,11 +3521,11 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
-            // ensureInitialized() constructs the native warp engine singleton this whole tool runs
-            // on; nothing else in the app ever called it, so every Liquify stroke used to silently
-            // no-op against a null engine pointer. Idempotent (synchronized + isInitialized guard),
-            // so calling it on every stroke start is cheap after the first.
-            slamManager.ensureInitialized()
+            // Deliberately NOT slamManager.ensureInitialized(): that also boots the full SLAM
+            // engine (MobileGS -- two permanent background relocalization/mapping threads plus an
+            // ORB detector) for a tool that only ever warps a 2D bitmap. prepareLiquify() below
+            // lazily constructs just the native ImageWarper on first use instead (see
+            // LiquifyGlContext.kt), the only piece Liquify's JNI calls ever touch.
             // Store the original bitmap so live-preview warps can be applied from a clean copy.
             // A failed copy means no clean original to warp previews from; the stroke simply
             // doesn't start, which beats an NPE inside prepareLiquify on the main thread.
@@ -5470,6 +5481,13 @@ class EditorViewModel @Inject constructor(
     fun onToggleClipToLayerBelow(id: String) {
         pushHistory()
         dispatch(EditorIntent.ToggleClipToLayerBelow(id))
+        saveProject()
+        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+    }
+
+    fun onTogglePinnedAcrossFrames(id: String) {
+        pushHistory()
+        dispatch(EditorIntent.TogglePinnedAcrossFrames(id))
         saveProject()
         _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
     }

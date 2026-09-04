@@ -1,5 +1,8 @@
 #version 450
-layout(local_size_x = 16, local_size_y = 16) in;
+#ifndef TILE_SIZE
+#define TILE_SIZE 16
+#endif
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
 
 // Explicit 3×vec4 std430 layout: exactly 48 bytes per dab, matching GpuDab's twelve floats.
 // This avoids relying on compiler-specific intuition about the array stride of a scalar-only struct.
