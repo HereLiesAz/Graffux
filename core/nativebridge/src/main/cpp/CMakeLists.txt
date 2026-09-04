@@ -55,11 +55,25 @@ graffux_embed_shader(
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
     "StampSpv.h"
     "kStampCompSpv"
+    -DTILE_SIZE=16
+)
+graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
+    "StampSpv8.h"
+    "kStampComp8Spv"
+    -DTILE_SIZE=8
 )
 graffux_embed_shader(
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp_masked.comp"
     "StampMaskedSpv.h"
     "kStampMaskedCompSpv"
+    -DTILE_SIZE=16
+)
+graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp_masked.comp"
+    "StampMaskedSpv8.h"
+    "kStampMaskedComp8Spv"
+    -DTILE_SIZE=8
 )
 graffux_embed_shader(
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"

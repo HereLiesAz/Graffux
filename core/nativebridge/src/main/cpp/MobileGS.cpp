@@ -49,8 +49,6 @@ struct StageTimer {
 };
 }
 
-std::string gLastSplatTrace = "";
-
 extern JavaVM* gJvm;
 
 struct JniThreadAttacher {
@@ -1083,7 +1081,14 @@ void MobileGS::getFingerprintKeypoints(const cv::Mat& image, const cv::Mat& mask
     // different ORB config): low-light enhance, grayscale, the marks mask, SuperPoint then ORB-1000.
     cv::Mat workFrame = image;
     if (mEnhancer.isLoaded() && mLightLevel < kLowLightThreshold) {
-        cv::Mat enhanced; if (mEnhancer.enhance(image, enhanced)) workFrame = enhanced;
+        // LowLightEnhancer::enhance is documented CV_8UC3-only (see LowLightEnhancer.h); `image`
+        // here comes from bitmapToMat and is always RGBA (CV_8UC4), unlike the reloc thread's
+        // already-3-channel `frame` this mirrors. Drop alpha first so the blob shape the ONNX
+        // model sees matches what it was built for, instead of a mismatched 4-channel input.
+        cv::Mat rgb;
+        if (image.channels() == 4) cv::cvtColor(image, rgb, cv::COLOR_RGBA2RGB);
+        else rgb = image;
+        cv::Mat enhanced; if (mEnhancer.enhance(rgb, enhanced)) workFrame = enhanced;
     }
     cv::Mat gray;
     if (workFrame.channels() == 4)      cv::cvtColor(workFrame, gray, cv::COLOR_RGBA2GRAY);

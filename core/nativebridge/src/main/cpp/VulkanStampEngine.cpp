@@ -8,7 +8,9 @@
 #include <cstring>
 
 #include "StampSpv.h"
+#include "StampSpv8.h"
 #include "StampMaskedSpv.h"
+#include "StampMaskedSpv8.h"
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "VulkanStampEngine", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "VulkanStampEngine", __VA_ARGS__)
@@ -163,6 +165,22 @@ bool VulkanStampEngine::pickPhysicalDeviceAndQueueFamily() {
             if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
                 physicalDevice_ = candidate;
                 queueFamilyIndex_ = i;
+
+                VkPhysicalDeviceProperties props{};
+                vkGetPhysicalDeviceProperties(physicalDevice_, &props);
+                const auto& limits = props.limits;
+                // 256 invocations (16x16) needs BOTH the total-invocations limit and each
+                // individual dimension's limit to allow it -- a device could in principle cap
+                // one axis below 16 while still allowing 256 total.
+                bool canUse16x16 = limits.maxComputeWorkGroupInvocations >= 256 &&
+                    limits.maxComputeWorkGroupSize[0] >= 16 &&
+                    limits.maxComputeWorkGroupSize[1] >= 16;
+                stampTileSize_ = canUse16x16 ? 16 : 8;
+                if (!canUse16x16) {
+                    LOGE("Device maxComputeWorkGroupInvocations=%u (or a per-axis limit) is below "
+                         "the 256 the 16x16 stamp shaders need; falling back to the 8x8 variant",
+                         limits.maxComputeWorkGroupInvocations);
+                }
                 return true;
             }
         }
@@ -472,10 +490,15 @@ bool VulkanStampEngine::createLayerImageFromHardwareBuffer(int width, int height
 }
 
 bool VulkanStampEngine::createDescriptorAndPipeline() {
+    // stampTileSize_ was set by pickPhysicalDeviceAndQueueFamily() from this device's actual
+    // maxComputeWorkGroupInvocations -- see VulkanStampEngine.h's doc comment on the field.
+    const uint32_t* stampSpv = stampTileSize_ >= 16 ? kStampCompSpv : kStampComp8Spv;
+    size_t stampSpvWords = stampTileSize_ >= 16 ? kStampCompSpvWords : kStampComp8SpvWords;
+
     VkShaderModuleCreateInfo shaderInfo{};
     shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    shaderInfo.codeSize = kStampCompSpvWords * sizeof(uint32_t);
-    shaderInfo.pCode = kStampCompSpv;
+    shaderInfo.codeSize = stampSpvWords * sizeof(uint32_t);
+    shaderInfo.pCode = stampSpv;
     if (!checkResult(vkCreateShaderModule(device_, &shaderInfo, nullptr, &shaderModule_),
                       "vkCreateShaderModule")) {
         return false;
@@ -935,11 +958,17 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
     // stalling the (synchronous, main-thread) caller or tripping a GPU driver watchdog on a large
     // canvas. The shader re-bases gl_GlobalInvocationID by (originX, originY) to recover the real
     // layer pixel coordinate — see stamp.comp's PushConstants doc comment.
-    float minX = dabs[0].x - dabs[0].radius, maxX = dabs[0].x + dabs[0].radius;
-    float minY = dabs[0].y - dabs[0].radius, maxY = dabs[0].y + dabs[0].radius;
+    //
+    // Floored to match stamp.comp's own `max(d.geometry.z, 0.5)` (a dab's radius reaching exactly
+    // 0 is real -- see BrushStamps.kt's taper minSize -- and an unfloored radius here would
+    // disagree with what the shader itself will actually paint).
+    float r0 = std::max(dabs[0].radius, 0.5f);
+    float minX = dabs[0].x - r0, maxX = dabs[0].x + r0;
+    float minY = dabs[0].y - r0, maxY = dabs[0].y + r0;
     for (const GpuDab& d : dabs) {
-        minX = std::min(minX, d.x - d.radius); maxX = std::max(maxX, d.x + d.radius);
-        minY = std::min(minY, d.y - d.radius); maxY = std::max(maxY, d.y + d.radius);
+        float r = std::max(d.radius, 0.5f);
+        minX = std::min(minX, d.x - r); maxX = std::max(maxX, d.x + r);
+        minY = std::min(minY, d.y - r); maxY = std::max(maxY, d.y + r);
     }
     int32_t originX = std::max(0, static_cast<int32_t>(std::floor(minX)));
     int32_t originY = std::max(0, static_cast<int32_t>(std::floor(minY)));
@@ -968,8 +997,8 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
         vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 
-        uint32_t groupsX = (static_cast<uint32_t>(regionW) + 15) / 16;
-        uint32_t groupsY = (static_cast<uint32_t>(regionH) + 15) / 16;
+        uint32_t groupsX = (static_cast<uint32_t>(regionW) + stampTileSize_ - 1) / stampTileSize_;
+        uint32_t groupsY = (static_cast<uint32_t>(regionH) + stampTileSize_ - 1) / stampTileSize_;
         vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
     }
 
@@ -996,10 +1025,13 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
 bool VulkanStampEngine::ensureMaskedPipeline() {
     if (maskedPipeline_ != VK_NULL_HANDLE) return true;
 
+    const uint32_t* maskedSpv = stampTileSize_ >= 16 ? kStampMaskedCompSpv : kStampMaskedComp8Spv;
+    size_t maskedSpvWords = stampTileSize_ >= 16 ? kStampMaskedCompSpvWords : kStampMaskedComp8SpvWords;
+
     VkShaderModuleCreateInfo shaderInfo{};
     shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    shaderInfo.codeSize = kStampMaskedCompSpvWords * sizeof(uint32_t);
-    shaderInfo.pCode = kStampMaskedCompSpv;
+    shaderInfo.codeSize = maskedSpvWords * sizeof(uint32_t);
+    shaderInfo.pCode = maskedSpv;
     if (!checkResult(vkCreateShaderModule(device_, &shaderInfo, nullptr, &maskedShaderModule_),
                       "vkCreateShaderModule(masked)")) {
         return false;
@@ -2206,12 +2238,15 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, maskedPipelineLayout_, 0,
                              1, &maskedDescriptorSet_, 0, nullptr);
 
-    // Same padded-bbox dispatch-region optimization as stampDabs() -- see its doc comment.
-    float minX = dabs[0].x - dabs[0].radius, maxX = dabs[0].x + dabs[0].radius;
-    float minY = dabs[0].y - dabs[0].radius, maxY = dabs[0].y + dabs[0].radius;
+    // Same padded-bbox dispatch-region optimization as stampDabs() -- see its doc comment, and the
+    // same radius floor (matching stamp_masked.comp's `max(d.geometry.z, 0.5)`).
+    float r0 = std::max(dabs[0].radius, 0.5f);
+    float minX = dabs[0].x - r0, maxX = dabs[0].x + r0;
+    float minY = dabs[0].y - r0, maxY = dabs[0].y + r0;
     for (const GpuDab& d : dabs) {
-        minX = std::min(minX, d.x - d.radius); maxX = std::max(maxX, d.x + d.radius);
-        minY = std::min(minY, d.y - d.radius); maxY = std::max(maxY, d.y + d.radius);
+        float r = std::max(d.radius, 0.5f);
+        minX = std::min(minX, d.x - r); maxX = std::max(maxX, d.x + r);
+        minY = std::min(minY, d.y - r); maxY = std::max(maxY, d.y + r);
     }
     int32_t originX = std::max(0, static_cast<int32_t>(std::floor(minX)));
     int32_t originY = std::max(0, static_cast<int32_t>(std::floor(minY)));
@@ -2239,8 +2274,8 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
         vkCmdPushConstants(commandBuffer_, maskedPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 
-        uint32_t groupsX = (static_cast<uint32_t>(regionW) + 15) / 16;
-        uint32_t groupsY = (static_cast<uint32_t>(regionH) + 15) / 16;
+        uint32_t groupsX = (static_cast<uint32_t>(regionW) + stampTileSize_ - 1) / stampTileSize_;
+        uint32_t groupsY = (static_cast<uint32_t>(regionH) + stampTileSize_ - 1) / stampTileSize_;
         vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
     }
 

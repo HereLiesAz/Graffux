@@ -73,7 +73,12 @@ internal fun ShortcutsSheet(
     modifier: Modifier = Modifier,
 ) {
     // Defaults to whichever tab has something to show, so the sheet never opens on an empty strip.
-    var tab by remember(favorites.isEmpty()) {
+    // Computed once, NOT re-keyed on favorites.isEmpty(): this composable stays in composition for
+    // the sheet's whole lifetime (AzBottomSheet always composes its content, only animating
+    // visibility), so re-keying on that flag re-seeded `tab` — silently yanking the view to
+    // Favourites the instant a long-press *on this same screen* added the first favorite, and back
+    // to Recent when the last one was removed while still looking at it.
+    var tab by remember {
         mutableStateOf(if (favorites.isEmpty()) ShortcutTab.RECENT else ShortcutTab.FAVORITES)
     }
 

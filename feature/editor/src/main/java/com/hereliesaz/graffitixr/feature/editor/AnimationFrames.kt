@@ -10,10 +10,17 @@ import com.hereliesaz.graffitixr.common.model.buildLayerTree
  * frame that's a GROUP carries multiple sub-layers drawn together as that one frame. Frame order
  * is just the top-level layer order, so the rail's existing drag-reorder already reorders frames —
  * no separate frame list is stored anywhere.
+ *
+ * The one top-level layer that is NOT a frame: one with [Layer.isPinnedAcrossFrames] set (a
+ * watermark, a guide) — excluded from [topLevelFrames] and every index/count derived from it, and
+ * always rendered at full opacity by [effectiveOpacities] regardless of which frame is active.
+ * Before this existed, a plain layer added at the top level while animating had no way to opt out
+ * of becoming its own (blank-except-for-itself) frame.
  */
 object AnimationFrames {
 
-    fun topLevelFrames(layers: List<Layer>): List<Layer> = buildLayerTree(layers).map { it.layer }
+    fun topLevelFrames(layers: List<Layer>): List<Layer> =
+        buildLayerTree(layers).map { it.layer }.filterNot { it.isPinnedAcrossFrames }
 
     /** Every id in [frameId]'s own subtree (itself, plus descendants if it's a GROUP frame). */
     fun frameSubtreeIds(layers: List<Layer>, frameId: String): Set<String> {
@@ -61,7 +68,11 @@ object AnimationFrames {
         val tree = buildLayerTree(layers)
         if (tree.isEmpty()) return emptyMap()
         val result = mutableMapOf<String, Float>()
-        tree.forEachIndexed { index, node ->
+        // A pinned root is not a frame at all: always full opacity, and excluded from the frame
+        // index enumeration below so it never shifts every real frame's distance-from-active by one.
+        val (pinnedRoots, frameNodes) = tree.partition { it.layer.isPinnedAcrossFrames }
+        pinnedRoots.forEach { node -> subtreeIds(node).forEach { id -> result[id] = 1f } }
+        frameNodes.forEachIndexed { index, node ->
             val distance = index - activeFrameIndex
             val side = if (distance < 0) onionSkinPastCount else onionSkinFutureCount
             val magnitude = kotlin.math.abs(distance)

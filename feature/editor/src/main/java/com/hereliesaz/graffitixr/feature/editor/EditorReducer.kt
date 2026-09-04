@@ -75,6 +75,7 @@ internal object EditorReducer {
                 isInverted = intent.props.isInverted,
                 blendMode = intent.props.blendMode,
                 clipToLayerBelow = intent.props.clipToLayerBelow,
+                isPinnedAcrossFrames = intent.props.isPinnedAcrossFrames,
             )
         })
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
@@ -151,6 +152,9 @@ internal object EditorReducer {
         is EditorIntent.UngroupLayer -> state.copy(layers = LayerListOps.ungroup(state.layers, intent.groupId))
         is EditorIntent.ToggleClipToLayerBelow -> state.copy(
             layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(clipToLayerBelow = !it.clipToLayerBelow) },
+        )
+        is EditorIntent.TogglePinnedAcrossFrames -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(isPinnedAcrossFrames = !it.isPinnedAcrossFrames) },
         )
         is EditorIntent.AppendLayer -> state.copy(layers = state.layers + intent.layer)
         is EditorIntent.RemoveLayerById -> {

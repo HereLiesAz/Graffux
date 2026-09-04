@@ -24,7 +24,6 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
 static std::string gLastDepthTrace;
-static std::string gLastSplatTrace;
 #define DEPTH_TRACE(fmt, ...) do {     char _buf[256];     snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__);     LOGD("DEPTH_PIPE: %s", _buf);     gLastDepthTrace += std::string(_buf) + "\n"; } while(0)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GraffitiJNI", __VA_ARGS__)
 
@@ -320,6 +319,21 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitialize(JNIEnv*
         gSlamEngine = new MobileGS();
         gSlamEngine->initialize(1920, 1080);
     }
+    if (!gImageWarper) {
+        gImageWarper = new ImageWarper();
+    }
+}
+
+// Liquify-only init: constructs gImageWarper alone, never gSlamEngine. Liquify's three JNI
+// functions (nativePrepareLiquify/nativeApplyLiquify/nativeBakeLiquify) never touch gSlamEngine --
+// it used to be booted anyway because Liquify called the same nativeInitialize() a real SLAM/AR
+// session does, which spawns MobileGS's two permanent background relocalization/mapping threads
+// and an ORB detector for a stroke that only ever warps a 2D bitmap. Idempotent, and safe to call
+// even after a full nativeInitialize() already constructed gImageWarper (e.g. a real AR session
+// that also uses Liquify) -- this only ever fills in what's still null.
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitImageWarper(JNIEnv* env, jobject thiz) {
+    std::unique_lock<std::shared_mutex> engineLock(gEngineMutex); // writes gImageWarper: exclude all concurrent readers
     if (!gImageWarper) {
         gImageWarper = new ImageWarper();
     }
@@ -947,12 +961,21 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFeature
         jfloatArray ptsArray, jfloatArray confArray, jintArray obsArray,
         jfloatArray anchorArray, jfloatArray intrArray) {
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
-    // Defensive validation (a malformed/old .gxr must never crash native): null refs, a descriptor
-    // blob big enough for rows*cols*elemSize, and parallel arrays of matching length.
+    // Defensive validation (a malformed/old .gxr must never crash native): null refs, a valid
+    // OpenCV type (a bogus one makes the cv::Mat ctor throw a cv::Exception -> hard process crash,
+    // since JNI can't catch C++ exceptions), a descriptor blob big enough for rows*cols*elemSize
+    // (computed in 64-bit so a hostile rows*cols can't overflow past the check), and parallel
+    // arrays of matching length. Actually mirrors the guarded nativeRestoreWallFeatureMap-adjacent
+    // siblings above now -- rows*cols*elemSize used to be computed in 32-bit here, which wrapped to
+    // 0 for e.g. rows=cols=65536 and defeated the check entirely, and the OpenCV type itself was
+    // never validated at all.
     if (!gSlamEngine || !descArray || !ptsArray) return;
     if (rows < 0 || cols < 0) return;
+    int descDepth = CV_MAT_DEPTH(type);
+    int descChannels = CV_MAT_CN(type);
+    if (descDepth < 0 || descDepth > CV_64F || descChannels < 1 || descChannels > 4) return;
     jsize descLen = env->GetArrayLength(descArray);
-    if (descLen < (jsize)(rows * cols * CV_ELEM_SIZE(type))) return;
+    if ((jlong)rows * (jlong)cols * (jlong)CV_ELEM_SIZE(type) > (jlong)descLen) return;
     jsize ptsLen = env->GetArrayLength(ptsArray);
     if (ptsLen != rows * 3) return;
     jsize confLen = confArray ? env->GetArrayLength(confArray) : 0;
@@ -1283,11 +1306,6 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetLastDepthTrace(
     return env->NewStringUTF(gLastDepthTrace.c_str());
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetLastSplatTrace(JNIEnv* env, jobject) {
-    return env->NewStringUTF(gLastSplatTrace.c_str());
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetSplatsVisible(JNIEnv* env, jobject, jboolean visible) {
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
@@ -1417,6 +1435,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativePrepareLiquify(JNI
     // `pixels` anyway (uninitialized width/height, null pixels) is a guaranteed SIGSEGV/glitch —
     // mirrors the checks bitmapToMat already does above.
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
+    // setSourceImage takes no stride parameter, so it can only handle a tightly-packed RGBA_8888
+    // buffer -- same requirement (and same checks) as the Vulkan stamp-engine upload/readback path
+    // below. A padded-stride or non-RGBA bitmap reaching here would otherwise read rows shifted
+    // from where they actually are, or read past the buffer entirely.
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
+    if (info.stride != info.width * 4) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
     gImageWarper->setSourceImage(static_cast<uint8_t*>(pixels), info.width, info.height);
     AndroidBitmap_unlockPixels(env, bitmap);
@@ -1453,6 +1477,10 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
     AndroidBitmapInfo info;
     void* pixels = 0;
     if (AndroidBitmap_getInfo(env, outBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
+    // Same tight-stride/RGBA_8888 requirement as nativePrepareLiquify -- bakeToBitmap's glReadPixels
+    // also assumes a tightly-packed buffer.
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
+    if (info.stride != info.width * 4) return;
     if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
     if (!gImageWarper->bakeToBitmap(static_cast<uint8_t*>(pixels), (int)info.width, (int)info.height)) {
         LOGE("nativeBakeLiquify: bakeToBitmap declined (buffer/source size mismatch or no source set)");

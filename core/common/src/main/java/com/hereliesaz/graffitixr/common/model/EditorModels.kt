@@ -16,14 +16,20 @@ import kotlinx.serialization.Transient
 
 /**
  * Defines the functional role of a layer in the scene graph.
+ *
+ * FILTER and MASK were removed (they were never constructed anywhere in this codebase — a
+ * misleading discriminant that promised a distinction the type system never actually made).
+ * VECTOR is likewise only meaningful going forward from where [Layer.shapes] is actually set at
+ * construction (see the two `Layer(..., type = LayerType.VECTOR, shapes = ...)` call sites) — the
+ * real, load-bearing vector/raster distinction elsewhere in this codebase is still
+ * `shapes.isNotEmpty()` (see [Layer.isRaster]), not this field; `type` itself is only genuinely
+ * branched on for [GROUP].
  */
 @Serializable
 enum class LayerType {
     RASTER,
     VECTOR,
     GROUP,
-    FILTER,
-    MASK
 }
 
 /**
@@ -71,6 +77,17 @@ data class Layer(
     val isSketch: Boolean = false,
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
+    /**
+     * Animation Assist (see [AnimationFrames]) treats every top-level layer as one frame, with no
+     * third category — a plain top-level layer added while animating (a watermark, a guide) used
+     * to become an extra frame with no way to opt out, silently miscounting the flipbook and
+     * showing up as its own blank-except-for-the-watermark frame during playback. Set on a
+     * top-level layer to exclude it from frame counting/onion-skinning/playback entirely and
+     * render it, unfaded, over every frame instead. Meaningless (and ignored) on a non-top-level
+     * layer — only a frame's own top-level root is ever a candidate to BE a frame in the first
+     * place.
+     */
+    val isPinnedAcrossFrames: Boolean = false,
     @Serializable(with = BlendModeSerializer::class)
     val blendMode: BlendMode = BlendMode.SrcOver,
     val warpMesh: List<Float> = emptyList(),
@@ -162,6 +179,7 @@ data class LayerProps(
     @Serializable(with = BlendModeSerializer::class)
     val blendMode: BlendMode = BlendMode.SrcOver,
     val clipToLayerBelow: Boolean = false,
+    val isPinnedAcrossFrames: Boolean = false,
 )
 
 /**
