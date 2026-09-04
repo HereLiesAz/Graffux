@@ -426,11 +426,22 @@ fun BrushPreview(
     color: Color,
     secondaryColor: Color,
     height: androidx.compose.ui.unit.Dp = 72.dp,
+    // Flow is a per-session paint setting (EditorUiState.brushFlow), not stored on AzphaltBrush
+    // itself, so it isn't reflected by `brush` alone -- callers previewing a live Flow slider
+    // (ToolOptionsWindow) pass the current value here; everyone else keeps the default, which
+    // matches flow's own default of fully-opaque (StampBrushRenderer.paintDabs' `baseFlow`).
+    flow: Float = 1f,
+    // The dab diameter this preview strokes with is normally derived from the strip's own
+    // height (canvasHeight / 3f) purely so the S-curve reads at a sensible scale regardless of
+    // brush size -- accurate for Brush Studio/My Brushes, where no single "current size" exists
+    // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here
+    // instead, so the preview shows the brush at the size it's actually about to paint at.
+    sizeOverridePx: Float? = null,
 ) {
     Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
-        val diameter = canvasHeight / 3f
+        val diameter = (sizeOverridePx ?: (canvasHeight / 3f)).coerceIn(4f, canvasHeight * 0.9f)
         // Always route through dynamicDabs(), which itself falls back to the plain dabs() path
         // when nothing dynamic is configured (see its own doc comment) -- picking between the two
         // here by brush.dynamics.isEmpty() alone missed brush.taper and brush.maskedBrush's own
@@ -457,6 +468,9 @@ fun BrushPreview(
         // real render (identical stop layout: solid core out to `hardness`, then fades to
         // transparent at the edge) -- a flat-alpha oval made Hardness invisible here.
         val hardness = brush.hardness.coerceIn(0f, 0.999f)
+        // Mirrors StampBrushRenderer.paintDabs' own `baseFlow` clamp/multiply -- see [flow]'s doc
+        // comment for why this isn't folded into `brush` itself.
+        val baseFlow = flow.coerceIn(0f, 1f)
 
         dabs.forEach { dab ->
             val width = dab.radius * 2f
@@ -466,7 +480,7 @@ fun BrushPreview(
                 BrushColorSource.GRADIENT -> mixPreviewColor(color, secondaryColor, dab.colorMix)
                 BrushColorSource.UNIFORM_RANDOM -> mixPreviewColor(color, secondaryColor, dab.sourceRandom)
             }
-            val core = sourced.copy(alpha = sourced.alpha * dab.alpha)
+            val core = sourced.copy(alpha = sourced.alpha * dab.alpha * baseFlow)
             drawOval(
                 brush = Brush.radialGradient(
                     colorStops = arrayOf(0f to core, hardness to core, 1f to core.copy(alpha = 0f)),

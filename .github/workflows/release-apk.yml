@@ -1,4 +1,25 @@
-name: Compile and Release APK
+name: Compile and Release APK + Desktop
+
+# Builds the Android APK and the desktop native installers (Linux .deb/.rpm, Windows .msi) in
+# parallel, then publishes all of them together as assets on ONE GitHub Release — the same
+# "latest-release-v${MAJOR}.${MINOR}" tag release-apk.yml has always used, so a single manual
+# dispatch here is the one place to get every platform's build for a given release.
+#
+# Job layout:
+#   build-android         (ubuntu-latest) - unchanged from before: signs and builds the APK,
+#                          uploads it as an artifact instead of publishing directly, and computes
+#                          the version/tag names every other job needs.
+#   build-desktop-linux   (ubuntu-latest) - :desktop:packageDeb + :desktop:packageRpm.
+#   build-desktop-windows (windows-latest) - :desktop:packageMsi. Needs the WiX Toolset (jpackage's
+#                          Windows backend); installed via Chocolatey if not already on PATH. This
+#                          job has never been exercised for real (no Windows runner available from
+#                          the sandboxed environment this file was authored in) — see DESKTOP.md's
+#                          desktop packaging section for the same caveat at the Gradle-task level.
+#   publish-release       (ubuntu-latest, needs all three) - downloads every artifact, tags the
+#                          commit, and creates/updates the release with all four files attached.
+#
+# None of the desktop jobs touch the Android signing keystore or any secret — they don't need to;
+# see desktop/build.gradle.kts's own comment on why the Windows installer ships unsigned for now.
 
 on:
   workflow_dispatch:
@@ -8,10 +29,12 @@ permissions:
   contents: read
 
 jobs:
-  build-and-release:
+  build-android:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
+    outputs:
+      version_name: ${{ steps.versioninfo.outputs.version_name }}
+      tag_name: ${{ steps.versioninfo.outputs.tag_name }}
 
     steps:
       - name: Checkout repository
@@ -77,15 +100,15 @@ jobs:
         run: |
           ./gradlew assembleRelease
 
-      - name: Prepare Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute release version/tag names
+        id: versioninfo
         run: |
           # version.properties is the SINGLE SOURCE OF TRUTH for the version. The gradle build above
           # already incremented versionBuild (the Android versionCode) and versionPatch and baked them
-          # into the APK; read the SAME values here so the release name and tag match the artifact
-          # exactly. NEVER derive the version from the git commit count — that scheme collides with
-          # versionBuild and causes Play "downgrade" (versionCode regression) rejections.
+          # into the APK; read the SAME values here so every job downstream (desktop packaging doesn't
+          # need them, but publish-release does) agrees on exactly what this run built. NEVER derive
+          # the version from the git commit count — that scheme collides with versionBuild and causes
+          # Play "downgrade" (versionCode regression) rejections.
           MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
           MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
           PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')
@@ -94,16 +117,150 @@ jobs:
           VERSION_NAME="${MAJOR}.${MINOR}.${PATCH}.${BUILD_NUMBER}"
           TAG_NAME="latest-release-v${MAJOR}.${MINOR}"
 
-          # Locate built APK
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK for release
+        run: |
           APK_ORIGINAL=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -z "$APK_ORIGINAL" ]; then
             echo "Error: No APK found in app/build/outputs/apk/release/"
             find app/build/outputs/ -name "*.apk"
             exit 1
           fi
+          mkdir -p release-artifacts
+          cp "$APK_ORIGINAL" "release-artifacts/Graffux-${{ steps.versioninfo.outputs.version_name }}-release.apk"
 
-          TARGET_NAME="Graffux-${VERSION_NAME}-release.apk"
-          mv "$APK_ORIGINAL" "$TARGET_NAME"
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-apk
+          path: release-artifacts/*.apk
+          if-no-files-found: error
+
+  build-desktop-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          cache-read-only: false
+          dependency-graph: disabled
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # dpkg-deb (packageDeb) needs fakeroot to fake file ownership without actually running as
+      # root; rpmbuild (packageRpm) ships in the `rpm` package on Debian/Ubuntu. Neither is on the
+      # ubuntu-latest image by default.
+      - name: Install native packaging tools
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+
+      - name: Build Linux .deb and .rpm
+        run: ./gradlew :desktop:packageDeb :desktop:packageRpm
+
+      - name: Upload Linux desktop artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-linux
+          path: |
+            desktop/build/compose/binaries/main/deb/*.deb
+            desktop/build/compose/binaries/main/rpm/*.rpm
+          if-no-files-found: error
+
+  build-desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+        with:
+          cache-read-only: false
+          dependency-graph: disabled
+
+      # jpackage's Windows Msi backend shells out to WiX Toolset 3.x's candle.exe/light.exe. The
+      # GitHub-hosted windows-latest image has historically shipped WiX pre-installed, but that's
+      # runner-image trivia that can change without notice — check for it and install via
+      # Chocolatey (already on every GitHub-hosted Windows runner) rather than assume.
+      - name: Ensure WiX Toolset is on PATH
+        shell: pwsh
+        run: |
+          if (Get-Command candle.exe -ErrorAction SilentlyContinue) {
+            Write-Host "WiX Toolset already on PATH."
+          } else {
+            choco install wixtoolset --version=3.14.1 -y --no-progress
+            $wixBin = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $wixBin) {
+              Write-Error "WiX install did not produce a bin directory at the expected path — packageMsi will fail."
+              exit 1
+            }
+            Add-Content -Path $env:GITHUB_PATH -Value $wixBin.FullName
+          }
+
+      - name: Build Windows .msi
+        run: ./gradlew.bat :desktop:packageMsi
+
+      - name: Upload Windows desktop artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-windows
+          path: desktop/build/compose/binaries/main/msi/*.msi
+          if-no-files-found: error
+
+  publish-release:
+    needs: [build-android, build-desktop-linux, build-desktop-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Download all release artifacts
+        # Not SHA-pinned like the other actions in this file: this job runs with contents: write,
+        # so it should be, but the session that authored this workflow had GitHub API access
+        # scoped only to this repo and hereliesaz/aznavrail, with no way to resolve
+        # actions/download-artifact's current v7 tag to a commit SHA. Pin this the same way the
+        # others are pinned (a comment with the resolved SHA) the next time this file is touched.
+        uses: actions/download-artifact@v7
+        with:
+          path: downloaded-artifacts
+
+      - name: Create or update release with every platform's build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_NAME: ${{ needs.build-android.outputs.version_name }}
+          TAG_NAME: ${{ needs.build-android.outputs.tag_name }}
+        run: |
+          ASSETS=$(find downloaded-artifacts -type f \( -name '*.apk' -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \))
+          if [ -z "$ASSETS" ]; then
+            echo "::error::No release assets found after downloading artifacts."
+            exit 1
+          fi
+          echo "Release assets:"
+          echo "$ASSETS"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -112,16 +269,15 @@ jobs:
           git tag -fa "$TAG_NAME" -m "Latest Release Build"
           git push origin "$TAG_NAME" --force
 
+          TITLE="Latest Release v${TAG_NAME#latest-release-v} (${VERSION_NAME})"
+          NOTES="Release build from commit $GITHUB_SHA — Android APK plus Linux (.deb/.rpm) and Windows (.msi) desktop builds."
+
           # Create or update release
           if gh release view "$TAG_NAME" > /dev/null 2>&1; then
             echo "Updating existing release..."
-            gh release edit "$TAG_NAME" \
-              --title "Latest Release v${MAJOR}.${MINOR} (${VERSION_NAME})" \
-              --notes "Release build from commit $GITHUB_SHA"
-            gh release upload "$TAG_NAME" "$TARGET_NAME" --clobber
+            gh release edit "$TAG_NAME" --title "$TITLE" --notes "$NOTES"
+            gh release upload "$TAG_NAME" $ASSETS --clobber
           else
             echo "Creating new release..."
-            gh release create "$TAG_NAME" "$TARGET_NAME" \
-              --title "Latest Release v${MAJOR}.${MINOR} (${VERSION_NAME})" \
-              --notes "Release build from commit $GITHUB_SHA"
+            gh release create "$TAG_NAME" $ASSETS --title "$TITLE" --notes "$NOTES"
           fi

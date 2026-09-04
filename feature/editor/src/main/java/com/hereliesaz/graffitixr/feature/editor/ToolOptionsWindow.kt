@@ -13,9 +13,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
@@ -38,6 +40,13 @@ fun ToolOptionsWindow(
     onSetBrushFlow: (Float) -> Unit,
     brushOpacity: Float?,
     onSetBrushOpacity: (Float) -> Unit,
+    // The active azphalt stamp brush, for the live preview strip -- null whenever the plain
+    // (non-stamp) round brush is active, since that's a different render pipeline entirely
+    // (DrawingEngine's drawStrokeDynamic, not BrushStamps/StampBrushRenderer) that this preview
+    // can't accurately stand in for; see its own use below.
+    previewBrush: AzphaltBrush?,
+    brushColor: Color,
+    secondaryColor: Color = Color.Black,
     colorSmudgeSettings: ColorSmudgeEngine.Settings?,
     onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -> Unit,
     onSetColorSmudgeRate: (Float) -> Unit,
@@ -55,6 +64,14 @@ fun ToolOptionsWindow(
     var showWetMix by remember { mutableStateOf(false) }
     FloatingWindow(title = "Tool Options", onDismiss = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Live preview, above every slider that changes how the next stroke looks -- only for
+            // a real stamp brush (see [previewBrush]'s doc comment for why the plain round brush
+            // can't be previewed the same way) and only while Flow, the one dial here that changes
+            // its look, is actually showing.
+            if (previewBrush != null && brushFlow != null) {
+                BrushPreview(previewBrush, brushColor, secondaryColor, flow = brushFlow)
+            }
+
             if (brushOpacity != null) {
                 Text("Opacity  ${(brushOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
                 Text("Caps how solid the stroke can get, even where it crosses itself.", style = MaterialTheme.typography.labelSmall)

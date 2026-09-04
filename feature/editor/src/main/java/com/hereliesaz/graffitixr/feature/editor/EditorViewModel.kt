@@ -43,6 +43,7 @@ import com.hereliesaz.graffitixr.common.azphalt.TileGrid
 import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
@@ -4312,22 +4313,45 @@ class EditorViewModel @Inject constructor(
                                     ) && engine.readback(work)
                             }
                         } else {
-                            val gpuDabs = newDabs.map { dab ->
-                                ResolvedBrushDab(
-                                    x = dab.x,
-                                    y = dab.y,
-                                    radius = dab.radius,
-                                    alpha = dab.alpha,
-                                    angleDeg = dab.angleDeg,
-                                    colorArgb = StampBrushRenderer.resolvedColor(
-                                        colorArgb, secondaryColorArgb, brush, dab,
-                                    ),
-                                    flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                                    hardness = dab.hardness,
-                                )
+                            fun resolve(dab: Dab) = ResolvedBrushDab(
+                                x = dab.x,
+                                y = dab.y,
+                                radius = dab.radius,
+                                alpha = dab.alpha,
+                                angleDeg = dab.angleDeg,
+                                colorArgb = StampBrushRenderer.resolvedColor(
+                                    colorArgb, secondaryColorArgb, brush, dab,
+                                ),
+                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                hardness = dab.hardness,
+                            )
+                            if (!brush.buildUp && preStrokeBase != null) {
+                                // GPU counterpart of StampBrushRenderer.repaintRoundStrokeFromBase
+                                // (see its doc comment for the bug this fixes, and PR #293's commit
+                                // message for why it was scoped to CPU only at the time): with
+                                // buildUp=false, stampResolvedDabs max-combines only WITHIN the dabs
+                                // given to *this one call* -- submitting only this frame's newDabs
+                                // every frame reproduces the identical hardened-edge-per-frame bug
+                                // this time on the GPU path, which is what a live plain-round drag
+                                // showing distinct hard dots (screenshot-confirmed, still open on
+                                // this path after #293) actually is. Restoring the GPU texture to
+                                // the pre-stroke snapshot and resubmitting the WHOLE stroke's dabs
+                                // every frame keeps each frame a genuine full re-render, matching
+                                // commit, exactly like the CPU path already does. More expensive
+                                // than the CPU fix -- [upload] has no partial-region variant, so
+                                // this re-uploads the full canvas every frame instead of just the
+                                // stroke's own bounding box -- but there is no other native entry
+                                // point to restore a sub-region, and this only applies to the same
+                                // narrow plain-round/non-build-up case the CPU fix does.
+                                val gpuAllDabs = dabs.map(::resolve)
+                                engine.upload(preStrokeBase) &&
+                                    engine.stampResolvedDabs(gpuAllDabs, buildUp = false) &&
+                                    engine.readback(work)
+                            } else {
+                                val gpuDabs = newDabs.map(::resolve)
+                                engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
+                                    engine.readback(work)
                             }
-                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
-                                engine.readback(work)
                         }
                     }
                     if (hasNewMovementDabs && !gpuHandled) {
