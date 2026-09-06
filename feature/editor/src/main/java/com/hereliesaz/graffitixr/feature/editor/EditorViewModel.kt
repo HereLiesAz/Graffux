@@ -44,6 +44,8 @@ import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
+import com.hereliesaz.graffitixr.common.azphalt.IncrementalDynamicDabGenerator
+import com.hereliesaz.graffitixr.common.azphalt.IncrementalAirbrushGenerator
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
@@ -796,8 +798,12 @@ class EditorViewModel @Inject constructor(
     // complete generated prefix is kept separately from the rendered prefix because the renderer
     // is deliberately allowed to lag/coalesce while input continues at full speed.
     private var stampStaticDabGenerator: IncrementalStaticDabGenerator? = null
+    private var stampDynamicDabGenerator: IncrementalDynamicDabGenerator? = null
     private val stampGeneratedMovementDabs = ArrayList<Dab>()
-    private var stampStaticConsumedPointCount: Int = 0
+    private var stampMovementConsumedSampleCount: Int = 0
+    private var stampAirbrushGenerator: IncrementalAirbrushGenerator? = null
+    private val stampGeneratedHeldDabs = ArrayList<Dab>()
+    private var stampAirbrushConsumedSampleCount: Int = 0
     private var stampGpuEngine: VulkanStampEngine? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
@@ -3592,8 +3598,12 @@ class EditorViewModel @Inject constructor(
         stampPendingHeldDabs.clear()
         stampRenderedMovementDabs.clear()
         stampStaticDabGenerator = null
+        stampDynamicDabGenerator = null
         stampGeneratedMovementDabs.clear()
-        stampStaticConsumedPointCount = 0
+        stampMovementConsumedSampleCount = 0
+        stampAirbrushGenerator = null
+        stampGeneratedHeldDabs.clear()
+        stampAirbrushConsumedSampleCount = 0
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
@@ -4152,28 +4162,37 @@ class EditorViewModel @Inject constructor(
             // every stroke whose brush used only those, live and on replay alike.
             val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
             val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive()
-            val dabs = if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
-                // Dynamic/taper brushes still use the canonical resolver for now; unlike the old
-                // render path, their output is consumed by one bounded worker so GPU work cannot
-                // queue behind the pointer. A stateful dynamic resolver is the next Engine 2 cut.
-                BrushStamps.dynamicDabs(mappedSamples, diameterPx, stampBrush, stampSeed)
-            } else {
-                // Static brushes are fully incremental: process only mapped points this generator
-                // has not seen. No BrushStamps.place()/dabs() walk over the growing stroke prefix.
-                var generator = stampStaticDabGenerator
-                if (generator == null) {
-                    generator = IncrementalStaticDabGenerator(diameterPx, stampBrush, stampSeed)
-                    stampStaticDabGenerator = generator
-                }
-                val pointCount = stampMappedPoints.size / 2
-                while (stampStaticConsumedPointCount < pointCount) {
-                    val index = stampStaticConsumedPointCount * 2
-                    stampGeneratedMovementDabs.addAll(
-                        generator.appendPoint(stampMappedPoints[index], stampMappedPoints[index + 1])
-                    )
-                    stampStaticConsumedPointCount++
+            val dabs = if (mappedSamples.isNotEmpty()) {
+                if (needsDynamicDabs) {
+                    var generator = stampDynamicDabGenerator
+                    if (generator == null) {
+                        generator = IncrementalDynamicDabGenerator(diameterPx, stampBrush, stampSeed)
+                        stampDynamicDabGenerator = generator
+                    }
+                    while (stampMovementConsumedSampleCount < mappedSamples.size) {
+                        stampGeneratedMovementDabs.addAll(
+                            generator.append(mappedSamples[stampMovementConsumedSampleCount])
+                        )
+                        stampMovementConsumedSampleCount++
+                    }
+                } else {
+                    var generator = stampStaticDabGenerator
+                    if (generator == null) {
+                        generator = IncrementalStaticDabGenerator(diameterPx, stampBrush, stampSeed)
+                        stampStaticDabGenerator = generator
+                    }
+                    val pointCount = stampMappedPoints.size / 2
+                    while (stampMovementConsumedSampleCount < pointCount) {
+                        val index = stampMovementConsumedSampleCount * 2
+                        stampGeneratedMovementDabs.addAll(
+                            generator.appendPoint(stampMappedPoints[index], stampMappedPoints[index + 1])
+                        )
+                        stampMovementConsumedSampleCount++
+                    }
                 }
                 stampGeneratedMovementDabs
+            } else {
+                emptyList()
             }
             // Item 13's airbrush held-run dabs, tracked as their own independent incremental
             // prefix (see [stampHeldStampedCount]'s doc comment) computed from the same growing
@@ -4189,10 +4208,21 @@ class EditorViewModel @Inject constructor(
             // later crosses back over that same held-still position -- a narrow, documented
             // residual gap, not the "no live build-up at all" gap this replaces.
             val heldDabs = if (stampBrush.airbrushDabsPerSecond > 0f && mappedSamples.isNotEmpty()) {
-                AirbrushEngine.heldDabs(
-                    mappedSamples, diameterPx, stampBrush,
-                    stampBrush.airbrushDabsPerSecond, stampBrush.airbrushStillnessRadiusPx, stampSeed,
-                )
+                var generator = stampAirbrushGenerator
+                if (generator == null) {
+                    generator = IncrementalAirbrushGenerator(
+                        diameterPx, stampBrush, stampBrush.airbrushDabsPerSecond,
+                        stampBrush.airbrushStillnessRadiusPx, stampSeed,
+                    )
+                    stampAirbrushGenerator = generator
+                }
+                while (stampAirbrushConsumedSampleCount < mappedSamples.size) {
+                    stampGeneratedHeldDabs.addAll(
+                        generator.append(mappedSamples[stampAirbrushConsumedSampleCount])
+                    )
+                    stampAirbrushConsumedSampleCount++
+                }
+                stampGeneratedHeldDabs
             } else {
                 emptyList()
             }
@@ -6774,8 +6804,12 @@ class EditorViewModel @Inject constructor(
         stampPendingHeldDabs.clear()
         stampRenderedMovementDabs.clear()
         stampStaticDabGenerator = null
+        stampDynamicDabGenerator = null
         stampGeneratedMovementDabs.clear()
-        stampStaticConsumedPointCount = 0
+        stampMovementConsumedSampleCount = 0
+        stampAirbrushGenerator = null
+        stampGeneratedHeldDabs.clear()
+        stampAirbrushConsumedSampleCount = 0
         // Locked for the same reason onStrokeStart's defensive reset is: a background onStrokePoint
         // batch (stampGpuJob) for this very stroke can still be running when the finger lifts and
         // this runs almost immediately after — see stampLiveLock's doc comment. Not waited on: that
