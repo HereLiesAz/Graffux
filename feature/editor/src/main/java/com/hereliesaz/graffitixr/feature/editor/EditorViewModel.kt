@@ -843,12 +843,20 @@ class EditorViewModel @Inject constructor(
     // `workBitmap` local that later becomes strokeWorkingBitmap.
     private var strokeGpuEngine: VulkanStampEngine? = null
     private var strokeGpuActive: Boolean = false
+    // Basic Brush now uses the same one-worker/lossless-coalescing scheduling contract as Azphalt
+    // stamp brushes. Its geometry is still the existing Catmull-Rom -> round-dab path; only the
+    // execution moves off the input thread.
+    private val basicLiveLock = Any()
+    private var basicGpuJob: Job? = null
+    private val basicPendingDabs = AzphaltPendingBatchQueue<BrushDab>()
 
     private val strokeStabilizer = StrokeStabilizer()
     // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
     private val azphaltRenderCadence = AzphaltRenderCadence()
     private val azphaltLatencyTracker = AzphaltLatencyTracker()
+    private val basicLatencyTracker = AzphaltLatencyTracker()
     @Volatile private var stampLatestLatencySampleId: Long = -1L
+    @Volatile private var basicLatestLatencySampleId: Long = -1L
 
     /**
      * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
@@ -3465,6 +3473,9 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun azphaltLatencySnapshotForTest(): AzphaltLatencyTracker.Snapshot = azphaltLatencyTracker.snapshot()
 
+    @androidx.annotation.VisibleForTesting
+    internal fun basicLatencySnapshotForTest(): AzphaltLatencyTracker.Snapshot = basicLatencyTracker.snapshot()
+
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -3555,6 +3566,11 @@ class EditorViewModel @Inject constructor(
         lastSampleMs = 0L
         azphaltRenderCadence.reset()
         stampLatestLatencySampleId = -1L
+        basicLatestLatencySampleId = -1L
+        synchronized(basicLiveLock) {
+            basicPendingDabs.clear()
+            basicGpuJob = null
+        }
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
@@ -4021,8 +4037,12 @@ class EditorViewModel @Inject constructor(
             lastSampleMs = nowMs
             addStrokePoint(stabilizedPoint, stabilizedPressure)
         }
-        if (activeToolForCadence == Tool.BRUSH && stampBrushForStroke != null) {
-            stampLatestLatencySampleId = azphaltLatencyTracker.beginInput()
+        if (activeToolForCadence == Tool.BRUSH) {
+            if (stampBrushForStroke != null) {
+                stampLatestLatencySampleId = azphaltLatencyTracker.beginInput()
+            } else {
+                basicLatestLatencySampleId = basicLatencyTracker.beginInput()
+            }
         }
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
@@ -6660,6 +6680,81 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    private fun enqueueBasicLiveDabs(
+        canvas: Canvas,
+        paint: Paint,
+        dabs: List<BrushDab>,
+        targetBitmap: Bitmap,
+    ) {
+        if (dabs.isEmpty()) return
+        val generation = strokeGeneration
+        val layerId = strokeLayerId ?: return
+        val latencyIdAtGeneration = basicLatestLatencySampleId
+        if (latencyIdAtGeneration >= 0L) basicLatencyTracker.markGenerated(latencyIdAtGeneration)
+        basicPendingDabs.append(dabs)
+
+        synchronized(basicLiveLock) {
+            if (basicGpuJob?.isActive == true) return
+            val paintSnapshot = Paint(paint).apply { style = Paint.Style.FILL }
+            basicGpuJob = viewModelScope.launch(dispatchers.default) {
+                while (true) {
+                    val batch = synchronized(basicLiveLock) {
+                        if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
+                        basicPendingDabs.drain()
+                    }
+                    if (batch.isEmpty()) {
+                        synchronized(basicLiveLock) {
+                            if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
+                            if (basicPendingDabs.isEmpty) {
+                                basicGpuJob = null
+                                return@launch
+                            }
+                        }
+                        continue
+                    }
+
+                    val latencyId = basicLatestLatencySampleId
+                    if (latencyId >= 0L) basicLatencyTracker.markSubmitted(latencyId)
+                    if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
+
+                    var gpuHandled = false
+                    // Unlike the old input-thread call, the native fence/readback now blocks only
+                    // this single background consumer. Holding liveCurveLock for the native call
+                    // prevents onStrokeEnd/a fast redown from destroying the engine mid-submit.
+                    synchronized(liveCurveLock) {
+                        if (strokeGeneration == generation && strokeLayerId == layerId && strokeGpuActive) {
+                            val engine = strokeGpuEngine
+                            if (engine != null) {
+                                val baseAlpha = (paintSnapshot.color ushr 24) and 0xFF
+                                val combinedAlpha = (baseAlpha * paintSnapshot.alpha / 255).coerceIn(0, 255)
+                                val colorForGpu = (combinedAlpha shl 24) or (paintSnapshot.color and 0x00FFFFFF)
+                                gpuHandled = engine.stampDabs(batch, colorForGpu, 1f) && engine.readback(targetBitmap)
+                                if (!gpuHandled && strokeGpuEngine === engine) {
+                                    strokeGpuActive = false
+                                    strokeGpuEngine = null
+                                    engine.destroy()
+                                }
+                            }
+                        }
+                    }
+
+                    if (!gpuHandled) {
+                        if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
+                        val cpuPaint = Paint(paintSnapshot).apply { style = Paint.Style.FILL }
+                        for (dab in batch) {
+                            canvas.drawCircle(dab.x, dab.y, dab.radius, cpuPaint)
+                        }
+                    }
+
+                    if (strokeGeneration == generation && strokeLayerId == layerId) {
+                        _liveStroke.update { it.copy(bitmap = targetBitmap, version = it.version + 1) }
+                        if (latencyId >= 0L) basicLatencyTracker.markPresented(latencyId)
+                    }
+                }
+            }
+        }
+    }
+
     private fun drawCurveRun(
         canvas: Canvas,
         paint: Paint,
@@ -6671,126 +6766,38 @@ class EditorViewModel @Inject constructor(
         targetBitmap: Bitmap,
     ) {
         val radius = max(paint.strokeWidth / 2f, 0.5f)
-        val centres = BrushStamps.place(run.toList(), max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f))
+        val centres = BrushStamps.place(
+            run.toList(),
+            max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f),
+        )
+        if (centres.isEmpty()) return
 
-        // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — same fallback
-        // contract as the azphalt stamp-brush path: a failure disables it for the rest of THIS
-        // stroke only, and `targetBitmap` is already correct up through the last successful GPU
-        // readback (or was always CPU-drawn if GPU was never active), so falling straight into the
-        // CPU loop below for just this run's dabs is exactly right either way. Skipped entirely for
-        // wrapAroundMode — replicating every dab 9x to match the CPU tiling is real work this pass
-        // doesn't do, so wraparound strokes stay on the CPU path, same as a textured stamp tip does.
-        if (strokeGpuActive && !wrapAroundMode) {
-            val engine = strokeGpuEngine
-            val gpuHandled = engine != null && run {
-                // Same full transform set drawDab uses -- see its comment for why a single
-                // hardcoded vertical mirror here would silently break Horizontal/Quadrant/Radial_6.
-                val symmetryExtras = ImageProcessor.symmetryTransforms(symmetryMode, bitmapWidth.toFloat(), bitmapHeight.toFloat())
-                val gpuDabs = ArrayList<BrushDab>(centres.size / 2 * (1 + symmetryExtras.size))
-                var k = 0
-                while (k < centres.size) {
-                    gpuDabs.add(BrushDab(centres[k], centres[k + 1], radius, 1f, 0f))
-                    for (transform in symmetryExtras) {
-                        val p = transform(Offset(centres[k], centres[k + 1]))
-                        gpuDabs.add(BrushDab(p.x, p.y, radius, 1f, 0f))
-                    }
-                    k += 2
-                }
-                // Paint.alpha is a separate multiplier from paint.color's own alpha channel for
-                // Android's Canvas — the shader only ever multiplies baseAlpha * dab.alpha, so both
-                // have to be pre-folded into one alpha channel handed across the JNI boundary.
-                val baseAlpha = (paint.color ushr 24) and 0xFF
-                val combinedAlpha = (baseAlpha * paint.alpha / 255).coerceIn(0, 255)
-                val colorForGpu = (combinedAlpha shl 24) or (paint.color and 0x00FFFFFF)
-                // hardness = 1: a solid filled circle (Paint.Style.FILL, no gradient) is the
-                // CPU path's equivalent of the shader's hard-core-to-the-edge profile.
-                engine.stampDabs(gpuDabs, colorForGpu, 1f) && engine.readback(targetBitmap)
-            }
-            if (gpuHandled) return
-            strokeGpuActive = false
-            strokeGpuEngine?.destroy()
-            strokeGpuEngine = null
+        val symmetryExtras = ImageProcessor.symmetryTransforms(
+            symmetryMode, bitmapWidth.toFloat(), bitmapHeight.toFloat(),
+        )
+        val basePositions = ArrayList<Offset>(centres.size / 2 * (1 + symmetryExtras.size))
+        var i = 0
+        while (i < centres.size) {
+            val p = Offset(centres[i], centres[i + 1])
+            basePositions.add(p)
+            for (transform in symmetryExtras) basePositions.add(transform(p))
+            i += 2
         }
 
-        val originalStyle = paint.style
-        paint.style = Paint.Style.FILL
-        val bw = bitmapWidth.toFloat()
-        val bh = bitmapHeight.toFloat()
-        var j = 0
-        while (j < centres.size) {
-            drawDab(canvas, paint, centres[j], centres[j + 1], radius, bw, bh, symmetryMode, wrapAroundMode)
-            j += 2
-        }
-        paint.style = originalStyle
-    }
-
-    /** Draws one filled round dab, mirrored per [symmetryMode] and tiled per [wrapAroundMode] — the
-     *  same transform set [drawCurveRun]'s stroked-path predecessor applied to a whole segment, now
-     *  applied per dab centre instead. `paint.style` must already be `FILL`; unlike [drawCurveRun]
-     *  this does not save/restore it, since it's meant to be called many times per style toggle. */
-    private fun drawDab(
-        canvas: Canvas,
-        paint: Paint,
-        cx: Float,
-        cy: Float,
-        radius: Float,
-        bitmapWidth: Float,
-        bitmapHeight: Float,
-        symmetryMode: SymmetryMode,
-        wrapAroundMode: Boolean,
-    ) {
-        val centres = ArrayList<Offset>(1 + ImageProcessor.symmetryTransforms(symmetryMode, bitmapWidth, bitmapHeight).size)
-        centres.add(Offset(cx, cy))
-        // The full transform set for `symmetryMode` (0, 1, 3, or 5 extra copies for
-        // NONE/VERTICAL|HORIZONTAL/QUADRANT/RADIAL_6) -- not just a single hardcoded vertical
-        // mirror. Sharing ImageProcessor's own transform list, the same one DrawingEngine's replay
-        // uses, is what keeps this live path from silently degrading Horizontal/Quadrant/Radial-6
-        // to a plain mirror while only Vertical replayed correctly.
-        for (transform in ImageProcessor.symmetryTransforms(symmetryMode, bitmapWidth, bitmapHeight)) {
-            centres.add(transform(Offset(cx, cy)))
-        }
-        for (c in centres) {
-            if (wrapAroundMode) {
-                for (dx in -1..1) {
-                    for (dy in -1..1) {
-                        canvas.drawCircle(c.x + dx * bitmapWidth, c.y + dy * bitmapHeight, radius, paint)
+        val dabs = if (wrapAroundMode) {
+            val bw = bitmapWidth.toFloat()
+            val bh = bitmapHeight.toFloat()
+            ArrayList<BrushDab>(basePositions.size * 9).also { out ->
+                for (p in basePositions) {
+                    for (dx in -1..1) for (dy in -1..1) {
+                        out.add(BrushDab(p.x + dx * bw, p.y + dy * bh, radius, 1f, 0f))
                     }
                 }
-            } else {
-                canvas.drawCircle(c.x, c.y, radius, paint)
             }
+        } else {
+            basePositions.map { p -> BrushDab(p.x, p.y, radius, 1f, 0f) }
         }
-    }
-
-    /**
-     * Feeds one new bitmap-space [point] — with the [width] [BrushDynamics] computed for the
-     * segment ending at it — into the round brush's live Catmull-Rom curve window
-     * ([liveCurveWindow]/[liveCurveWidths]/[liveCurveFinalizedCount]), drawing every segment that
-     * becomes finalizable as a result.
-     *
-     * Uniform Catmull-Rom is local — a segment's shape depends only on its 4 nearest points — but
-     * the newest drawn segment always used a reflected phantom point as its far-side neighbour,
-     * since the real one hadn't arrived yet. So a segment can't be drawn once and left alone until
-     * it has REAL neighbours on both sides, which takes a 4-point window: point `i`'s segment to
-     * point `i+1` needs point `i+2` to have actually arrived. That's the one thing this function
-     * buys over just re-fitting the whole growing point list every frame (which the "redraw only
-     * the new tail" live paths can't afford to begin with, since it would retroactively change
-     * whichever segment was drawn most recently): a bounded, ~one-sample lag on the newest
-     * segment, and every segment drawn is then a PERMANENT function of the point list as it stood
-     * the moment it finalized — like a git commit, never revised by what the stroke does next —
-     * rather than a value that has to be re-derived and potentially redrawn from a mutable buffer.
-     *
-     * [liveCurveFinalizedCount] `== 0` on entry means the window has never filled before, at which
-     * point drawing the window's middle segment (indices 1-2 of 0-3, i.e. `segs[1]`) also has to
-     * be preceded by drawing `segs[0]` — the stroke's own GLOBAL first segment — since it will
-     * never again be any later window's middle: `segs[0]` uses a reflected phantom on its near
-     * side regardless, which is correct and matches the authoritative (commit/replay) fit exactly,
-     * there being no real point before a stroke's first one either way.
-     */
-    private fun resetLiveCurveState() = synchronized(liveCurveLock) {
-        liveCurveWindow.clear()
-        liveCurveWidths.clear()
-        liveCurveFinalizedCount = 0
+        enqueueBasicLiveDabs(canvas, paint, dabs, targetBitmap)
     }
 
     private fun feedLiveCurvePoint(
@@ -6839,6 +6846,11 @@ class EditorViewModel @Inject constructor(
         strokeSelection = null
         lastSampleMs = 0L
         strokeGeneration++
+        synchronized(basicLiveLock) {
+            basicPendingDabs.clear()
+            basicGpuJob = null
+        }
+        basicLatestLatencySampleId = -1L
         resetLiveCurveState()
         resetStrokePoints()
         strokeLayerId = null
