@@ -5180,10 +5180,16 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
-        // Capture this stroke's preview bitmap synchronously (clearTransientStrokeState nulls the field
-        // right after this returns). The async commit only clears the live preview if it's still ours —
-        // otherwise a stroke that started before this commit finished would have its preview wiped.
-        val previewBitmap = _liveStroke.value.bitmap
+        // A zero-copy preview owns a Java HardwareBuffer reference that must outlive transient stroke
+        // teardown: clearTransientStrokeState destroys the Vulkan engine immediately after this
+        // method returns, while the canonical CPU commit below can still be rendering. Detach the
+        // display wrapper from transient ownership now and close it only after this commit replaces
+        // (or discovers it no longer owns) the live preview. The Java HardwareBuffer reference keeps
+        // the imported memory alive even after the native engine releases its own reference.
+        val retainedGpuDisplay = synchronized(stampLiveLock) {
+            stampGpuDisplay.also { stampGpuDisplay = null }
+        }
+        val previewBitmap = retainedGpuDisplay?.bitmap ?: _liveStroke.value.bitmap
         // The pre-stroke height base (roadmap item 12): applySingleStroke deposits *this* stroke's own
         // dabs onto it fresh below, so this must be the layer's height map from before this stroke —
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
@@ -5236,6 +5242,7 @@ class EditorViewModel @Inject constructor(
                     )
                 }
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
+                retainedGpuDisplay?.close()
                 scheduleDiskSave(layerId, target, layer.uri)
                 // Attached only after the bitmap publish above, on this same main-dispatcher
                 // continuation -- so by the time `command.tileDeltas` is non-null, this stroke's
