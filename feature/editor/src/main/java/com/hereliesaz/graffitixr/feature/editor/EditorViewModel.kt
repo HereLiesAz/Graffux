@@ -849,6 +849,10 @@ class EditorViewModel @Inject constructor(
     // execution moves off the input thread.
     private val basicLiveLock = Any()
     private var basicGpuJob: Job? = null
+    // Number of canonical points already folded into Basic Brush's live Catmull-Rom/width state.
+    // This closes the async bitmap-setup gap: points recorded after the setup snapshot but before
+    // its publish are consumed on the next live update rather than silently skipped.
+    private var basicLiveConsumedPointCount: Int = 0
     // Preserve drawCurveRun boundaries: stampDabs(buildUp=false) max-combines within one call,
     // so flattening multiple curve runs into one scheduler batch would change low-opacity Basic
     // Brush pixels depending on how quickly the worker drained.
@@ -3571,6 +3575,7 @@ class EditorViewModel @Inject constructor(
         azphaltRenderCadence.reset()
         stampLatestLatencySampleId = -1L
         basicLatestLatencySampleId = -1L
+        basicLiveConsumedPointCount = 0
         synchronized(basicLiveLock) {
             basicPendingDabs.clear()
             basicGpuJob = null
@@ -3995,6 +4000,7 @@ class EditorViewModel @Inject constructor(
                 strokeWorkingCanvas = workCanvas
                 strokePaint = paint
                 strokePrevBitmapPoint = lastMapped
+                basicLiveConsumedPointCount = catchUpPoints.size
                 _liveStroke.update { it.copy(
                     layerId = layerId,
                     bitmap = workBitmap,
@@ -4645,19 +4651,45 @@ class EditorViewModel @Inject constructor(
 
         val dyn = strokeDynamics
         if (dyn != null) {
-            // Dynamic brush width: advance the per-stroke recursion by this segment's length,
-            // immediately, every call — the same recursion runs from scratch on commit/replay, so
-            // it matches exactly once committed. Drawing itself goes through the live Catmull-Rom
-            // curve window instead of a straight chord — see feedLiveCurvePoint's doc for why only
-            // width is computed eagerly while drawing is windowed by a point or two.
-            val brushScale = ImageProcessor.screenToBitmapScale(
-                strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
-            )
-            val width = dyn.next((mapped - prev).getDistance(), _uiState.value.effectivePaintBrushSize() * brushScale, stabilizedPressure)
-            feedLiveCurvePoint(
-                canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
-                strokeWrapAroundMode, mapped, width, workBitmap,
-            )
+            // Engine 2: consume the entire canonical tail, not only this callback's newest point.
+            // The working-bitmap setup is asynchronous, so input can arrive after its catch-up
+            // snapshot but before strokeWorkingCanvas is published; those samples used to be lost
+            // from live curve/width state even though history retained them.
+            val canonicalPoints = snapshotStrokePoints()
+            val canonicalPressures = snapshotStrokePressures()
+            val startIndex = basicLiveConsumedPointCount.coerceIn(1, canonicalPoints.size)
+            val tailScreen = if (startIndex < canonicalPoints.size) {
+                canonicalPoints.subList(startIndex, canonicalPoints.size)
+            } else emptyList()
+            if (tailScreen.isNotEmpty()) {
+                val tailMapped = ImageProcessor.mapScreenToBitmap(
+                    tailScreen, strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height,
+                    strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ,
+                )
+                val brushScale = ImageProcessor.screenToBitmapScale(
+                    strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
+                )
+                var previous = prev
+                for (i in tailMapped.indices) {
+                    val globalIndex = startIndex + i
+                    val pointPressure = canonicalPressures.getOrNull(globalIndex) ?: stabilizedPressure
+                    val next = tailMapped[i]
+                    val width = dyn.next(
+                        (next - previous).getDistance(),
+                        _uiState.value.effectivePaintBrushSize() * brushScale,
+                        pointPressure,
+                    )
+                    feedLiveCurvePoint(
+                        canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                        strokeWrapAroundMode, next, width, workBitmap,
+                    )
+                    previous = next
+                }
+                basicLiveConsumedPointCount = canonicalPoints.size
+                strokePrevBitmapPoint = tailMapped.last()
+            }
+            _liveStroke.update { it.copy(version = it.version + 1) }
+            return
         } else {
             val seg = Path()
             seg.moveTo(prev.x, prev.y)
@@ -6871,6 +6903,7 @@ class EditorViewModel @Inject constructor(
             basicGpuJob = null
         }
         basicLatestLatencySampleId = -1L
+        basicLiveConsumedPointCount = 0
         resetLiveCurveState()
         resetStrokePoints()
         strokeLayerId = null
