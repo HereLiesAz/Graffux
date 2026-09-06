@@ -1,0 +1,25 @@
+name: Engine 2 Preview Lifetime Once
+
+on:
+  push:
+    branches:
+      - perf/azphalt-engine-2-native
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: perf/azphalt-engine-2-native
+      - run: python3 tools/engine2_preview_lifetime_patch.py
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
+          git commit -m 'fix(brush): retain zero-copy preview through canonical commit'
+          git push origin HEAD:perf/azphalt-engine-2-native
