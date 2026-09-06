@@ -172,7 +172,8 @@ internal class DrawingEngine(
             // gating on brush.dynamics alone silently dropped taper and masked-tip dynamics from every
             // committed/replayed stroke whose brush used only those.
             val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive()
+            val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive() ||
+                brush.airbrushDabsPerSecond > 0f
             if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
                 // Airbrush (roadmap item 13): this is the commit/replay render. EditorViewModel's
                 // live incremental preview has its own, separate integration (tracked by

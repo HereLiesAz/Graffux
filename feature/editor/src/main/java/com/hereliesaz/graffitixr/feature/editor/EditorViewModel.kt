@@ -3700,8 +3700,8 @@ class EditorViewModel @Inject constructor(
                     createSeededGpuEngine(work.width, work.height, work)
                 } else null
                 val gpuReady = gpuEngine != null
-                val zeroCopyEligible = gpuReady && stampBrush.airbrushDabsPerSecond <= 0f &&
-                    stampBrush.impastoThicknessRate <= 0f
+                val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f &&
+                    (stampBrush.airbrushDabsPerSecond <= 0f || !usesMaskedPipeline)
                 val gpuDisplay = if (zeroCopyEligible) AzphaltGpuDisplay.tryCreate(gpuEngine!!) else null
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
@@ -4416,6 +4416,7 @@ class EditorViewModel @Inject constructor(
                     }
 
                     var gpuHandled = false
+                    var gpuHandledHeld = false
                     if (hasNewMovementDabs && gpuActive && engine != null) {
                         // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
                         // stampGpuActive's doc comment for the fallback contract, and
@@ -4566,8 +4567,38 @@ class EditorViewModel @Inject constructor(
                             }
                         }
                     }
-                    if (hasNewHeldDabs) {
-                        // Airbrush held dabs are always painted on the CPU, matching the reference
+                    if (hasNewHeldDabs && !usesMasked && engine != null &&
+                        ((!hasNewMovementDabs && gpuActive) || gpuHandled)
+                    ) {
+                        fun resolveHeld(dab: Dab) = ResolvedBrushDab(
+                            x = dab.x,
+                            y = dab.y,
+                            radius = dab.radius,
+                            alpha = dab.alpha,
+                            angleDeg = dab.angleDeg,
+                            colorArgb = StampBrushRenderer.resolvedColor(
+                                colorArgb, secondaryColorArgb, brush, dab,
+                            ),
+                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                            hardness = dab.hardness,
+                        )
+                        val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
+                        gpuHandledHeld = engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
+                            (usesZeroCopyDisplay || engine.readback(work))
+                        if (!gpuHandledHeld && gpuActive) {
+                            synchronized(stampLiveLock) {
+                                if (stampGpuEngine === engine) {
+                                    stampGpuActive = false
+                                    stampGpuEngine = null
+                                    stampGpuDisplay?.close()
+                                    stampGpuDisplay = null
+                                    engine.destroy()
+                                }
+                            }
+                        }
+                    }
+                    if (hasNewHeldDabs && !gpuHandledHeld) {
+                        // CPU fallback for held dabs, including masked tips and any Vulkan failure.
                         // commit/replay path (DrawingEngine's stamp-brush branch deposits held dabs
                         // CPU-only regardless of GPU live-preview availability -- see item 13's
                         // Vulkan target note). There is no GPU dispatch for this secondary dab
