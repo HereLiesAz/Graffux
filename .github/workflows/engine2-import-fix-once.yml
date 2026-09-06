@@ -1,0 +1,21 @@
+name: Engine 2 Import Fix Once
+on:
+  push:
+    branches: [perf/azphalt-engine-2-postmerge]
+jobs:
+  patch:
+    if: "!contains(github.event.head_commit.message, 'add dirty-region Impasto imports')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: perf/azphalt-engine-2-postmerge
+      - run: python3 tools/engine2_import_fix.py
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/DrawingEngine.kt
+          git commit -m 'fix(brush): add dirty-region Impasto imports'
+          git push
