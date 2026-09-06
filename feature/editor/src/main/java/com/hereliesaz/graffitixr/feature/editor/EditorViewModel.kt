@@ -4434,7 +4434,6 @@ class EditorViewModel @Inject constructor(
                             val gpuDabs = newDabs.map(::resolve)
                             engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
                                 (usesZeroCopyDisplay || engine.readback(work))
-                            }
                         }
                     }
                     if (hasNewMovementDabs && !gpuHandled) {
