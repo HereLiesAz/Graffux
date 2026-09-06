@@ -848,7 +848,10 @@ class EditorViewModel @Inject constructor(
     // execution moves off the input thread.
     private val basicLiveLock = Any()
     private var basicGpuJob: Job? = null
-    private val basicPendingDabs = AzphaltPendingBatchQueue<BrushDab>()
+    // Preserve drawCurveRun boundaries: stampDabs(buildUp=false) max-combines within one call,
+    // so flattening multiple curve runs into one scheduler batch would change low-opacity Basic
+    // Brush pixels depending on how quickly the worker drained.
+    private val basicPendingDabs = AzphaltPendingBatchQueue<List<BrushDab>>()
 
     private val strokeStabilizer = StrokeStabilizer()
     // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
@@ -4028,7 +4031,11 @@ class EditorViewModel @Inject constructor(
         val activeToolForCadence = _uiState.value.activeTool
         if (activeToolForCadence == Tool.BRUSH) {
             addStrokePoint(stabilizedPoint, stabilizedPressure)
-            if (!azphaltRenderCadence.shouldRender(nowMs, rateHz)) return
+            // Stamp brushes can reconstruct every not-yet-previewed sample from canonical history
+            // on the next displayed frame. Basic Brush advances a stateful Catmull-Rom window and
+            // width recursion per point instead, so feed every physical sample into that cheap
+            // geometry path and let its background worker coalesce only the expensive rendering.
+            if (stampBrushForStroke != null && !azphaltRenderCadence.shouldRender(nowMs, rateHz)) return
         } else {
             if (rateHz > 0 && lastSampleMs != 0L) {
                 val minGapMs = 1000L / rateHz
@@ -6698,11 +6705,11 @@ class EditorViewModel @Inject constructor(
             val paintSnapshot = Paint(paint).apply { style = Paint.Style.FILL }
             basicGpuJob = viewModelScope.launch(dispatchers.default) {
                 while (true) {
-                    val batch = synchronized(basicLiveLock) {
+                    val groups = synchronized(basicLiveLock) {
                         if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
                         basicPendingDabs.drain()
                     }
-                    if (batch.isEmpty()) {
+                    if (groups.isEmpty()) {
                         synchronized(basicLiveLock) {
                             if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
                             if (basicPendingDabs.isEmpty) {
@@ -6718,9 +6725,10 @@ class EditorViewModel @Inject constructor(
                     if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
 
                     var gpuHandled = false
-                    // Unlike the old input-thread call, the native fence/readback now blocks only
-                    // this single background consumer. Holding liveCurveLock for the native call
-                    // prevents onStrokeEnd/a fast redown from destroying the engine mid-submit.
+                    // Preserve the historical one-stampDabs-call-per-curve-run max-combine
+                    // semantics, but defer readback until all groups currently coalesced by the
+                    // worker have been submitted. Thus scheduling is coalesced without changing
+                    // brush appearance, and software presentation pays one readback per drain.
                     synchronized(liveCurveLock) {
                         if (strokeGeneration == generation && strokeLayerId == layerId && strokeGpuActive) {
                             val engine = strokeGpuEngine
@@ -6728,7 +6736,14 @@ class EditorViewModel @Inject constructor(
                                 val baseAlpha = (paintSnapshot.color ushr 24) and 0xFF
                                 val combinedAlpha = (baseAlpha * paintSnapshot.alpha / 255).coerceIn(0, 255)
                                 val colorForGpu = (combinedAlpha shl 24) or (paintSnapshot.color and 0x00FFFFFF)
-                                gpuHandled = engine.stampDabs(batch, colorForGpu, 1f) && engine.readback(targetBitmap)
+                                var allSubmitted = true
+                                for (group in groups) {
+                                    if (!engine.stampDabs(group, colorForGpu, 1f)) {
+                                        allSubmitted = false
+                                        break
+                                    }
+                                }
+                                gpuHandled = allSubmitted && engine.readback(targetBitmap)
                                 if (!gpuHandled && strokeGpuEngine === engine) {
                                     strokeGpuActive = false
                                     strokeGpuEngine = null
@@ -6741,7 +6756,7 @@ class EditorViewModel @Inject constructor(
                     if (!gpuHandled) {
                         if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
                         val cpuPaint = Paint(paintSnapshot).apply { style = Paint.Style.FILL }
-                        for (dab in batch) {
+                        for (group in groups) for (dab in group) {
                             canvas.drawCircle(dab.x, dab.y, dab.radius, cpuPaint)
                         }
                     }
