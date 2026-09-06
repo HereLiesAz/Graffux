@@ -792,6 +792,7 @@ class EditorViewModel @Inject constructor(
     private var stampGpuJob: Job? = null
     private val stampPendingMovementDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingHeldDabs = AzphaltPendingBatchQueue<Dab>()
+    private val stampPendingLatencyIds = AzphaltPendingBatchQueue<Long>()
     // Stable prefix already consumed by the live worker. Needed only for the legacy plain-round,
     // non-build-up compatibility path, which still has to repaint from the pristine base until the
     // native engine grows persistent max-coverage state.
@@ -851,7 +852,7 @@ class EditorViewModel @Inject constructor(
     // Preserve drawCurveRun boundaries: stampDabs(buildUp=false) max-combines within one call,
     // so flattening multiple curve runs into one scheduler batch would change low-opacity Basic
     // Brush pixels depending on how quickly the worker drained.
-    private val basicPendingDabs = AzphaltPendingBatchQueue<List<BrushDab>>()
+    private val basicPendingDabs = AzphaltPendingBatchQueue<Pair<Long, List<BrushDab>>>()
 
     private val strokeStabilizer = StrokeStabilizer()
     // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
@@ -3634,6 +3635,7 @@ class EditorViewModel @Inject constructor(
             stampMappedPoints.clear()
             stampPendingMovementDabs.clear()
             stampPendingHeldDabs.clear()
+            stampPendingLatencyIds.clear()
             stampRenderedMovementDabs.clear()
         stampRoundMaxCompositor = null
             stampStaticDabGenerator = null
@@ -4310,6 +4312,7 @@ class EditorViewModel @Inject constructor(
                 stampHeldStampedCount = heldDabs.size
                 stampPendingMovementDabs.append(newDabs)
                 stampPendingHeldDabs.append(newHeldDabs)
+                if (generatedLatencyId >= 0L) stampPendingLatencyIds.append(generatedLatencyId)
                 val heightMap = stampLiveHeightMap
                 val shadedBitmap = stampLiveShadedBitmap
                 val strokeGen = strokeGeneration
@@ -4346,7 +4349,7 @@ class EditorViewModel @Inject constructor(
                                 }
                                 val newDabs = stampPendingMovementDabs.drain()
                                 val newHeldDabs = stampPendingHeldDabs.drain()
-                                val latencyId = stampLatestLatencySampleId
+                                val latencyId = stampPendingLatencyIds.drain().lastOrNull() ?: -1L
                                 if (latencyId >= 0L) azphaltLatencyTracker.markSubmitted(latencyId)
                                 val hasNewMovementDabs = newDabs.isNotEmpty()
                                 val hasNewHeldDabs = newHeldDabs.isNotEmpty()
@@ -5102,7 +5105,8 @@ class EditorViewModel @Inject constructor(
             //
             // (CLONE used to be handled here too. It has its own branch above now, since it must
             // also cover the fast-stroke fallback, which never reaches this code.)
-            if (featherRadius > 0f && base != null) {
+            val basicBrushNeedsCanonicalCommit = state.activeTool == Tool.BRUSH && stampBrushForStroke == null
+            if ((featherRadius > 0f || basicBrushNeedsCanonicalCommit) && base != null) {
                 val preview = workBitmap
                 // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
                 rebuildJobs[layerId]?.cancel()
@@ -6698,7 +6702,7 @@ class EditorViewModel @Inject constructor(
         val layerId = strokeLayerId ?: return
         val latencyIdAtGeneration = basicLatestLatencySampleId
         if (latencyIdAtGeneration >= 0L) basicLatencyTracker.markGenerated(latencyIdAtGeneration)
-        basicPendingDabs.append(dabs)
+        basicPendingDabs.append(latencyIdAtGeneration to dabs)
 
         synchronized(basicLiveLock) {
             if (basicGpuJob?.isActive == true) return
@@ -6720,7 +6724,8 @@ class EditorViewModel @Inject constructor(
                         continue
                     }
 
-                    val latencyId = basicLatestLatencySampleId
+                    val latencyId = groups.lastOrNull()?.first ?: -1L
+                    val dabGroups = groups.map { it.second }
                     if (latencyId >= 0L) basicLatencyTracker.markSubmitted(latencyId)
                     if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
 
@@ -6737,7 +6742,7 @@ class EditorViewModel @Inject constructor(
                                 val combinedAlpha = (baseAlpha * paintSnapshot.alpha / 255).coerceIn(0, 255)
                                 val colorForGpu = (combinedAlpha shl 24) or (paintSnapshot.color and 0x00FFFFFF)
                                 var allSubmitted = true
-                                for (group in groups) {
+                                for (group in dabGroups) {
                                     if (!engine.stampDabs(group, colorForGpu, 1f)) {
                                         allSubmitted = false
                                         break
@@ -6756,7 +6761,7 @@ class EditorViewModel @Inject constructor(
                     if (!gpuHandled) {
                         if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
                         val cpuPaint = Paint(paintSnapshot).apply { style = Paint.Style.FILL }
-                        for (group in groups) for (dab in group) {
+                        for (group in dabGroups) for (dab in group) {
                             canvas.drawCircle(dab.x, dab.y, dab.radius, cpuPaint)
                         }
                     }
@@ -6893,6 +6898,7 @@ class EditorViewModel @Inject constructor(
         stampMappedPoints.clear()
         stampPendingMovementDabs.clear()
         stampPendingHeldDabs.clear()
+        stampPendingLatencyIds.clear()
         stampRenderedMovementDabs.clear()
         stampRoundMaxCompositor = null
         stampStaticDabGenerator = null
