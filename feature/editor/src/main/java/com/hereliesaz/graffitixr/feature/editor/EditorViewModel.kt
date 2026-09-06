@@ -845,6 +845,10 @@ class EditorViewModel @Inject constructor(
     private var strokeGpuActive: Boolean = false
 
     private val strokeStabilizer = StrokeStabilizer()
+    // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
+    private val azphaltRenderCadence = AzphaltRenderCadence()
+    private val azphaltLatencyTracker = AzphaltLatencyTracker()
+    @Volatile private var stampLatestLatencySampleId: Long = -1L
 
     /**
      * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
@@ -3458,6 +3462,9 @@ class EditorViewModel @Inject constructor(
     internal fun topUndoTileDeltaCountForTest(): Int? =
         (history.undoStackTopForTest() as? EditCommand.Draw)?.tileDeltas?.size
 
+    @androidx.annotation.VisibleForTesting
+    internal fun azphaltLatencySnapshotForTest(): AzphaltLatencyTracker.Snapshot = azphaltLatencyTracker.snapshot()
+
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -3546,6 +3553,8 @@ class EditorViewModel @Inject constructor(
         strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
+        azphaltRenderCadence.reset()
+        stampLatestLatencySampleId = -1L
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
@@ -3992,25 +4001,29 @@ class EditorViewModel @Inject constructor(
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel, algorithm)
         val stabilizedPressure = strokeStabilizer.stabilizePressure(pressure, _uiState.value.stabilizerLevel, algorithm)
 
-        // Input-rate throttle. Touch panels report at 120-240 Hz and this method previously
-        // rendered and published a frame for every single sample — the editor's largest power cost
-        // while drawing, spent on frames the display never showed. Dropping a sample loses nothing
-        // visible: the stroke is a polyline, so the segment simply spans to the next kept point.
-        //
-        // The point is still stabilized first (above) so the filter's history stays continuous, and
-        // the very first point of a stroke is never dropped — a quick tap is a single dab and has
-        // no later sample to fall back on.
+        // Engine 2 separates input fidelity from presentation cadence. Every BRUSH sample enters
+        // the canonical stroke first; only the expensive preview work is rate-limited. The old
+        // throttle returned before addStrokePoint(), silently throwing away 120/240 Hz hardware
+        // samples and making commit/replay depend on display settings. Non-brush tools retain the
+        // historical throttle because several of them perform destructive incremental operations
+        // that are not yet history-catch-up based.
         val rateHz = _uiState.value.inputSampleRateHz
-        if (rateHz > 0 && lastSampleMs != 0L) {
-            val minGapMs = 1000L / rateHz
-            val now = android.os.SystemClock.uptimeMillis()
-            if (now - lastSampleMs < minGapMs) return
-            lastSampleMs = now
+        val nowMs = android.os.SystemClock.uptimeMillis()
+        val activeToolForCadence = _uiState.value.activeTool
+        if (activeToolForCadence == Tool.BRUSH) {
+            addStrokePoint(stabilizedPoint, stabilizedPressure)
+            if (!azphaltRenderCadence.shouldRender(nowMs, rateHz)) return
         } else {
-            lastSampleMs = android.os.SystemClock.uptimeMillis()
+            if (rateHz > 0 && lastSampleMs != 0L) {
+                val minGapMs = 1000L / rateHz
+                if (nowMs - lastSampleMs < minGapMs) return
+            }
+            lastSampleMs = nowMs
+            addStrokePoint(stabilizedPoint, stabilizedPressure)
         }
-
-        addStrokePoint(stabilizedPoint, stabilizedPressure)
+        if (activeToolForCadence == Tool.BRUSH && stampBrushForStroke != null) {
+            stampLatestLatencySampleId = azphaltLatencyTracker.beginInput()
+        }
 
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
         // original bitmap so each drag frame shows the full accumulated warp.
@@ -4250,6 +4263,8 @@ class EditorViewModel @Inject constructor(
             val hasNewMovementDabs = dabs.size > stampStampedCount
             val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
             if (hasNewMovementDabs || hasNewHeldDabs) {
+                val generatedLatencyId = stampLatestLatencySampleId
+                if (generatedLatencyId >= 0L) azphaltLatencyTracker.markGenerated(generatedLatencyId)
                 val colorArgb = _uiState.value.activeColor.toArgb()
                 val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
                 val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
@@ -4304,6 +4319,8 @@ class EditorViewModel @Inject constructor(
                                 }
                                 val newDabs = stampPendingMovementDabs.drain()
                                 val newHeldDabs = stampPendingHeldDabs.drain()
+                                val latencyId = stampLatestLatencySampleId
+                                if (latencyId >= 0L) azphaltLatencyTracker.markSubmitted(latencyId)
                                 val hasNewMovementDabs = newDabs.isNotEmpty()
                                 val hasNewHeldDabs = newHeldDabs.isNotEmpty()
                                 if (!hasNewMovementDabs && !hasNewHeldDabs) {
@@ -4576,6 +4593,7 @@ class EditorViewModel @Inject constructor(
                             stampGpuDisplay?.bitmap
                         } ?: shadedBitmap ?: work
                         _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
+                        if (latencyId >= 0L) azphaltLatencyTracker.markPresented(latencyId)
                     }
                         }
                     }
