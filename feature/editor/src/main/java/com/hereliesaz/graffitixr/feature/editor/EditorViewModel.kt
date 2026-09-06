@@ -42,6 +42,7 @@ import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.TileGrid
 import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalDynamicDabGenerator
@@ -4161,7 +4162,7 @@ class EditorViewModel @Inject constructor(
             // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
             // every stroke whose brush used only those, live and on replay alike.
             val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive()
+            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive()
             val dabs = if (mappedSamples.isNotEmpty()) {
                 if (needsDynamicDabs) {
                     var generator = stampDynamicDabGenerator
@@ -4288,15 +4289,11 @@ class EditorViewModel @Inject constructor(
                                     }
                                     continue
                                 }
-                                stampRenderedMovementDabs.addAll(newDabs)
-                    // The stroke this batch was queued for may already be over by the time its turn
-                    // comes up (a fast tap-lift-then-redown can win the race) -- onStrokeStart/
-                    // clearTransientStrokeState detect that themselves for the engine (via
-                    // stampLiveLock's identity check below), but `canvas`/`work`/heightMap/
-                    // shadedBitmap have no such guard, so painting into them here would be silently
-                    // wasted work at best. Bailing early also means a whole tail of superseded
-                    // batches drains near-instantly instead of actually running their GPU/CPU work.
+                        // A previous stroke's native call can finish after a fast lift/redown. Check
+                    // generation BEFORE publishing this batch into shared Engine 2 state so that
+                    // stale workers cannot contaminate the next stroke's rendered prefix.
                     if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) return@launch
+                    stampRenderedMovementDabs.addAll(newDabs)
 
                     // Snapshotted together, under the lock, rather than read as separate field
                     // accesses -- onStrokeStart's (re)publish and this batch's own failure-triggered
@@ -4516,16 +4513,23 @@ class EditorViewModel @Inject constructor(
                                 DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
                             }?.clampTo(work.width, work.height)
                             if (region != null && !region.isEmpty) {
-                                val rawPixels = IntArray(work.width * work.height)
-                                work.getPixels(rawPixels, 0, work.width, 0, 0, work.width, work.height)
-                                val outPixels = IntArray(work.width * work.height)
-                                shadedBitmap.getPixels(outPixels, 0, work.width, 0, 0, work.width, work.height)
-                                ImpastoEngine.shadeInto(
-                                    outPixels, rawPixels, heightMap, work.width, work.height,
-                                    region.left, region.top, region.right, region.bottom,
-                                    IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+                                val regionWidth = region.right - region.left
+                                val regionHeight = region.bottom - region.top
+                                val rawRegion = IntArray(regionWidth * regionHeight)
+                                work.getPixels(
+                                    rawRegion, 0, regionWidth,
+                                    region.left, region.top, regionWidth, regionHeight,
                                 )
-                                shadedBitmap.setPixels(outPixels, 0, work.width, 0, 0, work.width, work.height)
+                                val shadedRegion = ImpastoRegionShader.shade(
+                                    rawRegion, heightMap, work.width, work.height,
+                                    region.left, region.top, regionWidth, regionHeight,
+                                    IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
+                                    IMPASTO_LIGHT_STRENGTH,
+                                )
+                                shadedBitmap.setPixels(
+                                    shadedRegion, 0, regionWidth,
+                                    region.left, region.top, regionWidth, regionHeight,
+                                )
                             }
                         }
                     }
