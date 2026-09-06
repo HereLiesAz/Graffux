@@ -793,6 +793,7 @@ class EditorViewModel @Inject constructor(
     private val stampPendingMovementDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingHeldDabs = AzphaltPendingBatchQueue<Dab>()
     private val stampPendingLatencyIds = AzphaltPendingBatchQueue<Long>()
+    private val stampAwaitingGenerationLatencyIds = AzphaltPendingBatchQueue<Long>()
     // Stable prefix already consumed by the live worker. Needed only for the legacy plain-round,
     // non-build-up compatibility path, which still has to repaint from the pristine base until the
     // native engine grows persistent max-coverage state.
@@ -4039,6 +4040,13 @@ class EditorViewModel @Inject constructor(
         val activeToolForCadence = _uiState.value.activeTool
         if (activeToolForCadence == Tool.BRUSH) {
             addStrokePoint(stabilizedPoint, stabilizedPressure)
+            if (stampBrushForStroke != null) {
+                val latencyId = azphaltLatencyTracker.beginInput()
+                stampLatestLatencySampleId = latencyId
+                stampAwaitingGenerationLatencyIds.append(latencyId)
+            } else {
+                basicLatestLatencySampleId = basicLatencyTracker.beginInput()
+            }
             // Stamp brushes can reconstruct every not-yet-previewed sample from canonical history
             // on the next displayed frame. Basic Brush advances a stateful Catmull-Rom window and
             // width recursion per point instead, so feed every physical sample into that cheap
@@ -4052,14 +4060,6 @@ class EditorViewModel @Inject constructor(
             lastSampleMs = nowMs
             addStrokePoint(stabilizedPoint, stabilizedPressure)
         }
-        if (activeToolForCadence == Tool.BRUSH) {
-            if (stampBrushForStroke != null) {
-                stampLatestLatencySampleId = azphaltLatencyTracker.beginInput()
-            } else {
-                basicLatestLatencySampleId = basicLatencyTracker.beginInput()
-            }
-        }
-
         // Liquify live preview: cancel any pending warp job and start a fresh one from the
         // original bitmap so each drag frame shows the full accumulated warp.
         if (_uiState.value.activeTool == Tool.LIQUIFY) {
@@ -4298,8 +4298,8 @@ class EditorViewModel @Inject constructor(
             val hasNewMovementDabs = dabs.size > stampStampedCount
             val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
             if (hasNewMovementDabs || hasNewHeldDabs) {
-                val generatedLatencyId = stampLatestLatencySampleId
-                if (generatedLatencyId >= 0L) azphaltLatencyTracker.markGenerated(generatedLatencyId)
+                val generatedLatencyIds = stampAwaitingGenerationLatencyIds.drain()
+                generatedLatencyIds.forEach { azphaltLatencyTracker.markGenerated(it) }
                 val colorArgb = _uiState.value.activeColor.toArgb()
                 val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
                 val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
@@ -4318,7 +4318,7 @@ class EditorViewModel @Inject constructor(
                 stampHeldStampedCount = heldDabs.size
                 stampPendingMovementDabs.append(newDabs)
                 stampPendingHeldDabs.append(newHeldDabs)
-                if (generatedLatencyId >= 0L) stampPendingLatencyIds.append(generatedLatencyId)
+                stampPendingLatencyIds.append(generatedLatencyIds)
                 val heightMap = stampLiveHeightMap
                 val shadedBitmap = stampLiveShadedBitmap
                 val strokeGen = strokeGeneration
@@ -4355,8 +4355,8 @@ class EditorViewModel @Inject constructor(
                                 }
                                 val newDabs = stampPendingMovementDabs.drain()
                                 val newHeldDabs = stampPendingHeldDabs.drain()
-                                val latencyId = stampPendingLatencyIds.drain().lastOrNull() ?: -1L
-                                if (latencyId >= 0L) azphaltLatencyTracker.markSubmitted(latencyId)
+                                val latencyIds = stampPendingLatencyIds.drain()
+                                latencyIds.forEach { azphaltLatencyTracker.markSubmitted(it) }
                                 val hasNewMovementDabs = newDabs.isNotEmpty()
                                 val hasNewHeldDabs = newHeldDabs.isNotEmpty()
                                 if (!hasNewMovementDabs && !hasNewHeldDabs) {
@@ -4629,7 +4629,7 @@ class EditorViewModel @Inject constructor(
                             stampGpuDisplay?.bitmap
                         } ?: shadedBitmap ?: work
                         _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
-                        if (latencyId >= 0L) azphaltLatencyTracker.markPresented(latencyId)
+                        latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
                     }
                         }
                     }
@@ -6939,6 +6939,7 @@ class EditorViewModel @Inject constructor(
         stampPendingMovementDabs.clear()
         stampPendingHeldDabs.clear()
         stampPendingLatencyIds.clear()
+        stampAwaitingGenerationLatencyIds.clear()
         stampRenderedMovementDabs.clear()
         stampRoundMaxCompositor = null
         stampStaticDabGenerator = null
