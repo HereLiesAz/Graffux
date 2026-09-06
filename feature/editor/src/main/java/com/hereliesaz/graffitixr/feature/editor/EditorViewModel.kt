@@ -3702,8 +3702,7 @@ class EditorViewModel @Inject constructor(
                     createSeededGpuEngine(work.width, work.height, work)
                 } else null
                 val gpuReady = gpuEngine != null
-                val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f &&
-                    (stampBrush.airbrushDabsPerSecond <= 0f || !usesMaskedPipeline)
+                val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f
                 val gpuDisplay = if (zeroCopyEligible) AzphaltGpuDisplay.tryCreate(gpuEngine!!) else null
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
@@ -4575,24 +4574,72 @@ class EditorViewModel @Inject constructor(
                             }
                         }
                     }
-                    if (hasNewHeldDabs && !usesMasked && engine != null &&
+                    if (hasNewHeldDabs && engine != null &&
                         ((!hasNewMovementDabs && gpuActive) || gpuHandled)
                     ) {
-                        fun resolveHeld(dab: Dab) = ResolvedBrushDab(
-                            x = dab.x,
-                            y = dab.y,
-                            radius = dab.radius,
-                            alpha = dab.alpha,
-                            angleDeg = dab.angleDeg,
-                            colorArgb = StampBrushRenderer.resolvedColor(
-                                colorArgb, secondaryColorArgb, brush, dab,
-                            ),
-                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                            hardness = dab.hardness,
-                        )
-                        val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
-                        gpuHandledHeld = engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
-                            (usesZeroCopyDisplay || engine.readback(work))
+                        gpuHandledHeld = if (usesMasked) {
+                            if (maskAlpha8 == null) {
+                                false
+                            } else {
+                                val gpuHeldDabs = newHeldDabs.map { dab ->
+                                    MaskedBrushDab(
+                                        x = dab.x,
+                                        y = dab.y,
+                                        radius = dab.radius,
+                                        alpha = dab.alpha,
+                                        angleDeg = dab.angleDeg,
+                                        colorArgb = StampBrushRenderer.resolvedColor(
+                                            colorArgb, secondaryColorArgb, brush, dab,
+                                        ),
+                                        flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                        tipRatio = dab.tipRatio,
+                                    )
+                                }
+                                val secondaryHeldDabs = if (hasDualBrush && newHeldDabs.all { it.mask != null }) {
+                                    newHeldDabs.map { dab ->
+                                        val maskDab = dab.mask!!
+                                        SecondaryBrushDab(
+                                            x = maskDab.x,
+                                            y = maskDab.y,
+                                            radius = maskDab.radius,
+                                            tipRatio = maskDab.tipRatio,
+                                            alpha = maskDab.alpha,
+                                            angleDeg = maskDab.angleDeg,
+                                            flowMultiplier = maskDab.flowMultiplier,
+                                            keepInside = maskDab.keepInside,
+                                        )
+                                    }
+                                } else {
+                                    emptyList()
+                                }
+                                (!hasDualBrush || newHeldDabs.all { it.mask != null }) &&
+                                    engine.stampMaskedDabs(
+                                        gpuHeldDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
+                                        maskSize, maskSize,
+                                        grainAlpha8, grainWidth, grainHeight,
+                                        grainLocked, brush.grainScale,
+                                        grainPhaseX, grainPhaseY,
+                                        secondaryHeldDabs, secondaryMaskAlpha8,
+                                        secondaryMaskSize, secondaryMaskSize,
+                                    ) && (usesZeroCopyDisplay || engine.readback(work))
+                            }
+                        } else {
+                            fun resolveHeld(dab: Dab) = ResolvedBrushDab(
+                                x = dab.x,
+                                y = dab.y,
+                                radius = dab.radius,
+                                alpha = dab.alpha,
+                                angleDeg = dab.angleDeg,
+                                colorArgb = StampBrushRenderer.resolvedColor(
+                                    colorArgb, secondaryColorArgb, brush, dab,
+                                ),
+                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                hardness = dab.hardness,
+                            )
+                            val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
+                            engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
+                                (usesZeroCopyDisplay || engine.readback(work))
+                        }
                         if (!gpuHandledHeld && gpuActive) {
                             synchronized(stampLiveLock) {
                                 if (stampGpuEngine === engine) {
@@ -4606,7 +4653,7 @@ class EditorViewModel @Inject constructor(
                         }
                     }
                     if (hasNewHeldDabs && !gpuHandledHeld) {
-                        // CPU fallback for held dabs, including masked tips and any Vulkan failure.
+                        // CPU fallback for held dabs after any Vulkan failure/unsupported path.
                         // commit/replay path (DrawingEngine's stamp-brush branch deposits held dabs
                         // CPU-only regardless of GPU live-preview availability -- see item 13's
                         // Vulkan target note). There is no GPU dispatch for this secondary dab
