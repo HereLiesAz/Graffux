@@ -847,6 +847,7 @@ class EditorViewModel @Inject constructor(
     private var strokeGpuActive: Boolean = false
     // Basic Brush uses the same hardware-buffer-backed live presentation as Azphalt when available.
     private var strokeGpuDisplay: AzphaltGpuDisplay? = null
+    private var strokeGpuDisplayReady: Boolean = false
     // Basic Brush now uses the same one-worker/lossless-coalescing scheduling contract as Azphalt
     // stamp brushes. Its geometry is still the existing Catmull-Rom -> round-dab path; only the
     // execution moves off the input thread.
@@ -3579,6 +3580,7 @@ class EditorViewModel @Inject constructor(
         stampLatestLatencySampleId = -1L
         basicLatestLatencySampleId = -1L
         basicLiveConsumedPointCount = 0
+        strokeGpuDisplayReady = false
         synchronized(basicLiveLock) {
             basicPendingDabs.clear()
             basicGpuJob = null
@@ -3644,6 +3646,7 @@ class EditorViewModel @Inject constructor(
             stampPendingMovementDabs.clear()
             stampPendingHeldDabs.clear()
             stampPendingLatencyIds.clear()
+            stampAwaitingGenerationLatencyIds.clear()
             stampRenderedMovementDabs.clear()
         stampRoundMaxCompositor = null
             stampStaticDabGenerator = null
@@ -4011,7 +4014,7 @@ class EditorViewModel @Inject constructor(
                 basicLiveConsumedPointCount = catchUpPoints.size
                 _liveStroke.update { it.copy(
                     layerId = layerId,
-                    bitmap = synchronized(liveCurveLock) { strokeGpuDisplay?.bitmap } ?: workBitmap,
+                    bitmap = workBitmap,
                     version = it.version + catchUpPoints.size
                 )}
             }
@@ -4595,33 +4598,16 @@ class EditorViewModel @Inject constructor(
                                         tipRatio = dab.tipRatio,
                                     )
                                 }
-                                val secondaryHeldDabs = if (hasDualBrush && newHeldDabs.all { it.mask != null }) {
-                                    newHeldDabs.map { dab ->
-                                        val maskDab = dab.mask!!
-                                        SecondaryBrushDab(
-                                            x = maskDab.x,
-                                            y = maskDab.y,
-                                            radius = maskDab.radius,
-                                            tipRatio = maskDab.tipRatio,
-                                            alpha = maskDab.alpha,
-                                            angleDeg = maskDab.angleDeg,
-                                            flowMultiplier = maskDab.flowMultiplier,
-                                            keepInside = maskDab.keepInside,
-                                        )
-                                    }
-                                } else {
-                                    emptyList()
-                                }
-                                (!hasDualBrush || newHeldDabs.all { it.mask != null }) &&
-                                    engine.stampMaskedDabs(
-                                        gpuHeldDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
-                                        maskSize, maskSize,
-                                        grainAlpha8, grainWidth, grainHeight,
-                                        grainLocked, brush.grainScale,
-                                        grainPhaseX, grainPhaseY,
-                                        secondaryHeldDabs, secondaryMaskAlpha8,
-                                        secondaryMaskSize, secondaryMaskSize,
-                                    ) && (usesZeroCopyDisplay || engine.readback(work))
+                                val secondaryHeldDabs = emptyList<SecondaryBrushDab>()
+                                engine.stampMaskedDabs(
+                                    gpuHeldDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
+                                    maskSize, maskSize,
+                                    grainAlpha8, grainWidth, grainHeight,
+                                    grainLocked, brush.grainScale,
+                                    grainPhaseX, grainPhaseY,
+                                    secondaryHeldDabs, secondaryMaskAlpha8,
+                                    secondaryMaskSize, secondaryMaskSize,
+                                ) && (usesZeroCopyDisplay || engine.readback(work))
                             }
                         } else {
                             fun resolveHeld(dab: Dab) = ResolvedBrushDab(
@@ -5226,25 +5212,36 @@ class EditorViewModel @Inject constructor(
             val basicBrushNeedsCanonicalCommit = state.activeTool == Tool.BRUSH && stampBrushForStroke == null
             if ((featherRadius > 0f || basicBrushNeedsCanonicalCommit) && base != null) {
                 val deferredGpuDisplay = if (basicBrushNeedsCanonicalCommit) synchronized(liveCurveLock) {
-                    strokeGpuDisplay.also { strokeGpuDisplay = null }
+                    strokeGpuDisplay.also {
+                        strokeGpuDisplay = null
+                        strokeGpuDisplayReady = false
+                    }
                 } else null
                 val preview = deferredGpuDisplay?.bitmap ?: workBitmap
                 // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
                 rebuildJobs[layerId]?.cancel()
                 rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                    val committed = drawingEngine.applySingleStroke(base, command)
-                    withContext(dispatchers.main) {
-                        _uiState.update { s ->
-                            s.copy(
-                                layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
-                            )
+                    try {
+                        val committed = drawingEngine.applySingleStroke(base, command)
+                        withContext(dispatchers.main) {
+                            _uiState.update { s ->
+                                s.copy(
+                                    layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
+                                )
+                            }
+                            // Only clear the live-stroke preview if it's still ours -- a newer stroke may
+                            // have already started by the time this async rebuild finishes, and clearing
+                            // its preview here would flash the wrong (or no) bitmap for that new stroke.
+                            _liveStroke.update { s -> if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
+                            scheduleDiskSave(layerId, committed, layer.uri)
                         }
-                        // Only clear the live-stroke preview if it's still ours -- a newer stroke may
-                        // have already started by the time this async rebuild finishes, and clearing
-                        // its preview here would flash the wrong (or no) bitmap for that new stroke.
-                        _liveStroke.update { s -> if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
-                        scheduleDiskSave(layerId, committed, layer.uri)
-                        deferredGpuDisplay?.close()
+                    } finally {
+                        withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                            _liveStroke.update { state ->
+                                if (state.bitmap === preview) state.copy(layerId = null, bitmap = null) else state
+                            }
+                            deferredGpuDisplay?.close()
+                        }
                     }
                 }
             } else {
@@ -6879,9 +6876,14 @@ class EditorViewModel @Inject constructor(
                                 }
                                 val display = strokeGpuDisplay
                                 gpuHandled = allSubmitted && (display != null || engine.readback(targetBitmap))
+                                if (gpuHandled && display != null) {
+                                    strokeGpuDisplayReady = true
+                                }
                                 if (!gpuHandled && strokeGpuEngine === engine) {
-                                    strokeGpuDisplay?.close()
-                                    strokeGpuDisplay = null
+                                    // Keep the last-good hardware image alive as a frozen prefix.
+                                    // targetBitmap is intentionally not a full CPU mirror on the
+                                    // zero-copy path, so switching presentation to it would erase
+                                    // everything rendered successfully before this failure.
                                     strokeGpuActive = false
                                     strokeGpuEngine = null
                                     engine.destroy()
@@ -6899,7 +6901,9 @@ class EditorViewModel @Inject constructor(
                     }
 
                     if (strokeGeneration == generation && strokeLayerId == layerId) {
-                        val published = synchronized(liveCurveLock) { strokeGpuDisplay?.bitmap } ?: targetBitmap
+                        val published = synchronized(liveCurveLock) {
+                            strokeGpuDisplay?.bitmap?.takeIf { strokeGpuDisplayReady }
+                        } ?: targetBitmap
                         _liveStroke.update { it.copy(bitmap = published, version = it.version + 1) }
                         if (latencyId >= 0L) basicLatencyTracker.markPresented(latencyId)
                     }
@@ -7072,6 +7076,7 @@ class EditorViewModel @Inject constructor(
         synchronized(liveCurveLock) {
             strokeGpuDisplay?.close()
             strokeGpuDisplay = null
+            strokeGpuDisplayReady = false
             strokeGpuEngine?.destroy()
             strokeGpuEngine = null
             strokeGpuActive = false
