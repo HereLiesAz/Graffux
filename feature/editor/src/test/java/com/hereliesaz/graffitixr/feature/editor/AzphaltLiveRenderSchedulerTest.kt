@@ -15,7 +15,6 @@ class AzphaltLiveRenderSchedulerTest {
         workers.removeFirst().invoke()
         assertEquals(listOf(999), rendered)
     }
-
     @Test fun `input during render replaces pending frame`() {
         val workers = ArrayDeque<() -> Unit>()
         val rendered = mutableListOf<Int>()
