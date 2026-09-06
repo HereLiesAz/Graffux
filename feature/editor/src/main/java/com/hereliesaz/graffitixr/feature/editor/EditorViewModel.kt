@@ -43,6 +43,7 @@ import com.hereliesaz.graffitixr.common.azphalt.TileGrid
 import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
@@ -791,6 +792,12 @@ class EditorViewModel @Inject constructor(
     // non-build-up compatibility path, which still has to repaint from the pristine base until the
     // native engine grows persistent max-coverage state.
     private val stampRenderedMovementDabs = ArrayList<Dab>()
+    // Static stamp brushes now generate only the dabs made possible by newly mapped points. The
+    // complete generated prefix is kept separately from the rendered prefix because the renderer
+    // is deliberately allowed to lag/coalesce while input continues at full speed.
+    private var stampStaticDabGenerator: IncrementalStaticDabGenerator? = null
+    private val stampGeneratedMovementDabs = ArrayList<Dab>()
+    private var stampStaticConsumedPointCount: Int = 0
     private var stampGpuEngine: VulkanStampEngine? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
@@ -3584,6 +3591,9 @@ class EditorViewModel @Inject constructor(
         stampPendingMovementDabs.clear()
         stampPendingHeldDabs.clear()
         stampRenderedMovementDabs.clear()
+        stampStaticDabGenerator = null
+        stampGeneratedMovementDabs.clear()
+        stampStaticConsumedPointCount = 0
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
@@ -4143,9 +4153,27 @@ class EditorViewModel @Inject constructor(
             val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
             val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive()
             val dabs = if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
+                // Dynamic/taper brushes still use the canonical resolver for now; unlike the old
+                // render path, their output is consumed by one bounded worker so GPU work cannot
+                // queue behind the pointer. A stateful dynamic resolver is the next Engine 2 cut.
                 BrushStamps.dynamicDabs(mappedSamples, diameterPx, stampBrush, stampSeed)
             } else {
-                BrushStamps.dabs(stampMappedPoints, diameterPx, stampBrush, stampSeed)
+                // Static brushes are fully incremental: process only mapped points this generator
+                // has not seen. No BrushStamps.place()/dabs() walk over the growing stroke prefix.
+                var generator = stampStaticDabGenerator
+                if (generator == null) {
+                    generator = IncrementalStaticDabGenerator(diameterPx, stampBrush, stampSeed)
+                    stampStaticDabGenerator = generator
+                }
+                val pointCount = stampMappedPoints.size / 2
+                while (stampStaticConsumedPointCount < pointCount) {
+                    val index = stampStaticConsumedPointCount * 2
+                    stampGeneratedMovementDabs.addAll(
+                        generator.appendPoint(stampMappedPoints[index], stampMappedPoints[index + 1])
+                    )
+                    stampStaticConsumedPointCount++
+                }
+                stampGeneratedMovementDabs
             }
             // Item 13's airbrush held-run dabs, tracked as their own independent incremental
             // prefix (see [stampHeldStampedCount]'s doc comment) computed from the same growing
@@ -4213,15 +4241,24 @@ class EditorViewModel @Inject constructor(
                 val grain = stampGrainForStroke
                 val maskShape = stampMaskShapeForStroke
                 val seed = stampSeed
-                if (stampGpuJob?.isActive != true) {
-                    stampGpuJob = viewModelScope.launch(dispatchers.default) {
-                        while (true) {
-                            val newDabs = stampPendingMovementDabs.drain()
-                            val newHeldDabs = stampPendingHeldDabs.drain()
-                            val hasNewMovementDabs = newDabs.isNotEmpty()
-                            val hasNewHeldDabs = newHeldDabs.isNotEmpty()
-                            if (!hasNewMovementDabs && !hasNewHeldDabs) break
-                            stampRenderedMovementDabs.addAll(newDabs)
+                synchronized(stampLiveLock) {
+                    if (stampGpuJob?.isActive != true) {
+                        stampGpuJob = viewModelScope.launch(dispatchers.default) {
+                            while (true) {
+                                val newDabs = stampPendingMovementDabs.drain()
+                                val newHeldDabs = stampPendingHeldDabs.drain()
+                                val hasNewMovementDabs = newDabs.isNotEmpty()
+                                val hasNewHeldDabs = newHeldDabs.isNotEmpty()
+                                if (!hasNewMovementDabs && !hasNewHeldDabs) {
+                                    synchronized(stampLiveLock) {
+                                        if (stampPendingMovementDabs.isEmpty && stampPendingHeldDabs.isEmpty) {
+                                            stampGpuJob = null
+                                            return@launch
+                                        }
+                                    }
+                                    continue
+                                }
+                                stampRenderedMovementDabs.addAll(newDabs)
                     // The stroke this batch was queued for may already be over by the time its turn
                     // comes up (a fast tap-lift-then-redown can win the race) -- onStrokeStart/
                     // clearTransientStrokeState detect that themselves for the engine (via
@@ -4473,6 +4510,7 @@ class EditorViewModel @Inject constructor(
                     }
                         }
                     }
+                }
                 }
             }
             return
@@ -6735,6 +6773,9 @@ class EditorViewModel @Inject constructor(
         stampPendingMovementDabs.clear()
         stampPendingHeldDabs.clear()
         stampRenderedMovementDabs.clear()
+        stampStaticDabGenerator = null
+        stampGeneratedMovementDabs.clear()
+        stampStaticConsumedPointCount = 0
         // Locked for the same reason onStrokeStart's defensive reset is: a background onStrokePoint
         // batch (stampGpuJob) for this very stroke can still be running when the finger lifts and
         // this runs almost immediately after — see stampLiveLock's doc comment. Not waited on: that
