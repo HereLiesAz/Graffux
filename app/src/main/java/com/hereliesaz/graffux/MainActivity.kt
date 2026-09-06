@@ -217,6 +217,17 @@ private const val MAX_BRUSH_SIZE = 200f
 private const val MIN_BRUSH_ALPHA = 0.05f
 
 /**
+ * The four vector-shape editing dialogs LayerOptionsDialog's own submenu opens — Stroke Width,
+ * Corner Radius, Shape Size, Polygon Sides. One tap on that submenu opens exactly one of these at
+ * a time, so unlike most of this file's other `show*` dialog flags (several of which deliberately
+ * stack — see the `if (showLayerOptionsDialog)` block's own comment on FloatingWindow-style
+ * dialogs never blocking each other), these four are genuinely mutually exclusive and collapse
+ * into one slot. LayerOptionsDialog itself stays a separate flag: it's the parent these open on
+ * top of, and stays open while any of them is up.
+ */
+private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
+
+/**
  * Width of each individual rail button — NOT the rail strip's own on-screen width (that's
  * `collapsedWidth`, read back into [RailInset] via `AzNavHostScope.railWidth`; see the
  * `measuredRailWidth` comment where azConfig is called).
@@ -258,10 +269,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showDocDialog by remember { mutableStateOf(false) }
     var showBlendDialog by remember { mutableStateOf(false) }
     var showCurvesDialog by remember { mutableStateOf(false) }
-    var showStrokeDialog by remember { mutableStateOf(false) }
-    var showCornerDialog by remember { mutableStateOf(false) }
-    var showShapeSizeDialog by remember { mutableStateOf(false) }
-    var showSidesDialog by remember { mutableStateOf(false) }
+    var activeShapeDialog by remember { mutableStateOf<ShapeEditDialog?>(null) }
     var showBrushGallery by remember { mutableStateOf(false) }
     var showBrushTipsManager by remember { mutableStateOf(false) }
     var manualEditTextId by remember { mutableStateOf<String?>(null) }
@@ -1023,7 +1031,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // layer changes while one stays open (FloatingWindow-style dialogs never block the
                 // canvas/rail), the dialog keeps showing and applying the OLD layer's stale value,
                 // silently overwriting the NEW active layer's real property on Apply.
-                if (showStrokeDialog) {
+                if (activeShapeDialog == ShapeEditDialog.STROKE) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     key(uiState.activeLayerId) {
                         VectorStrokeDialog(
@@ -1031,12 +1039,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             // No Apply button: the dialog itself fires this once, with the final
                             // value, when it closes — see VectorStrokeDialog's own doc comment.
                             onApply = { w -> vm.setVectorStrokeWidth(w) },
-                            onDismiss = { showStrokeDialog = false },
+                            onDismiss = { activeShapeDialog = null },
                         )
                     }
                 }
 
-                if (showCornerDialog) {
+                if (activeShapeDialog == ShapeEditDialog.CORNER) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
                     key(uiState.activeLayerId) {
@@ -1045,12 +1053,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             // No Apply button: fires once, on close — see CornerRadiusDialog's own
                             // doc comment.
                             onApply = { r -> vm.setVectorCornerRadius(r) },
-                            onDismiss = { showCornerDialog = false },
+                            onDismiss = { activeShapeDialog = null },
                         )
                     }
                 }
 
-                if (showShapeSizeDialog) {
+                if (activeShapeDialog == ShapeEditDialog.SHAPE_SIZE) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val shape = activeLayer?.shapes?.firstOrNull()
                     if (shape != null) {
@@ -1062,13 +1070,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 // No Apply button: fires once, on close — see ShapeSizeDialog's own
                                 // doc comment.
                                 onConfirm = { w, h -> vm.setVectorSize(w, h) },
-                                onDismiss = { showShapeSizeDialog = false },
+                                onDismiss = { activeShapeDialog = null },
                             )
                         }
                     }
                 }
 
-                if (showSidesDialog) {
+                if (activeShapeDialog == ShapeEditDialog.SIDES) {
                     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
                     val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
                     if (polygon != null) {
@@ -1078,7 +1086,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 // No Apply button: fires once, on close — see PolygonSidesDialog's
                                 // own doc comment.
                                 onApply = { n -> vm.setPolygonSides(n) },
-                                onDismiss = { showSidesDialog = false },
+                                onDismiss = { activeShapeDialog = null },
                             )
                         }
                     }
@@ -1158,10 +1166,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             navStrings = strings.nav,
                             onEditText = { manualEditTextId = overlay.id },
                             onInvert = { vm.onToggleInvert() },
-                            onShapeSize = { showShapeSizeDialog = true },
-                            onStrokeWidth = { showStrokeDialog = true },
-                            onCornerRadius = { showCornerDialog = true },
-                            onPolygonSides = { showSidesDialog = true },
+                            onShapeSize = { activeShapeDialog = ShapeEditDialog.SHAPE_SIZE },
+                            onStrokeWidth = { activeShapeDialog = ShapeEditDialog.STROKE },
+                            onCornerRadius = { activeShapeDialog = ShapeEditDialog.CORNER },
+                            onPolygonSides = { activeShapeDialog = ShapeEditDialog.SIDES },
                             onToggleFill = { vm.toggleVectorFill() },
                             onEditStart = { vm.onLayerEditStart() },
                             onEditCommit = { vm.onLayerEditEnd() },
