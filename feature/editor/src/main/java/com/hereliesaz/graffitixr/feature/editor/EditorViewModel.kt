@@ -47,6 +47,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalDynamicDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalAirbrushGenerator
+import com.hereliesaz.graffitixr.common.azphalt.IncrementalRoundStampCompositor
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
@@ -795,6 +796,12 @@ class EditorViewModel @Inject constructor(
     // non-build-up compatibility path, which still has to repaint from the pristine base until the
     // native engine grows persistent max-coverage state.
     private val stampRenderedMovementDabs = ArrayList<Dab>()
+    // Plain round, non-build-up brushes need max coverage across the whole stroke rather than per
+    // batch. Engine 2 keeps that state sparsely by tile so only newly-touched pixels are revisited.
+    private var stampRoundMaxCompositor: IncrementalRoundStampCompositor? = null
+    // When the Vulkan layer is AHardwareBuffer-backed and this brush has no CPU-only side effects,
+    // the actual GPU image is published directly as the live Bitmap and no per-frame readback runs.
+    private var stampGpuDisplay: AzphaltGpuDisplay? = null
     // Static stamp brushes now generate only the dabs made possible by newly mapped points. The
     // complete generated prefix is kept separately from the rendered prefix because the renderer
     // is deliberately allowed to lag/coalesce while input continues at full speed.
@@ -3580,6 +3587,8 @@ class EditorViewModel @Inject constructor(
             // tap-lift-then-redown beats that batch's own turn on the queue) and reads/destroys this
             // same engine — see stampGpuJob's doc comment.
             synchronized(stampLiveLock) {
+                stampGpuDisplay?.close()
+                stampGpuDisplay = null
                 stampGpuEngine?.destroy()
                 stampGpuEngine = null
                 stampGpuActive = false
@@ -3598,6 +3607,7 @@ class EditorViewModel @Inject constructor(
             stampPendingMovementDabs.clear()
             stampPendingHeldDabs.clear()
             stampRenderedMovementDabs.clear()
+        stampRoundMaxCompositor = null
             stampStaticDabGenerator = null
             stampDynamicDabGenerator = null
             stampGeneratedMovementDabs.clear()
@@ -3647,8 +3657,16 @@ class EditorViewModel @Inject constructor(
                         ),
                     )
                 } else null
-                val gpuEngine = if (gpuCompatibleBrush) createSeededGpuEngine(work.width, work.height, work) else null
+                val plainRoundMaxCpu = !stampBrush.buildUp &&
+                    stampShapeForStroke == null && stampGrainForStroke == null &&
+                    stampBrush.maskedBrush == null && stampBrush.tipRatio == 1f
+                val gpuEngine = if (gpuCompatibleBrush && !plainRoundMaxCpu) {
+                    createSeededGpuEngine(work.width, work.height, work)
+                } else null
                 val gpuReady = gpuEngine != null
+                val zeroCopyEligible = gpuReady && stampBrush.airbrushDabsPerSecond <= 0f &&
+                    stampBrush.impastoThicknessRate <= 0f
+                val gpuDisplay = if (zeroCopyEligible) AzphaltGpuDisplay.tryCreate(gpuEngine!!) else null
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
                 // discarded/failed live preview can never corrupt it) plus a second, display-only
@@ -3686,6 +3704,7 @@ class EditorViewModel @Inject constructor(
                         synchronized(stampLiveLock) {
                             stampGpuEngine = if (gpuReady) gpuEngine else null
                             stampGpuActive = gpuReady
+                            stampGpuDisplay = gpuDisplay
                         }
                         stampGpuUsesMaskedPipeline = gpuReady && usesMaskedPipeline
                         stampGpuMaskAlpha8 = if (gpuReady) maskAlpha8 else null
@@ -3702,13 +3721,14 @@ class EditorViewModel @Inject constructor(
                         _liveStroke.update {
                             it.copy(
                                 layerId = layerId,
-                                bitmap = shadedBitmapSeed ?: work,
+                                bitmap = gpuDisplay?.bitmap ?: shadedBitmapSeed ?: work,
                                 version = it.version + 1,
                             )
                         }
                     } else {
                         // Superseded by a newer stroke before this coroutine finished — don't leak
                         // the GPU engine this branch may have just stood up.
+                        gpuDisplay?.close()
                         gpuEngine?.destroy()
                     }
                 }
@@ -4323,6 +4343,7 @@ class EditorViewModel @Inject constructor(
                     val hasDualBrush: Boolean
                     val secondaryMaskAlpha8: ByteArray?
                     val secondaryMaskSize: Int
+                    val usesZeroCopyDisplay: Boolean
                     synchronized(stampLiveLock) {
                         engine = stampGpuEngine
                         gpuActive = stampGpuActive
@@ -4338,6 +4359,7 @@ class EditorViewModel @Inject constructor(
                         hasDualBrush = stampGpuHasDualBrush
                         secondaryMaskAlpha8 = stampGpuSecondaryMaskAlpha8
                         secondaryMaskSize = stampGpuSecondaryMaskSize
+                        usesZeroCopyDisplay = stampGpuDisplay != null
                     }
 
                     var gpuHandled = false
@@ -4394,7 +4416,7 @@ class EditorViewModel @Inject constructor(
                                         grainPhaseX, grainPhaseY,
                                         secondaryDabs, secondaryMaskAlpha8,
                                         secondaryMaskSize, secondaryMaskSize,
-                                    ) && engine.readback(work)
+                                    ) && (usesZeroCopyDisplay || engine.readback(work))
                             }
                         } else {
                             fun resolve(dab: Dab) = ResolvedBrushDab(
@@ -4409,36 +4431,25 @@ class EditorViewModel @Inject constructor(
                                 flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                 hardness = dab.hardness,
                             )
-                            if (!brush.buildUp && preStrokeBase != null) {
-                                // GPU counterpart of StampBrushRenderer.repaintRoundStrokeFromBase
-                                // (see its doc comment for the bug this fixes, and PR #293's commit
-                                // message for why it was scoped to CPU only at the time): with
-                                // buildUp=false, stampResolvedDabs max-combines only WITHIN the dabs
-                                // given to *this one call* -- submitting only this frame's newDabs
-                                // every frame reproduces the identical hardened-edge-per-frame bug
-                                // this time on the GPU path, which is what a live plain-round drag
-                                // showing distinct hard dots (screenshot-confirmed, still open on
-                                // this path after #293) actually is. Restoring the GPU texture to
-                                // the pre-stroke snapshot and resubmitting the WHOLE stroke's dabs
-                                // every frame keeps each frame a genuine full re-render, matching
-                                // commit, exactly like the CPU path already does. More expensive
-                                // than the CPU fix -- [upload] has no partial-region variant, so
-                                // this re-uploads the full canvas every frame instead of just the
-                                // stroke's own bounding box -- but there is no other native entry
-                                // point to restore a sub-region, and this only applies to the same
-                                // narrow plain-round/non-build-up case the CPU fix does.
-                                val gpuAllDabs = stampRenderedMovementDabs.map(::resolve)
-                                engine.upload(preStrokeBase) &&
-                                    engine.stampResolvedDabs(gpuAllDabs, buildUp = false) &&
-                                    engine.readback(work)
-                            } else {
-                                val gpuDabs = newDabs.map(::resolve)
-                                engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
-                                    engine.readback(work)
-                            }
+                            val gpuDabs = newDabs.map(::resolve)
+                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
+                                (usesZeroCopyDisplay || engine.readback(work))
                         }
                     }
                     if (hasNewMovementDabs && !gpuHandled) {
+                        var replayedGpuPrefix = false
+                        if (usesZeroCopyDisplay && preStrokeBase != null) {
+                            val restorePaint = Paint().apply {
+                                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+                            }
+                            canvas.drawBitmap(preStrokeBase, 0f, 0f, restorePaint)
+                            restorePaint.xfermode = null
+                            StampBrushRenderer.paintDabs(
+                                canvas, stampRenderedMovementDabs, brush, colorArgb, rawFlow,
+                                shape, grain, maskShape, seed, secondaryColorArgb,
+                            )
+                            replayedGpuPrefix = true
+                        }
                         if (gpuActive) {
                             // Disable for the rest of THIS stroke only -- release the engine iff
                             // it's still the one this batch snapshotted (identity check): a newer
@@ -4451,6 +4462,8 @@ class EditorViewModel @Inject constructor(
                                 if (stampGpuEngine === engine) {
                                     stampGpuActive = false
                                     stampGpuEngine = null
+                                    stampGpuDisplay?.close()
+                                    stampGpuDisplay = null
                                     stampGpuUsesMaskedPipeline = false
                                     stampGpuMaskAlpha8 = null
                                     stampGpuMaskSize = 0
@@ -4477,17 +4490,27 @@ class EditorViewModel @Inject constructor(
                         // re-render, matching commit. Every other path (shaped tip, grain, masked/
                         // dual-tip, build-up) composites sequentially, which IS stable incrementally
                         // frame to frame, so those keep painting only each frame's new dabs.
-                        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
-                        if (!advancedMaskPipeline && shape == null && !brush.buildUp && preStrokeBase != null) {
-                            StampBrushRenderer.repaintRoundStrokeFromBase(
-                                canvas, preStrokeBase, stampRenderedMovementDabs, brush, colorArgb, rawFlow, secondaryColorArgb,
-                            )
-                        } else {
-                            StampBrushRenderer.paintDabs(
-                                canvas, newDabs, brush, colorArgb, rawFlow,
-                                shape, grain, maskShape, seed,
-                                secondaryColorArgb,
-                            )
+                        if (!replayedGpuPrefix) {
+                            val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
+                            if (!advancedMaskPipeline && shape == null && !brush.buildUp && preStrokeBase != null) {
+                                var compositor = stampRoundMaxCompositor
+                                if (compositor == null) {
+                                    compositor = IncrementalRoundStampCompositor(work.width, work.height)
+                                    stampRoundMaxCompositor = compositor
+                                }
+                                val changedTiles = compositor.append(
+                                    newDabs, colorArgb, secondaryColorArgb, brush.colorSource, rawFlow,
+                                )
+                                IncrementalRoundStampRenderer.repaintTilesFromBase(
+                                    canvas, preStrokeBase, changedTiles,
+                                )
+                            } else {
+                                StampBrushRenderer.paintDabs(
+                                    canvas, newDabs, brush, colorArgb, rawFlow,
+                                    shape, grain, maskShape, seed,
+                                    secondaryColorArgb,
+                                )
+                            }
                         }
                     }
                     if (hasNewHeldDabs) {
@@ -4549,7 +4572,10 @@ class EditorViewModel @Inject constructor(
                         // has no such wait, but a future caller might), and a job that itself needs
                         // the main dispatcher to resume before it can finish would deadlock against
                         // a main-thread wait for it to finish.
-                        _liveStroke.update { it.copy(version = it.version + 1) }
+                        val publishedBitmap = synchronized(stampLiveLock) {
+                            stampGpuDisplay?.bitmap
+                        } ?: shadedBitmap ?: work
+                        _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
                     }
                         }
                     }
@@ -5154,10 +5180,16 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
-        // Capture this stroke's preview bitmap synchronously (clearTransientStrokeState nulls the field
-        // right after this returns). The async commit only clears the live preview if it's still ours —
-        // otherwise a stroke that started before this commit finished would have its preview wiped.
-        val previewBitmap = stampLiveBitmap
+        // A zero-copy preview owns a Java HardwareBuffer reference that must outlive transient stroke
+        // teardown: clearTransientStrokeState destroys the Vulkan engine immediately after this
+        // method returns, while the canonical CPU commit below can still be rendering. Detach the
+        // display wrapper from transient ownership now and close it only after this commit replaces
+        // (or discovers it no longer owns) the live preview. The Java HardwareBuffer reference keeps
+        // the imported memory alive even after the native engine releases its own reference.
+        val retainedGpuDisplay = synchronized(stampLiveLock) {
+            stampGpuDisplay.also { stampGpuDisplay = null }
+        }
+        val previewBitmap = retainedGpuDisplay?.bitmap ?: _liveStroke.value.bitmap
         // The pre-stroke height base (roadmap item 12): applySingleStroke deposits *this* stroke's own
         // dabs onto it fresh below, so this must be the layer's height map from before this stroke —
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
@@ -5210,6 +5242,7 @@ class EditorViewModel @Inject constructor(
                     )
                 }
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
+                retainedGpuDisplay?.close()
                 scheduleDiskSave(layerId, target, layer.uri)
                 // Attached only after the bitmap publish above, on this same main-dispatcher
                 // continuation -- so by the time `command.tileDeltas` is non-null, this stroke's
@@ -6816,6 +6849,7 @@ class EditorViewModel @Inject constructor(
         stampPendingMovementDabs.clear()
         stampPendingHeldDabs.clear()
         stampRenderedMovementDabs.clear()
+        stampRoundMaxCompositor = null
         stampStaticDabGenerator = null
         stampDynamicDabGenerator = null
         stampGeneratedMovementDabs.clear()
