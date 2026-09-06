@@ -10,26 +10,13 @@ internal class AzphaltLiveRenderScheduler<T>(
 ) {
     private val pending = AtomicReference<T?>(null)
     private val running = AtomicBoolean(false)
-
-    fun submit(snapshot: T) {
-        pending.set(snapshot)
-        startWorkerIfNeeded()
-    }
-
+    fun submit(snapshot: T) { pending.set(snapshot); startWorkerIfNeeded() }
     fun clear() { pending.set(null) }
-
     private fun startWorkerIfNeeded() {
         if (!running.compareAndSet(false, true)) return
         launchWorker {
-            try {
-                while (true) {
-                    val latest = pending.getAndSet(null) ?: break
-                    render(latest)
-                }
-            } finally {
-                running.set(false)
-                if (pending.get() != null) startWorkerIfNeeded()
-            }
+            try { while (true) render(pending.getAndSet(null) ?: break) }
+            finally { running.set(false); if (pending.get() != null) startWorkerIfNeeded() }
         }
     }
 }
