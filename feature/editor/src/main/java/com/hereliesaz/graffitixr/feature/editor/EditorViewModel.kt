@@ -6723,6 +6723,13 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Resets Basic Brush's per-stroke Catmull-Rom window. */
+    private fun resetLiveCurveState() = synchronized(liveCurveLock) {
+        liveCurveWindow.clear()
+        liveCurveWidths.clear()
+        liveCurveFinalizedCount = 0
+    }
+
     private fun enqueueBasicLiveDabs(
         canvas: Canvas,
         paint: Paint,
