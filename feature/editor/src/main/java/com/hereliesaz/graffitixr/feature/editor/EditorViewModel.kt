@@ -845,6 +845,8 @@ class EditorViewModel @Inject constructor(
     // `workBitmap` local that later becomes strokeWorkingBitmap.
     private var strokeGpuEngine: VulkanStampEngine? = null
     private var strokeGpuActive: Boolean = false
+    // Basic Brush uses the same hardware-buffer-backed live presentation as Azphalt when available.
+    private var strokeGpuDisplay: AzphaltGpuDisplay? = null
     // Basic Brush now uses the same one-worker/lossless-coalescing scheduling contract as Azphalt
     // stamp brushes. Its geometry is still the existing Catmull-Rom -> round-dab path; only the
     // execution moves off the input thread.
@@ -3872,14 +3874,18 @@ class EditorViewModel @Inject constructor(
             // call sites further down stay engine-object-identity-safe rather than blindly
             // destroying whatever's now in the field.
             val createdGpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null
+            val createdGpuDisplay = createdGpuEngine?.let(AzphaltGpuDisplay::tryCreate)
             val gpuEngine = synchronized(liveCurveLock) {
                 if (generation != strokeGeneration || strokeLayerId != layerId) {
+                    createdGpuDisplay?.close()
                     createdGpuEngine?.destroy()
                     null
                 } else {
                     // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
                     // clearTransientStrokeState in between (there shouldn't be one, but destroy()
                     // is cheap to call defensively and a leaked Vulkan device is not).
+                    strokeGpuDisplay?.close()
+                    strokeGpuDisplay = createdGpuDisplay
                     strokeGpuEngine?.destroy()
                     strokeGpuEngine = createdGpuEngine
                     strokeGpuActive = createdGpuEngine != null
@@ -3897,6 +3903,8 @@ class EditorViewModel @Inject constructor(
                 if (gpuEngine == null) return
                 synchronized(liveCurveLock) {
                     if (strokeGpuEngine === gpuEngine) {
+                        strokeGpuDisplay?.close()
+                        strokeGpuDisplay = null
                         strokeGpuEngine = null
                         strokeGpuActive = false
                         gpuEngine.destroy()
@@ -4004,7 +4012,7 @@ class EditorViewModel @Inject constructor(
                 basicLiveConsumedPointCount = catchUpPoints.size
                 _liveStroke.update { it.copy(
                     layerId = layerId,
-                    bitmap = workBitmap,
+                    bitmap = synchronized(liveCurveLock) { strokeGpuDisplay?.bitmap } ?: workBitmap,
                     version = it.version + catchUpPoints.size
                 )}
             }
@@ -5170,7 +5178,10 @@ class EditorViewModel @Inject constructor(
             // also cover the fast-stroke fallback, which never reaches this code.)
             val basicBrushNeedsCanonicalCommit = state.activeTool == Tool.BRUSH && stampBrushForStroke == null
             if ((featherRadius > 0f || basicBrushNeedsCanonicalCommit) && base != null) {
-                val preview = workBitmap
+                val deferredGpuDisplay = if (basicBrushNeedsCanonicalCommit) synchronized(liveCurveLock) {
+                    strokeGpuDisplay.also { strokeGpuDisplay = null }
+                } else null
+                val preview = deferredGpuDisplay?.bitmap ?: workBitmap
                 // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
                 rebuildJobs[layerId]?.cancel()
                 rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -5186,6 +5197,7 @@ class EditorViewModel @Inject constructor(
                         // its preview here would flash the wrong (or no) bitmap for that new stroke.
                         _liveStroke.update { s -> if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
                         scheduleDiskSave(layerId, committed, layer.uri)
+                        deferredGpuDisplay?.close()
                     }
                 }
             } else {
@@ -6818,8 +6830,11 @@ class EditorViewModel @Inject constructor(
                                         break
                                     }
                                 }
-                                gpuHandled = allSubmitted && engine.readback(targetBitmap)
+                                val display = strokeGpuDisplay
+                                gpuHandled = allSubmitted && (display != null || engine.readback(targetBitmap))
                                 if (!gpuHandled && strokeGpuEngine === engine) {
+                                    strokeGpuDisplay?.close()
+                                    strokeGpuDisplay = null
                                     strokeGpuActive = false
                                     strokeGpuEngine = null
                                     engine.destroy()
@@ -6837,7 +6852,8 @@ class EditorViewModel @Inject constructor(
                     }
 
                     if (strokeGeneration == generation && strokeLayerId == layerId) {
-                        _liveStroke.update { it.copy(bitmap = targetBitmap, version = it.version + 1) }
+                        val published = synchronized(liveCurveLock) { strokeGpuDisplay?.bitmap } ?: targetBitmap
+                        _liveStroke.update { it.copy(bitmap = published, version = it.version + 1) }
                         if (latencyId >= 0L) basicLatencyTracker.markPresented(latencyId)
                     }
                 }
@@ -7007,6 +7023,8 @@ class EditorViewModel @Inject constructor(
         // without this, a fast tap-lift landing mid-publish could destroy the engine here while
         // onStrokeStart's coroutine still holds and uses the same reference, or double-destroy it.
         synchronized(liveCurveLock) {
+            strokeGpuDisplay?.close()
+            strokeGpuDisplay = null
             strokeGpuEngine?.destroy()
             strokeGpuEngine = null
             strokeGpuActive = false
