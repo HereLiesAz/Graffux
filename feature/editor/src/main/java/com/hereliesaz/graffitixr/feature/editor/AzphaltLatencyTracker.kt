@@ -1,69 +1,81 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.os.SystemClock
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicLongArray
 
 /**
- * Low-overhead rolling latency telemetry for Azphalt Engine 2.
+ * Bounded rolling latency telemetry for Azphalt Engine 2.
  *
- * Every sample moves through four monotonic timestamps: input accepted, dabs generated, render
- * submitted, and preview published. The tracker keeps only the newest fixed-size ring so drawing
- * never allocates an unbounded metrics history. It is deliberately independent of Logcat/UI; the
- * editor can snapshot it for benchmarks or diagnostics without putting logging in the hot path.
+ * Every physical brush sample moves through four monotonic timestamps: input accepted, dabs
+ * generated, render submitted, and preview published. A small monitor protects each logical ring
+ * entry as one unit. That is intentional: a lock-free collection of independent timestamp arrays
+ * lets a wrapped slot be observed half-reinitialized (or written by a stale asynchronous stage),
+ * fabricating latencies. At touch rates this fixed-size, constant-time critical section is much
+ * cheaper than the rendering it measures and keeps the diagnostic trustworthy.
  */
 class AzphaltLatencyTracker(private val capacity: Int = 256) {
     init { require(capacity > 0) }
 
-    private val sequence = AtomicLong(0L)
-    private val inputNs = AtomicLongArray(capacity)
-    private val generatedNs = AtomicLongArray(capacity)
-    private val submittedNs = AtomicLongArray(capacity)
-    private val presentedNs = AtomicLongArray(capacity)
+    private data class Entry(
+        var id: Long = -1L,
+        var inputNs: Long = 0L,
+        var generatedNs: Long = 0L,
+        var submittedNs: Long = 0L,
+        var presentedNs: Long = 0L,
+    )
 
-    fun beginInput(nowNs: Long = SystemClock.elapsedRealtimeNanos()): Long {
-        val id = sequence.getAndIncrement()
-        val slot = slot(id)
-        inputNs.set(slot, nowNs)
-        generatedNs.set(slot, 0L)
-        submittedNs.set(slot, 0L)
-        presentedNs.set(slot, 0L)
-        return id
+    private val lock = Any()
+    private val entries = Array(capacity) { Entry() }
+    private var nextId = 0L
+
+    fun beginInput(nowNs: Long = SystemClock.elapsedRealtimeNanos()): Long = synchronized(lock) {
+        val id = nextId++
+        entries[slot(id)].apply {
+            this.id = id
+            inputNs = nowNs
+            generatedNs = 0L
+            submittedNs = 0L
+            presentedNs = 0L
+        }
+        id
     }
 
-    fun markGenerated(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) {
-        if (isRetained(id)) generatedNs.set(slot(id), nowNs)
+    fun markGenerated(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) = synchronized(lock) {
+        entries[slot(id)].takeIf { it.id == id }?.generatedNs = nowNs
     }
 
-    fun markSubmitted(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) {
-        if (isRetained(id)) submittedNs.set(slot(id), nowNs)
+    fun markSubmitted(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) = synchronized(lock) {
+        entries[slot(id)].takeIf { it.id == id }?.submittedNs = nowNs
     }
 
-    fun markPresented(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) {
-        if (isRetained(id)) presentedNs.set(slot(id), nowNs)
+    fun markPresented(id: Long, nowNs: Long = SystemClock.elapsedRealtimeNanos()) = synchronized(lock) {
+        entries[slot(id)].takeIf { it.id == id }?.presentedNs = nowNs
     }
 
-    fun snapshot(): Snapshot {
-        val end = sequence.get()
+    fun snapshot(): Snapshot = synchronized(lock) {
+        val end = nextId
         val start = (end - capacity).coerceAtLeast(0L)
         val totals = ArrayList<Long>((end - start).toInt())
         val inputToGenerated = ArrayList<Long>()
         val generatedToSubmitted = ArrayList<Long>()
         val submittedToPresented = ArrayList<Long>()
+        var retained = 0
+
         for (id in start until end) {
-            val slot = slot(id)
-            val input = inputNs.get(slot)
-            val generated = generatedNs.get(slot)
-            val submitted = submittedNs.get(slot)
-            val presented = presentedNs.get(slot)
-            if (input <= 0L) continue
+            val entry = entries[slot(id)]
+            if (entry.id != id || entry.inputNs <= 0L) continue
+            retained++
+            val input = entry.inputNs
+            val generated = entry.generatedNs
+            val submitted = entry.submittedNs
+            val presented = entry.presentedNs
             if (generated >= input) inputToGenerated += generated - input
             if (submitted >= generated && generated > 0L) generatedToSubmitted += submitted - generated
             if (presented >= submitted && submitted > 0L) submittedToPresented += presented - submitted
             if (presented >= input && presented > 0L) totals += presented - input
         }
-        return Snapshot(
-            retainedSamples = (end - start).toInt(),
+
+        Snapshot(
+            retainedSamples = retained,
             completedSamples = totals.size,
             inputToGenerated = Stats.of(inputToGenerated),
             generatedToSubmitted = Stats.of(generatedToSubmitted),
@@ -73,10 +85,6 @@ class AzphaltLatencyTracker(private val capacity: Int = 256) {
     }
 
     private fun slot(id: Long): Int = (id % capacity).toInt()
-    private fun isRetained(id: Long): Boolean {
-        val end = sequence.get()
-        return id >= (end - capacity).coerceAtLeast(0L) && id < end
-    }
 
     data class Snapshot(
         val retainedSamples: Int,
