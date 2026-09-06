@@ -244,7 +244,7 @@ jobs:
         # scoped only to this repo and hereliesaz/aznavrail, with no way to resolve
         # actions/download-artifact's current v7 tag to a commit SHA. Pin this the same way the
         # others are pinned (a comment with the resolved SHA) the next time this file is touched.
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: downloaded-artifacts
 
