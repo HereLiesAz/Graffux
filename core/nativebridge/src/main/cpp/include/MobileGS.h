@@ -5,6 +5,12 @@
 #include "SuperPointDetector.h"
 #include "DistortionHead.h"
 #include "LowLightEnhancer.h"
+// growMapFromReloc's own declaration below uses glm::mat4 -- this header used to get that
+// transitively through "NativeUtil.h" (removed as dead code; see that commit), which happened to
+// work only because MobileGS.cpp included this header before its own direct glm include. A header
+// using a type has to include it itself rather than depend on what an including .cpp happens to
+// pull in first.
+#include <glm/glm.hpp>
 #include <mutex>
 #include <vector>
 #include <unordered_map>
