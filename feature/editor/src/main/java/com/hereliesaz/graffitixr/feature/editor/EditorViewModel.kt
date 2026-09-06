@@ -3595,16 +3595,16 @@ class EditorViewModel @Inject constructor(
             stampGpuSecondaryMaskSize = 0
             stampGpuJob = null
             stampMappedPoints.clear()
-        stampPendingMovementDabs.clear()
-        stampPendingHeldDabs.clear()
-        stampRenderedMovementDabs.clear()
-        stampStaticDabGenerator = null
-        stampDynamicDabGenerator = null
-        stampGeneratedMovementDabs.clear()
-        stampMovementConsumedSampleCount = 0
-        stampAirbrushGenerator = null
-        stampGeneratedHeldDabs.clear()
-        stampAirbrushConsumedSampleCount = 0
+            stampPendingMovementDabs.clear()
+            stampPendingHeldDabs.clear()
+            stampRenderedMovementDabs.clear()
+            stampStaticDabGenerator = null
+            stampDynamicDabGenerator = null
+            stampGeneratedMovementDabs.clear()
+            stampMovementConsumedSampleCount = 0
+            stampAirbrushGenerator = null
+            stampGeneratedHeldDabs.clear()
+            stampAirbrushConsumedSampleCount = 0
             viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
@@ -4276,12 +4276,21 @@ class EditorViewModel @Inject constructor(
                     if (stampGpuJob?.isActive != true) {
                         stampGpuJob = viewModelScope.launch(dispatchers.default) {
                             while (true) {
+                                // A fast lift/redown can leave the previous stroke's native call
+                                // finishing after the new stroke exists. Never let that stale worker
+                                // drain shared queues or clear the new stroke's worker reference.
+                                if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
+                                    return@launch
+                                }
                                 val newDabs = stampPendingMovementDabs.drain()
                                 val newHeldDabs = stampPendingHeldDabs.drain()
                                 val hasNewMovementDabs = newDabs.isNotEmpty()
                                 val hasNewHeldDabs = newHeldDabs.isNotEmpty()
                                 if (!hasNewMovementDabs && !hasNewHeldDabs) {
                                     synchronized(stampLiveLock) {
+                                        if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
+                                            return@launch
+                                        }
                                         if (stampPendingMovementDabs.isEmpty && stampPendingHeldDabs.isEmpty) {
                                             stampGpuJob = null
                                             return@launch
