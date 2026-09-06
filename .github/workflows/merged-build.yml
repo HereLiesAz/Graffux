@@ -1,28 +1,304 @@
-name: Azphalt Engine 2 Cutover
+name: Merged Build & Release
 
 on:
   push:
-    branches: [ "perf/azphalt-engine-2" ]
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
+# ⚡ Concurrency: Cancels the entire job if a new push comes in.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actually least-privilege now: `contents: read` at the top so a job that declares no
+# permissions block of its own (there are none left that don't) gets the minimum. Both jobs
+# below declare their own elevated grant explicitly, scoped to what they actually use.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  cutover:
-    if: github.actor != 'github-actions[bot]'
+  unit-tests:
     runs-on: ubuntu-latest
+    # contents: write is for the dependency-graph submission below (generate-submit-and-upload
+    # needs it to call the Dependency Submission API) — not for anything else in this job.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: perf/azphalt-engine-2
-          fetch-depth: 0
-      - name: Apply cutover
-        run: python3 tools/azphalt_engine2_cutover.py
-      - name: Commit cutover
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # OpenCV (Java + native via Prefab) is a plain Maven Central dependency now — Gradle resolves
+      # it during the build, so there is no library-fetch step here anymore.
+
+      - name: Inject Google Services
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
-          git diff --cached --check
-          git commit -m 'perf(brush): coalesce live stamp rendering into one worker'
-          git push origin HEAD:perf/azphalt-engine-2
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" > app/google-services.json
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+        with:
+          cache-read-only: false
+          dependency-graph: generate-submit-and-upload
+
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest test --continue --build-cache
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unit-test-reports
+          path: '**/build/reports/tests/'
+
+  build-and-release:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    # contents: write — pushes the rolling debug tag and creates/edits/uploads to the release.
+    # issues: write — "Report Failure to Jules" files an issue on a failed build.
+    # No pull-requests or checks scope: nothing in this job calls either API.
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # OpenCV (Java + native via Prefab) is a plain Maven Central dependency now — Gradle resolves
+      # it during the build, so there is no library-fetch step here anymore.
+
+      - name: Inject Google Services
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" > app/google-services.json
+          fi
+
+      # A glee audit of the CI pipeline found this step ran unconditionally -- on every push to
+      # every branch and every pull_request (this workflow's own `on:` trigger), decoding the
+      # signing key to disk for runs that will never publish anything and don't need it at all:
+      # a PR/branch build works fine falling back to the default debug key (see the comment on
+      # the exit-0 branch below). Scoped to the same "push to main" condition the release steps
+      # further down already use, matching release-aab.yml's own signing-only-on-release pattern
+      # and narrowing how often the decoded key sits on a CI runner's disk to the one case that
+      # actually needs it.
+      - name: Decode signing keystore
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_RAW: ${{ secrets.KEYSTORE_RAW }}
+        run: |
+          # Empty secret (e.g. on a fork without access) → skip; the debug build then signs with the
+          # default debug key rather than failing the whole CI run.
+          if [ -z "$KEYSTORE_RAW" ]; then
+            echo "::warning::KEYSTORE_RAW secret is empty — building with the default debug key."
+            exit 0
+          fi
+          echo "$KEYSTORE_RAW" | base64 -d > app/keystore.jks
+          if [ ! -s app/keystore.jks ]; then
+            echo "::error::Decoded keystore is empty — KEYSTORE_RAW is not valid base64."
+            exit 1
+          fi
+          echo "Keystore decoded to app/keystore.jks ($(stat -c%s app/keystore.jks) bytes)"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          cache-read-only: false
+          # The unit-tests job already generates, submits and uploads the dependency graph for
+          # this commit; keep it disabled here so the build job doesn't submit a duplicate.
+          # 'true' is not a valid value for setup-gradle@v6 (enum: disabled / generate /
+          # generate-and-submit / generate-submit-and-upload / generate-and-upload /
+          # download-and-submit), which failed the action before the build could start.
+          dependency-graph: disabled
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        id: gradle-build
+        env:
+          # No GITHUB_TOKEN/GH_TOKEN here — nothing in the Gradle build reads either, and this
+          # process tree resolves and executes every Gradle plugin and third-party dependency in
+          # gradle/libs.versions.toml, which is not a place to hand a credential that doesn't
+          # need to be there.
+          # Consumed by the signingConfigs.release block in app/build.gradle.kts. The debug build type
+          # uses this release config when the keystore is present (see app/build.gradle.kts), keeping
+          # the auto-published artifact's signature stable; absent it, the default debug key is used.
+          KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set +e
+
+          # Build the APK (signing comes from the env-driven signingConfigs.release in Gradle)
+          ./gradlew assembleDebug --build-cache > build.log 2>&1
+
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          cat build.log
+          exit $EXIT_CODE
+
+      # ------------------------------------------------------------------
+      # FAILURE HANDLING
+      # ------------------------------------------------------------------
+      - name: Report Failure to Jules
+        if: failure() && steps.gradle-build.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // The raw build log is deliberately NOT embedded here. GitHub's ::add-mask::/secret
+            // masking rewrites the *live log stream* the run page shows you; it does not touch
+            // this script's own API request body. This job's build step has KEYSTORE_PASSWORD,
+            // KEY_ALIAS and KEY_PASSWORD in its env, so a Gradle failure that happens to echo one
+            // of them would otherwise be posted verbatim into a permanent, more widely readable
+            // issue instead of just the masked run log. Link to the run instead — its log view
+            // still gets GitHub's masking.
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const assignee = 'gemini-code-assist';
+            const body = `@${assignee} /jules debug this build error\n\nBuild log: ${runUrl}`;
+
+            try {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Build Failure on ${context.eventName === 'pull_request' ? 'PR #' + context.issue.number : context.ref}`,
+                body,
+                labels: ['jules', 'bug'],
+                assignees: [assignee]
+              });
+            } catch (error) {
+              console.log("Failed to create issue with assignee. Retrying without assignee.");
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Build Failure on ${context.eventName === 'pull_request' ? 'PR #' + context.issue.number : context.ref}`,
+                body,
+                labels: ['jules', 'bug']
+              });
+            }
+
+      # ------------------------------------------------------------------
+      # RELEASE STEPS (only on a push to main — see the race-condition note below)
+      # ------------------------------------------------------------------
+      #
+      # Restricted to main, not "any push": these steps force-move ONE shared tag
+      # (latest-debug-v$MAJOR.$MINOR) and --clobber the same GitHub release regardless of which
+      # branch triggered them. The job-level `concurrency: group: ${{ github.workflow }}-${{
+      # github.ref }}` only serializes pushes to the SAME ref — it does nothing for two different
+      # branches racing each other. Push branch X, then branch Y ~30s later: X's tag move can land
+      # after Y's `gh release edit --target $GITHUB_SHA`, leaving the release's metadata pointing
+      # at Y's commit while its uploaded APK is X's — wrong on both sides, and neither run fails.
+      # Scoping to main removes the race outright: only one branch can ever reach this step, and
+      # same-ref pushes to main are already correctly serialized by the concurrency group above.
+      - name: Prepare Release Variables
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: release_vars
+        run: |
+          # version.properties is the SINGLE SOURCE OF TRUTH for the version. The gradle build already
+          # incremented versionBuild (the Android versionCode) and versionPatch and baked them into the
+          # artifact; read the SAME values here. NEVER derive the version from the git commit count —
+          # that scheme collides with versionBuild and causes Play "downgrade" versionCode rejections.
+          MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+          MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+          PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+          BUILD_NUMBER=$(grep '^versionBuild=' version.properties | cut -d'=' -f2 | tr -d '\r ')
+
+          VERSION_NAME="$MAJOR.$MINOR.$PATCH.$BUILD_NUMBER"
+          
+          TAG_NAME="latest-debug-v${MAJOR}.${MINOR}"
+          
+          # Dynamic App Name from settings.gradle
+          if [ -f "settings.gradle.kts" ]; then
+             APP_NAME=$(grep 'rootProject.name' settings.gradle.kts | sed -E "s/.*=.*[\"'](.*)[\"']/\1/")
+          elif [ -f "settings.gradle" ]; then
+             APP_NAME=$(grep 'rootProject.name' settings.gradle | sed -E "s/.*=.*[\"'](.*)[\"']/\1/")
+          else
+             APP_NAME="App"
+          fi
+          
+          # Locate built APK
+          APK_ORIGINAL=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          
+          if [ -z "$APK_ORIGINAL" ]; then
+             echo "Error: No APK found to release!"
+             exit 1
+          fi
+
+          TARGET_NAME="${APP_NAME}-${VERSION_NAME}-debug.apk"
+          
+          # Rename for release
+          mv "$APK_ORIGINAL" "$TARGET_NAME"
+          
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          echo "APK_FILE=$TARGET_NAME" >> $GITHUB_ENV
+          
+          # Package Build Tools (Optional)
+          mkdir -p build_tools_package/tools build_tools_package/native
+          [ -d "app/src/main/assets/tools" ] && cp -r app/src/main/assets/tools/* build_tools_package/tools/ || true
+          [ -d "app/src/main/jniLibs/arm64-v8a" ] && cp -r app/src/main/jniLibs/arm64-v8a/* build_tools_package/native/ || true
+          cd build_tools_package && zip -r ../build-tools.zip . && cd ..
+
+      - name: Publish Release
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Force update tag to point to current commit
+          git tag -fa $TAG_NAME -m "Latest Debug Build"
+          git push origin $TAG_NAME --force
+
+          BUILD_TOOLS="build-tools.zip"
+
+          # Check if release exists
+          if gh release view $TAG_NAME > /dev/null 2>&1; then
+             echo "Updating existing release..."
+
+             # Clean up ONLY the build-tools asset to avoid conflicts
+             gh release delete-asset "$TAG_NAME" "$BUILD_TOOLS" -y || true
+
+             gh release edit $TAG_NAME --prerelease \
+               --title "Latest Debug Build ($TAG_NAME)" \
+               --notes "Auto-build from commit $GITHUB_SHA" \
+               --target $GITHUB_SHA
+
+             # Clobber ensures that if we re-run the workflow on the exact same commit, it replaces the APK instead of failing.
+             gh release upload $TAG_NAME "$APK_FILE" --clobber
+             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
+          else
+             echo "Creating new release..."
+             gh release create $TAG_NAME "$APK_FILE" --prerelease \
+               --title "Latest Debug Build ($TAG_NAME)" \
+               --notes "Auto-build from commit $GITHUB_SHA" \
+               --target $GITHUB_SHA
+             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
+          fi
