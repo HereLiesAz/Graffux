@@ -434,16 +434,20 @@ private fun DynamicsMappingControl(
         shape = AzButtonShape.RECTANGLE,
     )
     if (binding != null) {
-        ParamSlider("Input min", binding.inputMin, inputRange, unit = inputUnit) { value ->
+        val effectiveInputRange = minOf(inputRange.start, binding.inputMin, binding.inputMax)..
+            maxOf(inputRange.endInclusive, binding.inputMin, binding.inputMax)
+        val effectiveOutputRange = minOf(outputRange.start, binding.outputMin, binding.outputMax)..
+            maxOf(outputRange.endInclusive, binding.outputMin, binding.outputMax)
+        ParamSlider("Input min", binding.inputMin, effectiveInputRange, unit = inputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(inputMin = value.coerceAtMost(binding.inputMax - 0.001f))) }
         }
-        ParamSlider("Input max", binding.inputMax, inputRange, unit = inputUnit) { value ->
+        ParamSlider("Input max", binding.inputMax, effectiveInputRange, unit = inputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(inputMax = value.coerceAtLeast(binding.inputMin + 0.001f))) }
         }
-        ParamSlider("Output min", binding.outputMin, outputRange, unit = outputUnit) { value ->
+        ParamSlider("Output min", binding.outputMin, effectiveOutputRange, unit = outputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(outputMin = value)) }
         }
-        ParamSlider("Output max", binding.outputMax, outputRange, unit = outputUnit) { value ->
+        ParamSlider("Output max", binding.outputMax, effectiveOutputRange, unit = outputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(outputMax = value)) }
         }
         AzButton(
@@ -475,7 +479,14 @@ private fun ParamSlider(
     onChange: (Float) -> Unit,
 ) {
     val shown = when {
-        unit != null -> "${value.roundToInt()}$unit"
+        unit != null -> {
+            val number = if (kotlin.math.abs(value) < 10f) {
+                ((value * 100).roundToInt() / 100f).toString()
+            } else {
+                value.roundToInt().toString()
+            }
+            "$number$unit"
+        }
         asFraction -> "${(value * 100).roundToInt() / 100f}×"
         else -> "${(value * 100).roundToInt()}%"
     }
