@@ -4175,7 +4175,6 @@ class EditorViewModel @Inject constructor(
                             feathering = feathering,
                             wrapAround = false,
                             paintColor = paintColor,
-                            symmetryMode = symmetry,
                         )
                         val pixels = IntArray(work.width * work.height)
                         work.getPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
@@ -4849,7 +4848,6 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetryMode = strokeSymmetry,
                 wrapAroundMode = strokeWrapAroundMode,
                 selection = strokeSelection,
             )
@@ -4938,7 +4936,6 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetryMode = strokeSymmetry,
                 wrapAroundMode = strokeWrapAroundMode,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
@@ -5135,7 +5132,6 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetryMode = strokeSymmetry,
                 wrapAroundMode = strokeWrapAroundMode,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
@@ -5174,7 +5170,6 @@ class EditorViewModel @Inject constructor(
                 layerScale = capturedScale,
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
-                symmetryMode = strokeSymmetry,
                 wrapAroundMode = strokeWrapAroundMode,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
@@ -6627,9 +6622,6 @@ class EditorViewModel @Inject constructor(
         copyGifToDownloads(file, "Animation saved to Downloads", "Animation export failed")
 
     // ── Symmetry & Alpha Lock ────────────────────────────────────────────────────────────────
-
-    fun onToggleSymmetry() = dispatch(EditorIntent.ToggleSymmetry)
-    fun onSetSymmetryMode(mode: SymmetryMode) = dispatch(EditorIntent.SetSymmetryMode(mode))
 
     fun onToggleAlphaLock(id: String) {
         pushHistory()

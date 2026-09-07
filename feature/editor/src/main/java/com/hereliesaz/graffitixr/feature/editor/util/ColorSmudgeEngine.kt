@@ -5,7 +5,6 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
@@ -92,7 +91,6 @@ object ColorSmudgeEngine {
         val smearAlpha: Boolean = true,
         /** Foreground colour used only when [colorRate] > 0. */
         val paintColor: Int = Color.BLACK,
-        val symmetryMode: SymmetryMode = SymmetryMode.NONE,
         /** Optional Krita-style sensor routes. */
         val dynamics: List<BrushSensorBinding> = emptyList(),
         /**
@@ -158,19 +156,7 @@ object ColorSmudgeEngine {
                 )
             })
         }
-
-        val plans = ArrayList<ResolvedPlan>()
-        plans += one(stroke, samples)
-        for (transform in symmetryTransforms(settings.symmetryMode, width.toFloat(), height.toFloat())) {
-            val transformedSamples = if (samples.size == stroke.size) {
-                samples.map { sample ->
-                    val pos = transform(Offset(sample.x, sample.y))
-                    sample.copy(x = pos.x, y = pos.y, predicted = false)
-                }
-            } else emptyList()
-            plans += one(stroke.map(transform), transformedSamples)
-        }
-        return plans
+        return listOf(one(stroke, samples))
     }
 
     /**
@@ -193,14 +179,6 @@ object ColorSmudgeEngine {
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
         applyOne(pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource)
-        for (transform in symmetryTransforms(settings.symmetryMode, width.toFloat(), height.toFloat())) {
-            // Only x/y are mirrored. Sensor values describe the real hand movement and must not be
-            // transformed just because a synthetic symmetry twin is being rendered.
-            val transformedSamples = if (samples.size == stroke.size) {
-                samples.map { sample ->
-                    val p = transform(Offset(sample.x, sample.y))
-                    sample.copy(x = p.x, y = p.y, predicted = false)
-                }
             } else emptyList()
             applyOne(
                 pixels,

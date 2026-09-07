@@ -59,7 +59,6 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
@@ -646,7 +645,6 @@ fun EditorScreen(
                     ) {
                         activeId?.let { vm.onToggleAlphaLock(it) }
                     },
-                    QuickAction(if (uiState.symmetryMode != SymmetryMode.NONE) "Sym ✓" else "Sym") { vm.onToggleSymmetry() },
                     QuickAction("Deselect", enabled = uiState.selection != null) { vm.onClearSelection() },
                     QuickAction(strings.adj.redo, enabled = uiState.redoCount > 0) { vm.onRedoClicked() },
                 ),

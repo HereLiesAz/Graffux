@@ -10,7 +10,6 @@ import android.graphics.BlurMaskFilter
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.model.CatmullRom
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.ROUND_BRUSH_DAB_SPACING_FRACTION
 import kotlinx.coroutines.Dispatchers
@@ -191,12 +190,8 @@ object ImageProcessor {
         mutateInPlace: Boolean = false,
         feathering: Float = 0f,
         wrapAroundMode: Boolean = false,
-        // Procreate parity flags: alphaLock confines paint to existing alpha
-        // (SRC_ATOP); symmetryMode mirrors the stroke across one or more axes
-        // through the bitmap's centre. Both must be honoured here so undo/redo
-        // replay matches exactly what was painted live.
+        // Alpha Lock confines paint to existing alpha (SRC_ATOP).
         alphaLock: Boolean = false,
-        symmetryMode: SymmetryMode = SymmetryMode.NONE,
         // Bitmap-space lasso selection, if one is active: every tool in the switch
         // below is confined to it. Built by SelectionMask so the live paint, the
         // commit and the history replay all clip to the identical boundary.
@@ -260,7 +255,7 @@ object ImageProcessor {
                     // and usually opaque enough, that this is an acceptable trade against faking
                     // "existing alpha" for a from-scratch mask.
                     paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
-                    drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                    drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, pressures)
                 } else {
                     // Whole-stroke opacity ceiling (Procreate's "Opacity", as opposed to a stamp
                     // brush's per-dab "Flow" — see StampBrushRenderer, deliberately left alone): paint
@@ -272,7 +267,7 @@ object ImageProcessor {
                     val mask = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
                     if (mask != null) {
                         val maskCanvas = Canvas(mask)
-                        drawStrokeDynamic(maskCanvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                        drawStrokeDynamic(maskCanvas, stroke, paint, brushSize, wrapAroundMode, pressures)
                         val compositePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             alpha = (255 * op).toInt().coerceIn(0, 255)
                         }
@@ -282,7 +277,7 @@ object ImageProcessor {
                         // Allocation failed under memory pressure: fall back to a direct draw rather
                         // than silently painting nothing.
                         paint.alpha = (Color.alpha(brushColor) * op).toInt().coerceIn(0, 255)
-                        drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, symmetryMode, pressures)
+                        drawStrokeDynamic(canvas, stroke, paint, brushSize, wrapAroundMode, pressures)
                     }
                 }
             }
@@ -299,7 +294,7 @@ object ImageProcessor {
                         maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                     }
                 }
-                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+                drawStroke(canvas, stroke, paint, wrapAroundMode)
             }
 
             Tool.BLUR -> {
@@ -324,7 +319,7 @@ object ImageProcessor {
                         isAntiAlias = true
                         if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                     }
-                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode, symmetryMode)
+                    drawStroke(maskCanvas, stroke, maskPaint, wrapAroundMode)
                     // Keep the blurred pixels only where the stroke drew, then composite onto the layer.
                     maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
                     canvas.drawBitmap(maskBmp, 0f, 0f, null)
@@ -372,7 +367,7 @@ object ImageProcessor {
                     isAntiAlias = true
                     if (feathering > 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                 }
-                drawStroke(Canvas(maskBmp), stroke, maskPaint, wrapAroundMode, symmetryMode)
+                drawStroke(Canvas(maskBmp), stroke, maskPaint, wrapAroundMode)
 
                 val n = w * h
                 val out = IntArray(n)
@@ -452,18 +447,7 @@ object ImageProcessor {
                 // immediately (a short, sharp drag); high values carry it most of the stroke.
                 val rate = 0.35f + intensity.coerceIn(0f, 1f) * 0.6f
                 val radius = (brushSize / 2f).coerceAtLeast(1f)
-
-                // Symmetry is handled here rather than by drawStroke because this branch never
-                // touches a Canvas: each twin is the same smudge run along a transformed copy
-                // of the stroke, which is exactly what drawStroke does for the drawing tools.
-                val strokes = ArrayList<List<Offset>>(4)
-                strokes.add(stroke)
-                for (t in symmetryTransforms(symmetryMode, w.toFloat(), h.toFloat())) {
-                    strokes.add(stroke.map(t))
-                }
-                for (s in strokes) {
-                    smudgeAlong(px, w, h, s, radius, rate, feathering, wrapAroundMode)
-                }
+                smudgeAlong(px, w, h, stroke, radius, rate, feathering, wrapAroundMode)
 
                 // Back through the canvas with SRC, for the same reason as SHARPEN above: the
                 // selection clip lives on the canvas, and writing the array straight onto the
@@ -488,27 +472,7 @@ object ImageProcessor {
                 // gives a soft, brush-shaped edge — clipping to a
                 // stroked path instead would give a hard one.
                 //
-                // A glee audit found that under Symmetry, only the destination MASK was mirrored
-                // (via drawStroke's own recursion below) while the SOURCE was one single shifted
-                // bitmap composited against every mirrored copy at once -- so a mirrored copy's
-                // source read, still offset by the unmirrored `d`, usually landed off-canvas and
-                // painted nothing. Each copy (identity plus one per symmetry twin) is now built
-                // and composited independently, with the clone offset itself run through the same
-                // transform's linear part (its rotation/reflection about the canvas centre, with
-                // no translation) so a mirrored destination samples from the correspondingly
-                // mirrored source direction instead of the raw, unmirrored one.
-                val d = cloneOffset
-                if (d != null) {
-                    val w = resultBitmap.width.toFloat()
-                    val h = resultBitmap.height.toFloat()
-                    val center = Offset(w / 2f, h / 2f)
-                    val copies = buildList {
-                        add({ p: Offset -> p } to d)
-                        if (symmetryMode != SymmetryMode.NONE) {
-                            for (t in symmetryTransforms(symmetryMode, w, h)) {
-                                val mirroredOffset = t(center + d) - center
-                                add(t to mirroredOffset)
-                            }
+                val copies = listOf(({ p: Offset -> p }) to d)
                         }
                     }
                     val maskBmp = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
@@ -529,7 +493,7 @@ object ImageProcessor {
                             // symmetryMode = NONE: this copy IS one of drawStroke's own twins,
                             // already mirrored by `transform` above -- recursing into its symmetry
                             // handling again would double-mirror it.
-                            drawStroke(Canvas(subMask), stroke.map(transform), maskPaint, wrapAroundMode, SymmetryMode.NONE)
+                            drawStroke(Canvas(subMask), stroke.map(transform), maskPaint, wrapAroundMode)
 
                             // The source, shifted so the sampled pixels land under the brush. Read
                             // from originalBitmap, so an in-place stroke samples the layer as it
@@ -592,7 +556,7 @@ object ImageProcessor {
                     isAntiAlias = true
                     alpha = 128
                 }
-                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+                drawStroke(canvas, stroke, paint, wrapAroundMode)
             }
 
             Tool.BURN -> {
@@ -605,7 +569,7 @@ object ImageProcessor {
                     alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.DARKEN)
                 }
-                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+                drawStroke(canvas, stroke, paint, wrapAroundMode)
             }
 
             Tool.DODGE -> {
@@ -618,7 +582,7 @@ object ImageProcessor {
                     alpha = (255 * intensity * 0.3f).toInt().coerceIn(0, 255)
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.LIGHTEN)
                 }
-                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+                drawStroke(canvas, stroke, paint, wrapAroundMode)
             }
 
             Tool.COLOR -> {
@@ -636,46 +600,13 @@ object ImageProcessor {
                     alpha = (255 * intensity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
                     xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
                 }
-                drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+                drawStroke(canvas, stroke, paint, wrapAroundMode)
             }
 
             else -> {}
         }
 
         resultBitmap
-    }
-
-    /**
-     * The point transforms [mode] mirrors/rotates a stroke through, one per twin drawn —
-     * excludes the identity (the caller already draws the untransformed stroke itself).
-     * [VERTICAL]/[HORIZONTAL] reflect across the centre line on that axis; [QUADRANT] is
-     * both reflections plus their combination (4-fold total including the original);
-     * [RADIAL_6] rotates the stroke five more times at 60° steps around the canvas centre.
-     */
-    internal fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
-        val cx = w / 2f
-        val cy = h / 2f
-        return when (mode) {
-            SymmetryMode.NONE -> emptyList()
-            SymmetryMode.VERTICAL -> listOf({ p: Offset -> Offset(w - p.x, p.y) })
-            SymmetryMode.HORIZONTAL -> listOf({ p: Offset -> Offset(p.x, h - p.y) })
-            SymmetryMode.QUADRANT -> listOf(
-                { p: Offset -> Offset(w - p.x, p.y) },
-                { p: Offset -> Offset(p.x, h - p.y) },
-                { p: Offset -> Offset(w - p.x, h - p.y) },
-            )
-            SymmetryMode.RADIAL_6 -> (1..5).map { k ->
-                val rad = Math.toRadians((60.0 * k))
-                val cos = kotlin.math.cos(rad).toFloat()
-                val sin = kotlin.math.sin(rad).toFloat()
-                val transform: (Offset) -> Offset = { p: Offset ->
-                    val dx = p.x - cx
-                    val dy = p.y - cy
-                    Offset(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
-                }
-                transform
-            }
-        }
     }
 
     /**
@@ -824,14 +755,7 @@ object ImageProcessor {
         }
     }
 
-    internal fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false, symmetryMode: SymmetryMode = SymmetryMode.NONE) {
-        if (symmetryMode != SymmetryMode.NONE) {
-            // Draw each mirrored/rotated twin first with symmetry off, then fall
-            // through to the normal draw — keeps the mirror math in exactly one place.
-            for (transform in symmetryTransforms(symmetryMode, canvas.width.toFloat(), canvas.height.toFloat())) {
-                drawStroke(canvas, stroke.map(transform), paint, wrapAroundMode, symmetryMode = SymmetryMode.NONE)
-            }
-        }
+    internal fun drawStroke(canvas: Canvas, stroke: List<Offset>, paint: Paint, wrapAroundMode: Boolean = false) {
         if (stroke.size == 1) {
             val cx = stroke.first().x
             val cy = stroke.first().y
@@ -897,11 +821,10 @@ object ImageProcessor {
         paint: Paint,
         baseWidth: Float,
         wrapAroundMode: Boolean = false,
-        symmetryMode: SymmetryMode = SymmetryMode.NONE,
         pressures: List<Float> = emptyList(),
     ) {
         if (stroke.size == 1) {
-            drawStroke(canvas, stroke, paint, wrapAroundMode, symmetryMode)
+            drawStroke(canvas, stroke, paint, wrapAroundMode)
             return
         }
         val widths = com.hereliesaz.graffitixr.feature.editor.BrushDynamics.segmentWidths(stroke, baseWidth, pressures)
@@ -916,7 +839,7 @@ object ImageProcessor {
             val centres = BrushStamps.place(run.toList(), max(radius * ROUND_BRUSH_DAB_SPACING_FRACTION, 1f))
             var j = 0
             while (j < centres.size) {
-                drawDab(canvas, Offset(centres[j], centres[j + 1]), radius, paint, wrapAroundMode, symmetryMode)
+                drawDab(canvas, Offset(centres[j], centres[j + 1]), radius, paint, wrapAroundMode)
                 j += 2
             }
         }
@@ -924,23 +847,15 @@ object ImageProcessor {
         paint.strokeWidth = baseWidth
     }
 
-    /** Draws one filled round dab of [radius] at [center], mirrored per [symmetryMode] and tiled
-     *  per [wrapAroundMode] — the same transform set [drawStroke] applies to a whole poly-line,
-     *  applied here per dab centre instead. `paint.style` must already be `Paint.Style.FILL`. */
+    /** Draws one filled round dab, tiled only when wrap-around is enabled. */
     private fun drawDab(
         canvas: Canvas,
         center: Offset,
         radius: Float,
         paint: Paint,
         wrapAroundMode: Boolean,
-        symmetryMode: SymmetryMode,
     ) {
-        val centres = ArrayList<Offset>(4)
-        centres.add(center)
-        if (symmetryMode != SymmetryMode.NONE) {
-            for (transform in symmetryTransforms(symmetryMode, canvas.width.toFloat(), canvas.height.toFloat())) {
-                centres.add(transform(center))
-            }
+        val centres = listOf(center)
         }
         if (wrapAroundMode) {
             val w = canvas.width.toFloat()

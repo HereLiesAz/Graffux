@@ -106,24 +106,7 @@ class ProcreateParityTest {
 
     private fun layer(id: String) = Layer(id = id, name = id)
 
-    @Test
-    fun `ToggleSymmetry flips the guide`() {
-        val on = EditorReducer.reduce(EditorUiState(), EditorIntent.ToggleSymmetry)
-        assertEquals(com.hereliesaz.graffitixr.common.model.SymmetryMode.VERTICAL, on.symmetryMode)
-        assertEquals(
-            com.hereliesaz.graffitixr.common.model.SymmetryMode.NONE,
-            EditorReducer.reduce(on, EditorIntent.ToggleSymmetry).symmetryMode,
-        )
-    }
 
-    @Test
-    fun `SetSymmetryMode selects any mode directly`() {
-        val quadrant = EditorReducer.reduce(
-            EditorUiState(),
-            EditorIntent.SetSymmetryMode(com.hereliesaz.graffitixr.common.model.SymmetryMode.QUADRANT),
-        )
-        assertEquals(com.hereliesaz.graffitixr.common.model.SymmetryMode.QUADRANT, quadrant.symmetryMode)
-    }
 
     @Test
     fun `ToggleTimeLapseRecording flips the recording flag`() {

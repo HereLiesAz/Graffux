@@ -1385,8 +1385,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetColorSmudgeOpacity = { vm.setColorSmudgeOpacity(it) },
                         onSetColorSmudgeAlphaCarry = { vm.setColorSmudgeAlphaCarry(it) },
                         onSetColorSmudgeSampleMerged = { vm.setColorSmudgeSampleMerged(it) },
-                        symmetryMode = uiState.symmetryMode,
-                        onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },
                     )
                 }
@@ -1997,8 +1995,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
         reflectSelectionInParent = true,
     ) {
-        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
-        SelectionShape.entries.forEach { mode ->
+        fun selectionShapeItem(mode: SelectionShape) {
             val id = "selectShape.${mode.name}"
             azRailItem(
                 id = id, classifiers = setOf(id),
@@ -2015,6 +2012,15 @@ private fun AzNavHostScope.ConfigureRailItems(
                 onClick = { vm.onSetSelectionShape(mode) },
             )
         }
+        // Rectangle is the standard marquee and should lead the popup. Everything that used to
+        // follow Select retains its original relative order.
+        selectionShapeItem(SelectionShape.RECTANGLE)
+        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
+        listOf(
+            SelectionShape.FREEHAND,
+            SelectionShape.ELLIPSE,
+            SelectionShape.AUTOMATIC,
+        ).forEach(::selectionShapeItem)
         SelectionOp.entries.forEach { mode ->
             val id = "selectOp.${mode.name}"
             azRailItem(

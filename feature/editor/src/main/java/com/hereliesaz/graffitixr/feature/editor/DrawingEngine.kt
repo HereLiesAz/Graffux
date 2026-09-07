@@ -294,7 +294,6 @@ internal class DrawingEngine(
                 feathering = stroke.feathering,
                 wrapAround = false,
                 paintColor = stroke.brushColor,
-                symmetryMode = stroke.symmetryMode,
             )
             val plans = ColorSmudgeEngine.resolvePlans(
                 mapped, width, height, settings, mappedSamples, stroke.seed,
