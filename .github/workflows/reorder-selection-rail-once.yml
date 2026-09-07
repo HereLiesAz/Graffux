@@ -1,0 +1,21 @@
+name: Reorder Selection Rail Once
+on:
+  push:
+    branches: [feat/selection-rail-order]
+jobs:
+  patch:
+    if: "!contains(github.event.head_commit.message, 'put rectangle selection first')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/selection-rail-order
+      - run: python3 tools/reorder_selection_rail.py
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/hereliesaz/graffux/MainActivity.kt
+          git commit -m 'feat(editor): put rectangle selection first'
+          git push
