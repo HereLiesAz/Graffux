@@ -100,8 +100,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     // ── Windows and the rest ─────────────────────────────────────────────────────────────────────
     "tool.options" to
         "The dials that belong to whatever tool is in your hand, and only those — stroke " +
-        "stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow, " +
-        "and which axis the symmetry guide mirrors across while it's on. A dial that is missing is " +
+        "stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. A dial that is missing is " +
         "one the current tool does not have.",
     "tool.animation" to
         "Animation Assist. Each top-level layer becomes one frame; the window plays them, steps " +

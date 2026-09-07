@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -57,8 +56,6 @@ fun ToolOptionsWindow(
     onSetColorSmudgeOpacity: (Float) -> Unit,
     onSetColorSmudgeAlphaCarry: (Boolean) -> Unit,
     onSetColorSmudgeSampleMerged: (Boolean) -> Unit,
-    symmetryMode: SymmetryMode,
-    onSetSymmetryMode: (SymmetryMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var showWetMix by remember { mutableStateOf(false) }
@@ -187,17 +184,6 @@ fun ToolOptionsWindow(
                 Slider(value = selectionFeatherPx, onValueChange = onSetSelectionFeather, valueRange = 0f..64f)
             }
 
-            if (symmetryMode != SymmetryMode.NONE) {
-                Text("Symmetry", style = MaterialTheme.typography.bodySmall)
-                SymmetryMode.entries.filter { it != SymmetryMode.NONE }.forEach { mode ->
-                    AzButton(
-                        text = if (mode == symmetryMode) "${mode.label} ✓" else mode.label,
-                        onClick = { onSetSymmetryMode(mode) },
-                        shape = AzButtonShape.RECTANGLE,
-                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
-                    )
-                }
-            }
         }
     }
 }

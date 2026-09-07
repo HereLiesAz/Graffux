@@ -9,7 +9,6 @@ import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerProps
-import com.hereliesaz.graffitixr.common.model.SymmetryMode
 import com.hereliesaz.graffitixr.common.model.TextLayerParams
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -104,11 +103,6 @@ internal sealed interface EditorIntent {
     /** Fraction of screen resolution new layers allocate at. */
     data class SetCanvasRenderScale(val scale: Float) : EditorIntent
     data object ToggleWrapAroundMode : EditorIntent
-    /** Toggles the vertical-mirror symmetry guide for painting. */
-    /** Flips between [SymmetryMode.NONE] and [SymmetryMode.VERTICAL] — the rail toggle's simple on/off. */
-    data object ToggleSymmetry : EditorIntent
-    /** Directly selects any symmetry mode (including NONE) — the mode picker's each-option action. */
-    data class SetSymmetryMode(val mode: SymmetryMode) : EditorIntent
     /** Flips time-lapse recording on/off; the actual GIF encoder lives in EditorViewModel. */
     data object ToggleTimeLapseRecording : EditorIntent
     /** Enters/exits Animation Assist — see AnimationFrames for how frames map onto layers. */

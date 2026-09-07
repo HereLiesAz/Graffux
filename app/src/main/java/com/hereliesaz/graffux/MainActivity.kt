@@ -1385,8 +1385,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetColorSmudgeOpacity = { vm.setColorSmudgeOpacity(it) },
                         onSetColorSmudgeAlphaCarry = { vm.setColorSmudgeAlphaCarry(it) },
                         onSetColorSmudgeSampleMerged = { vm.setColorSmudgeSampleMerged(it) },
-                        symmetryMode = uiState.symmetryMode,
-                        onSetSymmetryMode = { vm.onSetSymmetryMode(it) },
                         onDismiss = { showToolOptions = false },
                     )
                 }

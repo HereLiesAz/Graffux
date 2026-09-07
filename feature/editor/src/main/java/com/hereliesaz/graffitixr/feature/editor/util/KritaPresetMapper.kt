@@ -82,7 +82,7 @@ object KritaPresetMapper {
      *
      * Everything else in [ColorSmudgeEngine.Settings] is left at its default: `radiusPx` is
      * explicitly a replay-time value supplied by the caller (per its own doc comment), and
-     * `chargeDecayRate`/`dilution`/`feathering`/`wrapAround`/`paintColor`/`symmetryMode`/`dynamics`/
+     * `chargeDecayRate`/`dilution`/`feathering`/`wrapAround`/`paintColor`/`dynamics`/
      * `sampleMerged` either have no Krita source equivalent researched this pass (Graffux-only
      * Procreate-vocabulary extensions) or would need the curve/sensor XML sub-format decoded
      * (`dynamics`/`smudgeRadius`'s own sensor route) -- out of scope, per this item's standing rule
