@@ -5,7 +5,10 @@ import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -37,7 +40,7 @@ import kotlin.math.abs
  */
 class StrokeGate {
     /** True while a stroke is being painted. */
-    var strokeActive: Boolean = false
+    var strokeActive: Boolean by mutableStateOf(false)
 
     /**
      * Bumped every time an in-flight stroke is thrown away because a second finger landed. The

@@ -163,7 +163,7 @@ private fun GraffuxDesktopApp(
         // library's default "?" rail item crashed on close (a Skia text-layout assertion inside
         // AutoSizeText, `TextStyle.setHeight` on a degenerate zero font-size candidate mid the
         // overlay's close transition -- see DESKTOP.md's writeup). Fixed upstream in
-        // aznavrail-cmp 11.45 (commit 50c56cd, "Fix AutoSizeText crash on zero font-size
+        // aznavrail-cmp 11.47 (commit 50c56cd, "Fix AutoSizeText crash on zero font-size
         // candidate") -- the version bumped to alongside this change -- so the auto "?" item is
         // safe to re-enable.
         azAbout(dedupeAbout = true)
