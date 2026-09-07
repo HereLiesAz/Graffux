@@ -131,6 +131,39 @@ class ExtensionStateTest {
         )
     }
 
+    /**
+     * `bounded()` used to clip only `reason`, leaving `id`/`version` unbounded — so a single entry with
+     * an oversized `id` could still blow the whole budget on its own and take every good entry down
+     * with it in the drop-from-the-end trim loop, exactly the failure `reason`-bounding exists to
+     * prevent. `id` and `version` must be capped too.
+     */
+    @Test
+    fun `one entry with an oversized id does not empty the whole inventory`() {
+        val huge = ExtensionStateEntry(
+            id = "com.example." + "x".repeat(300_000),
+            version = "1.0.0",
+            state = ExtensionState.ACTIVE.wire,
+            at = "2026-07-30T02:14:00Z",
+        )
+        val good = (1..5).map { entry("com.example.fine$it") }
+
+        val doc = ExtensionInventory.document(listOf(huge) + good)
+        assertTrue(
+            "document is ${doc.toByteArray(Charsets.UTF_8).size} bytes, over the cap",
+            doc.toByteArray(Charsets.UTF_8).size <= ExtensionInventory.MAX_BYTES,
+        )
+        val parsed = ExtensionInventory.parse(doc)
+        assertTrue("the good entries must survive an oversized neighbour", parsed.size >= good.size)
+        assertTrue(
+            "the oversized id is bounded, not dropped",
+            parsed.any { it.id.startsWith("com.example.x") },
+        )
+        assertTrue(
+            "its id must be clipped",
+            parsed.first { it.id.startsWith("com.example.x") }.id.length < 1_000,
+        )
+    }
+
     @Test
     fun `a multi-byte id is measured in bytes, not characters`() {
         // Each id is 400 chars but 1200 bytes in UTF-8; counting characters would pass the cap while

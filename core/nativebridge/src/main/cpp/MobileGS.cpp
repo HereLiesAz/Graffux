@@ -146,7 +146,27 @@ void MobileGS::mapThreadFunc() {
 // The idle map thread parks on mQueueCv and exits cleanly on destroy (mMapRunning=false + notify).
 void MobileGS::pushFrame(const cv::Mat& depth, const cv::Mat& color, const float* viewMat, const float* projMat, const float* intrinsics, bool isYuv, float confidence) {}
 
-void MobileGS::clearMap() {}                            // voxel/splat map deleted
+// Resets the captured wall fingerprint (mWallDescriptors/mWallKeypoints3D and the co-registration/
+// validator state that goes with it) so scheduleRelocCheck/setArtworkFingerprint never keep matching
+// against a previous project's wall after this one is opened but before its own fingerprint (if any)
+// is restored. This is distinct from clearWallFeatureMap(), which clears the separate persistent
+// wall-feature-map (mMapDescriptors/mMapPoints3D) — that function's responsibility is untouched here.
+void MobileGS::clearMap() {
+    std::lock_guard<std::mutex> lock(mMutex);
+    mWallDescriptors.release();
+    mWallKeypoints3D.clear();
+    mWallPatch.release();
+    mArtworkDescriptors.release();
+    mArtworkKeypoints3D.clear();
+    mPaintingProgress.store(0.0f, std::memory_order_relaxed);
+    // Drop stale co-registration/view state so a later project can't inherit it.
+    static const float kIdentity16[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    memcpy(mFingerprintAnchorMatrix, kIdentity16, 16 * sizeof(float));
+    memset(mFingerprintIntrinsics, 0, 4 * sizeof(float));
+    memcpy(mFingerprintViewMatrix, kIdentity16, 16 * sizeof(float));
+    mHasFingerprintView = false;
+    mLastGrowSeq = 0;
+}
 void MobileGS::pruneByConfidence(float threshold) {}   // voxel/splat map deleted
 
 void MobileGS::setArScanMode(int mode) { mScanMode = mode; }

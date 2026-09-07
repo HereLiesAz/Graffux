@@ -66,6 +66,9 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    // SettingsRepositoryImplTest exercises the real Preferences DataStore, which needs a live
+    // Android Context (filesDir etc.) that a plain JVM unit test doesn't have.
+    testImplementation(libs.robolectric)
     // Ed25519 signing in AzpInstallerTest, to build signed `.azp` fixtures the installer verifies.
     testImplementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 }

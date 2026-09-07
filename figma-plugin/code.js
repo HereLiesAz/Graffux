@@ -19,8 +19,22 @@ figma.ui.onmessage = async (msg) => {
   }
 };
 
+// Bundle format versions this plugin knows how to reconstruct. Bump alongside FigmaBundle.kt's
+// FORMAT_VERSION only once this file's reconstruction logic actually handles the new shape (e.g.
+// per-layer geometry instead of full-bleed compositing) — see this file's header comment.
+const SUPPORTED_BUNDLE_VERSIONS = [1];
+
 async function importBundle(bundle) {
-  if (!bundle || !Array.isArray(bundle.layers) || bundle.layers.length === 0) {
+  if (!bundle || !SUPPORTED_BUNDLE_VERSIONS.includes(bundle.version)) {
+    throw new Error(
+      'This plugin only understands Graffux bundle format ' +
+        SUPPORTED_BUNDLE_VERSIONS.join('/') +
+        ", but that file is format " + (bundle && bundle.version !== undefined ? bundle.version : 'unknown') +
+        '. Update the plugin to import it.'
+    );
+  }
+
+  if (!Array.isArray(bundle.layers) || bundle.layers.length === 0) {
     throw new Error("That file has no layers in it.");
   }
 

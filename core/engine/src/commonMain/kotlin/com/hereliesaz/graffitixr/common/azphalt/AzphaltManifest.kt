@@ -1,6 +1,5 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -180,10 +179,37 @@ enum class Maturity(val wire: String) {
     }
 }
 
-@Serializable
-enum class Runtime {
-    @SerialName("js") JS,
-    @SerialName("wasm") WASM,
+/**
+ * A code extension's execution runtime (spec/extension-manifest.md § runtime). Like the other manifest
+ * enums ([ExtensionKind], [Maturity], [Capability]), an unrecognised wire value deserializes to
+ * [UNKNOWN] instead of throwing — a manifest naming a runtime newer than this build still parses (and
+ * the extension stays visible, e.g. in `ExtensionRepository.scanInstalled()`'s per-extension
+ * `runCatching`), rather than the whole manifest parse failing with a `SerializationException`. A host
+ * simply cannot execute [UNKNOWN]; callers choosing a JS vs WASM execution path must treat it as
+ * "unsupported", not silently fall through to either.
+ */
+@Serializable(with = Runtime.Serializer::class)
+enum class Runtime(val wire: String) {
+    JS("js"),
+    WASM("wasm"),
+
+    /** A runtime this host build does not recognise; never executable. */
+    UNKNOWN("");
+
+    internal object Serializer : kotlinx.serialization.KSerializer<Runtime> {
+        override val descriptor = kotlinx.serialization.descriptors.PrimitiveSerialDescriptor(
+            "com.hereliesaz.graffitixr.common.azphalt.Runtime",
+            kotlinx.serialization.descriptors.PrimitiveKind.STRING,
+        )
+
+        override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: Runtime) =
+            encoder.encodeString(value.wire)
+
+        override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): Runtime {
+            val raw = decoder.decodeString()
+            return entries.firstOrNull { it.wire == raw } ?: UNKNOWN
+        }
+    }
 }
 
 /**
@@ -432,12 +458,14 @@ fun parseCompat(compat: String): Compat? {
         "=" -> CompatOp.EQ
         else -> CompatOp.GE // ">=" or absent (defaults to >=)
     }
-    return Compat(
-        op = op,
-        major = m.groupValues[2].toInt(),
-        minor = m.groupValues[3].ifEmpty { "0" }.toInt(),
-        patch = m.groupValues[4].ifEmpty { "0" }.toInt(),
-    )
+    // COMPAT_RE's digit groups are unbounded, so a manifest can match with a numeral far larger than
+    // Int can hold (e.g. ">=99999999999999999999"). toIntOrNull fails closed (null) on overflow instead
+    // of throwing NumberFormatException, keeping compatSatisfies' documented "unparseable ⇒ false"
+    // contract true for oversized version numbers too.
+    val major = m.groupValues[2].toIntOrNull() ?: return null
+    val minor = m.groupValues[3].ifEmpty { "0" }.toIntOrNull() ?: return null
+    val patch = m.groupValues[4].ifEmpty { "0" }.toIntOrNull() ?: return null
+    return Compat(op = op, major = major, minor = minor, patch = patch)
 }
 
 private fun compareVersions(a: Compat, b: Compat): Int {

@@ -368,8 +368,8 @@ def explain_403(sa_email: str, sa_project: str, package: str, err: HttpError) ->
     )
     for line in (
         f"  1. Play Console > Users & permissions: is {sa_email} an *accepted* user with app",
-        f"     access to {package}? Grant it 'Release to testing tracks' (and 'Release to",
-        "     production' for the production draft). A pending invitation is not access.",
+        f"     access to {package}? Grant it 'Release to testing tracks' (this pipeline only",
+        "     publishes to the internal and alpha tracks). A pending invitation is not access.",
         f"  2. Play Console > Setup > API access: is project '{sa_project}' the project linked",
         "     to this developer account? A key from any other project authenticates and is",
         "     then refused with exactly this error.",

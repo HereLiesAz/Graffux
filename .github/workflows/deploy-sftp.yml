@@ -46,9 +46,18 @@ jobs:
 
           USER_TRIMMED=$(printf '%s' "$USERNAME" | tr -d ' \t\r\n')
           PW_TRIMMED=$(printf '%s' "$PASSWORD" | tr -d '\r\n')
-          echo "[diag] username length raw=$(printf '%s' "$USERNAME" | wc -c) trimmed=$(printf '%s' "$USER_TRIMMED" | wc -c)"
-          echo "[diag] password length raw=$(printf '%s' "$PASSWORD" | wc -c) trimmed=$(printf '%s' "$PW_TRIMMED" | wc -c)"
-          echo "[diag] host: $(printf '%s' "$HOST" | wc -c) chars, port: $PORT"
+
+          # Fail fast (with no length/content in the log) if either secret carries
+          # trailing whitespace or CRLF corruption, rather than letting lftp fail
+          # obscurely on a bad login further down.
+          if [ "$USERNAME" != "$USER_TRIMMED" ]; then
+            echo "::error::FTP_USERNAME appears to contain leading/trailing whitespace or CRLF corruption."
+            exit 1
+          fi
+          if [ "$PASSWORD" != "$PW_TRIMMED" ]; then
+            echo "::error::FTP_PASSWORD appears to contain CRLF corruption."
+            exit 1
+          fi
 
           # lftp has its own SFTP implementation (not OpenSSH) which
           # handles ProFTPD mod_sftp password auth reliably - bypasses

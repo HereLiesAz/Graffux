@@ -28,6 +28,12 @@ dependencies {
     // The real AzNavRail UI (Compose Multiplatform port), so this app uses the same rail/tool
     // navigation as the Android app instead of a placeholder scaffold — see DESKTOP.md.
     implementation(libs.az.nav.rail.cmp)
+
+    // For ThemeColorSyncTest, which guards GraffuxColors' hand-copied literals (see Theme.kt's doc
+    // comment) against drifting from core:design's Color.kt without either module depending on the
+    // other — core:design is an Android library and can't be added as a dependency of this plain-JVM
+    // desktop app.
+    testImplementation(libs.junit)
 }
 
 // Read-only: unlike app/build.gradle.kts, this does NOT increment versionPatch/versionBuild — a

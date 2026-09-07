@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -80,7 +81,11 @@ fun BackgroundColorDialog(
                         )
                         .border(
                             width = if (selected) 3.dp else 1.dp,
-                            color = if (selected) Color(0xFF00E5FF) else Color.Gray,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.secondary
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            },
                             shape = RoundedCornerShape(6.dp),
                         )
                         .clickable { onSelect(swatch) },
