@@ -133,11 +133,6 @@ object GraffuxIcons {
     val Streamline: Int get() = R.drawable.ic_gx_streamline
     /** `stylus` — tools. */
     val Stylus: Int get() = R.drawable.ic_gx_stylus
-    /** `symmetry` — tools. */
-    /** `symmetry-horizontal` — tools. */
-    /** `symmetry-quadrant` — tools. */
-    /** `symmetry-radial` — tools. */
-    /** `symmetry-vertical` — tools. */
     /** `tilt` — tools. */
     val Tilt: Int get() = R.drawable.ic_gx_tilt
     /** `watercolor` — tools. */
