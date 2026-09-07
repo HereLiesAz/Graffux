@@ -303,18 +303,6 @@ data class EditorUiState(
     // so halving this quarters the bytes per layer — the main lever on memory.
     val canvasRenderScale: Float = 1f,
     val wrapAroundMode: Boolean = false,
-    // Procreate's symmetry guide (vertical mirror): strokes are mirrored across the layer's
-    // vertical centre line as they're painted.
-    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
-    /**
-     * The mode the symmetry toggle restores when it is switched back on.
-     *
-     * Kept because the rail has two controls for one setting — a quick on/off and a five-way picker —
-     * and without this the toggle was destructive: pick Radial 6, tap the toggle to turn symmetry off
-     * for a moment, tap it again, and you were on Vertical with no way to know what you had lost.
-     * Never [SymmetryMode.NONE], because "restore the off state" is not a thing to restore to.
-     */
-    val lastSymmetryMode: SymmetryMode = SymmetryMode.VERTICAL,
     // Procreate's time-lapse: while true, EditorViewModel streams a downsampled canvas snapshot to
     // a GIF file after every committed stroke (see TimeLapseRecorder). Transient UI state, not history.
     val isTimeLapseRecording: Boolean = false,
