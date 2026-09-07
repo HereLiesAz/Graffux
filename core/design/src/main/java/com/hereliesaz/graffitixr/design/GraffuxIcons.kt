@@ -134,15 +134,10 @@ object GraffuxIcons {
     /** `stylus` — tools. */
     val Stylus: Int get() = R.drawable.ic_gx_stylus
     /** `symmetry` — tools. */
-    val Symmetry: Int get() = R.drawable.ic_gx_symmetry
     /** `symmetry-horizontal` — tools. */
-    val SymmetryHorizontal: Int get() = R.drawable.ic_gx_symmetry_horizontal
     /** `symmetry-quadrant` — tools. */
-    val SymmetryQuadrant: Int get() = R.drawable.ic_gx_symmetry_quadrant
     /** `symmetry-radial` — tools. */
-    val SymmetryRadial: Int get() = R.drawable.ic_gx_symmetry_radial
     /** `symmetry-vertical` — tools. */
-    val SymmetryVertical: Int get() = R.drawable.ic_gx_symmetry_vertical
     /** `tilt` — tools. */
     val Tilt: Int get() = R.drawable.ic_gx_tilt
     /** `watercolor` — tools. */
@@ -891,11 +886,6 @@ object GraffuxIcons {
         GxIcon("stamp-pattern", R.drawable.ic_gx_stamp_pattern, GxIconCategory.TOOLS, listOf("pattern stamp", "tile", "repeat")),
         GxIcon("streamline", R.drawable.ic_gx_streamline, GxIconCategory.TOOLS, listOf("stabiliser", "smoothing", "steady")),
         GxIcon("stylus", R.drawable.ic_gx_stylus, GxIconCategory.TOOLS, listOf("pen hardware", "pencil", "digitiser")),
-        GxIcon("symmetry", R.drawable.ic_gx_symmetry, GxIconCategory.TOOLS, listOf("mirror", "reflect drawing", "guide")),
-        GxIcon("symmetry-horizontal", R.drawable.ic_gx_symmetry_horizontal, GxIconCategory.TOOLS, listOf("mirror y", "top bottom")),
-        GxIcon("symmetry-quadrant", R.drawable.ic_gx_symmetry_quadrant, GxIconCategory.TOOLS, listOf("four way", "kaleidoscope")),
-        GxIcon("symmetry-radial", R.drawable.ic_gx_symmetry_radial, GxIconCategory.TOOLS, listOf("rotational", "mandala", "spokes")),
-        GxIcon("symmetry-vertical", R.drawable.ic_gx_symmetry_vertical, GxIconCategory.TOOLS, listOf("mirror x", "left right")),
         GxIcon("tilt", R.drawable.ic_gx_tilt, GxIconCategory.TOOLS, listOf("angle", "shading", "lean")),
         GxIcon("watercolor", R.drawable.ic_gx_watercolor, GxIconCategory.TOOLS, listOf("wet", "wash", "bleed")),
         GxIcon("mask", R.drawable.ic_gx_mask, GxIconCategory.SELECTION, listOf("layer mask", "reveal", "conceal")),
