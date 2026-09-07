@@ -1,0 +1,29 @@
+name: Apply AzNavRail 11.47 Once
+
+on:
+  push:
+    branches: [feat/aznavrail-11-47]
+    paths:
+      - 'tools/apply_aznavrail_1147.py'
+      - '.github/workflows/apply-aznavrail-1147-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/aznavrail-11-47
+      - name: Apply migration
+        run: python tools/apply_aznavrail_1147.py
+      - name: Commit migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gradle/libs.versions.toml app feature desktop DESKTOP.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat(ui): adopt AzNavRail 11.47 visibility and overflow'
+          git push
