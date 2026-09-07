@@ -24,7 +24,7 @@ private val MaxWindowHeight = 480.dp
  * Desktop's copy of Android's `core:design` `FloatingWindow` — a floating, draggable,
  * collapsible panel for tool options, Procreate-style, instead of the fixed top-toolbar Row this
  * app used before. Both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
- * (11.45, already a `:desktop` dependency), so this is a reuse of Android's real floating-window
+ * (11.47, already a `:desktop` dependency), so this is a reuse of Android's real floating-window
  * mechanism, not a second hand-built implementation of dragging/clamping.
  *
  * Simpler than Android's version: no `RailInset`-based obstruction avoidance (this app's rail is
