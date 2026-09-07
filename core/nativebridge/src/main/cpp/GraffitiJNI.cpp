@@ -453,7 +453,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallPatchBytes(
         JNIEnv* env, jobject thiz, jbyteArray data, jint size) {
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine || !data || size <= 0) return;
-    if (env->GetArrayLength(data) < size * size) return; // expect a size x size single-channel gray buffer
+    // 64-bit product: size*size in 32-bit jint arithmetic overflows for size >= 46341, which would
+    // defeat this bounds check before the cv::Mat below reads size*size bytes.
+    if ((jlong)size * (jlong)size > (jlong)env->GetArrayLength(data)) return; // expect a size x size single-channel gray buffer
     jbyte* p = env->GetByteArrayElements(data, nullptr);
     cv::Mat gray(size, size, CV_8UC1, reinterpret_cast<uchar*>(p));
     gSlamEngine->setWallPatch(gray); // clones internally; safe to release after

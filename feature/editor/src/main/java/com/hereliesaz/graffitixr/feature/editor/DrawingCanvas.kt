@@ -166,7 +166,15 @@ fun DrawingCanvas(
                     predictionTail = null
                 }
             }
-            .pointerInput(activeTool, nextFrameMs) {
+            .pointerInput(activeTool, nextFrameMs, pickingCloneSource) {
+                // pickingCloneSource must be a key, not just captured: it flips (Tool.CLONE armed
+                // but unaimed -> aimed) only in response to a tap-up dispatch that lands *after* the
+                // gesture reading it has already broken out of its while-loop (see onPickCloneSource
+                // below), so there is never a pointer down when this restarts mid-stroke. Without the
+                // key, this closure keeps whatever value was captured when activeTool/nextFrameMs last
+                // changed, so every gesture after the first clone-source pick reads a stale `true` and
+                // treats subsequent drags as "still picking the source" instead of stamping paint.
+                //
                 // Changing tool relaunches this block, killing any in-flight stroke's loop before it
                 // can clear the latch. Nothing is being painted the instant this starts, so start clean.
                 gate.strokeActive = false

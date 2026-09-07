@@ -52,10 +52,10 @@ jobs:
           cache-read-only: false
           dependency-graph: generate-submit-and-upload
 
-      - name: Run unit tests
+      - name: Run detekt + unit tests
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest test --continue --build-cache
+          ./gradlew detekt testDebugUnitTest test --continue --build-cache
 
       - name: Upload test reports
         if: failure()

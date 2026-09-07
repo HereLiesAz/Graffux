@@ -486,65 +486,69 @@ class ProjectManager @Inject constructor(
     suspend fun loadAsSpectator(bytes: ByteArray) = withContext(Dispatchers.IO) {
         if (bytes.isEmpty()) return@withContext
 
-        run {
-            try {
-                ZipInputStream(bytes.inputStream()).use { zis ->
-                    var projectData: GraffitiProject? = null
-                    val extractedFiles = mutableMapOf<String, File>()
-                    var totalBytes = 0L
+        var extractedFiles: Map<String, File> = emptyMap()
+        try {
+            ZipInputStream(bytes.inputStream()).use { zis ->
+                var projectData: GraffitiProject? = null
+                val extracted = mutableMapOf<String, File>()
+                extractedFiles = extracted
+                var totalBytes = 0L
 
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        val name = entry.name
-                        if (!entry.isDirectory && name.isNotEmpty()) {
-                            val tmpFile = File.createTempFile("gxr_spec_", null, context.cacheDir)
-                            val newTotal = FileOutputStream(tmpFile).use { fos ->
-                                streamEntryBounded(zis, fos, totalBytes)
-                            }
-                            if (newTotal == null) {
-                                tmpFile.delete()
-                                Log.e("ProjectManager", "Spectator load aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
-                                return@use
-                            }
-                            totalBytes = newTotal
-                            if (name == "project.json") {
-                                projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
-                            }
-                            extractedFiles[name] = tmpFile
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val name = entry.name
+                    if (!entry.isDirectory && name.isNotEmpty()) {
+                        val tmpFile = File.createTempFile("gxr_spec_", null, context.cacheDir)
+                        val newTotal = FileOutputStream(tmpFile).use { fos ->
+                            streamEntryBounded(zis, fos, totalBytes)
                         }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
-                    }
-
-                    val project = projectData ?: return@use
-                    // The archive arrived over the co-op wire — id and entry names are untrusted.
-                    if (!isSafeProjectId(project.id)) {
-                        Log.e("ProjectManager", "Spectator load rejected: unsafe project id")
-                        return@use
-                    }
-                    val destDir = File(context.filesDir, "projects/${project.id}").also { it.mkdirs() }
-
-                    for ((name, tmpFile) in extractedFiles) {
-                        val dest = resolveInside(destDir, name)
-                        if (dest == null) {
-                            Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
+                        if (newTotal == null) {
                             tmpFile.delete()
-                            continue
+                            Log.e("ProjectManager", "Spectator load aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
+                            return@use
                         }
-                        dest.parentFile?.mkdirs()
-                        if (!tmpFile.renameTo(dest)) {
-                            tmpFile.copyTo(dest, overwrite = true)
+                        totalBytes = newTotal
+                        if (name == "project.json") {
+                            projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
                         }
-                        if (tmpFile.exists()) tmpFile.delete()
+                        extracted[name] = tmpFile
                     }
-
-                    withContext(Dispatchers.Main) {
-                        projectRepositoryProvider.get().createProject(project)
-                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
                 }
-            } catch (e: Exception) {
-                Log.e("ProjectManager", "loadAsSpectator failed", e)
+
+                val project = projectData ?: return@use
+                // The archive arrived over the co-op wire — id and entry names are untrusted.
+                if (!isSafeProjectId(project.id)) {
+                    Log.e("ProjectManager", "Spectator load rejected: unsafe project id")
+                    return@use
+                }
+                val destDir = File(context.filesDir, "projects/${project.id}").also { it.mkdirs() }
+
+                for ((name, tmpFile) in extracted) {
+                    val dest = resolveInside(destDir, name)
+                    if (dest == null) {
+                        Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
+                        tmpFile.delete()
+                        continue
+                    }
+                    dest.parentFile?.mkdirs()
+                    if (!tmpFile.renameTo(dest)) {
+                        tmpFile.copyTo(dest, overwrite = true)
+                    }
+                    if (tmpFile.exists()) tmpFile.delete()
+                }
+
+                withContext(Dispatchers.Main) {
+                    projectRepositoryProvider.get().createProject(project)
+                }
             }
+        } catch (e: Exception) {
+            Log.e("ProjectManager", "loadAsSpectator failed", e)
+        } finally {
+            // Temp files are only renamed/copied away on the success path; clear any stragglers
+            // left by an early return or an exception (e.g. an unparseable project.json).
+            extractedFiles.values.forEach { if (it.exists()) it.delete() }
         }
     }
 
