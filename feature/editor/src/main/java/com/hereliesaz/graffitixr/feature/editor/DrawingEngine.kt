@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
+import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -172,7 +174,8 @@ internal class DrawingEngine(
             // gating on brush.dynamics alone silently dropped taper and masked-tip dynamics from every
             // committed/replayed stroke whose brush used only those.
             val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive()
+            val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive() ||
+                brush.airbrushDabsPerSecond > 0f
             if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
                 // Airbrush (roadmap item 13): this is the commit/replay render. EditorViewModel's
                 // live incremental preview has its own, separate integration (tracked by
@@ -237,13 +240,31 @@ internal class DrawingEngine(
                 ImpastoEngine.depositStroke(
                     heightMap, target.width, target.height, paintedDabs, brush.hardness, brush.impastoThicknessRate,
                 )
-                val colorPixels = IntArray(target.width * target.height)
-                target.getPixels(colorPixels, 0, target.width, 0, 0, target.width, target.height)
-                val shaded = ImpastoEngine.shade(
-                    colorPixels, heightMap, target.width, target.height,
-                    IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
-                )
-                target.setPixels(shaded, 0, target.width, 0, 0, target.width, target.height)
+                // Only the freshly deposited dab footprint and its one-pixel normal-gradient border
+                // can change relief lighting. Keep commit/replay allocation proportional to that
+                // dirty rectangle instead of width*height for every impasto stroke.
+                val touched = DirtyRegion.fromDabs(paintedDabs)
+                val region = touched?.let {
+                    DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
+                }?.clampTo(target.width, target.height)
+                if (region != null && !region.isEmpty) {
+                    val regionWidth = region.right - region.left
+                    val regionHeight = region.bottom - region.top
+                    val rawRegion = IntArray(regionWidth * regionHeight)
+                    target.getPixels(
+                        rawRegion, 0, regionWidth,
+                        region.left, region.top, regionWidth, regionHeight,
+                    )
+                    val shadedRegion = ImpastoRegionShader.shade(
+                        rawRegion, heightMap, target.width, target.height,
+                        region.left, region.top, regionWidth, regionHeight,
+                        IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+                    )
+                    target.setPixels(
+                        shadedRegion, 0, regionWidth,
+                        region.left, region.top, regionWidth, regionHeight,
+                    )
+                }
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
