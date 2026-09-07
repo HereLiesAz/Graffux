@@ -365,6 +365,31 @@ class AzphaltManifestTest {
     }
 
     @Test
+    fun `an oversized compat numeral fails closed instead of throwing`() {
+        // COMPAT_RE's digit groups are unbounded, so this matches the regex but overflows Int.
+        val oversized = ">=99999999999999999999"
+        assertNull("parseCompat must fail closed, not throw", parseCompat(oversized))
+        assertFalse("compatSatisfies must fail closed, not throw", compatSatisfies("0.1", oversized))
+        assertFalse("isCompatibleSpec must fail closed, not throw", isCompatibleSpec(oversized))
+        // Also cover an oversized minor/patch component, not just major.
+        assertNull(parseCompat(">=1.99999999999999999999.0"))
+        assertNull(parseCompat(">=1.0.99999999999999999999"))
+    }
+
+    @Test
+    fun `an unrecognized runtime value does not fail the whole manifest parse`() {
+        val m = parseManifest(
+            """
+            { "azphalt":"0.1","id":"x.y","name":"N","version":"1.0.0","kind":"code","license":"MIT",
+              "compat":">=0.1","entry":"code/main.js","runtime":"lua",
+              "files":{} }
+            """.trimIndent(),
+        )
+        assertEquals(Runtime.UNKNOWN, m.runtime)
+        assertEquals("x.y", m.id)
+    }
+
+    @Test
     fun `carries file digests for integrity`() {
         val m = parseManifest(
             """

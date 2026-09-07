@@ -18,6 +18,11 @@ import androidx.compose.ui.graphics.Color
  * the TTFs directly would require wiring up `org.jetbrains.compose.resources`' font-resource
  * codegen (a new Gradle module convention, not just a dependency bump), which is out of scope for
  * this pass. Desktop text still renders in Compose's stock default font. See DESKTOP.md.
+ *
+ * [ThemeColorSyncTest] guards this copy against drifting from `core:design`'s `Color.kt`: since no
+ * module can see both files at compile time, it compares their hex literals as text instead of via
+ * the type system. Keep it passing — don't edit the values here without also updating `Color.kt`,
+ * or vice versa.
  */
 object GraffuxColors {
     val HotPink = Color(0xFFFF00C8)

@@ -15,7 +15,7 @@ that are fine and miss glyphs that are not.
 set differed only by a line drawn exactly along an edge another shape already had; several
 more differed only in `<circle>` elements, which a scan of `d` attributes cannot see at all.
 A silhouette hash over the drawn geometry catches both, and it is the check that matters
-most here: 404 icons is well past the number anyone can hold in their head, and two keys
+most here: 399 icons is well past the number anyone can hold in their head, and two keys
 that look the same are indistinguishable to the person using the app.
 """
 
@@ -511,7 +511,7 @@ def contact_sheet(icons):
         out.append('<div class="grid">')
         for ic in group:
             search = " ".join([ic["key"], key, title, ic["source"], *ic["kw"]]).lower()
-            # The pattern id carries the icon's key, so 404 of these coexist in one
+            # The pattern id carries the icon's key, so 399 of these coexist in one
             # document. It is declared once, in the 24px copy; both sizes reference it and
             # share a viewBox, so the rules land on the same grid in each.
             body = svg_body(ic["shapes"], indent="")

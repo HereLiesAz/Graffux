@@ -21,13 +21,14 @@ painstaking iteration — the kind of judgment only earned by someone who has sp
 exactly how much is too much.
 
 **Colour is scarce and therefore total.** A near-black ground, dense as unlit concrete, holds the
-composition at rest. Against it, no more than two chromatic voices, set at full saturation and
-placed with the restraint of a surgeon — one cool, one hot, opposed and never blended, so that their
-meeting reads as a collision rather than a gradient. A single achromatic accent, pure white, is
-reserved exclusively for the disobedient gesture. Colour here is not mood. It is *nomenclature*: each
-hue means one thing and only that thing, for the entire life of the work. The palette must feel
-inevitable — as if no other colours were ever considered, though in truth hundreds were, and
-discarded through hours of merciless comparison.
+composition at rest. Against it, three chromatic voices and no more, set at full saturation and
+placed with the restraint of a surgeon — one hot, one cool, one acid, each claiming its own role
+rather than blending into the others, so that where two meet it reads as a collision rather than a
+gradient. A single achromatic accent, pure white, is reserved exclusively for the disobedient
+gesture. Colour here is not mood. It is *nomenclature*: each hue means one thing and only that thing,
+for the entire life of the work — the hot voice never wanders into the cool voice's territory, nor
+either into the acid one's. The palette must feel inevitable — as if no other colours were ever
+considered, though in truth hundreds were, and discarded through hours of merciless comparison.
 
 **Scale operates on two registers with nothing between them.** There is the monumental — a form
 occupying the composition with the confidence of architecture, cropped without apology, trusting the

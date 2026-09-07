@@ -84,8 +84,15 @@ object ExtensionInventory {
 
     private val json = Json { encodeDefaults = false }
 
-    /** Longest `reason` worth sending. Free text, and the only unbounded field in an entry. */
+    /** Longest `reason` worth sending. Free text, and the least bounded field in an entry. */
     private const val MAX_REASON = 512
+
+    /** Longest `id` worth sending. Reverse-DNS package ids are short in practice, but nothing upstream
+     *  enforces that, so it is capped like every other field here rather than trusted to stay short. */
+    private const val MAX_ID = 512
+
+    /** Longest `version` worth sending. Same reasoning as [MAX_ID]. */
+    private const val MAX_VERSION = 128
 
     /**
      * Serialize [entries] into the inventory document, trimmed to fit.
@@ -94,11 +101,13 @@ object ExtensionInventory {
      * store's buttons correct, where an omitted one makes all of them wrong. A host with more than
      * fits is expected to expose the remainder through the state provider, which has no size limit.
      *
-     * Dropping from the end is only safe once no *single* entry can blow the budget on its own. It
-     * could: `reason` is free text taken from an exception message, and one long enough sent the trim
-     * loop through every good entry before finally discarding the offender — leaving an empty
-     * document, which a store reads as "this host has nothing" and is a worse answer than sending
-     * nothing at all. So each entry is bounded first, and the loop only has to solve for count.
+     * Dropping from the end is only safe once no *single* entry can blow the budget on its own. `id`,
+     * `version`, and `reason` are all attacker- or upstream-influenced strings — `reason` is free text
+     * taken from an exception message, and `id`/`version` come straight off a manifest this host did
+     * not author — and one of them alone, if left unbounded, could be long enough to send the trim loop
+     * through every good entry before finally discarding the offender, leaving an empty document, which
+     * a store reads as "this host has nothing" and is a worse answer than sending nothing at all. So
+     * every field is bounded first, and the loop only has to solve for count.
      */
     fun document(entries: List<ExtensionStateEntry>): String {
         var kept = entries.map { it.bounded() }
@@ -112,10 +121,14 @@ object ExtensionInventory {
         return text
     }
 
-    /** Clip the one free-text field so a single entry cannot dominate the budget. */
-    private fun ExtensionStateEntry.bounded(): ExtensionStateEntry =
-        if ((reason?.length ?: 0) <= MAX_REASON) this
-        else copy(reason = reason!!.take(MAX_REASON))
+    /** Clip every unbounded field so a single entry cannot dominate the budget on its own. */
+    private fun ExtensionStateEntry.bounded(): ExtensionStateEntry {
+        val boundedId = if (id.length <= MAX_ID) id else id.take(MAX_ID)
+        val boundedVersion = if (version.length <= MAX_VERSION) version else version.take(MAX_VERSION)
+        val boundedReason = if ((reason?.length ?: 0) <= MAX_REASON) reason else reason!!.take(MAX_REASON)
+        return if (boundedId === id && boundedVersion === version && boundedReason === reason) this
+        else copy(id = boundedId, version = boundedVersion, reason = boundedReason)
+    }
 
     /** Parse an inventory document, tolerating unknown fields and states. Empty on anything malformed. */
     fun parse(document: String?): List<ExtensionStateEntry> {

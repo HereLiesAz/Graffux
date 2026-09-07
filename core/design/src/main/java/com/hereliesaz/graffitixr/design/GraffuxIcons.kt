@@ -18,7 +18,7 @@ data class GxIcon(
 /**
  * The Graffux icon set.
  *
- * 404 glyphs on a 24-unit grid at one 0.5-unit stroke weight, outline first.
+ * 399 glyphs on a 24-unit grid at one 0.5-unit stroke weight, outline first.
  * 100 of them rule a region rather than filling it: rows of parallel lines at a fixed
  * pitch, anchored to the viewport rather than to the region, so that any two ruled icons
  * side by side read as ruled from the same plate.

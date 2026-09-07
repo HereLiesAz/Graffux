@@ -1,6 +1,6 @@
 # The Graffux icon set
 
-404 icons across 13 families, covering everything Photoshop, Illustrator and Procreate have
+399 icons across 13 families, covering everything Photoshop, Illustrator and Procreate have
 an icon for, plus what Graffux needs that none of the three ship — generative fill, AR
 placement, stencil generation.
 
@@ -17,11 +17,11 @@ on — and validates them on the way.
 - Outline first. A region large enough to hold three rules may be **ruled** instead of
   filled: rows of parallel lines at pitch 1.05, weight 0.3, anchored to the **viewport**
   rather than to the region. That anchoring is the whole point — two ruled icons side by
-  side in a rail read as ruled from one plate. 100 of the 404 rule something.
+  side in a rail read as ruled from one plate. 100 of the 399 rule something.
 
 Two things to know about the ruling in code:
 
-**SVG** uses a `<pattern>` whose id carries the icon's key. The contact sheet inlines 404
+**SVG** uses a `<pattern>` whose id carries the icon's key. The contact sheet inlines 399
 masters into one document, and a shared id would have every glyph after the first borrowing
 the first one's pattern.
 
@@ -34,7 +34,7 @@ the dense ones — `eraser`, `smudge`, `document-save` — on real hardware befo
 
 ## Where the drawings come from
 
-316 are Graffux's own. 88 are Phosphor Icons drawings used as delivered; Phosphor's licence
+311 are Graffux's own. 88 are Phosphor Icons drawings used as delivered; Phosphor's licence
 is MIT and requires its notice to travel with the geometry, so `NOTICE` is generated from the
 manifest and a copy is written to `app/src/main/res/raw/` and shown in the app under
 Settings. Add or drop a borrowed icon and both update on the next build.
@@ -78,7 +78,7 @@ check worth having. It compares rendered silhouettes rather than markup, because
 two icons end up identical are not visible in a diff — in the delivered set, one pair
 differed only by a line drawn exactly along an edge another shape already had, and three
 more pairs differed only in `<circle>` elements, which a scan of `d` attributes cannot see.
-404 icons is well past what anyone can hold in their head, and two keys that look the same
+399 icons is well past what anyone can hold in their head, and two keys that look the same
 are indistinguishable to the person using the app.
 
 Warnings print but do not block: over the path-data budget, or reaching into the bleed

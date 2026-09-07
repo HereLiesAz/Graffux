@@ -11,10 +11,11 @@ jobs:
   jules-branch-manager:
     if: github.event.ref_type == 'branch'
     runs-on: ubuntu-latest
+    # Placeholder step only checks out and echoes — no write access needed yet.
+    # Inherits the workflow-level `contents: read` default. Widen this deliberately
+    # when the real Jules invocation is configured here.
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
 
     steps:
       - name: Checkout code

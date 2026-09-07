@@ -2963,48 +2963,6 @@
     ],
     "source": "phosphor/check-circle"
   },
-  "symmetry": {
-    "category": "tools",
-    "keywords": [
-      "mirror",
-      "reflect drawing",
-      "guide"
-    ],
-    "source": "graffux"
-  },
-  "symmetry-horizontal": {
-    "category": "tools",
-    "keywords": [
-      "mirror y",
-      "top bottom"
-    ],
-    "source": "graffux"
-  },
-  "symmetry-quadrant": {
-    "category": "tools",
-    "keywords": [
-      "four way",
-      "kaleidoscope"
-    ],
-    "source": "graffux"
-  },
-  "symmetry-radial": {
-    "category": "tools",
-    "keywords": [
-      "rotational",
-      "mandala",
-      "spokes"
-    ],
-    "source": "graffux"
-  },
-  "symmetry-vertical": {
-    "category": "tools",
-    "keywords": [
-      "mirror x",
-      "left right"
-    ],
-    "source": "graffux"
-  },
   "temperature": {
     "category": "color",
     "keywords": [
