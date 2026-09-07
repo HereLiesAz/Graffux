@@ -138,22 +138,52 @@ fun BrushStudioWindow(
             )
             if (showDynamics) {
                 Text("Input mappings (${draft.dynamics.size})", style = MaterialTheme.typography.bodySmall)
-                DynamicsPreset("Pressure → Size", draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.SIZE)) {
-                    onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SIZE, outputMin = 0.2f, outputMax = 1f)) }
-                }
-                DynamicsPreset("Pressure → Opacity", draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.OPACITY)) {
-                    onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.OPACITY, outputMin = 0.1f, outputMax = 1f)) }
-                }
-                DynamicsPreset("Speed → Thin", draft.hasRoute(BrushSensor.SPEED, BrushParameter.SIZE)) {
-                    onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SIZE, inputMin = 0f, inputMax = 2f, outputMin = 1f, outputMax = 0.45f)) }
-                }
-                DynamicsPreset("Speed → Spacing", draft.hasRoute(BrushSensor.SPEED, BrushParameter.SPACING)) {
-                    onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SPACING, inputMin = 0f, inputMax = 2f, outputMin = 0.65f, outputMax = 1.8f)) }
-                }
-                DynamicsPreset("Tilt → Rotation", draft.hasRoute(BrushSensor.TILT, BrushParameter.ROTATION)) {
-                    onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.TILT, BrushParameter.ROTATION, inputMin = 0f, inputMax = HALF_PI_F, outputMin = 0f, outputMax = 180f)) }
-                }
-                Text("Arbitrary response curves remain one level deeper; these presets keep the phone surface fast.", style = MaterialTheme.typography.labelSmall)
+                DynamicsMappingControl(
+                    label = "Pressure → Size",
+                    brush = draft,
+                    defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SIZE, outputMin = 0.2f, outputMax = 1f),
+                    outputRange = 0f..2f,
+                    outputUnit = "×",
+                    onEdit = onEdit,
+                )
+                DynamicsMappingControl(
+                    label = "Pressure → Opacity",
+                    brush = draft,
+                    defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.OPACITY, outputMin = 0.1f, outputMax = 1f),
+                    outputRange = 0f..1f,
+                    onEdit = onEdit,
+                )
+                DynamicsMappingControl(
+                    label = "Speed → Size",
+                    brush = draft,
+                    defaultBinding = BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SIZE, inputMin = 0f, inputMax = 2f, outputMin = 1f, outputMax = 0.45f),
+                    inputRange = 0f..4f,
+                    inputUnit = " px/ms",
+                    outputRange = 0f..2f,
+                    outputUnit = "×",
+                    onEdit = onEdit,
+                )
+                DynamicsMappingControl(
+                    label = "Speed → Spacing",
+                    brush = draft,
+                    defaultBinding = BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SPACING, inputMin = 0f, inputMax = 2f, outputMin = 0.65f, outputMax = 1.8f),
+                    inputRange = 0f..4f,
+                    inputUnit = " px/ms",
+                    outputRange = 0.1f..3f,
+                    outputUnit = "×",
+                    onEdit = onEdit,
+                )
+                DynamicsMappingControl(
+                    label = "Tilt → Rotation",
+                    brush = draft,
+                    defaultBinding = BrushSensorBinding(BrushSensor.TILT, BrushParameter.ROTATION, inputMin = 0f, inputMax = HALF_PI_F, outputMin = 0f, outputMax = 180f),
+                    inputRange = 0f..HALF_PI_F,
+                    inputUnit = " rad",
+                    outputRange = -360f..360f,
+                    outputUnit = "°",
+                    onEdit = onEdit,
+                )
+                Text("Each mapping can be enabled independently, then tuned by input window and output range. Response curves remain stored on the binding and are preserved while these values change.", style = MaterialTheme.typography.labelSmall)
             }
 
             AzButton(
@@ -167,9 +197,13 @@ fun BrushStudioWindow(
                 }
                 if (draft.colorSource == BrushColorSource.GRADIENT) {
                     ParamSlider("Mix", draft.colorMix, 0f..1f) { value -> onEdit { it.copy(colorMix = value) } }
-                    DynamicsPreset("Pressure → Mix", draft.hasRoute(BrushSensor.PRESSURE, BrushParameter.MIX)) {
-                        onEdit { it.toggleRoute(BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.MIX, outputMin = 0f, outputMax = 1f)) }
-                    }
+                    DynamicsMappingControl(
+                        label = "Pressure → Mix",
+                        brush = draft,
+                        defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.MIX, outputMin = 0f, outputMax = 1f),
+                        outputRange = 0f..1f,
+                        onEdit = onEdit,
+                    )
                 } else if (draft.colorSource == BrushColorSource.UNIFORM_RANDOM) {
                     Text("Each dab samples the foreground→background ramp from its own deterministic random stream.", style = MaterialTheme.typography.labelSmall)
                 } else {
@@ -378,16 +412,57 @@ private fun <T> EnumButtons(label: String, values: List<T>, selected: T, onSelec
 private fun prettyEnum(value: String): String = value.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 @Composable
-private fun DynamicsPreset(label: String, active: Boolean, onClick: () -> Unit) {
-    AzButton(text = if (active) "✓ $label" else label, onClick = onClick, shape = AzButtonShape.RECTANGLE)
+private fun DynamicsMappingControl(
+    label: String,
+    brush: AzphaltBrush,
+    defaultBinding: BrushSensorBinding,
+    inputRange: ClosedFloatingPointRange<Float> = defaultBinding.inputMin..defaultBinding.inputMax,
+    inputUnit: String? = null,
+    outputRange: ClosedFloatingPointRange<Float>,
+    outputUnit: String? = null,
+    onEdit: ((AzphaltBrush) -> AzphaltBrush) -> Unit,
+) {
+    val binding = brush.route(defaultBinding.sensor, defaultBinding.parameter)
+    AzButton(
+        text = if (binding != null) "✓ $label" else label,
+        onClick = {
+            onEdit { current ->
+                if (binding == null) current.upsertRoute(defaultBinding)
+                else current.removeRoute(defaultBinding.sensor, defaultBinding.parameter)
+            }
+        },
+        shape = AzButtonShape.RECTANGLE,
+    )
+    if (binding != null) {
+        ParamSlider("Input min", binding.inputMin, inputRange, unit = inputUnit) { value ->
+            onEdit { it.upsertRoute(binding.copy(inputMin = value.coerceAtMost(binding.inputMax - 0.001f))) }
+        }
+        ParamSlider("Input max", binding.inputMax, inputRange, unit = inputUnit) { value ->
+            onEdit { it.upsertRoute(binding.copy(inputMax = value.coerceAtLeast(binding.inputMin + 0.001f))) }
+        }
+        ParamSlider("Output min", binding.outputMin, outputRange, unit = outputUnit) { value ->
+            onEdit { it.upsertRoute(binding.copy(outputMin = value)) }
+        }
+        ParamSlider("Output max", binding.outputMax, outputRange, unit = outputUnit) { value ->
+            onEdit { it.upsertRoute(binding.copy(outputMax = value)) }
+        }
+        AzButton(
+            text = if (binding.invert) "Invert response ✓" else "Invert response",
+            onClick = { onEdit { it.upsertRoute(binding.copy(invert = !binding.invert)) } },
+            shape = AzButtonShape.RECTANGLE,
+        )
+    }
 }
 
-private fun AzphaltBrush.hasRoute(sensor: BrushSensor, parameter: BrushParameter): Boolean =
-    dynamics.any { it.sensor == sensor && it.parameter == parameter }
+private fun AzphaltBrush.route(sensor: BrushSensor, parameter: BrushParameter): BrushSensorBinding? =
+    dynamics.firstOrNull { it.sensor == sensor && it.parameter == parameter }
 
-private fun AzphaltBrush.toggleRoute(binding: BrushSensorBinding): AzphaltBrush {
-    val existing = dynamics.filterNot { it.sensor == binding.sensor && it.parameter == binding.parameter }
-    return copy(dynamics = if (existing.size == dynamics.size) existing + binding else existing)
+private fun AzphaltBrush.removeRoute(sensor: BrushSensor, parameter: BrushParameter): AzphaltBrush =
+    copy(dynamics = dynamics.filterNot { it.sensor == sensor && it.parameter == parameter })
+
+private fun AzphaltBrush.upsertRoute(binding: BrushSensorBinding): AzphaltBrush {
+    val remaining = dynamics.filterNot { it.sensor == binding.sensor && it.parameter == binding.parameter }
+    return copy(dynamics = remaining + binding)
 }
 
 @Composable
