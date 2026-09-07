@@ -434,20 +434,38 @@ private fun DynamicsMappingControl(
         shape = AzButtonShape.RECTANGLE,
     )
     if (binding != null) {
-        val effectiveInputRange = minOf(inputRange.start, binding.inputMin, binding.inputMax)..
-            maxOf(inputRange.endInclusive, binding.inputMin, binding.inputMax)
-        val effectiveOutputRange = minOf(outputRange.start, binding.outputMin, binding.outputMax)..
-            maxOf(outputRange.endInclusive, binding.outputMin, binding.outputMax)
-        ParamSlider("Input min", binding.inputMin, effectiveInputRange, unit = inputUnit) { value ->
-            onEdit { it.upsertRoute(binding.copy(inputMin = value.coerceAtMost(binding.inputMax - 0.001f))) }
+        // Keep the slider envelope stable for the lifetime of this control. Imported bindings may
+        // sit outside the preset range; recomputing from every edited value would make the range
+        // shrink behind the thumb and prevent restoring/tuning farther outward values.
+        val initialInputRange = remember(defaultBinding.sensor, defaultBinding.parameter) {
+            minOf(inputRange.start, binding.inputMin, binding.inputMax)..
+                maxOf(inputRange.endInclusive, binding.inputMin, binding.inputMax)
         }
-        ParamSlider("Input max", binding.inputMax, effectiveInputRange, unit = inputUnit) { value ->
-            onEdit { it.upsertRoute(binding.copy(inputMax = value.coerceAtLeast(binding.inputMin + 0.001f))) }
+        val initialOutputRange = remember(defaultBinding.sensor, defaultBinding.parameter) {
+            minOf(outputRange.start, binding.outputMin, binding.outputMax)..
+                maxOf(outputRange.endInclusive, binding.outputMin, binding.outputMax)
         }
-        ParamSlider("Output min", binding.outputMin, effectiveOutputRange, unit = outputUnit) { value ->
+        val descendingInput = binding.inputMin > binding.inputMax
+        ParamSlider("Input min", binding.inputMin, initialInputRange, unit = inputUnit) { value ->
+            val adjusted = if (descendingInput) {
+                value.coerceAtLeast(binding.inputMax + 0.001f)
+            } else {
+                value.coerceAtMost(binding.inputMax - 0.001f)
+            }
+            onEdit { it.upsertRoute(binding.copy(inputMin = adjusted)) }
+        }
+        ParamSlider("Input max", binding.inputMax, initialInputRange, unit = inputUnit) { value ->
+            val adjusted = if (descendingInput) {
+                value.coerceAtMost(binding.inputMin - 0.001f)
+            } else {
+                value.coerceAtLeast(binding.inputMin + 0.001f)
+            }
+            onEdit { it.upsertRoute(binding.copy(inputMax = adjusted)) }
+        }
+        ParamSlider("Output min", binding.outputMin, initialOutputRange, unit = outputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(outputMin = value)) }
         }
-        ParamSlider("Output max", binding.outputMax, effectiveOutputRange, unit = outputUnit) { value ->
+        ParamSlider("Output max", binding.outputMax, initialOutputRange, unit = outputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(outputMax = value)) }
         }
         AzButton(
@@ -465,8 +483,11 @@ private fun AzphaltBrush.removeRoute(sensor: BrushSensor, parameter: BrushParame
     copy(dynamics = dynamics.filterNot { it.sensor == sensor && it.parameter == parameter })
 
 private fun AzphaltBrush.upsertRoute(binding: BrushSensorBinding): AzphaltBrush {
-    val remaining = dynamics.filterNot { it.sensor == binding.sensor && it.parameter == binding.parameter }
-    return copy(dynamics = remaining + binding)
+    val index = dynamics.indexOfFirst { it.sensor == binding.sensor && it.parameter == binding.parameter }
+    if (index < 0) return copy(dynamics = dynamics + binding)
+    val updated = dynamics.toMutableList()
+    updated[index] = binding
+    return copy(dynamics = updated)
 }
 
 @Composable
