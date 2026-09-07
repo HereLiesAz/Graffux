@@ -1995,8 +1995,13 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
         reflectSelectionInParent = true,
     ) {
-        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
-        SelectionShape.entries.forEach { mode ->
+        val selectionShapeOrder = listOf(
+            SelectionShape.RECTANGLE,
+            SelectionShape.FREEHAND,
+            SelectionShape.ELLIPSE,
+            SelectionShape.AUTOMATIC,
+        )
+        selectionShapeOrder.forEach { mode ->
             val id = "selectShape.${mode.name}"
             azRailItem(
                 id = id, classifiers = setOf(id),
@@ -2013,6 +2018,7 @@ private fun AzNavHostScope.ConfigureRailItems(
                 onClick = { vm.onSetSelectionShape(mode) },
             )
         }
+        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
         SelectionOp.entries.forEach { mode ->
             val id = "selectOp.${mode.name}"
             azRailItem(
