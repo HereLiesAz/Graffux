@@ -1,0 +1,9 @@
+from pathlib import Path
+p=Path('feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/BrushStudioWindow.kt')
+s=p.read_text()
+s=s.replace('''    if (binding != null) {\n        ParamSlider("Input min", binding.inputMin, inputRange, unit = inputUnit) { value ->\n''','''    if (binding != null) {\n        val effectiveInputRange = minOf(inputRange.start, binding.inputMin, binding.inputMax)..\n            maxOf(inputRange.endInclusive, binding.inputMin, binding.inputMax)\n        val effectiveOutputRange = minOf(outputRange.start, binding.outputMin, binding.outputMax)..\n            maxOf(outputRange.endInclusive, binding.outputMin, binding.outputMax)\n        ParamSlider("Input min", binding.inputMin, effectiveInputRange, unit = inputUnit) { value ->\n''',1)
+s=s.replace('''        ParamSlider("Input max", binding.inputMax, inputRange, unit = inputUnit) { value ->\n''','''        ParamSlider("Input max", binding.inputMax, effectiveInputRange, unit = inputUnit) { value ->\n''',1)
+s=s.replace('''        ParamSlider("Output min", binding.outputMin, outputRange, unit = outputUnit) { value ->\n''','''        ParamSlider("Output min", binding.outputMin, effectiveOutputRange, unit = outputUnit) { value ->\n''',1)
+s=s.replace('''        ParamSlider("Output max", binding.outputMax, outputRange, unit = outputUnit) { value ->\n''','''        ParamSlider("Output max", binding.outputMax, effectiveOutputRange, unit = outputUnit) { value ->\n''',1)
+s=s.replace('''        unit != null -> "${value.roundToInt()}$unit"\n''','''        unit != null -> {\n            val number = if (kotlin.math.abs(value) < 10f) {\n                ((value * 100).roundToInt() / 100f).toString()\n            } else {\n                value.roundToInt().toString()\n            }\n            "$number$unit"\n        }\n''',1)
+p.write_text(s)
