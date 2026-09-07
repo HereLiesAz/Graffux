@@ -1,0 +1,21 @@
+name: Brush Dynamics Polish Once
+on:
+  push:
+    branches: [feat/brush-dynamics-controls]
+jobs:
+  patch:
+    if: "!contains(github.event.head_commit.message, 'polish dynamics mapping controls')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/brush-dynamics-controls
+      - run: python3 tools/brush_dynamics_polish.py
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/BrushStudioWindow.kt
+          git commit -m 'fix(brush): polish dynamics mapping controls'
+          git push
