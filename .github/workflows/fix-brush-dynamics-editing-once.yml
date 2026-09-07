@@ -1,0 +1,21 @@
+name: Fix Brush Dynamics Editing Once
+on:
+  push:
+    branches: [fix/brush-dynamics-editing]
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/brush-dynamics-editing
+      - run: python3 tools/fix_brush_dynamics_editing.py
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/BrushStudioWindow.kt
+          git commit -m 'fix(brush): preserve dynamics binding semantics'
+          git push
