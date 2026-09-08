@@ -378,7 +378,7 @@ internal class DrawingEngine(
             ImageProcessor.applyToolToBitmap(
                 bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
                 replaceExisting && featherRadius <= 0f, stroke.feathering,
-                alphaLock = stroke.alphaLock, symmetryMode = stroke.symmetryMode,
+                alphaLock = stroke.alphaLock,
                 wrapAroundMode = stroke.wrapAroundMode,
                 clipPath = paintClip,
                 opacity = stroke.opacity,

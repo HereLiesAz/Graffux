@@ -223,7 +223,7 @@ object ImageProcessor {
         else SafeBitmap.copy(originalBitmap) ?: return@withContext originalBitmap
         val canvas = Canvas(resultBitmap)
         // Clip once, up front: applies to every branch below, including the
-        // symmetry twin and the BLUR composite.
+        // BLUR composite.
         if (clipPath != null) canvas.clipPath(clipPath)
 
         when (tool) {
@@ -348,7 +348,7 @@ object ImageProcessor {
                 val h = resultBitmap.height
 
                 // The stroke, rendered as a coverage mask. Same paint as every other tool here,
-                // so the brush edge, the feathering and the symmetry twin all match.
+                // so the brush edge and the feathering all match.
                 //
                 // Every allocation below is a full-canvas ARGB_8888 buffer; routed through
                 // SafeBitmap so a failure skips this stroke instead of throwing an uncaught
@@ -472,9 +472,10 @@ object ImageProcessor {
                 // gives a soft, brush-shaped edge — clipping to a
                 // stroked path instead would give a hard one.
                 //
-                val copies = listOf(({ p: Offset -> p }) to d)
-                        }
-                    }
+                val d = cloneOffset
+                if (d != null) {
+                    val w = resultBitmap.width.toFloat()
+                    val h = resultBitmap.height.toFloat()
                     val maskBmp = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
                     if (maskBmp != null) {
                         val maskPaint = Paint().apply {
@@ -487,58 +488,42 @@ object ImageProcessor {
                                 maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
                             }
                         }
-                        val accumPaint = Paint()
-                        for ((transform, offset) in copies) {
-                            val subMask = SafeBitmap.create(resultBitmap.width, resultBitmap.height) ?: continue
-                            // symmetryMode = NONE: this copy IS one of drawStroke's own twins,
-                            // already mirrored by `transform` above -- recursing into its symmetry
-                            // handling again would double-mirror it.
-                            drawStroke(Canvas(subMask), stroke.map(transform), maskPaint, wrapAroundMode)
+                        drawStroke(Canvas(maskBmp), stroke, maskPaint, wrapAroundMode)
 
-                            // The source, shifted so the sampled pixels land under the brush. Read
-                            // from originalBitmap, so an in-place stroke samples the layer as it
-                            // now stands -- which is what a clone brush does.
-                            //
-                            // NEGATED, and that is the whole of it. `offset` points from the
-                            // stroke TO its source, so the wanted result is out(p) = src(p +
-                            // offset); drawBitmap(src, l, t) gives out(p) = src(p - l). Passing it
-                            // through unnegated sampled the mirror-opposite point.
-                            //
-                            // Staged through a full-canvas bitmap rather than drawn straight in. A
-                            // Porter-Duff xfermode only applies within the drawn bitmap's
-                            // destination rect, so shifting the source leaves the stroke mask
-                            // untouched wherever the source no longer reaches -- and that mask is
-                            // raw maskPaint, whose colour was never set and so is BLACK. Staging
-                            // makes the shifted source transparent out there, so SRC_IN clears it.
-                            //
-                            // Under wrap-around, the shifted source is drawn 3x3 times at every
-                            // canvas-sized tile offset rather than once, so whichever wrapped tile
-                            // of this copy's own mask (drawStroke already tiled that internally)
-                            // ends up compositing against it, real source content is present there
-                            // too -- not the same transparent-off-canvas gap this fix closes for
-                            // symmetry.
-                            val shifted = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
-                            if (shifted != null) {
-                                val shiftedCanvas = Canvas(shifted)
-                                if (wrapAroundMode) {
-                                    for (dx in -1..1) {
-                                        for (dy in -1..1) {
-                                            shiftedCanvas.drawBitmap(
-                                                originalBitmap, -offset.x + dx * w, -offset.y + dy * h, null,
-                                            )
-                                        }
+                        // The source, shifted so the sampled pixels land under the brush. Read
+                        // from originalBitmap, so an in-place stroke samples the layer as it
+                        // now stands -- which is what a clone brush does.
+                        //
+                        // NEGATED, and that is the whole of it. `d` points from the
+                        // stroke TO its source, so the wanted result is out(p) = src(p +
+                        // d); drawBitmap(src, l, t) gives out(p) = src(p - l). Passing it
+                        // through unnegated sampled the wrong point.
+                        //
+                        // Staged through a full-canvas bitmap rather than drawn straight in. A
+                        // Porter-Duff xfermode only applies within the drawn bitmap's
+                        // destination rect, so shifting the source leaves the stroke mask
+                        // untouched wherever the source no longer reaches -- and that mask is
+                        // raw maskPaint, whose colour was never set and so is BLACK. Staging
+                        // makes the shifted source transparent out there, so SRC_IN clears it.
+                        val shifted = SafeBitmap.create(resultBitmap.width, resultBitmap.height)
+                        if (shifted != null) {
+                            val shiftedCanvas = Canvas(shifted)
+                            if (wrapAroundMode) {
+                                for (dx in -1..1) {
+                                    for (dy in -1..1) {
+                                        shiftedCanvas.drawBitmap(
+                                            originalBitmap, -d.x + dx * w, -d.y + dy * h, null,
+                                        )
                                     }
-                                } else {
-                                    shiftedCanvas.drawBitmap(originalBitmap, -offset.x, -offset.y, null)
                                 }
-                                Canvas(subMask).drawBitmap(
-                                    shifted, 0f, 0f,
-                                    Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) },
-                                )
-                                shifted.recycle()
+                            } else {
+                                shiftedCanvas.drawBitmap(originalBitmap, -d.x, -d.y, null)
                             }
-                            Canvas(maskBmp).drawBitmap(subMask, 0f, 0f, accumPaint)
-                            subMask.recycle()
+                            Canvas(maskBmp).drawBitmap(
+                                shifted, 0f, 0f,
+                                Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) },
+                            )
+                            shifted.recycle()
                         }
                         canvas.drawBitmap(maskBmp, 0f, 0f, null)
                         maskBmp.recycle()
@@ -856,7 +841,6 @@ object ImageProcessor {
         wrapAroundMode: Boolean,
     ) {
         val centres = listOf(center)
-        }
         if (wrapAroundMode) {
             val w = canvas.width.toFloat()
             val h = canvas.height.toFloat()
