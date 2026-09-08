@@ -6,11 +6,9 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
 import kotlin.math.ceil
-import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * CPU correctness/reference implementation for Graffux's wet-paint paint-op.
@@ -115,7 +113,7 @@ object ColorSmudgeEngine {
         val smudgeRadius: Float,
     )
 
-    /** One ordered carrier lifetime. Symmetry twins are separate plans so Smear reseeds each one. */
+    /** One ordered carrier lifetime. */
     data class ResolvedPlan(val dabs: List<ResolvedDab>)
 
     private data class Resolved(
@@ -179,18 +177,6 @@ object ColorSmudgeEngine {
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
         applyOne(pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource)
-            } else emptyList()
-            applyOne(
-                pixels,
-                width,
-                height,
-                stroke.map(transform),
-                settings.copy(symmetryMode = SymmetryMode.NONE),
-                transformedSamples,
-                strokeSeed,
-                sampleSource,
-            )
-        }
     }
 
     private fun applyOne(
@@ -558,30 +544,4 @@ object ColorSmudgeEngine {
         )
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
-
-    private fun symmetryTransforms(mode: SymmetryMode, w: Float, h: Float): List<(Offset) -> Offset> {
-        val cx = w / 2f
-        val cy = h / 2f
-        return when (mode) {
-            SymmetryMode.NONE -> emptyList()
-            SymmetryMode.VERTICAL -> listOf({ p: Offset -> Offset(w - p.x, p.y) })
-            SymmetryMode.HORIZONTAL -> listOf({ p: Offset -> Offset(p.x, h - p.y) })
-            SymmetryMode.QUADRANT -> listOf(
-                { p: Offset -> Offset(w - p.x, p.y) },
-                { p: Offset -> Offset(p.x, h - p.y) },
-                { p: Offset -> Offset(w - p.x, h - p.y) },
-            )
-            SymmetryMode.RADIAL_6 -> (1..5).map { k ->
-                val rad = Math.toRadians(60.0 * k)
-                val c = cos(rad).toFloat()
-                val s = sin(rad).toFloat()
-                val transform: (Offset) -> Offset = { p: Offset ->
-                    val dx = p.x - cx
-                    val dy = p.y - cy
-                    Offset(cx + dx * c - dy * s, cy + dx * s + dy * c)
-                }
-                transform
-            }
-        }
-    }
 }

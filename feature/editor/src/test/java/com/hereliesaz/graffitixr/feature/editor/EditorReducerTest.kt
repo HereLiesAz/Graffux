@@ -327,22 +327,4 @@ class EditorReducerTest {
         assertEquals(0.2f, out.layers.first().opacity)
         assertEquals(listOf(1f, 2f), out.layers.first().warpMesh)
     }
-    // ── Symmetry: the toggle and the picker are two controls for one setting ──────────────────────
-
-    /**
-     * The toggle must not throw away the mode the picker set.
-     *
-     * The rail has both a quick on/off and a five-way picker. The toggle used to hard-code Vertical
-     * on the way back on, so choosing Radial 6, tapping off and tapping on again silently left you
-     * on Vertical — a destructive interaction between two controls that look independent.
-     */
-
-
-    @Test
-    fun `choosing None from the picker does not become the remembered mode`() {
-        var s = reduce(state(), EditorIntent.SetSymmetryMode(SymmetryMode.QUADRANT))
-        s = reduce(s, EditorIntent.SetSymmetryMode(SymmetryMode.NONE))
-        s = reduce(s, EditorIntent.ToggleSymmetry)
-        assertEquals(SymmetryMode.QUADRANT, s.symmetryMode)
-    }
 }

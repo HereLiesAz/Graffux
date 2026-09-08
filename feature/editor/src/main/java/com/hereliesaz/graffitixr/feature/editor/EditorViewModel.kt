@@ -135,12 +135,10 @@ data class StrokeCommand(
     val stampGrain: Bitmap? = null,
     val stampMaskShape: Bitmap? = null,
     // Procreate parity, recorded per stroke so undo/redo replay reproduces the paint exactly:
-    // [symmetryMode] mirrors the stroke across one or more axes through the canvas centre;
     // [alphaLock] confines the paint to pixels that already have alpha.
-    val symmetryMode: SymmetryMode = SymmetryMode.NONE,
     val alphaLock: Boolean = false,
     // Procreate's Wrap Around: tiles the stroke 3x3 across the canvas edges. Recorded per stroke
-    // for the same reason [symmetryMode] is -- live drawing already tiles it (see EditorViewModel's
+    // -- live drawing already tiles it (see EditorViewModel's
     // drawPathAll/drawDab call sites), but replay never applied it at all until this field existed,
     // so a wrapped stroke's edge tiling vanished the moment it committed under a feathered selection,
     // or on the very next undo/redo/auto-bake.
@@ -371,7 +369,6 @@ private fun liveBlurComposite(
     brushSizePx: Float,
     feathering: Float,
     wrapAroundMode: Boolean,
-    symmetryMode: SymmetryMode,
 ) {
     val w = work.width
     val h = work.height
@@ -385,7 +382,7 @@ private fun liveBlurComposite(
         isAntiAlias = true
         if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
     }
-    ImageProcessor.drawStroke(maskCanvas, mapped, maskPaint, wrapAroundMode, symmetryMode)
+    ImageProcessor.drawStroke(maskCanvas, mapped, maskPaint, wrapAroundMode)
     maskCanvas.drawBitmap(reference, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
     Canvas(work).drawBitmap(maskBmp, 0f, 0f, null)
     maskBmp.recycle()
@@ -405,7 +402,6 @@ private fun liveSharpenComposite(
     brushSizePx: Float,
     feathering: Float,
     wrapAroundMode: Boolean,
-    symmetryMode: SymmetryMode,
 ) {
     val amount = 0.4f + RESAMPLE_INTENSITY * 1.6f
     val w = work.width
@@ -419,7 +415,7 @@ private fun liveSharpenComposite(
         isAntiAlias = true
         if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
     }
-    ImageProcessor.drawStroke(Canvas(maskBmp), mapped, maskPaint, wrapAroundMode, symmetryMode)
+    ImageProcessor.drawStroke(Canvas(maskBmp), mapped, maskPaint, wrapAroundMode)
 
     val n = w * h
     val out = IntArray(n)
@@ -594,16 +590,15 @@ class EditorViewModel @Inject constructor(
     private var strokePrevBitmapPoint: Offset? = null
     // Captured at stroke start so mid-stroke toggles can't desync the live paint from the recorded
     // StrokeCommand (which is what undo/redo replays).
-    private var strokeSymmetry: SymmetryMode = SymmetryMode.NONE
     private var strokeAlphaLock: Boolean = false
-    /** Captured at stroke start for the same reason as [strokeSymmetry] -- previously re-read live
+    /** Captured at stroke start for the same reason as [strokeAlphaLock] -- previously re-read live
      *  on every draw call and never recorded on [StrokeCommand] at all, so a wrapped stroke's edge
      *  tiling could change mid-drag and always vanished on commit/undo/redo/auto-bake. */
     private var strokeWrapAroundMode: Boolean = false
     /** Captured at stroke start for the same reason as [strokeAlphaLock] — 1f for every tool but the
      *  built-in round brush, which reads it from live state right before this. */
     private var strokeOpacity: Float = 1f
-    /** The lasso in force when the in-flight stroke began — see [strokeSymmetry] for why captured. */
+    /** The lasso in force when the in-flight stroke began — see [strokeAlphaLock] for why captured. */
     private var strokeSelection: com.hereliesaz.graffitixr.common.model.Selection? = null
     /** Uptime of the last touch sample this stroke actually rendered — the input-rate throttle. */
     private var lastSampleMs: Long = 0L
@@ -3570,7 +3565,6 @@ class EditorViewModel @Inject constructor(
         strokeLayerRotationZ = layer.rotationZ
         // Captured once per stroke: mid-stroke toggles must not desync live paint from the
         // recorded command that undo/redo replays.
-        strokeSymmetry = if (state.activeTool != Tool.LIQUIFY) state.symmetryMode else SymmetryMode.NONE
         strokeWrapAroundMode = state.wrapAroundMode
         strokeAlphaLock = layer.alphaLock
         strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
@@ -3931,41 +3925,25 @@ class EditorViewModel @Inject constructor(
 
             val bw = workBitmap.width.toFloat()
             val bh = workBitmap.height.toFloat()
-            // The full transform set for strokeSymmetry -- see symmetryMatrices' doc for why a
-            // single hardcoded vertical mirror here would silently break Horizontal/Quadrant/Radial_6.
-            val symmetryMats = symmetryMatrices(strokeSymmetry, bw, bh)
 
-            // Draws [seg] with wrap-around tiling, plus its symmetry twins when symmetry is on.
+            // Draws [seg] with wrap-around tiling.
             fun drawPathAll(seg: android.graphics.Path) {
-                val targets = ArrayList<android.graphics.Path>(1 + symmetryMats.size)
-                targets.add(seg)
-                for (m in symmetryMats) {
-                    targets.add(android.graphics.Path(seg).apply { transform(m) })
-                }
-                for (t in targets) {
-                    if (strokeWrapAroundMode) {
-                        for (dx in -1..1) for (dy in -1..1) {
-                            if (dx == 0 && dy == 0) workCanvas.drawPath(t, paint)
-                            else workCanvas.drawPath(android.graphics.Path(t).apply { offset(dx * bw, dy * bh) }, paint)
-                        }
-                    } else {
-                        workCanvas.drawPath(t, paint)
+                if (strokeWrapAroundMode) {
+                    for (dx in -1..1) for (dy in -1..1) {
+                        if (dx == 0 && dy == 0) workCanvas.drawPath(seg, paint)
+                        else workCanvas.drawPath(android.graphics.Path(seg).apply { offset(dx * bw, dy * bh) }, paint)
                     }
+                } else {
+                    workCanvas.drawPath(seg, paint)
                 }
             }
 
             if (mappedAll.size == 1) {
-                val points = ArrayList<Offset>(1 + symmetryMats.size)
-                points.add(mappedAll[0])
-                for (transform in ImageProcessor.symmetryTransforms(strokeSymmetry, bw, bh)) {
-                    points.add(transform(mappedAll[0]))
-                }
-                for (pt in points) {
-                    if (strokeWrapAroundMode) {
-                        for (dx in -1..1) for (dy in -1..1) workCanvas.drawPoint(pt.x + dx * bw, pt.y + dy * bh, paint)
-                    } else {
-                        workCanvas.drawPoint(pt.x, pt.y, paint)
-                    }
+                val pt = mappedAll[0]
+                if (strokeWrapAroundMode) {
+                    for (dx in -1..1) for (dy in -1..1) workCanvas.drawPoint(pt.x + dx * bw, pt.y + dy * bh, paint)
+                } else {
+                    workCanvas.drawPoint(pt.x, pt.y, paint)
                 }
             } else {
                 val dyn = strokeDynamics
@@ -3976,7 +3954,7 @@ class EditorViewModel @Inject constructor(
                     // recursion immediately as each point arrives, only drawing is windowed, so
                     // live pixels match replayed pixels once the stroke commits.
                     feedLiveCurvePoint(
-                        workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                        workCanvas, paint, workBitmap.width, workBitmap.height,
                         strokeWrapAroundMode, mappedAll[0], 0f, workBitmap,
                         generation = generation,
                     )
@@ -3984,7 +3962,7 @@ class EditorViewModel @Inject constructor(
                         val p = catchUpPressures.getOrNull(i) ?: 1f
                         val width = dyn.next((mappedAll[i] - mappedAll[i - 1]).getDistance(), brushSize * brushScale, p)
                         feedLiveCurvePoint(
-                            workCanvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                            workCanvas, paint, workBitmap.width, workBitmap.height,
                             strokeWrapAroundMode, mappedAll[i], width, workBitmap,
                             generation = generation,
                         )
@@ -4134,7 +4112,6 @@ class EditorViewModel @Inject constructor(
             )
             val brushSizePx = _uiState.value.effectivePaintBrushSize() * brushScale
             val feathering = _uiState.value.brushFeathering
-            val symmetry = strokeSymmetry
             val wrap = strokeWrapAroundMode
             val reference = resampleBlurReference
             val generation = strokeGeneration
@@ -4160,10 +4137,10 @@ class EditorViewModel @Inject constructor(
                 val work = SafeBitmap.copy(original) ?: return@launch
                 when (tool) {
                     Tool.BLUR -> if (reference != null) {
-                        liveBlurComposite(work, reference, mapped, brushSizePx, feathering, wrap, symmetry)
+                        liveBlurComposite(work, reference, mapped, brushSizePx, feathering, wrap)
                     }
                     Tool.SHARPEN -> if (reference != null) {
-                        liveSharpenComposite(work, reference, mapped, brushSizePx, feathering, wrap, symmetry)
+                        liveSharpenComposite(work, reference, mapped, brushSizePx, feathering, wrap)
                     }
                     Tool.SMUDGE -> {
                         // Sample Merged is intentionally not reproduced live (would need recompositing
@@ -4751,7 +4728,7 @@ class EditorViewModel @Inject constructor(
                         pointPressure,
                     )
                     feedLiveCurvePoint(
-                        canvas, paint, workBitmap.width, workBitmap.height, strokeSymmetry,
+                        canvas, paint, workBitmap.width, workBitmap.height,
                         strokeWrapAroundMode, next, width, workBitmap,
                     )
                     previous = next
@@ -4766,30 +4743,22 @@ class EditorViewModel @Inject constructor(
             seg.moveTo(prev.x, prev.y)
             seg.lineTo(mapped.x, mapped.y)
 
-            val symmetryMats = symmetryMatrices(strokeSymmetry, workBitmap.width.toFloat(), workBitmap.height.toFloat())
-            val segs = ArrayList<Path>(1 + symmetryMats.size)
-            segs.add(seg)
-            for (m in symmetryMats) {
-                segs.add(Path(seg).apply { transform(m) })
-            }
-            for (s in segs) {
-                if (strokeWrapAroundMode) {
-                    val w = workBitmap.width.toFloat()
-                    val h = workBitmap.height.toFloat()
-                    for (dx in -1..1) {
-                        for (dy in -1..1) {
-                            if (dx == 0 && dy == 0) {
-                                canvas.drawPath(s, paint)
-                            } else {
-                                val p = Path(s)
-                                p.offset(dx * w, dy * h)
-                                canvas.drawPath(p, paint)
-                            }
+            if (strokeWrapAroundMode) {
+                val w = workBitmap.width.toFloat()
+                val h = workBitmap.height.toFloat()
+                for (dx in -1..1) {
+                    for (dy in -1..1) {
+                        if (dx == 0 && dy == 0) {
+                            canvas.drawPath(seg, paint)
+                        } else {
+                            val p = Path(seg)
+                            p.offset(dx * w, dy * h)
+                            canvas.drawPath(p, paint)
                         }
                     }
-                } else {
-                    canvas.drawPath(s, paint)
                 }
+            } else {
+                canvas.drawPath(seg, paint)
             }
         }
         strokePrevBitmapPoint = mapped
@@ -5052,37 +5021,23 @@ class EditorViewModel @Inject constructor(
                     val bw = target.width.toFloat()
                     val bh = target.height.toFloat()
 
-                    val symmetryMats = symmetryMatrices(strokeSymmetry, bw, bh)
                     fun drawPathAll(seg: android.graphics.Path) {
-                        val targets = ArrayList<android.graphics.Path>(1 + symmetryMats.size)
-                        targets.add(seg)
-                        for (m in symmetryMats) {
-                            targets.add(android.graphics.Path(seg).apply { transform(m) })
-                        }
-                        for (t in targets) {
-                            if (strokeWrapAroundMode) {
-                                for (dx in -1..1) for (dy in -1..1) {
-                                    if (dx == 0 && dy == 0) canvas.drawPath(t, paint)
-                                    else canvas.drawPath(android.graphics.Path(t).apply { offset(dx * bw, dy * bh) }, paint)
-                                }
-                            } else {
-                                canvas.drawPath(t, paint)
+                        if (strokeWrapAroundMode) {
+                            for (dx in -1..1) for (dy in -1..1) {
+                                if (dx == 0 && dy == 0) canvas.drawPath(seg, paint)
+                                else canvas.drawPath(android.graphics.Path(seg).apply { offset(dx * bw, dy * bh) }, paint)
                             }
+                        } else {
+                            canvas.drawPath(seg, paint)
                         }
                     }
 
                     if (mapped.size == 1) {
-                        val points = ArrayList<Offset>(1 + symmetryMats.size)
-                        points.add(mapped[0])
-                        for (transform in ImageProcessor.symmetryTransforms(strokeSymmetry, bw, bh)) {
-                            points.add(transform(mapped[0]))
-                        }
-                        for (pt in points) {
-                            if (strokeWrapAroundMode) {
-                                for (dx in -1..1) for (dy in -1..1) canvas.drawPoint(pt.x + dx * bw, pt.y + dy * bh, paint)
-                            } else {
-                                canvas.drawPoint(pt.x, pt.y, paint)
-                            }
+                        val pt = mapped[0]
+                        if (strokeWrapAroundMode) {
+                            for (dx in -1..1) for (dy in -1..1) canvas.drawPoint(pt.x + dx * bw, pt.y + dy * bh, paint)
+                        } else {
+                            canvas.drawPoint(pt.x, pt.y, paint)
                         }
                     } else if (state.activeTool == Tool.BRUSH) {
                         // Dynamic brush: same recursion the live path and undo replay use. Widths
@@ -6759,10 +6714,10 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Draws one already-curved run (interleaved `x0,y0,x1,y1,…`, bitmap space — one output of
-     * [CatmullRom.segments]) onto [canvas] with [paint]'s current stroke width, replicated for
-     * [symmetryMode] and tiled for [wrapAroundMode] exactly as every other stroke draw in this
-     * class does, so a curved live segment and a straight one (the no-dynamics tools that never
-     * reach [feedLiveCurvePoint]) can't drift apart on how either gets mirrored/tiled.
+     * [CatmullRom.segments]) onto [canvas] with [paint]'s current stroke width, tiled for
+     * [wrapAroundMode] exactly as every other stroke draw in this class does, so a curved live
+     * segment and a straight one (the no-dynamics tools that never reach [feedLiveCurvePoint])
+     * can't drift apart on how either gets tiled.
      */
     /**
      * Stamps [run] (a curved segment, interleaved `[x0,y0,x1,y1,…]`) as a train of solid filled
@@ -6774,33 +6729,6 @@ class EditorViewModel @Inject constructor(
      * runs on is also used with `Style.STROKE` for other tools (eraser, blur, smudge) in the same
      * stroke lifetime elsewhere, so this must never leak.
      */
-    /**
-     * `Matrix` equivalents of [ImageProcessor.symmetryTransforms], for call sites that mirror an
-     * `android.graphics.Path` directly instead of individual dab centres. Every transform in that
-     * set (mirror, rotation) is affine, so transforming every point of a curved path -- including
-     * its Bezier control points -- via one of these matrices is exactly equivalent to transforming
-     * the curve itself. Kept as a literal parallel enumeration rather than deriving each Matrix
-     * from the Offset closures, since Matrix has no generic "wrap an arbitrary point function"
-     * constructor; regression coverage (item: symmetry modes) is what actually guards the two
-     * staying in sync, not this comment alone.
-     */
-    private fun symmetryMatrices(mode: SymmetryMode, w: Float, h: Float): List<android.graphics.Matrix> {
-        val cx = w / 2f
-        val cy = h / 2f
-        return when (mode) {
-            SymmetryMode.NONE -> emptyList()
-            SymmetryMode.VERTICAL -> listOf(android.graphics.Matrix().apply { setScale(-1f, 1f, cx, 0f) })
-            SymmetryMode.HORIZONTAL -> listOf(android.graphics.Matrix().apply { setScale(1f, -1f, 0f, cy) })
-            SymmetryMode.QUADRANT -> listOf(
-                android.graphics.Matrix().apply { setScale(-1f, 1f, cx, 0f) },
-                android.graphics.Matrix().apply { setScale(1f, -1f, 0f, cy) },
-                android.graphics.Matrix().apply { setScale(-1f, -1f, cx, cy) },
-            )
-            SymmetryMode.RADIAL_6 -> (1..5).map { k ->
-                android.graphics.Matrix().apply { setRotate(60f * k, cx, cy) }
-            }
-        }
-    }
 
     /** Resets Basic Brush's per-stroke Catmull-Rom window. */
     private fun resetLiveCurveState() = synchronized(liveCurveLock) {
@@ -6910,7 +6838,6 @@ class EditorViewModel @Inject constructor(
         run: FloatArray,
         bitmapWidth: Int,
         bitmapHeight: Int,
-        symmetryMode: SymmetryMode,
         wrapAroundMode: Boolean,
         targetBitmap: Bitmap,
     ) {
@@ -6921,15 +6848,10 @@ class EditorViewModel @Inject constructor(
         )
         if (centres.isEmpty()) return
 
-        val symmetryExtras = ImageProcessor.symmetryTransforms(
-            symmetryMode, bitmapWidth.toFloat(), bitmapHeight.toFloat(),
-        )
-        val basePositions = ArrayList<Offset>(centres.size / 2 * (1 + symmetryExtras.size))
+        val basePositions = ArrayList<Offset>(centres.size / 2)
         var i = 0
         while (i < centres.size) {
-            val p = Offset(centres[i], centres[i + 1])
-            basePositions.add(p)
-            for (transform in symmetryExtras) basePositions.add(transform(p))
+            basePositions.add(Offset(centres[i], centres[i + 1]))
             i += 2
         }
 
@@ -6954,7 +6876,6 @@ class EditorViewModel @Inject constructor(
         paint: Paint,
         bitmapWidth: Int,
         bitmapHeight: Int,
-        symmetryMode: SymmetryMode,
         wrapAroundMode: Boolean,
         point: Offset,
         width: Float,
@@ -6972,11 +6893,11 @@ class EditorViewModel @Inject constructor(
 
         if (liveCurveFinalizedCount == 0) {
             paint.strokeWidth = liveCurveWidths[0]
-            drawCurveRun(canvas, paint, segs[0], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode, targetBitmap)
+            drawCurveRun(canvas, paint, segs[0], bitmapWidth, bitmapHeight, wrapAroundMode, targetBitmap)
             liveCurveFinalizedCount++
         }
         paint.strokeWidth = liveCurveWidths[1]
-        drawCurveRun(canvas, paint, segs[1], bitmapWidth, bitmapHeight, symmetryMode, wrapAroundMode, targetBitmap)
+        drawCurveRun(canvas, paint, segs[1], bitmapWidth, bitmapHeight, wrapAroundMode, targetBitmap)
         liveCurveFinalizedCount++
 
         liveCurveWindow.removeFirst()
@@ -6989,7 +6910,6 @@ class EditorViewModel @Inject constructor(
         strokePaint = null
         strokePrevBitmapPoint = null
         strokeDynamics = null
-        strokeSymmetry = SymmetryMode.NONE
         strokeAlphaLock = false
         strokeOpacity = 1f
         strokeSelection = null

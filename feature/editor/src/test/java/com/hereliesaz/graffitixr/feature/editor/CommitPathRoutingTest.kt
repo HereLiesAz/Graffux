@@ -439,14 +439,9 @@ class CommitPathRoutingTest {
     }
 
     /**
-     * Roadmap gap found by a glee audit: every live-drawing call site for a plain (Round) brush
-     * stroke reduced every non-NONE `SymmetryMode` to a single hardcoded vertical mirror --
-     * `if (symmetry != NONE) drawOneMirroredCopy()` -- so a user who picked Quadrant (4 copies) or
-     * Radial-6 (6 copies) only ever saw a 2-copy vertical mirror while dragging, and (since the
-     * non-feathered commit path bakes the working bitmap verbatim) that wrong 2-copy result is
-     * what got saved too. Only replay (`DrawingEngine` -&gt; `ImageProcessor.symmetryTransforms`)
-     * ever applied the full transform set. This asserts commit-equals-replay for a mode the old
-     * code could not have gotten right by construction.
+     * Wrap-around tiling under a feathered selection: asserts commit-equals-replay so the
+     * feathered re-render commit path (through DrawingEngine) and undo/redo replay agree on
+     * exactly what the tiled copies painted.
      */
 
     @Test

@@ -1,7 +1,6 @@
 package com.hereliesaz.graffux.desktop
 
 import java.io.File
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,8 +11,10 @@ import org.junit.Test
  * Compose Desktop app).
  *
  * Since nothing in the module graph can see both files at compile time, this compares them as text
- * instead: it extracts every `0xAARRGGBB`-style hex literal from each source file, in file order,
- * and fails the moment the two lists diverge — catching drift a compiler never would.
+ * instead: it extracts every `0xAARRGGBB`-style hex literal from each source file and fails the
+ * moment a core:design token's value isn't mirrored in the desktop copy — catching drift a compiler
+ * never would. `Theme.kt` is allowed to declare additional desktop-only chrome colors (e.g. `Gray`,
+ * `DarkGrey`) that core:design's `Color.kt` doesn't define; only the shared brand tokens are checked.
  */
 class ThemeColorSyncTest {
 
@@ -33,12 +34,12 @@ class ThemeColorSyncTest {
         val coreDesignHex = extractHexColorLiterals(coreDesignFile.readText())
 
         assertTrue("no Color(0x...) literals found in ${desktopFile.path}", desktopHex.isNotEmpty())
-        assertEquals(
-            "GraffuxColors in Theme.kt has drifted from core:design's Color.kt — update the copy " +
-                "in Theme.kt (or this test, if core:design's palette is the one that changed on " +
-                "purpose) so the two stay in sync.",
-            coreDesignHex,
-            desktopHex,
+        val missing = coreDesignHex.toSet() - desktopHex.toSet()
+        assertTrue(
+            "GraffuxColors in Theme.kt is missing (or has drifted from) core:design token(s) " +
+                "$missing — update the copy in Theme.kt (or this test, if core:design's palette is " +
+                "the one that changed on purpose) so the two stay in sync.",
+            missing.isEmpty(),
         )
     }
 
