@@ -1,0 +1,6 @@
+[
+  {
+    "comment_id": "review",
+    "reply": "I've reviewed the PR description and diff. \n\nThe PR description says:\n`- Created \`local.properties\` pointing \`sdk.dir\` at \`/root/Android/sdk\` so the build resolves the Android SDK in this remote environment.`\n\nHowever, looking at the commit diff, `local.properties` is NOT included in the commit. It appears `local.properties` was ignored because it's listed in `.gitignore` (which includes `local.properties`).\n\nThe commit *does* include the `version.properties` auto-bump as expected, but fails to include the `local.properties` file that is mentioned in the PR title and description. As a result, the issue of the remote environment missing the `sdk.dir` setting is not actually fixed by this commit.\n\nSince `local.properties` shouldn't be committed to source control (as indicated by the `.gitignore`), the fix for setting `sdk.dir` in CI/remote environments shouldn't be to commit `local.properties`. Instead, environment variables like `ANDROID_HOME` or `ANDROID_SDK_ROOT` should be used to configure the SDK path, or it should be generated during the build pipeline.\n\nPlease fix this either by configuring the CI environment correctly without committing `local.properties` or by providing a script that generates it."
+  }
+]
