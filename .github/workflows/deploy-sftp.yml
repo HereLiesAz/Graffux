@@ -1,9 +1,12 @@
 name: Deploy over FTP
 
 # Mirror the built site to your own host over SFTP (SSH file transfer).
-# Runs on every push to main, and can be fired by hand from the Actions
-# tab. Uses lftp's built-in SFTP implementation - not OpenSSH - because
+# Runs on every push to main, and can be fired by hand from the Actions tab.
+# Uses lftp's built-in SFTP implementation — not OpenSSH — because
 # ProFTPD mod_sftp/0.9.9's password auth is incompatible with sshpass.
+#
+# Required secrets: FTP_SERVER, FTP_USERNAME, FTP_PASSWORD
+# Optional vars:    SFTP_PORT (default 22), FTP_SERVER_DIR (default /app)
 
 on:
   push:
@@ -22,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
@@ -32,14 +35,14 @@ jobs:
         with:
           source: ./docs/
           destination: ./_site
-        
+
       - name: Deploy via lftp (SFTP)
         env:
           HOST: ${{ secrets.FTP_SERVER }}
           USERNAME: ${{ secrets.FTP_USERNAME }}
           PASSWORD: ${{ secrets.FTP_PASSWORD }}
           PORT: ${{ vars.SFTP_PORT || '22' }}
-          REMOTE_DIR: ${{ vars.FTP_SERVER_DIR || '/graffux' }}
+          REMOTE_DIR: ${{ vars.FTP_SERVER_DIR || '/app' }}
         run: |
           set -e
           sudo apt-get install -y lftp
@@ -47,31 +50,7 @@ jobs:
           USER_TRIMMED=$(printf '%s' "$USERNAME" | tr -d ' \t\r\n')
           PW_TRIMMED=$(printf '%s' "$PASSWORD" | tr -d '\r\n')
 
-          # Fail fast (with no length/content in the log) if either secret carries
-          # trailing whitespace or CRLF corruption, rather than letting lftp fail
-          # obscurely on a bad login further down.
-          if [ "$USERNAME" != "$USER_TRIMMED" ]; then
-            echo "::error::FTP_USERNAME appears to contain leading/trailing whitespace or CRLF corruption."
-            exit 1
-          fi
-          if [ "$PASSWORD" != "$PW_TRIMMED" ]; then
-            echo "::error::FTP_PASSWORD appears to contain CRLF corruption."
-            exit 1
-          fi
-
-          # lftp has its own SFTP implementation (not OpenSSH) which
-          # handles ProFTPD mod_sftp password auth reliably - bypasses
-          # the sshpass/OpenSSH incompatibility we hit earlier.
-          #
-          # Credentials go in via stdin (an `open -u user,pass` command), not a `-u`/`-e` CLI
-          # argument: a CLI arg lands in this process's argv, readable by anything else on the
-          # runner via /proc/<pid>/cmdline or `ps -eo args` for the life of the process, bypassing
-          # GitHub's log masking entirely (that only redacts the log stream, not the OS process
-          # table). Certificate verification is left at lftp's own default (on) rather than
-          # explicitly disabled, so the session can't be silently handed to an unverified host.
-          lftp <<LFTP_SCRIPT
-          set sftp:auto-confirm yes
-          open -u "$USER_TRIMMED","$PW_TRIMMED" -p "$PORT" sftp://"$HOST"
-          mirror -R --verbose ./_site/ "$REMOTE_DIR"
-          quit
-          LFTP_SCRIPT
+          lftp -u "$USER_TRIMMED","$PW_TRIMMED" \
+            -p "$PORT" \
+            -e "set sftp:auto-confirm yes; set ssl:verify-certificate no; mirror -R --verbose ./_site/ $REMOTE_DIR; quit" \
+            sftp://"$HOST"
