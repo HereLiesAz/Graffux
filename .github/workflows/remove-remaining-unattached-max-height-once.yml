@@ -1,0 +1,32 @@
+name: Remove remaining unattached max-height refs (one-shot)
+
+on:
+  push:
+    branches: [ "fix/finish-ci-after-symmetry" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/finish-ci-after-symmetry
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Apply cleanup
+        run: python tools/remove_remaining_unattached_max_height.py
+      - name: Commit app source if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/hereliesaz/graffux/MainActivity.kt
+          if git diff --cached --quiet; then
+            echo "No production changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: remove remaining unsupported max-height calls"
+          git push origin HEAD:fix/finish-ci-after-symmetry
