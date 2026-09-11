@@ -633,7 +633,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             if (showAnimationRail) {
                 azUnattachedHostItem(
                     id = "area.animation", text = "Animation",
-                    anchor = AzUnattachedAnchor.FLOATING, maxHeight = unattachedRailMaxHeight,
+                    anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.MotionTween, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.animation"),
                     initiallyExpanded = railExpansion["area.animation"] ?: false,
@@ -690,7 +690,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
             if (showModelRail) {
                 azUnattachedHostItem(
-                    id = "area.model", text = "3D", anchor = AzUnattachedAnchor.FLOATING, maxHeight = unattachedRailMaxHeight,
+                    id = "area.model", text = "3D", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.GuideIsometric, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.model"),
                     initiallyExpanded = railExpansion["area.model"] ?: false,
@@ -710,7 +710,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
             if (showReferenceRail) {
                 azUnattachedHostItem(
-                    id = "area.reference", text = "Reference", anchor = AzUnattachedAnchor.FLOATING, maxHeight = unattachedRailMaxHeight,
+                    id = "area.reference", text = "Reference", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.LayerReference, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.reference"),
                     initiallyExpanded = railExpansion["area.reference"] ?: false,
@@ -733,7 +733,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
             if (showFigmaRail) {
                 azUnattachedHostItem(
-                    id = "area.figma", text = "Figma", anchor = AzUnattachedAnchor.FLOATING, maxHeight = unattachedRailMaxHeight,
+                    id = "area.figma", text = "Figma", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.Artboard, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.figma"),
                     initiallyExpanded = railExpansion["area.figma"] ?: false,
@@ -753,7 +753,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
             if (showExtensionsRail) {
                 azUnattachedHostItem(
-                    id = "area.extensions", text = "Extensions", anchor = AzUnattachedAnchor.FLOATING, maxHeight = unattachedRailMaxHeight,
+                    id = "area.extensions", text = "Extensions", anchor = AzUnattachedAnchor.FLOATING,
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.extensions"),
                     initiallyExpanded = railExpansion["area.extensions"] ?: false,
