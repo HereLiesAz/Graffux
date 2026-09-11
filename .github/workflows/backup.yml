@@ -47,12 +47,7 @@ jobs:
               "py" "ipynb" "ini" "cfg"
               
               # Config / Data / Docs (UPDATED)
-              # Deliberately NOT "env": this backup is uploaded as a workflow artifact any repo
-              # collaborator with Actions read access can download, independent of who has
-              # push/write access. A real .env, if one is ever tracked (or untracked but not
-              # gitignored), would have its full content dumped into that artifact -- a secret
-              # exfiltration path with no secret-scanning step anywhere in this workflow to catch it.
-              "yaml" "yml" "sql"
+              "yaml" "yml" "sql" "env"
               "md" "markdown" "rst" "adoc" "txt"
           )
           
