@@ -534,13 +534,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
     // nothing, so every control underneath still behaves exactly as before.
     val strokeGate = remember { StrokeGate() }
-    // AzNavRail 11.47 keeps its chrome composed while hiding it, so rail state, floating positions,
-    // nested state and window state survive a stroke. Capture mode and active drawing now use that
-    // one host-level visibility contract instead of each Az surface having to disappear independently.
-    val azChromeVisible = !uiState.hideUiForCapture && !strokeGate.strokeActive
-    // Unattached hosts are scroll viewports in 11.47. Keep them comfortably inside the usable
-    // screen while still letting the library apply its own stricter safe-viewport cap if necessary.
-    val unattachedRailMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.72f).dp
     // The rail's actual on-screen width is `collapsedWidth` (a separate knob from `railItemWidth`
     // below, which only sizes each button, not the strip itself) — read back from AzNavHostScope
     // (11.19) right after azConfig, rather than duplicating a guessed constant here, so
@@ -559,9 +552,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         AzHostActivityLayout(
             navController = navController,
             initiallyExpanded = false,
-            azVisible = azChromeVisible,
-            azVisibilityAnimation = AzVisibilityAnimation.NEAREST_EDGE,
-            azVisibilityDurationMillis = 160,
         ) {
             azTheme(
                 activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
@@ -2290,7 +2280,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azUnattachedHostItem(
             id = "grp.layers",
             text = strings.editor.layers,
-            anchor = AzUnattachedAnchor.OPPOSITE, maxHeight = unattachedRailMaxHeight,
+            anchor = AzUnattachedAnchor.OPPOSITE,
             content = GraffuxIcons.Layers,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
@@ -2360,7 +2350,7 @@ private fun AzNavHostScope.ConfigureRailItems(
         azUnattachedHostItem(
             id = "grp.brushRail",
             text = "Brushes",
-            anchor = AzUnattachedAnchor.OPPOSITE, maxHeight = unattachedRailMaxHeight,
+            anchor = AzUnattachedAnchor.OPPOSITE,
             content = GraffuxIcons.Brush,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
