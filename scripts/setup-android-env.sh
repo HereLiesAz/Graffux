@@ -209,12 +209,6 @@ if ! grep -q "android-sdk.sh" /etc/bash.bashrc 2>/dev/null; then
 fi
 echo "Wrote $PROFILE_SNIPPET"
 
-# Create local.properties so Gradle builds resolve the SDK path automatically
-if [ -n "$REPO_ROOT" ]; then
-    echo "sdk.dir=$ANDROID_HOME" > "$REPO_ROOT/local.properties"
-    echo "Wrote local.properties to $REPO_ROOT"
-fi
-
 # ── SDK packages ─────────────────────────────────────────────────────────────
 log "Licences"
 yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
