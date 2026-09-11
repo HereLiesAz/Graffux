@@ -19,9 +19,3 @@ if text.count(needle) != 2:
     raise SystemExit(f"expected 2 unattached maxHeight uses, found {text.count(needle)}")
 text = text.replace(needle, "anchor = AzUnattachedAnchor.OPPOSITE,")
 main.write_text(text)
-
-workflow = Path(".github/workflows/build.yml")
-w = workflow.read_text()
-w = w.replace("- name: Build (detekt + unit tests + debug APK)", "- name: Build (unit tests + debug APK)")
-w = w.replace("./gradlew detekt testDebugUnitTest assembleDebug --continue --build-cache", "./gradlew testDebugUnitTest assembleDebug --build-cache")
-workflow.write_text(w)
