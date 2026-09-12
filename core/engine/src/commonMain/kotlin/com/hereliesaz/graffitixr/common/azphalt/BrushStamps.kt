@@ -282,7 +282,11 @@ object BrushStamps {
             val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
             val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
             val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-            val resolvedDiameter = diameter * dynamic.sizeMultiplier * pressureFadeFactor * taperSize * blotSize
+            // Fade only the dynamic portion (deviation from unity) toward 1.0 as the stroke ends,
+            // so brushes without pressure bindings are unaffected and taper floors are respected.
+            val fadedSizeMultiplier = 1f + (dynamic.sizeMultiplier - 1f) * pressureFadeFactor
+            val fadedOpacityMultiplier = 1f + (dynamic.opacityMultiplier - 1f) * pressureFadeFactor
+            val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
             val headingDeg = sample.drawingAngleDeg
 
             repeat(resolveDabCount(brush, countRng)) {
@@ -291,10 +295,10 @@ object BrushStamps {
                 val scatR = rng.nextFloat()
                 val longR = longRng.nextFloat()
 
-                val radius = baseRadius * dynamic.sizeMultiplier * pressureFadeFactor *
+                val radius = baseRadius * fadedSizeMultiplier *
                     taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
                 val alpha = (
-                    brush.opacity * dynamic.opacityMultiplier * pressureFadeFactor *
+                    brush.opacity * fadedOpacityMultiplier *
                         taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)
                     ).coerceIn(0f, 1f)
 

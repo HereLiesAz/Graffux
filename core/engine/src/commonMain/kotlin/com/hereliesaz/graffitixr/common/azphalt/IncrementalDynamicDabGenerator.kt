@@ -130,7 +130,10 @@ class IncrementalDynamicDabGenerator(
         val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
         val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
         val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-        val resolvedDiameter = diameter * dynamic.sizeMultiplier * pressureFadeFactor * taperSize * blotSize
+        // Fade only the dynamic deviation from unity so brushes without pressure bindings are stable.
+        val fadedSizeMultiplier = 1f + (dynamic.sizeMultiplier - 1f) * pressureFadeFactor
+        val fadedOpacityMultiplier = 1f + (dynamic.opacityMultiplier - 1f) * pressureFadeFactor
+        val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
         val headingDeg = sample.drawingAngleDeg
         val out = ArrayList<Dab>()
 
@@ -139,9 +142,9 @@ class IncrementalDynamicDabGenerator(
             val opacR = rng.nextFloat()
             val scatR = rng.nextFloat()
             val longitudinalR = longRng.nextFloat()
-            val radius = baseRadius * dynamic.sizeMultiplier * pressureFadeFactor *
+            val radius = baseRadius * fadedSizeMultiplier *
                 taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
-            val alpha = (brush.opacity * dynamic.opacityMultiplier * pressureFadeFactor *
+            val alpha = (brush.opacity * fadedOpacityMultiplier *
                 taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
             var x = sample.x
             var y = sample.y
