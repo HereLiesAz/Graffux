@@ -31,8 +31,8 @@ class BrushTaperTest {
         val first = dabs.first()
         assertEquals(10f * 0.1f, first.radius, 0.05f) // baseRadius(10) * minSize at x=0.
         assertTrue(first.alpha < 0.25f)
-        // A dab well clear of both the start zone (60px) and the guaranteed end zone (60px on a
-        // 200px stroke, so x > 140px is in the end zone). x≈100 is safely in the flat mid-region.
+        // A dab well clear of both the start zone (60px) and the guaranteed end zone (30px on a
+        // 200px stroke, so x > 170px is in the end zone). x≈100 is safely in the flat mid-region.
         val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
         assertEquals(10f, mid.radius, 0.15f)
         assertEquals(1f, mid.alpha, 0.02f)

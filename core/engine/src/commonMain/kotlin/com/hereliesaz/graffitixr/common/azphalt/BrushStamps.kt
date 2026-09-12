@@ -11,7 +11,8 @@ import kotlin.random.Random
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
 // Every stroke guaranteed to taper to zero over at least this many brush diameters at the end.
-private const val GUARANTEED_END_TAPER_DIAMETERS = 3f
+// Kept short so the convex curve does the work; a long linear zone looks mechanical.
+private const val GUARANTEED_END_TAPER_DIAMETERS = 1.5f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
@@ -269,8 +270,11 @@ object BrushStamps {
             // guaranteed zone always fades all the way to zero.
             val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else 0f
             val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else 0f
-            val endSizeFactor = lerp(endMinSz, 1f, endTaperT)
-            val endOpacityFactor = lerp(endMinOp, 1f, endTaperT)
+            // Convex curve: stroke stays wide, then drops quickly at the very tip — looks like a
+            // natural lift rather than a uniform geometric pinch.
+            val endCurvedT = sqrt(endTaperT)
+            val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
+            val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)
 
             // Use min so overlapping start/end zones don't compound: the more tapered factor wins.
             val taperSize = minOf(startSizeFactor, endSizeFactor)
