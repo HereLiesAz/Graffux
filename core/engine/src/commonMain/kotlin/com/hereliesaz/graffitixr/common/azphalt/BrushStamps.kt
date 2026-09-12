@@ -10,6 +10,8 @@ import kotlin.random.Random
 
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
+// Every stroke guaranteed to taper to zero over at least this many brush diameters at the end.
+private const val GUARANTEED_END_TAPER_DIAMETERS = 3f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
@@ -239,19 +241,35 @@ object BrushStamps {
 
         do {
             val sample = interpolateSample(real, arc, at)
-            val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
 
+            // Pressure influence decays from full at stroke start to zero at stroke end.
+            // Any PRESSURE → * sensor binding naturally follows. Independent of BrushTaper.
+            val strokePositionT = if (total > 0f) (at / total).coerceIn(0f, 1f) else 0f
+            val fadedSample = sample.copy(pressure = sample.pressure * (1f - strokePositionT))
+            val dynamic = BrushSensorEngine.resolve(fadedSample, brush.dynamics, startTime, seed, index)
+
+            // Start taper (brush-configurable).
             val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
-            var endTaperT = if (taper.endLengthPx > 0f) {
-                ((total - at) / taper.endLengthPx).coerceIn(0f, 1f)
-            } else 1f
-            if (taper.liftOffSynthesizesPressure && endTaperT < 1f) {
+            val startSizeFactor = lerp(taper.minSize, 1f, startTaperT)
+            val startOpacityFactor = lerp(taper.minOpacity, 1f, startTaperT)
+
+            // End taper: guaranteed minimum of GUARANTEED_END_TAPER_DIAMETERS brush widths,
+            // always fading to zero at the stroke tip regardless of brush settings.
+            val guaranteedEndZone = (diameter * GUARANTEED_END_TAPER_DIAMETERS).coerceAtLeast(taper.endLengthPx)
+            var endTaperT = if (guaranteedEndZone > 0f) ((total - at) / guaranteedEndZone).coerceIn(0f, 1f) else 1f
+            if (taper.liftOffSynthesizesPressure && taper.endLengthPx > 0f && endTaperT < 1f) {
                 val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
-                endTaperT *= liftFactor
+                endTaperT = (endTaperT * liftFactor).coerceIn(0f, 1f)
             }
-            val taperT = minOf(startTaperT, endTaperT)
-            val taperSize = lerp(taper.minSize, 1f, taperT)
-            val taperOpacity = lerp(taper.minOpacity, 1f, taperT)
+            // minSize/minOpacity only apply inside the brush's own explicit zone; outside it the
+            // guaranteed zone always fades all the way to zero.
+            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else 0f
+            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else 0f
+            val endSizeFactor = lerp(endMinSz, 1f, endTaperT)
+            val endOpacityFactor = lerp(endMinOp, 1f, endTaperT)
+
+            val taperSize = startSizeFactor * endSizeFactor
+            val taperOpacity = startOpacityFactor * endOpacityFactor
             // First-touch blot: full strength at at=0, linearly decayed away by blot.lengthPx --
             // independent of (and composes with) the shrink-only taper above, since this spikes
             // ABOVE the resting size/opacity rather than fading towards it. See BrushBlot's doc

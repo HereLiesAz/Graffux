@@ -40,8 +40,19 @@ class IncrementalDynamicDabGenerator(
     private var secondSample: BrushSample? = null
     private var firstMovementSeen = false
     private var dwellMs = 0f
+    // Estimated total stroke length from StrokeLengthPredictor; 0 means unknown (no fade applied).
+    private var predictedStrokeTotal = 0f
 
-    fun append(sampleIn: BrushSample): List<Dab> {
+    /**
+     * Append a new sample and emit any dabs that fall within the new segment.
+     *
+     * [predictedTotal] is the current estimate of the stroke's eventual total arc length from
+     * [StrokeLengthPredictor.predictedTotal]. Pass 0 (the default) to skip pressure-influence fade
+     * for this call; pass a positive value to have pressure decay proportionally from stroke start
+     * to the predicted end.
+     */
+    fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
+        if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
         val sample = sampleIn.copy(predicted = false)
         val prev = previous
@@ -88,7 +99,11 @@ class IncrementalDynamicDabGenerator(
     }
 
     private fun emitAt(sample: BrushSample, at: Float): List<Dab> {
-        val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
+        // Pressure influence decays from full at stroke start to zero at the predicted stroke end.
+        // When predictedStrokeTotal is 0 (not yet provided), no fade is applied.
+        val strokePositionT = if (predictedStrokeTotal > 0f) (at / predictedStrokeTotal).coerceIn(0f, 1f) else 0f
+        val fadedSample = if (strokePositionT > 0f) sample.copy(pressure = sample.pressure * (1f - strokePositionT)) else sample
+        val dynamic = BrushSensorEngine.resolve(fadedSample, brush.dynamics, startTime, seed, index)
         val taper = brush.taper
         val blot = brush.blot
         val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
