@@ -102,8 +102,8 @@ class IncrementalDynamicDabGenerator(
         // Pressure influence decays from full at stroke start to zero at the predicted stroke end.
         // When predictedStrokeTotal is 0 (not yet provided), no fade is applied.
         val strokePositionT = if (predictedStrokeTotal > 0f) (at / predictedStrokeTotal).coerceIn(0f, 1f) else 0f
-        val fadedSample = if (strokePositionT > 0f) sample.copy(pressure = sample.pressure * (1f - strokePositionT)) else sample
-        val dynamic = BrushSensorEngine.resolve(fadedSample, brush.dynamics, startTime, seed, index)
+        val pressureFadeFactor = 1f - strokePositionT
+        val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
         val taper = brush.taper
         val blot = brush.blot
         val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
@@ -130,7 +130,7 @@ class IncrementalDynamicDabGenerator(
         val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
         val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
         val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-        val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize * blotSize
+        val resolvedDiameter = diameter * dynamic.sizeMultiplier * pressureFadeFactor * taperSize * blotSize
         val headingDeg = sample.drawingAngleDeg
         val out = ArrayList<Dab>()
 
@@ -139,10 +139,10 @@ class IncrementalDynamicDabGenerator(
             val opacR = rng.nextFloat()
             val scatR = rng.nextFloat()
             val longitudinalR = longRng.nextFloat()
-            val radius = baseRadius * dynamic.sizeMultiplier * taperSize * blotSize *
-                (1f - brush.sizeJitter * sizeR)
-            val alpha = (brush.opacity * dynamic.opacityMultiplier * taperOpacity * blotOpacity *
-                (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
+            val radius = baseRadius * dynamic.sizeMultiplier * pressureFadeFactor *
+                taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
+            val alpha = (brush.opacity * dynamic.opacityMultiplier * pressureFadeFactor *
+                taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
             var x = sample.x
             var y = sample.y
             val scatter = brush.scatter * dynamic.scatterMultiplier

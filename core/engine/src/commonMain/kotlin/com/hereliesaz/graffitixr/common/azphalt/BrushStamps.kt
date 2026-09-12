@@ -242,11 +242,11 @@ object BrushStamps {
         do {
             val sample = interpolateSample(real, arc, at)
 
-            // Pressure influence decays from full at stroke start to zero at stroke end.
-            // Any PRESSURE → * sensor binding naturally follows. Independent of BrushTaper.
+            // Pressure influence decays from full at stroke start to zero at stroke end,
+            // applied only to SIZE and OPACITY so color/mix bindings are unaffected.
             val strokePositionT = if (total > 0f) (at / total).coerceIn(0f, 1f) else 0f
-            val fadedSample = sample.copy(pressure = sample.pressure * (1f - strokePositionT))
-            val dynamic = BrushSensorEngine.resolve(fadedSample, brush.dynamics, startTime, seed, index)
+            val pressureFadeFactor = 1f - strokePositionT
+            val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
 
             // Start taper (brush-configurable).
             val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
@@ -254,8 +254,12 @@ object BrushStamps {
             val startOpacityFactor = lerp(taper.minOpacity, 1f, startTaperT)
 
             // End taper: guaranteed minimum of GUARANTEED_END_TAPER_DIAMETERS brush widths,
-            // always fading to zero at the stroke tip regardless of brush settings.
-            val guaranteedEndZone = (diameter * GUARANTEED_END_TAPER_DIAMETERS).coerceAtLeast(taper.endLengthPx)
+            // always fading to zero at the stroke tip regardless of brush settings. Capped at half
+            // the stroke length so very short strokes always have a visible non-tapered head.
+            val guaranteedEndZone = minOf(
+                (diameter * GUARANTEED_END_TAPER_DIAMETERS).coerceAtLeast(taper.endLengthPx),
+                total * 0.5f,
+            )
             var endTaperT = if (guaranteedEndZone > 0f) ((total - at) / guaranteedEndZone).coerceIn(0f, 1f) else 1f
             if (taper.liftOffSynthesizesPressure && taper.endLengthPx > 0f && endTaperT < 1f) {
                 val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
@@ -278,7 +282,7 @@ object BrushStamps {
             val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
             val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
             val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-            val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize * blotSize
+            val resolvedDiameter = diameter * dynamic.sizeMultiplier * pressureFadeFactor * taperSize * blotSize
             val headingDeg = sample.drawingAngleDeg
 
             repeat(resolveDabCount(brush, countRng)) {
@@ -287,11 +291,11 @@ object BrushStamps {
                 val scatR = rng.nextFloat()
                 val longR = longRng.nextFloat()
 
-                val radius = baseRadius * dynamic.sizeMultiplier * taperSize * blotSize *
-                    (1f - brush.sizeJitter * sizeR)
+                val radius = baseRadius * dynamic.sizeMultiplier * pressureFadeFactor *
+                    taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
                 val alpha = (
-                    brush.opacity * dynamic.opacityMultiplier * taperOpacity * blotOpacity *
-                        (1f - brush.opacityJitter * opacR)
+                    brush.opacity * dynamic.opacityMultiplier * pressureFadeFactor *
+                        taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)
                     ).coerceIn(0f, 1f)
 
                 var x = sample.x
