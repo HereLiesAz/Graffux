@@ -112,7 +112,11 @@ class BrushSensorDynamicsTest {
 
         assertTrue(dabs.size > 2)
         assertEquals(2.5f, dabs.first().radius, 1e-4f)
-        assertTrue(dabs.last().radius > dabs.first().radius)
+        // Pick a mid-stroke dab that is outside both the start zone and the guaranteed end zone
+        // (3 diameters = 60px on a 20px-diameter brush; end zone starts at 40px on a 100px stroke).
+        // Pressure at x≈20 is ~0.2, partially faded, but still produces a larger radius than x=0.
+        val mid = dabs.first { it.x > 10f && it.x < 35f }
+        assertTrue(mid.radius > dabs.first().radius)
     }
 
     @Test

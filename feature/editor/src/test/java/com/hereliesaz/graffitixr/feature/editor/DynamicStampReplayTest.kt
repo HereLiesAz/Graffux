@@ -114,6 +114,8 @@ class DynamicStampReplayTest {
 
         assertTrue("pressure route should visibly change the stroke", changedPixels > 0)
         assertTrue("low-pressure start should cover less area than a full-size static brush", dynamicPainted < staticPainted)
-        assertNotEquals(Color.WHITE, dynamic.getPixel(54, 20))
+        // The guaranteed end zone tapers the very last dab to zero, so check a mid-stroke pixel
+        // (x=20 is at arc-length ~12px, well inside the non-tapered head of the stroke).
+        assertNotEquals(Color.WHITE, dynamic.getPixel(20, 20))
     }
 }

@@ -40,8 +40,19 @@ class IncrementalDynamicDabGenerator(
     private var secondSample: BrushSample? = null
     private var firstMovementSeen = false
     private var dwellMs = 0f
+    // Estimated total stroke length from StrokeLengthPredictor; 0 means unknown (no fade applied).
+    private var predictedStrokeTotal = 0f
 
-    fun append(sampleIn: BrushSample): List<Dab> {
+    /**
+     * Append a new sample and emit any dabs that fall within the new segment.
+     *
+     * [predictedTotal] is the current estimate of the stroke's eventual total arc length from
+     * [StrokeLengthPredictor.predictedTotal]. Pass 0 (the default) to skip pressure-influence fade
+     * for this call; pass a positive value to have pressure decay proportionally from stroke start
+     * to the predicted end.
+     */
+    fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
+        if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
         val sample = sampleIn.copy(predicted = false)
         val prev = previous
@@ -88,6 +99,10 @@ class IncrementalDynamicDabGenerator(
     }
 
     private fun emitAt(sample: BrushSample, at: Float): List<Dab> {
+        // Pressure influence decays from full at stroke start to zero at the predicted stroke end.
+        // When predictedStrokeTotal is 0 (not yet provided), no fade is applied.
+        val strokePositionT = if (predictedStrokeTotal > 0f) (at / predictedStrokeTotal).coerceIn(0f, 1f) else 0f
+        val pressureFadeFactor = 1f - strokePositionT
         val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
         val taper = brush.taper
         val blot = brush.blot
@@ -115,7 +130,10 @@ class IncrementalDynamicDabGenerator(
         val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
         val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
         val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-        val resolvedDiameter = diameter * dynamic.sizeMultiplier * taperSize * blotSize
+        // Fade only the dynamic deviation from unity so brushes without pressure bindings are stable.
+        val fadedSizeMultiplier = 1f + (dynamic.sizeMultiplier - 1f) * pressureFadeFactor
+        val fadedOpacityMultiplier = 1f + (dynamic.opacityMultiplier - 1f) * pressureFadeFactor
+        val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
         val headingDeg = sample.drawingAngleDeg
         val out = ArrayList<Dab>()
 
@@ -124,10 +142,10 @@ class IncrementalDynamicDabGenerator(
             val opacR = rng.nextFloat()
             val scatR = rng.nextFloat()
             val longitudinalR = longRng.nextFloat()
-            val radius = baseRadius * dynamic.sizeMultiplier * taperSize * blotSize *
-                (1f - brush.sizeJitter * sizeR)
-            val alpha = (brush.opacity * dynamic.opacityMultiplier * taperOpacity * blotOpacity *
-                (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
+            val radius = baseRadius * fadedSizeMultiplier *
+                taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
+            val alpha = (brush.opacity * fadedOpacityMultiplier *
+                taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
             var x = sample.x
             var y = sample.y
             val scatter = brush.scatter * dynamic.scatterMultiplier
