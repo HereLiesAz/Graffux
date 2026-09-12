@@ -15,7 +15,7 @@ on:
     branches: ["main"]
     paths:
       - "docs/**"
-      - "wrangler.jsonc"
+      - "wrangler.toml"
       - ".github/workflows/cloudflare-deploy.yml"
   workflow_dispatch:
 
