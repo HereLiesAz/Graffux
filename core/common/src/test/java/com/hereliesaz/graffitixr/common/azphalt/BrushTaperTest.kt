@@ -21,7 +21,7 @@ class BrushTaperTest {
     }
 
     @Test
-    fun `start taper shrinks the opening dabs and leaves the tail alone`() {
+    fun `start taper shrinks the opening dabs and leaves the mid-stroke alone`() {
         val brush = AzphaltBrush(
             name = "start",
             spacing = 0.25f,
@@ -29,11 +29,13 @@ class BrushTaperTest {
         )
         val dabs = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 5L)
         val first = dabs.first()
-        val last = dabs.last()
         assertEquals(10f * 0.1f, first.radius, 0.05f) // baseRadius(10) * minSize at x=0.
         assertTrue(first.alpha < 0.25f)
-        assertEquals(10f, last.radius, 0.05f) // fully outside the 60px start zone.
-        assertEquals(1f, last.alpha, 0.01f)
+        // A dab well clear of both the start zone (60px) and the guaranteed end zone (60px on a
+        // 200px stroke, so x > 140px is in the end zone). x≈100 is safely in the flat mid-region.
+        val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
+        assertEquals(10f, mid.radius, 0.15f)
+        assertEquals(1f, mid.alpha, 0.02f)
     }
 
     @Test

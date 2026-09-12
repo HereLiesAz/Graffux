@@ -268,8 +268,9 @@ object BrushStamps {
             val endSizeFactor = lerp(endMinSz, 1f, endTaperT)
             val endOpacityFactor = lerp(endMinOp, 1f, endTaperT)
 
-            val taperSize = startSizeFactor * endSizeFactor
-            val taperOpacity = startOpacityFactor * endOpacityFactor
+            // Use min so overlapping start/end zones don't compound: the more tapered factor wins.
+            val taperSize = minOf(startSizeFactor, endSizeFactor)
+            val taperOpacity = minOf(startOpacityFactor, endOpacityFactor)
             // First-touch blot: full strength at at=0, linearly decayed away by blot.lengthPx --
             // independent of (and composes with) the shrink-only taper above, since this spikes
             // ABOVE the resting size/opacity rather than fading towards it. See BrushBlot's doc
