@@ -41,22 +41,11 @@ class IncrementalDynamicDabGenerator(
     private var firstMovementSeen = false
     private var dwellMs = 0f
     private var mechanicalState = BrushMechanicalState()
-    // Estimated total stroke length from StrokeLengthPredictor; 0 means unknown (no fade applied).
     private var predictedStrokeTotal = 0f
-    // Peak speed seen so far; grows monotonically. Used for speed-at-start and per-dab sensitivity.
     private var peakSpeed = 1e-4f
-    // Speed of the first real sample; locked in once firstSample is set and peakSpeed is known.
     private var startSpeedT = 0f
     private var startSpeedLocked = false
 
-    /**
-     * Append a new sample and emit any dabs that fall within the new segment.
-     *
-     * [predictedTotal] is the current estimate of the stroke's eventual total arc length from
-     * [StrokeLengthPredictor.predictedTotal]. Pass 0 (the default) to skip pressure-influence fade
-     * for this call; pass a positive value to have pressure decay proportionally from stroke start
-     * to the predicted end.
-     */
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
@@ -70,7 +59,6 @@ class IncrementalDynamicDabGenerator(
             return emitAt(sample, 0f)
         }
         if (secondSample == null) secondSample = sample
-        // Lock in startSpeedT after the second sample so peakSpeed has at least two readings.
         if (!startSpeedLocked && secondSample != null) {
             startSpeedT = ((firstSample?.speedPxPerMs ?: 0f) / peakSpeed).coerceIn(0f, 1f)
             startSpeedLocked = true
@@ -93,7 +81,6 @@ class IncrementalDynamicDabGenerator(
         val segmentStart = travelled
         val segmentEnd = travelled + segmentLength
         val out = ArrayList<Dab>()
-        // The first point was emitted at 0. nextAt was advanced by emitAt().
         while (nextAt <= segmentEnd + EPSILON) {
             if (nextAt > segmentStart + EPSILON) {
                 val t = ((nextAt - segmentStart) / segmentLength).coerceIn(0f, 1f)
@@ -101,7 +88,6 @@ class IncrementalDynamicDabGenerator(
                 out.addAll(emitAt(interpolated, nextAt))
             }
             if (nextAt <= segmentStart + EPSILON) {
-                // Defensive progress if an extremely small/invalid dynamic spacing kept us behind.
                 nextAt = segmentStart + 0.01f
             }
         }
@@ -111,8 +97,6 @@ class IncrementalDynamicDabGenerator(
     }
 
     private fun emitAt(sample: BrushSample, at: Float): List<Dab> {
-        // Pressure influence decays from full at stroke start to zero at the predicted stroke end.
-        // When predictedStrokeTotal is 0 (not yet provided), no fade is applied.
         val strokePositionT = if (predictedStrokeTotal > 0f) (at / predictedStrokeTotal).coerceIn(0f, 1f) else 0f
         val pressureFadeFactor = 1f - strokePositionT
         val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
@@ -121,8 +105,6 @@ class IncrementalDynamicDabGenerator(
         val contact = mechanics.contact
         val taper = brush.taper
         val blot = brush.blot
-        // Natural speed-at-start zone: mirrors BrushStamps behavior. Explicit startLengthPx uses
-        // only its own configured zone; natural zone applies only when no explicit setting exists.
         val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
         val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
         val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
@@ -130,11 +112,8 @@ class IncrementalDynamicDabGenerator(
         val naturalStartMinOp = 1f - startSpeedT
         val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
         val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
-        // Live end taper is intentionally deferred: changing total length would otherwise invalidate
-        // already-rendered dabs and recreate the exact growing-prefix work Engine 2 removes.
         val taperSize = lerp(startMinSz, 1f, startTaperT)
         val taperOpacity = lerp(startMinOp, 1f, startTaperT)
-        // Per-dab speed sensitivity: faster → thinner. Applied to radius only (not spacing).
         val speedSizeFactor = 1f - (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f) * SPEED_SIZE_SENSITIVITY
 
         val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
@@ -155,7 +134,6 @@ class IncrementalDynamicDabGenerator(
         val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
         val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
         val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-        // Fade only the dynamic deviation from unity so brushes without pressure bindings are stable.
         val fadedSizeMultiplier = 1f + (dynamic.sizeMultiplier - 1f) * pressureFadeFactor
         val fadedOpacityMultiplier = 1f + (dynamic.opacityMultiplier - 1f) * pressureFadeFactor
         val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
@@ -180,13 +158,15 @@ class IncrementalDynamicDabGenerator(
             if (scatter > 0f) {
                 val mag = scatter * contactDiameter * (scatR * 2f - 1f)
                 val perp = (headingDeg + 90f) * DEG_TO_RAD
-                x += mag * cos(perp); y += mag * sin(perp)
+                x += mag * cos(perp)
+                y += mag * sin(perp)
             }
             val longitudinal = brush.scatterLongitudinal * dynamic.scatterMultiplier
             if (longitudinal > 0f) {
                 val mag = longitudinal * contactDiameter * (longitudinalR * 2f - 1f)
                 val heading = headingDeg * DEG_TO_RAD
-                x += mag * cos(heading); y += mag * sin(heading)
+                x += mag * cos(heading)
+                y += mag * sin(heading)
             }
             val mechanicalAngle = if (brush.contact.isActive()) {
                 mechanicalHeadingDeg
@@ -201,8 +181,11 @@ class IncrementalDynamicDabGenerator(
             val contactTipRatio = (
                 brush.tipRatio * dynamic.tipRatioMultiplier * contact.tipRatioMultiplier
                 ).coerceIn(0.05f, 1f)
-            out += Dab(
-                x = x, y = y, radius = radius.coerceAtLeast(0f), alpha = alpha,
+            val parent = Dab(
+                x = x,
+                y = y,
+                radius = radius.coerceAtLeast(0f),
+                alpha = alpha,
                 angleDeg = angle,
                 tipRatio = contactTipRatio,
                 hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
@@ -211,7 +194,16 @@ class IncrementalDynamicDabGenerator(
                 saturationMultiplier = dynamic.saturationMultiplier,
                 valueMultiplier = dynamic.valueMultiplier,
                 colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
-                sourceRandom = colorRng.nextFloat(), mask = mask,
+                sourceRandom = colorRng.nextFloat(),
+                mask = mask,
+            )
+            out.addAll(
+                BrushTuftDabExpander.expandIfEnabled(
+                    parent = parent,
+                    contactDiameterPx = contactDiameter,
+                    contact = contact,
+                    config = brush.contact.tufts,
+                )
             )
             if (blot.extraStamps > 0 && blotT < 1f) {
                 val fade = (1f - blotT).coerceIn(0f, 1f)
@@ -219,17 +211,29 @@ class IncrementalDynamicDabGenerator(
                     val jitterAngle = (blotRng.nextFloat() * 2f - 1f) * blot.angleJitterDeg
                     val jitterMag = blot.positionJitter * contactDiameter * blotRng.nextFloat()
                     val jitterDir = blotRng.nextFloat() * 360f * DEG_TO_RAD
-                    out += Dab(
-                        x = x + jitterMag * cos(jitterDir), y = y + jitterMag * sin(jitterDir),
-                        radius = radius.coerceAtLeast(0f), alpha = (alpha * fade).coerceIn(0f, 1f),
+                    val blotParent = Dab(
+                        x = x + jitterMag * cos(jitterDir),
+                        y = y + jitterMag * sin(jitterDir),
+                        radius = radius.coerceAtLeast(0f),
+                        alpha = (alpha * fade).coerceIn(0f, 1f),
                         angleDeg = angle + jitterAngle,
                         tipRatio = contactTipRatio,
                         hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
-                        flowMultiplier = dynamic.flowMultiplier, hueShiftDeg = dynamic.hueShiftDeg,
+                        flowMultiplier = dynamic.flowMultiplier,
+                        hueShiftDeg = dynamic.hueShiftDeg,
                         saturationMultiplier = dynamic.saturationMultiplier,
                         valueMultiplier = dynamic.valueMultiplier,
                         colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
-                        sourceRandom = colorRng.nextFloat(), mask = null,
+                        sourceRandom = colorRng.nextFloat(),
+                        mask = null,
+                    )
+                    out.addAll(
+                        BrushTuftDabExpander.expandIfEnabled(
+                            parent = blotParent,
+                            contactDiameterPx = contactDiameter,
+                            contact = contact,
+                            config = brush.contact.tufts,
+                        )
                     )
                 }
             }
@@ -264,31 +268,39 @@ class IncrementalDynamicDabGenerator(
         val cfg = brush.maskedBrush?.sanitized() ?: return null
         val dynamic = BrushSensorEngine.resolve(sample, cfg.dynamics, startTime, seed xor MASK_SEED_SALT, index)
         val maskDiameter = primaryDiameter * cfg.sizeRatio * dynamic.sizeMultiplier
-        var mx = x; var my = y
+        var mx = x
+        var my = y
         val scatter = cfg.scatter * dynamic.scatterMultiplier
         if (scatter > 0f) {
             val mag = scatter * maskDiameter * (maskRng.nextFloat() * 2f - 1f)
             val perp = (headingDeg + 90f) * DEG_TO_RAD
-            mx += mag * cos(perp); my += mag * sin(perp)
+            mx += mag * cos(perp)
+            my += mag * sin(perp)
         } else maskRng.nextFloat()
         val longitudinal = cfg.scatterLongitudinal * dynamic.scatterMultiplier
         if (longitudinal > 0f) {
             val mag = longitudinal * maskDiameter * (maskLongRng.nextFloat() * 2f - 1f)
             val heading = headingDeg * DEG_TO_RAD
-            mx += mag * cos(heading); my += mag * sin(heading)
+            mx += mag * cos(heading)
+            my += mag * sin(heading)
         } else maskLongRng.nextFloat()
         return MaskDab(
-            x = mx, y = my, radius = maskDiameter / 2f, tipRatio = cfg.tipRatio,
+            x = mx,
+            y = my,
+            radius = maskDiameter / 2f,
+            tipRatio = cfg.tipRatio,
             alpha = (cfg.opacity * dynamic.opacityMultiplier).coerceIn(0f, 1f),
             angleDeg = cfg.angle + (if (cfg.followStroke) headingDeg else 0f) +
                 dynamic.rotationOffsetDeg + cfg.rotationPerPx * at,
             flowMultiplier = (cfg.flow * dynamic.flowMultiplier).coerceAtLeast(0f),
-            invert = cfg.invert, blendMode = cfg.blendMode,
+            invert = cfg.invert,
+            blendMode = cfg.blendMode,
         )
     }
 
     private fun interpolate(a: BrushSample, b: BrushSample, t: Float): BrushSample {
-        val dx = b.x - a.x; val dy = b.y - a.y
+        val dx = b.x - a.x
+        val dy = b.y - a.y
         val heading = if (dx == 0f && dy == 0f) a.drawingAngleDeg else atan2(dy, dx) * RAD_TO_DEG
         val reportedPressure = when {
             a.reportedPressure != null && b.reportedPressure != null ->
@@ -297,7 +309,8 @@ class IncrementalDynamicDabGenerator(
             else -> b.reportedPressure ?: a.reportedPressure
         }
         return BrushSample(
-            x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t),
+            x = lerp(a.x, b.x, t),
+            y = lerp(a.y, b.y, t),
             uptimeMillis = a.uptimeMillis + ((b.uptimeMillis - a.uptimeMillis) * t).toLong(),
             pressure = lerp(a.pressure, b.pressure, t),
             tiltRadians = lerp(a.tiltRadians, b.tiltRadians, t),
