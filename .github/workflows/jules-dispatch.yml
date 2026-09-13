@@ -24,12 +24,14 @@ defaults:
 
 jobs:
   dispatch:
-    # PRs: only non-forks; issues: open/reopen only;
-    # comments: only OWNER/MEMBER/COLLABORATOR typing @jules
+    # PRs: only non-forks and not Dependabot; issues: open/reopen only;
+    # comments: only OWNER/MEMBER/COLLABORATOR typing @jules.
+    # Dependabot PRs can still invoke Jules explicitly through an authorized comment.
     if: |-
       (
         github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.fork == false
+        github.event.pull_request.head.repo.fork == false &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
       ) || (
         github.event_name == 'issues' &&
         contains(fromJSON('["opened", "reopened"]'), github.event.action)
