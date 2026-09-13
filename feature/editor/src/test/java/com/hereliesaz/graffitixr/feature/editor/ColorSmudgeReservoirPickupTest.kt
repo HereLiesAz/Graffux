@@ -39,7 +39,7 @@ class ColorSmudgeReservoirPickupTest {
         colorRate = 1f,
         chargeDecayRate = 0.045f,
         dilution = 0f,
-        pickupRate = 1f,
+        pickupRate = 0.4f,
         mixingModel = MaterialMixingModel.PIGMENT_RYB,
         opacity = 1f,
         paintColor = Color.YELLOW,
