@@ -76,6 +76,49 @@ class BrushMechanicalDabIntegrationTest {
         ),
     )
 
+    private val cornerSamples = listOf(
+        BrushSample(
+            x = 0f,
+            y = 0f,
+            uptimeMillis = 0L,
+            pressure = 0.8f,
+            distancePx = 0f,
+            speedPxPerMs = 0f,
+            drawingAngleDeg = 0f,
+            telemetry = telemetry,
+        ),
+        BrushSample(
+            x = 20f,
+            y = 0f,
+            uptimeMillis = 20L,
+            pressure = 0.85f,
+            distancePx = 20f,
+            speedPxPerMs = 1f,
+            drawingAngleDeg = 0f,
+            telemetry = telemetry,
+        ),
+        BrushSample(
+            x = 20f,
+            y = 20f,
+            uptimeMillis = 40L,
+            pressure = 0.85f,
+            distancePx = 40f,
+            speedPxPerMs = 1f,
+            drawingAngleDeg = 90f,
+            telemetry = telemetry,
+        ),
+        BrushSample(
+            x = 0f,
+            y = 20f,
+            uptimeMillis = 60L,
+            pressure = 0.8f,
+            distancePx = 60f,
+            speedPxPerMs = 1f,
+            drawingAngleDeg = 180f,
+            telemetry = telemetry,
+        ),
+    )
+
     @Test
     fun mechanicsOnlyBrushDoesNotFallBackToStaticDabs() {
         val dynamic = BrushStamps.dynamicDabs(samples, 10f, brush, 77L)
@@ -188,6 +231,37 @@ class BrushMechanicalDabIntegrationTest {
         val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
 
         assertTrue(expected.isNotEmpty())
+        assertDabsEqual(expected, actual)
+    }
+
+    @Test
+    fun statefulTuftLagAtCornersIsIdenticalLiveAndCanonical() {
+        val tuftBrush = brush.copy(
+            contact = brush.contact.copy(
+                stiffness = 0.8f,
+                hysteresis = 0.55f,
+                tufts = BrushTuftConfig(
+                    enabled = true,
+                    count = 5,
+                    rootSpan = 0.82f,
+                    cohesion = 0.3f,
+                    splayResponse = 1.3f,
+                    bendDifferential = 0.24f,
+                    deformationResponse = 0.65f,
+                    hysteresis = 0.7f,
+                    recovery = 0.75f,
+                    maxLagDeg = 35f,
+                    emitTuftDabs = true,
+                )
+            )
+        )
+        val expected = BrushStamps.dynamicDabs(cornerSamples, 10f, tuftBrush, 991L)
+        val generator = IncrementalDynamicDabGenerator(10f, tuftBrush, 991L)
+        val total = cornerSamples.last().distancePx
+        val actual = cornerSamples.flatMap { generator.append(it, predictedTotal = total) }
+
+        assertTrue(expected.isNotEmpty())
+        assertTrue(expected.map { it.angleDeg }.distinct().size > 1)
         assertDabsEqual(expected, actual)
     }
 
