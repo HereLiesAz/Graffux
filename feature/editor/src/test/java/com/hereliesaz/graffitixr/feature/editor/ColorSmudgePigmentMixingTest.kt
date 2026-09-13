@@ -12,6 +12,7 @@ class ColorSmudgePigmentMixingTest {
     private fun red(argb: Int): Int = argb ushr 16 and 0xFF
     private fun green(argb: Int): Int = argb ushr 8 and 0xFF
     private fun blue(argb: Int): Int = argb and 0xFF
+    private fun greenDominance(argb: Int): Int = green(argb) - maxOf(red(argb), blue(argb))
 
     private val w = 24
     private val h = 16
@@ -58,7 +59,7 @@ class ColorSmudgePigmentMixingTest {
         val mixed = pixels[8 * w + 12]
         assertTrue(
             "pigment yellow/blue interaction should be green-dominant, got #${mixed.toUInt().toString(16)}",
-            green(mixed) > red(mixed) && green(mixed) > blue(mixed),
+            greenDominance(mixed) > 0,
         )
     }
 
@@ -81,6 +82,9 @@ class ColorSmudgePigmentMixingTest {
 
         val index = 8 * w + 12
         assertTrue("material mode must not collapse to legacy RGB", legacy[index] != pigment[index])
-        assertTrue("pigment result should contain more green than legacy", green(pigment[index]) > green(legacy[index]))
+        assertTrue(
+            "pigment result should have stronger green dominance than legacy RGB",
+            greenDominance(pigment[index]) > greenDominance(legacy[index]),
+        )
     }
 }
