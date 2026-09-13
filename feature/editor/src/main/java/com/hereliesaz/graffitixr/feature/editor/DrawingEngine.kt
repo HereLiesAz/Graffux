@@ -324,35 +324,39 @@ internal class DrawingEngine(
             // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
-            // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact
-            // RYB material mixer in the same shader. This preserves every legacy caller while making
-            // pigment-mode replay use Vulkan once available instead of being forced to CPU.
-            val gpuPainted = runCatching {
-                val engine = VulkanStampEngine()
-                try {
-                    if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
-                    val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
-                    val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
-                    for (plan in plans) {
-                        if (plan.dabs.size < 2) continue
-                        val nativeDabs = plan.dabs.map { dab ->
-                            ColorSmudgeDab(
-                                dab.x, dab.y, dab.smudgeRate, dab.colorRate,
-                                dab.opacity, dab.smudgeRadius,
-                            )
+            // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact RYB
+            // material mixer. Reservoir pickup is intentionally CPU-only until native stateful
+            // pickup is implemented; entering Vulkan would silently ignore canvas-dependent state.
+            val gpuPainted = if (ColorSmudgeEngine.requiresCpuReservoirSimulation(settings)) {
+                false
+            } else {
+                runCatching {
+                    val engine = VulkanStampEngine()
+                    try {
+                        if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
+                        val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                        val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
+                        for (plan in plans) {
+                            if (plan.dabs.size < 2) continue
+                            val nativeDabs = plan.dabs.map { dab ->
+                                ColorSmudgeDab(
+                                    dab.x, dab.y, dab.smudgeRate, dab.colorRate,
+                                    dab.opacity, dab.smudgeRadius,
+                                )
+                            }
+                            if (!engine.colorSmudge(
+                                    nativeDabs, mode, settings.radiusPx, settings.feathering,
+                                    settings.smearAlpha, settings.paintColor, settings.dilution,
+                                    sampleSource = sampleSource,
+                                    sampleSourceWidth = width, sampleSourceHeight = height,
+                                )) return@runCatching false
                         }
-                        if (!engine.colorSmudge(
-                                nativeDabs, mode, settings.radiusPx, settings.feathering,
-                                settings.smearAlpha, settings.paintColor, settings.dilution,
-                                sampleSource = sampleSource,
-                                sampleSourceWidth = width, sampleSourceHeight = height,
-                            )) return@runCatching false
+                        engine.readback(target)
+                    } finally {
+                        engine.destroy()
                     }
-                    engine.readback(target)
-                } finally {
-                    engine.destroy()
-                }
-            }.getOrDefault(false)
+                }.getOrDefault(false)
+            }
 
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
