@@ -96,6 +96,8 @@ data class BrushMechanicalState(
     val compression: Float = 0f,
     /** Stateful lean/contact-side amount. Tilt informs its target but does not directly reshape. */
     val lean: Float = 0f,
+    /** Stable per-bundle deformation memory. Empty when coarse tuft mechanics are disabled. */
+    val tufts: List<BrushTuftMechanicalState> = emptyList(),
     /** Latest intent evidence, retained for later richer solvers/tuft models. */
     val intent: BrushIntentObservation = BrushIntentObservation(),
     val lastUptimeMillis: Long = 0L,
@@ -164,7 +166,7 @@ object BrushContactModel {
         val targetLean = (tiltEvidence * cfg.tiltCoupling).coerceIn(0f, 1f)
 
         if (!previous.initialized) {
-            val initial = BrushMechanicalState(
+            val global = BrushMechanicalState(
                 initialized = true,
                 dragAngleDeg = targetAngle,
                 bend = targetBend,
@@ -173,7 +175,13 @@ object BrushContactModel {
                 intent = intent,
                 lastUptimeMillis = sample.uptimeMillis,
             )
-            return BrushMechanicalStep(initial, contactFor(initial, heading, cfg))
+            return withTuftMechanics(
+                global = global,
+                previousTufts = emptyList(),
+                movementHeadingDeg = heading,
+                cfg = cfg,
+                dtMs = 0f,
+            )
         }
 
         val dtMs = (sample.uptimeMillis - previous.lastUptimeMillis)
@@ -206,7 +214,7 @@ object BrushContactModel {
         val compression = approach(previous.compression, targetCompression, contactResponse)
         val lean = approach(previous.lean, targetLean, contactResponse)
 
-        val next = BrushMechanicalState(
+        val global = BrushMechanicalState(
             initialized = true,
             dragAngleDeg = dragAngle,
             bend = bend,
@@ -215,7 +223,34 @@ object BrushContactModel {
             intent = intent,
             lastUptimeMillis = sample.uptimeMillis,
         )
-        return BrushMechanicalStep(next, contactFor(next, heading, cfg))
+        return withTuftMechanics(
+            global = global,
+            previousTufts = previous.tufts,
+            movementHeadingDeg = heading,
+            cfg = cfg,
+            dtMs = dtMs,
+        )
+    }
+
+    private fun withTuftMechanics(
+        global: BrushMechanicalState,
+        previousTufts: List<BrushTuftMechanicalState>,
+        movementHeadingDeg: Float,
+        cfg: BrushContactConfig,
+        dtMs: Float,
+    ): BrushMechanicalStep {
+        val base = baseContactFor(global, movementHeadingDeg, cfg)
+        val tuftStep = BrushTuftTopology.step(
+            previous = previousTufts,
+            state = global,
+            contact = base,
+            config = cfg.tufts,
+            dtMs = dtMs,
+        )
+        return BrushMechanicalStep(
+            state = global.copy(tufts = tuftStep.states),
+            contact = base.copy(tufts = tuftStep.contacts),
+        )
     }
 
     private fun observeIntent(sample: BrushSample): BrushIntentObservation {
@@ -238,7 +273,7 @@ object BrushContactModel {
         )
     }
 
-    private fun contactFor(
+    private fun baseContactFor(
         state: BrushMechanicalState,
         movementHeadingDeg: Float,
         cfg: BrushContactConfig,
@@ -261,7 +296,7 @@ object BrushContactModel {
         val offsetX = -cos(dragRad) * dragDistance
         val offsetY = -sin(dragRad) * dragDistance
 
-        val base = BrushContactState(
+        return BrushContactState(
             widthMultiplier = width,
             tipRatioMultiplier = tipRatio,
             angleOffsetDeg = lagOffset,
@@ -272,7 +307,6 @@ object BrushContactModel {
             lean = lean,
             splay = splay,
         )
-        return base.copy(tufts = BrushTuftTopology.resolve(state, base, cfg.tufts))
     }
 
     private fun response(dtMs: Float, tauMs: Float): Float =
