@@ -141,7 +141,7 @@ internal class DrawingEngine(
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
         )
         if (stroke.tool == Tool.FILL) {
-            val target = SafeBitmap.copy(bitmap) ?: return target
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val p = mapped.firstOrNull() ?: return target
             ImageProcessor.floodFill(
                 target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
