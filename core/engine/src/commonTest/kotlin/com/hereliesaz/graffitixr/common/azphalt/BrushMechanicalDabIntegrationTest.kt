@@ -265,6 +265,63 @@ class BrushMechanicalDabIntegrationTest {
         assertDabsEqual(expected, actual)
     }
 
+    @Test
+    fun splitBreakawayAndRelaxationRemainLiveReplayIdentical() {
+        val splitSamples = listOf(
+            BrushSample(0f, 0f, 0L, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushSample(20f, 0f, 20L, distancePx = 20f, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushSample(40f, 0f, 40L, distancePx = 40f, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushSample(60f, 0f, 60L, distancePx = 60f, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushSample(80f, 0f, 80L, distancePx = 80f, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushSample(100f, 0f, 180L, distancePx = 100f, speedPxPerMs = 0.08f, drawingAngleDeg = 0f),
+            BrushSample(120f, 0f, 280L, distancePx = 120f, speedPxPerMs = 0.03f, drawingAngleDeg = 0f),
+            BrushSample(140f, 0f, 380L, distancePx = 140f, speedPxPerMs = 0f, drawingAngleDeg = 0f),
+        )
+        val tuftBrush = AzphaltBrush(
+            name = "Split transition",
+            spacing = 0.35f,
+            contact = BrushContactConfig(
+                enabled = true,
+                stiffness = 0.9f,
+                drag = 1f,
+                fullBendSpeedPxPerMs = 0.5f,
+                recovery = 0.95f,
+                dragSplay = 0.9f,
+                pressureCoupling = 0f,
+                tufts = BrushTuftConfig(
+                    enabled = true,
+                    count = 5,
+                    rootSpan = 0.7f,
+                    cohesion = 0f,
+                    splayResponse = 0.7f,
+                    bendDifferential = 0.18f,
+                    deformationResponse = 0.8f,
+                    recovery = 0.95f,
+                    splitThreshold = 0.25f,
+                    rejoinThreshold = 0.12f,
+                    splitResponse = 1f,
+                    splitSeparation = 0.24f,
+                    splitBendWeight = 0.5f,
+                    emitTuftDabs = true,
+                ),
+            ),
+        )
+
+        val expected = BrushStamps.dynamicDabs(splitSamples, 12f, tuftBrush, 444L)
+        val generator = IncrementalDynamicDabGenerator(12f, tuftBrush, 444L)
+        val actual = splitSamples.flatMap { generator.append(it, predictedTotal = splitSamples.last().distancePx) }
+
+        assertDabsEqual(expected, actual)
+        val groups = expected.chunked(5).filter { it.size == 5 }
+        assertTrue(groups.size > 4)
+        fun span(group: List<Dab>): Float = group.maxOf { it.y } - group.minOf { it.y }
+        val firstSpan = span(groups.first())
+        val maxSpan = groups.maxOf(::span)
+        val lastSpan = span(groups.last())
+        assertTrue(maxSpan > firstSpan)
+        assertTrue(lastSpan < maxSpan)
+    }
+
     private fun assertDabsEqual(expected: List<Dab>, actual: List<Dab>) {
         assertEquals(expected.size, actual.size)
         expected.zip(actual).forEachIndexed { index, (canonical, live) ->
