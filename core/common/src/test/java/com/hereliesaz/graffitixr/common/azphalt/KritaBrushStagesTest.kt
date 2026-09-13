@@ -53,9 +53,10 @@ class KritaBrushStagesTest {
         )
         val fixedDabs = BrushStamps.dynamicDabs(samples, 20f, fixed, seed = 9L)
         val dynamicDabs = BrushStamps.dynamicDabs(samples, 20f, dynamic, seed = 9L)
-        assertTrue(dynamicDabs.size != fixedDabs.size)
         // The first sample is slow, so the first dynamic step is half the normal step.
         assertEquals(2.5f, dynamicDabs[1].x, 0.05f)
+        // Fixed spacing (diameter-based) always puts the second dab at a full step width.
+        assertTrue(dynamicDabs[1].x != fixedDabs[1].x)
     }
 
     @Test
