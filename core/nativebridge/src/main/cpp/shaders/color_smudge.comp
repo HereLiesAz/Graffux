@@ -35,8 +35,22 @@ layout(push_constant) uniform SmudgePush {
     float paintB;
     float paintA;
     float dilution;    // Procreate-style Dilution: 0 deposits pure paint, 1 deposits the sampled/carried colour.
-    float hasSampleMerged; // Item 11: >0.5 reads pickup from sampleSourceTex instead of layerImage.
+    // Packed feature flags from VulkanColorSmudge.cpp: +1 = Sample Merged, +2 = pigment RYB mixing.
+    // Keeping both in this historical scalar leaves the push-constant ABI/layout unchanged.
+    float hasSampleMerged;
 } pc;
+
+int featureFlags() {
+    return int(pc.hasSampleMerged + 0.5);
+}
+
+bool sampleMergedEnabled() {
+    return (featureFlags() & 1) != 0;
+}
+
+bool pigmentMixingEnabled() {
+    return (featureFlags() & 2) != 0;
+}
 
 float brushMask(int dx, int dy) {
     float r = float(max(pc.radius, 1));
@@ -51,6 +65,13 @@ vec4 rounded8(vec4 v) {
     return round(clamp(v, 0.0, 1.0) * 255.0) / 255.0;
 }
 
+vec4 roundedMaterial8(vec4 v) {
+    // Kotlin roundToInt() on our non-negative 0..255 channels is half-up. Keep the pigment path's
+    // quantisation deterministic against MaterialColor.toArgb() instead of relying on GLSL round's
+    // implementation-dependent tie direction. Legacy still uses rounded8() unchanged above.
+    return floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+}
+
 vec4 lerpArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
     float f = clamp(t, 0.0, 1.0);
     vec4 outColor = mix(a, b, f);
@@ -58,12 +79,100 @@ vec4 lerpArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
     return rounded8(outColor);
 }
 
+// Exact GLSL translation of core/engine MaterialColorMixer's bounded RGB<->RYB latent transform.
+// This is an artist-oriented subtractive approximation, not a spectral/Kubelka-Munk claim.
+vec3 rgbToRyb(vec3 rgb) {
+    float r = clamp(rgb.r, 0.0, 1.0);
+    float g = clamp(rgb.g, 0.0, 1.0);
+    float b = clamp(rgb.b, 0.0, 1.0);
+    float white = min(r, min(g, b));
+    r -= white;
+    g -= white;
+    b -= white;
+
+    float maxGreen = max(r, max(g, b));
+    float yellow = min(r, g);
+    r -= yellow;
+    g -= yellow;
+
+    if (b > 0.0 && g > 0.0) {
+        b *= 0.5;
+        g *= 0.5;
+    }
+
+    yellow += g;
+    b += g;
+    float maxYellow = max(r, max(yellow, b));
+    if (maxYellow > 0.0) {
+        float normal = maxGreen / maxYellow;
+        r *= normal;
+        yellow *= normal;
+        b *= normal;
+    }
+
+    return vec3(r + white, yellow + white, b + white);
+}
+
+vec3 rybToRgb(vec3 ryb) {
+    float r = clamp(ryb.r, 0.0, 1.0);
+    float y = clamp(ryb.g, 0.0, 1.0);
+    float b = clamp(ryb.b, 0.0, 1.0);
+    float white = min(r, min(y, b));
+    r -= white;
+    y -= white;
+    b -= white;
+
+    float maxYellow = max(r, max(y, b));
+    float green = min(y, b);
+    y -= green;
+    b -= green;
+
+    if (b > 0.0 && green > 0.0) {
+        b *= 2.0;
+        green *= 2.0;
+    }
+
+    r += y;
+    green += y;
+    float maxGreen = max(r, max(green, b));
+    if (maxGreen > 0.0) {
+        float normal = maxYellow / maxGreen;
+        r *= normal;
+        green *= normal;
+        b *= normal;
+    }
+
+    return vec3(r + white, green + white, b + white);
+}
+
+vec4 pigmentArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
+    float f = clamp(t, 0.0, 1.0);
+    if (f <= 0.0) return roundedMaterial8(a);
+    if (f >= 1.0) {
+        vec4 endpoint = b;
+        if (!includeAlpha) endpoint.a = a.a;
+        return roundedMaterial8(endpoint);
+    }
+
+    vec3 aryb = rgbToRyb(a.rgb);
+    vec3 bryb = rgbToRyb(b.rgb);
+    vec3 rgb = rybToRgb(mix(aryb, bryb, f));
+    float alpha = includeAlpha ? mix(a.a, b.a, f) : a.a;
+    return roundedMaterial8(vec4(rgb, alpha));
+}
+
+vec4 materialMixArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
+    return pigmentMixingEnabled()
+        ? pigmentArgb(a, b, t, includeAlpha)
+        : lerpArgb(a, b, t, includeAlpha);
+}
+
 // Procreate-style Dilution: at dilution=0 (default) returns the raw paint colour, matching flat
 // Krita Color Rate exactly; at dilution=1 returns `under` unchanged, so no new pigment reaches the
 // canvas even though colorRate is still being "spent" -- mirrors ColorSmudgeEngine.dilutedPigment().
 vec4 dilutedPigment(vec4 under) {
     vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
-    return lerpArgb(under, paint, 1.0 - pc.dilution, true);
+    return materialMixArgb(under, paint, 1.0 - pc.dilution, true);
 }
 
 bool inLayer(ivec2 p) {
@@ -98,15 +207,14 @@ void smearDab() {
     // Pickup reads sampleSourceTex when Sample Merged is active; the carrier/under blend basis
     // below always stays on `under` (the active layer's own pixel) regardless -- mirrors
     // ColorSmudgeEngine.smear()'s `pickedUp` (readSource[idx]) vs `under` (pixels[idx]) split
-    // exactly. With hasSampleMerged <= 0.5, pickedUp == under, reproducing the original single-
-    // imageLoad code path byte-for-byte.
-    vec4 pickedUp = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, dstPos, 0) : under;
-    vec4 carried = lerpArgb(pickedUp, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
+    // exactly. Without Sample Merged, pickedUp == under, reproducing the original single-image path.
+    vec4 pickedUp = sampleMergedEnabled() ? texelFetch(sampleSourceTex, dstPos, 0) : under;
+    vec4 carried = materialMixArgb(pickedUp, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
     carrier[k] = carried;
-    vec4 outColor = lerpArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
+    vec4 outColor = materialMixArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
     if (pc.colorRate > 0.0) {
         vec4 pigment = dilutedPigment(pickedUp);
-        outColor = lerpArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
+        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }
@@ -129,7 +237,7 @@ void dullSample() {
             // Same pickup swap as smearDab(): the weighted-average neighbourhood reduction reads
             // sampleSourceTex when Sample Merged is active, matching ColorSmudgeEngine.dull()'s
             // weightedAverage(readSource, ...) call exactly.
-            vec4 texel = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+            vec4 texel = sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
             sum += texel * weight;
             sumW += weight;
         }
@@ -141,7 +249,7 @@ void dullSample() {
         if (!inLayer(p)) {
             carrier[0] = vec4(0.0);
         } else {
-            carrier[0] = pc.hasSampleMerged > 0.5 ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+            carrier[0] = sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
         }
     }
 }
@@ -158,12 +266,12 @@ void dullDeposit() {
     if (!inLayer(dstPos)) return;
 
     vec4 under = imageLoad(layerImage, dstPos);
-    vec4 outColor = lerpArgb(
+    vec4 outColor = materialMixArgb(
         under, carrier[0], mask * pc.opacity * pc.smudgeRate, pc.smearAlpha != 0
     );
     if (pc.colorRate > 0.0) {
         vec4 pigment = dilutedPigment(carrier[0]);
-        outColor = lerpArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
+        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }
