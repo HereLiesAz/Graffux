@@ -255,9 +255,9 @@ class BrushStampsTest {
         assertTrue(dabs.isNotEmpty())
         // The very first dab should be near the full 3x spike (radius ~15 vs the resting 5).
         assertTrue("first dab should be spiked, was radius=${dabs.first().radius}", dabs.first().radius > 10f)
-        // Far past lengthPx but before the guaranteed end zone (3 diameters = 30px on a 10px-diameter
-        // brush; on a 200px stroke the end zone starts at 170px), dabs settle to resting radius (~5).
-        val settled = dabs.last { it.x < 160f }
+        // Past blot.lengthPx (100px) but before the natural end zone (with all-zero-speed samples,
+        // liftDecelT=1, zone = 8 diameters = 80px → starts at 120px), dabs settle to resting radius.
+        val settled = dabs.last { it.x < 110f }
         assertEquals(5f, settled.radius, 0.5f)
     }
 
