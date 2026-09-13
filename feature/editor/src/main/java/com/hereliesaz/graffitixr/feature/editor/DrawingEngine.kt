@@ -7,6 +7,7 @@ import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
+import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -324,17 +325,13 @@ internal class DrawingEngine(
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
             //
-            // Dilution and chargeDecayRate both need no gate: chargeDecayRate is already folded into
-            // the per-dab colorRate by resolve() before reaching either path, and dilution's GPU
-            // mix now reads the same in-shader source (the destination pixel for Smear, the weighted-
-            // average carrier for Dulling) ColorSmudgeEngine.dilutedPigment() reads on the CPU for the
-            // non-Sample-Merged case -- see color_smudge.comp's dilutedPigment().
-            // Sample Merged (item 11) no longer needs a gate either: VulkanColorSmudge now carries a
-            // second sampled RGBA texture (color_smudge.comp's sampleSourceTex) that `sampleSource`
-            // seeds once per call, and every dab's pickup reads from it instead of the layer image
-            // when supplied -- see color_smudge.comp's `pickedUp`/`under` split, the GPU counterpart
-            // to ColorSmudgeEngine's `readSource`/`pixels` split.
-            val gpuPainted = runCatching {
+            // Material-aware pigment mixing deliberately stays on the CPU reference until the GLSL
+            // path carries the same RYB latent transform and parity tests. This keeps replay/device
+            // output deterministic while Phase 1 is being implemented rather than silently treating
+            // pigment mode as legacy RGB on Vulkan-capable devices.
+            val gpuPainted = if (settings.mixingModel != MaterialMixingModel.LEGACY_RGB) {
+                false
+            } else runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
