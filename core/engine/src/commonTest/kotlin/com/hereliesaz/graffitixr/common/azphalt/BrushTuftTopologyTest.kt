@@ -38,6 +38,15 @@ class BrushTuftTopologyTest {
                 BrushTuftConfig(),
             ).isEmpty()
         )
+        val step = BrushTuftTopology.step(
+            previous = emptyList(),
+            state = BrushMechanicalState(initialized = true),
+            contact = BrushContactState(),
+            config = BrushTuftConfig(),
+            dtMs = 16f,
+        )
+        assertTrue(step.states.isEmpty())
+        assertTrue(step.contacts.isEmpty())
     }
 
     @Test
@@ -110,14 +119,89 @@ class BrushTuftTopologyTest {
             BrushSample(18f, 8f, uptimeMillis = 32L, pressure = 0.9f, speedPxPerMs = 1f, drawingAngleDeg = 45f),
         )
 
-        fun run(): List<List<BrushTuftContact>> {
+        fun run(): List<BrushMechanicalStep> {
             var state = BrushMechanicalState()
             return samples.map { sample ->
-                BrushContactModel.step(sample, state, contactConfig).also { state = it.state }.contact.tufts
+                BrushContactModel.step(sample, state, contactConfig).also { state = it.state }
             }
         }
 
-        assertEquals(run(), run())
-        assertEquals(config.count, run().last().size)
+        val first = run()
+        val second = run()
+        assertEquals(first, second)
+        assertEquals(config.count, first.last().contact.tufts.size)
+        assertEquals(config.count, first.last().state.tufts.size)
+        assertEquals(listOf(0, 1, 2, 3, 4), first.last().state.tufts.map { it.id })
+    }
+
+    @Test
+    fun softerOuterTuftsLagCenterTuftAtCorner() {
+        val contactConfig = BrushContactConfig(
+            enabled = true,
+            stiffness = 1f,
+            drag = 1f,
+            hysteresis = 0f,
+            dragSplay = 0.25f,
+            tufts = config.copy(
+                deformationResponse = 0.8f,
+                hysteresis = 0.6f,
+                maxLagDeg = 40f,
+            ),
+        )
+        val first = BrushContactModel.step(
+            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushMechanicalState(),
+            contactConfig,
+        )
+        val corner = BrushContactModel.step(
+            BrushSample(10f, 10f, uptimeMillis = 16L, speedPxPerMs = 1f, drawingAngleDeg = 90f),
+            first.state,
+            contactConfig,
+        )
+
+        val outer = corner.state.tufts.first()
+        val center = corner.state.tufts[2]
+        assertTrue(center.dragAngleDeg > outer.dragAngleDeg)
+        assertTrue(abs(corner.contact.tufts.first().angleOffsetDeg) > 0.1f)
+        assertTrue(abs(corner.contact.tufts[2].angleOffsetDeg) > 0.1f)
+    }
+
+    @Test
+    fun tuftSeparationAndBendRecoverAfterMotionStops() {
+        val contactConfig = BrushContactConfig(
+            enabled = true,
+            stiffness = 0.7f,
+            drag = 1f,
+            recovery = 0.9f,
+            dragSplay = 0.5f,
+            tufts = config.copy(
+                cohesion = 0.2f,
+                splayResponse = 1.4f,
+                recovery = 0.9f,
+            ),
+        )
+        var step = BrushContactModel.step(
+            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 1f, drawingAngleDeg = 0f),
+            BrushMechanicalState(),
+            contactConfig,
+        )
+        val loadedOuter = step.state.tufts.last()
+        repeat(24) { index ->
+            step = BrushContactModel.step(
+                BrushSample(
+                    0f,
+                    0f,
+                    uptimeMillis = (index + 1L) * 16L,
+                    speedPxPerMs = 0f,
+                    drawingAngleDeg = 0f,
+                ),
+                step.state,
+                contactConfig,
+            )
+        }
+        val recoveredOuter = step.state.tufts.last()
+        assertTrue(abs(recoveredOuter.separationFraction) < abs(loadedOuter.separationFraction))
+        assertTrue(recoveredOuter.bend < loadedOuter.bend)
+        assertTrue(recoveredOuter.trailingFraction < loadedOuter.trailingFraction)
     }
 }
