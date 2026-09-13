@@ -141,7 +141,7 @@ internal class DrawingEngine(
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
         )
         if (stroke.tool == Tool.FILL) {
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: return target
             val p = mapped.firstOrNull() ?: return target
             ImageProcessor.floodFill(
                 target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
@@ -324,18 +324,15 @@ internal class DrawingEngine(
             // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
-            //
-            // Material-aware pigment mixing deliberately stays on the CPU reference until the GLSL
-            // path carries the same RYB latent transform and parity tests. This keeps replay/device
-            // output deterministic while Phase 1 is being implemented rather than silently treating
-            // pigment mode as legacy RGB on Vulkan-capable devices.
-            val gpuPainted = if (settings.mixingModel != MaterialMixingModel.LEGACY_RGB) {
-                false
-            } else runCatching {
+            // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact
+            // RYB material mixer in the same shader. This preserves every legacy caller while making
+            // pigment-mode replay use Vulkan once available instead of being forced to CPU.
+            val gpuPainted = runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
-                    val mode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                    val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                    val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
                     for (plan in plans) {
                         if (plan.dabs.size < 2) continue
                         val nativeDabs = plan.dabs.map { dab ->
