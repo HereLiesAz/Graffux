@@ -1,0 +1,1 @@
+Validate persistent per-tuft mechanics: stable identities, bundle lag, separation, hysteresis, recovery, and live/replay parity.
