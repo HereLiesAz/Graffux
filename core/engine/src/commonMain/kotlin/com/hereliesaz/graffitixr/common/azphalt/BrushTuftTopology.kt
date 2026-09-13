@@ -27,8 +27,16 @@ data class BrushTuftConfig(
     val splayResponse: Float = 0.8f,
     /** Differential trailing displacement of softer/outer bundles under bend. */
     val bendDifferential: Float = 0.12f,
-    /** Relative width assigned to each bundle for the later split-tip renderer. */
+    /** Relative width assigned to each bundle for split-tip rendering. */
     val tuftWidthScale: Float = 1f,
+    /**
+     * Emit one ordinary renderer-facing [Dab] per resolved bundle.
+     *
+     * False is the compatibility default: topology can be computed/tested without changing pixels.
+     * Turning this on is the M2 split-contact opt-in; CPU and Vulkan continue consuming the same
+     * ordinary Dab contract and do not need their own tuft interpretation.
+     */
+    val emitTuftDabs: Boolean = false,
 ) {
     fun sanitized(): BrushTuftConfig = copy(
         count = count.coerceIn(1, 16),
@@ -40,6 +48,7 @@ data class BrushTuftConfig(
     )
 
     fun isActive(): Boolean = enabled && count > 1
+    fun emitsDabs(): Boolean = isActive() && emitTuftDabs
 }
 
 /** Stable ferrule-local identity. No RNG participates in layout. */
