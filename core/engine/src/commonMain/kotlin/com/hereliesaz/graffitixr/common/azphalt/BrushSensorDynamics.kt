@@ -39,6 +39,13 @@ data class BrushSample(
     val drawingAngleDeg: Float = 0f,
     /** Presentation-only predicted samples must never be committed into authoritative history. */
     val predicted: Boolean = false,
+    /**
+     * Diameter of the touch contact ellipse in pixels from Android's AXIS_TOUCH_MAJOR.
+     * Non-zero for finger touches on devices that report it; zero/absent for stylus or when
+     * the platform doesn't expose contact size. Used as a pressure proxy when the reported
+     * pressure appears synthetic (always 1.0), so finger users get natural size modulation.
+     */
+    val touchMajorPx: Float = 0f,
 )
 
 /** Incrementally derives distance, speed and drawing angle for a raw input stream. */
@@ -67,6 +74,13 @@ class BrushSampleBuilder {
         tiltRadians: Float = 0f,
         orientationRadians: Float = 0f,
         predicted: Boolean = false,
+        /**
+         * Raw AXIS_TOUCH_MAJOR value from the MotionEvent, in pixels. Pass the value directly;
+         * 0 (default) means absent or stylus. When non-zero and the reported pressure looks
+         * synthetic (exactly 1.0), the contact size is normalized to an effective pressure so
+         * finger users get natural size modulation without extra sensor bindings.
+         */
+        touchMajorPx: Float = 0f,
     ): BrushSample {
         val prev = previous
         val dx = if (prev == null) 0f else x - prev.x
@@ -74,7 +88,13 @@ class BrushSampleBuilder {
         val segment = if (prev == null) 0f else hypot(dx, dy)
         val dt = if (prev == null) 0L else (uptimeMillis - prev.uptimeMillis).coerceAtLeast(1L)
         val angle = if (segment > 0f) atan2(dy, dx) * RAD_TO_DEG else prev?.drawingAngleDeg ?: 0f
+        // When the device reports no meaningful pressure differentiation (synthetic 1.0) but does
+        // report contact size, derive effective pressure from the touch area. Stylus input keeps
+        // its own reading; finger input on devices that don't vary pressure gets area-based modulation.
         val clampedPressure = pressure.coerceIn(0f, 1f)
+        val effectivePressure = if (touchMajorPx > 0f && clampedPressure >= 0.99f) {
+            (touchMajorPx / TOUCH_MAJOR_FULL_PRESSURE_PX).coerceIn(0f, 1f)
+        } else clampedPressure
 
         // Bootstrapped rather than blended from zero on the first observation, in both cases, so a
         // stroke's first dab still reflects the actual starting pressure/speed instead of easing up
@@ -90,8 +110,8 @@ class BrushSampleBuilder {
             if (!predicted) smoothedSpeed = filtered
             filtered
         }
-        val filteredPressure = smoothedPressure?.let { it + (clampedPressure - it) * PRESSURE_SMOOTHING_ALPHA }
-            ?: clampedPressure
+        val filteredPressure = smoothedPressure?.let { it + (effectivePressure - it) * PRESSURE_SMOOTHING_ALPHA }
+            ?: effectivePressure
         if (!predicted) smoothedPressure = filteredPressure
 
         val sample = BrushSample(
@@ -105,6 +125,7 @@ class BrushSampleBuilder {
             speedPxPerMs = speed,
             drawingAngleDeg = angle,
             predicted = predicted,
+            touchMajorPx = touchMajorPx,
         )
         // A predicted sample is disposable presentation state. Do not let it become the basis for
         // the next real sample's speed/distance; the next genuine point must derive from genuine
@@ -125,6 +146,9 @@ class BrushSampleBuilder {
         // where pressure is at least a direct reading.
         const val SPEED_SMOOTHING_ALPHA = 0.35f
         const val PRESSURE_SMOOTHING_ALPHA = 0.45f
+        // Touch contact diameter (AXIS_TOUCH_MAJOR) that maps to pressure = 1.0. A full-press
+        // finger contact on most devices spans ~50-80 px; 60 px is a reasonable middle ground.
+        const val TOUCH_MAJOR_FULL_PRESSURE_PX = 60f
     }
 }
 
