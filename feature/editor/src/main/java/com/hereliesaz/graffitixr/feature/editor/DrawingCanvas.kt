@@ -18,6 +18,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.BrushInputTool
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -48,11 +49,9 @@ private const val EYEDROP_HOLD_MS = 500L
  * next frame, but predicted points are NEVER sent to [onStrokePoint]. Only real input can enter the
  * bitmap/history path, so a bad prediction disappears on the next sample instead of becoming paint.
  *
- * Real input is normalized here into [BrushSample] before viewport/layer transforms. That mirrors
- * Krita's paint-information model: pressure, tilt, orientation, distance and speed describe the hand
- * motion that actually happened on the screen, while downstream code is free to remap only x/y into
- * world/bitmap space. Zooming the canvas therefore cannot make an identical physical gesture become
- * a different "speed" sensor value.
+ * Real input is normalized here into [BrushSample] before viewport/layer transforms. Device class
+ * and axis capability are preserved too: a high-quality stylus, basic stylus and finger therefore
+ * enter separate telemetry interpretation paths instead of being flattened into one fake pointer.
  */
 @Composable
 fun DrawingCanvas(
@@ -67,15 +66,12 @@ fun DrawingCanvas(
     onStrokeEnd: () -> Unit,
     onStrokeCancel: () -> Unit,
     onFillTap: (Offset, IntSize) -> Unit,
-    // True while Tool.CLONE is armed but unaimed. The tool then behaves like FILL — a tap, not a
-    // drag — because a clone stroke with no source has nothing to copy.
     pickingCloneSource: Boolean = false,
     onPickCloneSource: (Offset) -> Unit = {},
     onEyedropStart: (IntSize) -> Unit,
     onEyedropSample: (Offset) -> Unit,
     onEyedropEnd: (commit: Boolean) -> Unit,
 ) {
-    // For Liquify only: collect points and show a fake preview since it can't render incrementally.
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -95,10 +91,12 @@ fun DrawingCanvas(
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
     var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
     var latestTouchMajorPx by remember { mutableFloatStateOf(0f) }
+    var latestTouchMinorPx by remember { mutableFloatStateOf(0f) }
+    var latestInputTool by remember { mutableStateOf(BrushInputTool.UNKNOWN) }
+    var latestPressureAvailable by remember { mutableStateOf(true) }
+    var latestTiltAvailable by remember { mutableStateOf(false) }
+    var latestOrientationAvailable by remember { mutableStateOf(false) }
 
-    // View.getDisplay() throws under Robolectric and can be unavailable while a real View is
-    // detached. Prediction is a latency hint, not a reason to crash; 60 Hz is the conservative
-    // horizon until a visual display is actually attached.
     val refreshRate = remember(view) {
         runCatching { view.display?.refreshRate }
             .getOrNull()
@@ -124,10 +122,14 @@ fun DrawingCanvas(
             tiltRadians = latestTiltRadians,
             orientationRadians = latestOrientationRadians,
             touchMajorPx = latestTouchMajorPx,
+            touchMinorPx = latestTouchMinorPx,
+            tool = latestInputTool,
+            pressureAvailable = latestPressureAvailable,
+            tiltAvailable = latestTiltAvailable,
+            orientationAvailable = latestOrientationAvailable,
         )
     }
 
-    // When the layer bitmap updates (stroke committed), clear Liquify pending path.
     LaunchedEffect(layerBitmapKey) {
         liquifyPending = emptyList()
     }
@@ -138,9 +140,6 @@ fun DrawingCanvas(
         predictionTail = null
     }
 
-    // Leaving composition mid-stroke (tool change, the layer getting locked, a project reload)
-    // cancels the gesture loop below before it can clear the latch, and a latch left standing
-    // suppresses EVERY multi-finger gesture from then on. Unwind it here as well as there.
     DisposableEffect(gate) {
         onDispose { gate.strokeActive = false }
     }
@@ -148,14 +147,27 @@ fun DrawingCanvas(
     Canvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
-            // AndroidX needs the untouched MotionEvent stream. motionEventSpy observes without
-            // consuming, so the Compose pointerInput grammar below remains the sole gesture owner.
             .motionEventSpy { event ->
                 if (event.pointerCount > 0) {
                     val pointerIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                    val device = event.device
+                    val source = event.source
+                    fun hasAxis(axis: Int): Boolean =
+                        runCatching { device?.getMotionRange(axis, source) != null }.getOrDefault(false)
+
+                    latestInputTool = when (event.getToolType(pointerIndex)) {
+                        MotionEvent.TOOL_TYPE_STYLUS,
+                        MotionEvent.TOOL_TYPE_ERASER -> BrushInputTool.STYLUS
+                        MotionEvent.TOOL_TYPE_FINGER -> BrushInputTool.FINGER
+                        else -> BrushInputTool.UNKNOWN
+                    }
+                    latestPressureAvailable = hasAxis(MotionEvent.AXIS_PRESSURE)
+                    latestTiltAvailable = hasAxis(MotionEvent.AXIS_TILT)
+                    latestOrientationAvailable = hasAxis(MotionEvent.AXIS_ORIENTATION)
                     latestTiltRadians = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
                     latestOrientationRadians = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
                     latestTouchMajorPx = event.getTouchMajor(pointerIndex)
+                    latestTouchMinorPx = event.getTouchMinor(pointerIndex)
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     predictionTournament.reset()
@@ -170,48 +182,20 @@ fun DrawingCanvas(
                 }
             }
             .pointerInput(activeTool, nextFrameMs, pickingCloneSource) {
-                // pickingCloneSource must be a key, not just captured: it flips (Tool.CLONE armed
-                // but unaimed -> aimed) only in response to a tap-up dispatch that lands *after* the
-                // gesture reading it has already broken out of its while-loop (see onPickCloneSource
-                // below), so there is never a pointer down when this restarts mid-stroke. Without the
-                // key, this closure keeps whatever value was captured when activeTool/nextFrameMs last
-                // changed, so every gesture after the first clone-source pick reads a stale `true` and
-                // treats subsequent drags as "still picking the source" instead of stamping paint.
-                //
-                // Changing tool relaunches this block, killing any in-flight stroke's loop before it
-                // can clear the latch. Nothing is being painted the instant this starts, so start clean.
                 gate.strokeActive = false
                 if (activeTool == Tool.NONE) return@pointerInput
                 val slop = viewConfiguration.touchSlop
 
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    // ACTION_DOWN normally resets this through motionEventSpy, but keep the gesture
-                    // loop self-contained for tests and unusual dispatch paths where the spy is absent.
                     brushSampleBuilder.reset()
                     var began = false
                     var eyedrop = false
                     var cancelled = false
                     var last = down.position
-                    // A fixed deadline from the down event, not a timeout re-armed every loop
-                    // iteration: a real finger is never perfectly stationary, and a sub-slop jitter
-                    // (or a pressure-only update) that reaches this loop as its own pointer event
-                    // used to restart a fresh EYEDROP_HOLD_MS wait -- on hardware that reports such
-                    // events during a hold, the countdown could keep resetting and the eyedropper
-                    // would never trigger no matter how long the finger stayed still.
                     val eyedropDeadlineMs = android.os.SystemClock.uptimeMillis() + EYEDROP_HOLD_MS
 
                     while (true) {
-                        // While nothing has started yet, wait only for what's left of the fixed
-                        // hold window: a still finger produces no events, and reaching the deadline
-                        // (not a fresh per-iteration timeout) is what flips into the eyedropper.
-                        //
-                        // Excluded here, not just "any tool" as the comment below still says once
-                        // triggered: aiming the Clone source and Tool.FILL are BOTH documented as a
-                        // tap (or lift), not a hold — a hold-to-eyedrop rule with no exception for
-                        // them used to fire the eyedropper on a deliberately careful, slightly-long
-                        // tap, silently swapping the active paint colour instead of setting the
-                        // clone source, or eating a FILL tap entirely with no fill and no explanation.
                         val event = if (!began && !eyedrop && !pickingCloneSource && activeTool != Tool.FILL) {
                             val remainingMs = eyedropDeadlineMs - android.os.SystemClock.uptimeMillis()
                             if (remainingMs <= 0L) null else withTimeoutOrNull(remainingMs) { awaitPointerEvent() }
@@ -220,7 +204,6 @@ fun DrawingCanvas(
                         }
 
                         if (event == null) {
-                            // Held still long enough → eyedropper (any tool; FILL included).
                             predictionTail = null
                             eyedrop = true
                             onEyedropStart(canvasSize)
@@ -228,7 +211,6 @@ fun DrawingCanvas(
                             continue
                         }
 
-                        // A second finger lands → this is a gesture, not painting. Cancel.
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
                             predictionTail = null
@@ -257,8 +239,6 @@ fun DrawingCanvas(
                         }
 
                         if (!change.pressed) {
-                            // Let the final real point score any prediction that matured before lift,
-                            // but don't create another future tail after the stroke has ended.
                             if (began) {
                                 predictionTournament.record(
                                     GestureSample(change.position, change.uptimeMillis, change.pressure)
@@ -266,11 +246,6 @@ fun DrawingCanvas(
                             }
                             predictionTail = null
                             when {
-                                // The lift position, not the touch-down one: aiming the clone source
-                                // is the same "tap, or lift" gesture shape as Fill below it, and a
-                                // hold is never perfectly stationary (see the eyedrop deadline comment
-                                // above) -- using down.position silently discarded any correction the
-                                // user made by drifting their finger before lifting.
                                 pickingCloneSource -> onPickCloneSource(change.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
                                 began -> {
@@ -282,7 +257,6 @@ fun DrawingCanvas(
                                     onStrokeEnd()
                                 }
                                 else -> {
-                                    // Quick tap: a single dab.
                                     gate.strokeActive = true
                                     onStrokeStart(
                                         brushSampleBuilder.add(
@@ -293,6 +267,11 @@ fun DrawingCanvas(
                                             tiltRadians = latestTiltRadians,
                                             orientationRadians = latestOrientationRadians,
                                             touchMajorPx = latestTouchMajorPx,
+                                            touchMinorPx = latestTouchMinorPx,
+                                            tool = latestInputTool,
+                                            pressureAvailable = latestPressureAvailable,
+                                            tiltAvailable = latestTiltAvailable,
+                                            orientationAvailable = latestOrientationAvailable,
                                         ),
                                         canvasSize,
                                     )
@@ -319,10 +298,6 @@ fun DrawingCanvas(
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
                                 }
-                                // HistoricalChange carries no pressure of its own (Compose only
-                                // batches position/time sub-samples) — the enclosing change's
-                                // pressure is the closest reading available, and pressure changes
-                                // slowly enough within one frame's batch that this is unnoticeable.
                                 onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))
                             }
                             if (activeTool == Tool.LIQUIFY) {
@@ -368,9 +343,6 @@ fun DrawingCanvas(
             )
         }
 
-        // The winning predictor's disposable tail. Deliberately translucent: it should read as the
-        // same stroke reaching the pen, but a correction on the next frame should not flash like a
-        // committed opaque segment being erased.
         predictionTail?.let { (real, predicted) ->
             drawLine(
                 color = activeColor.copy(alpha = activeColor.alpha * 0.45f),
