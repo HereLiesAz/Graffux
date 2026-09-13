@@ -46,6 +46,7 @@ import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalDynamicDabGenerator
+import com.hereliesaz.graffitixr.common.azphalt.StrokeLengthPredictor
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalAirbrushGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalRoundStampCompositor
 import com.hereliesaz.graffitixr.common.azphalt.Dab
@@ -804,6 +805,7 @@ class EditorViewModel @Inject constructor(
     // is deliberately allowed to lag/coalesce while input continues at full speed.
     private var stampStaticDabGenerator: IncrementalStaticDabGenerator? = null
     private var stampDynamicDabGenerator: IncrementalDynamicDabGenerator? = null
+    private val stampLengthPredictor = StrokeLengthPredictor()
     private val stampGeneratedMovementDabs = ArrayList<Dab>()
     private var stampMovementConsumedSampleCount: Int = 0
     private var stampAirbrushGenerator: IncrementalAirbrushGenerator? = null
@@ -3645,6 +3647,7 @@ class EditorViewModel @Inject constructor(
         stampRoundMaxCompositor = null
             stampStaticDabGenerator = null
             stampDynamicDabGenerator = null
+            stampLengthPredictor.reset()
             stampGeneratedMovementDabs.clear()
             stampMovementConsumedSampleCount = 0
             stampAirbrushGenerator = null
@@ -4225,8 +4228,10 @@ class EditorViewModel @Inject constructor(
                         stampDynamicDabGenerator = generator
                     }
                     while (stampMovementConsumedSampleCount < mappedSamples.size) {
+                        val s = mappedSamples[stampMovementConsumedSampleCount]
+                        stampLengthPredictor.record(s)
                         stampGeneratedMovementDabs.addAll(
-                            generator.append(mappedSamples[stampMovementConsumedSampleCount])
+                            generator.append(s, stampLengthPredictor.predictedTotal)
                         )
                         stampMovementConsumedSampleCount++
                     }
@@ -6954,6 +6959,7 @@ class EditorViewModel @Inject constructor(
         stampRoundMaxCompositor = null
         stampStaticDabGenerator = null
         stampDynamicDabGenerator = null
+        stampLengthPredictor.reset()
         stampGeneratedMovementDabs.clear()
         stampMovementConsumedSampleCount = 0
         stampAirbrushGenerator = null
