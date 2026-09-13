@@ -123,4 +123,28 @@ class BrushMechanicalDabIntegrationTest {
         assertTrue(highTrust.isNotEmpty())
         assertTrue(highTrust.first().radius > lowTrust.first().radius)
     }
+
+    @Test
+    fun topologyFoundationDoesNotAlterDabsBeforeSplitRenderingIsEnabled() {
+        val baseline = BrushStamps.dynamicDabs(samples, 10f, brush, 77L)
+        val withTopology = BrushStamps.dynamicDabs(
+            samples,
+            10f,
+            brush.copy(
+                contact = brush.contact.copy(
+                    tufts = BrushTuftConfig(
+                        enabled = true,
+                        count = 7,
+                        rootSpan = 0.9f,
+                        cohesion = 0.4f,
+                        splayResponse = 1.2f,
+                        bendDifferential = 0.2f,
+                    )
+                )
+            ),
+            77L,
+        )
+
+        assertEquals(baseline, withTopology)
+    }
 }
