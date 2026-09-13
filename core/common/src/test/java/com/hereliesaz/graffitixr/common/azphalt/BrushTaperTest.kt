@@ -31,8 +31,8 @@ class BrushTaperTest {
         val first = dabs.first()
         assertEquals(10f * 0.1f, first.radius, 0.05f) // baseRadius(10) * minSize at x=0.
         assertTrue(first.alpha < 0.25f)
-        // A dab well clear of both the start zone (60px) and the guaranteed end zone (30px on a
-        // 200px stroke, so x > 170px is in the end zone). x≈100 is safely in the flat mid-region.
+        // straight200 ends at constant speed so liftDecelT=0 → no natural end zone. x≈100 is
+        // clear of the 60px start zone and has no end zone to worry about: it's flat mid-stroke.
         val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
         assertEquals(10f, mid.radius, 0.15f)
         assertEquals(1f, mid.alpha, 0.02f)
@@ -98,14 +98,11 @@ class BrushTaperTest {
         val constTail = constDabs.last { it.x < 195f }
         assertTrue(decelTail.radius < constTail.radius)
 
-        // Without lift-off, distance-only taper is identical regardless of recorded speed.
+        // Without liftOffSynthesizesPressure the natural speed-adaptive zone still gives a
+        // decelerating stroke more taper than a constant-speed one (larger zone, lower floor).
         val decelPlain = BrushStamps.dynamicDabs(decelerating, 20f, plainTaperBrush, seed = 7L)
         val constPlain = BrushStamps.dynamicDabs(constantSpeed, 20f, plainTaperBrush, seed = 7L)
-        assertEquals(
-            decelPlain.last { it.x < 195f }.radius,
-            constPlain.last { it.x < 195f }.radius,
-            0.01f,
-        )
+        assertTrue(decelPlain.last { it.x < 195f }.radius < constPlain.last { it.x < 195f }.radius)
     }
 
     @Test
