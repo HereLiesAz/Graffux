@@ -76,7 +76,13 @@ class MaskedBrushScatterRotationTest {
             name = "masked-dynamic", spacing = 0.25f, dynamics = listOf(neutralRoute),
             maskedBrush = MaskedBrushConfig(rotationPerPx = 1.5f),
         )
-        val dabs = BrushStamps.dynamicDabs(straightSamples, 20f, brush, seed = 1L)
+        // Speed=0 on the first sample → startSpeedT=0 → no natural entry taper zone, so the
+        // brush runs at full diameter throughout and the last dab lands at exactly total=100px.
+        val slowStartSamples = listOf(
+            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 0f),
+            BrushSample(100f, 0f, uptimeMillis = 100L, speedPxPerMs = 1f),
+        )
+        val dabs = BrushStamps.dynamicDabs(slowStartSamples, 20f, brush, seed = 1L)
         assertEquals(0f, dabs.first().mask!!.angleDeg, 0.01f)
         assertEquals(1.5f * 100f, dabs.last().mask!!.angleDeg, 0.5f)
     }
