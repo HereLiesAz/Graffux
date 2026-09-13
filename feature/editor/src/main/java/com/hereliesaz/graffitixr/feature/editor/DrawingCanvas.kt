@@ -94,6 +94,7 @@ fun DrawingCanvas(
     val brushSampleBuilder = remember { BrushSampleBuilder() }
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
     var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
+    var latestTouchMajorPx by remember { mutableFloatStateOf(0f) }
 
     // View.getDisplay() throws under Robolectric and can be unavailable while a real View is
     // detached. Prediction is a latency hint, not a reason to crash; 60 Hz is the conservative
@@ -122,6 +123,7 @@ fun DrawingCanvas(
             pressure = pressure,
             tiltRadians = latestTiltRadians,
             orientationRadians = latestOrientationRadians,
+            touchMajorPx = latestTouchMajorPx,
         )
     }
 
@@ -153,6 +155,7 @@ fun DrawingCanvas(
                     val pointerIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
                     latestTiltRadians = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
                     latestOrientationRadians = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
+                    latestTouchMajorPx = event.getTouchMajor(pointerIndex)
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     predictionTournament.reset()
@@ -289,6 +292,7 @@ fun DrawingCanvas(
                                             pressure = down.pressure,
                                             tiltRadians = latestTiltRadians,
                                             orientationRadians = latestOrientationRadians,
+                                            touchMajorPx = latestTouchMajorPx,
                                         ),
                                         canvasSize,
                                     )

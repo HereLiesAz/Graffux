@@ -4,10 +4,10 @@ buildscript {
     val commonForcedDependencies = listOf(
         "commons-beanutils:commons-beanutils:1.11.0",
         "org.jdom:jdom2:2.0.6.1",
-        "io.netty:netty-codec:4.2.17.Final",
-        "io.netty:netty-codec-http2:4.2.17.Final",
-        "io.netty:netty-handler:4.2.17.Final",
-        "io.netty:netty-handler-proxy:4.2.17.Final",
+        "io.netty:netty-codec:4.2.18.Final",
+        "io.netty:netty-codec-http2:4.2.18.Final",
+        "io.netty:netty-handler:4.2.18.Final",
+        "io.netty:netty-handler-proxy:4.2.18.Final",
         "org.bitbucket.b_c:jose4j:0.9.6",
         "org.apache.commons:commons-lang3:3.20.0",
         "org.apache.httpcomponents:httpclient:4.5.14",
@@ -27,7 +27,7 @@ buildscript {
         // "Provided Metadata instance has version 2.4.0, while maximum supported version is 2.3.0".
         // Force the matching 2.4.0 reader onto every classpath (incl. the KSP processor) so Hilt
         // can parse 2.4.0 metadata. Keep this version in lockstep with `kotlin` in libs.versions.toml.
-        "org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10"
+        "org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.20"
     )
 
     val protobufModules = listOf(
