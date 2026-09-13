@@ -10,8 +10,16 @@ import kotlin.random.Random
 
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
-// Every stroke guaranteed to taper to zero over at least this many brush diameters at the end.
-private const val GUARANTEED_END_TAPER_DIAMETERS = 3f
+// How many brush diameters the natural lift-off zone spans when the stroke stops completely
+// (liftDecelT = 1). Scales linearly with deceleration so a fast lift produces no taper zone.
+private const val MAX_LIFT_TAPER_DIAMETERS = 8f
+// Minimum size factor at the end of a fast lift (liftDecelT = 0): the brush fades to this
+// fraction of full size rather than snapping off or pinching to a point. Interpolates toward
+// 0 as deceleration increases so a stopping stroke tapers all the way to nothing.
+private const val FAST_LIFT_END_FLOOR = 0.6f
+// Fraction by which full peak-speed suppresses dab radius. 0.2 → at peak speed, radius is 80%
+// of full size; at rest, 100%. Simulates a real brush thinning under fast movement.
+private const val SPEED_SIZE_SENSITIVITY = 0.2f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
 private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
@@ -62,7 +70,7 @@ data class Dab(
     val y: Float,
     val radius: Float,
     val alpha: Float,
-    val angleDeg: Float,
+    val angleDeg: Float = 0f,
     val tipRatio: Float = 1f,
     /** Resolved edge falloff for this dab (0 = soft, 1 = hard); see [AzphaltBrush.hardness]. */
     val hardness: Float = 1f,
@@ -202,10 +210,13 @@ object BrushStamps {
         val blotRng = Random(seed xor BLOT_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
-        // Only needed for lift-off's velocity-derived synthetic pressure; harmless when unused.
-        val peakSpeed = if (taper.liftOffSynthesizesPressure) {
-            real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
-        } else 1f
+        // How fast the stroke was moving at its peak, and how much it decelerated by lift-off.
+        // liftDecelT = 0 → stroke ended at full speed (fast flick); 1 → crawled to a stop.
+        // startSpeedT = 0 → deliberate slow placement (brush full from first dab); 1 → flying entry.
+        val peakSpeed = real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
+        val endSpeed = real.last().speedPxPerMs
+        val liftDecelT = (1f - (endSpeed / peakSpeed)).coerceIn(0f, 1f)
+        val startSpeedT = (real.first().speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
         // How long the pointer dwelled at the touchdown point (within brush.airbrushStillnessRadiusPx
         // of the first sample) before it first moved away -- feeds BrushBlot's dwellGrowthMultiplier/
         // dwellRampMs. Computed once from the raw sample stream, same as peakSpeed above, since it's
@@ -248,29 +259,46 @@ object BrushStamps {
             val pressureFadeFactor = 1f - strokePositionT
             val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
 
-            // Start taper (brush-configurable).
-            val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
-            val startSizeFactor = lerp(taper.minSize, 1f, startTaperT)
-            val startOpacityFactor = lerp(taper.minOpacity, 1f, startTaperT)
+            // Start taper: explicit brush config OR natural speed-at-start zone. A flying entry
+            // (startSpeedT→1) builds from near-zero over up to MAX_LIFT_TAPER_DIAMETERS; a slow
+            // deliberate placement (startSpeedT→0) produces no zone and starts at full size.
+            // Explicit taper.startLengthPx uses only the configured zone/floor so per-brush
+            // settings are unaffected by the natural behavior.
+            val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
+            val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
+            val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
+            val naturalStartMinSz = 1f - startSpeedT  // slow=full, fast=near-zero entry
+            val naturalStartMinOp = 1f - startSpeedT
+            val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
+            val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
+            val startSizeFactor = lerp(startMinSz, 1f, startTaperT)
+            val startOpacityFactor = lerp(startMinOp, 1f, startTaperT)
 
-            // End taper: guaranteed minimum of GUARANTEED_END_TAPER_DIAMETERS brush widths,
-            // always fading to zero at the stroke tip regardless of brush settings. Capped at half
-            // the stroke length so very short strokes always have a visible non-tapered head.
+            // End taper: zone length and minimum-size floor are both proportional to how much the
+            // stroke decelerated. A fast lift (liftDecelT≈0) produces almost no taper zone —
+            // the brush ends near full size, which is natural for a quick flick. A stroke that
+            // slows to a crawl (liftDecelT≈1) gets a long zone that tapers all the way to zero.
+            // The brush's explicit endLengthPx always sets a floor so per-brush settings still work.
+            val naturalEndZone = diameter * MAX_LIFT_TAPER_DIAMETERS * liftDecelT
             val guaranteedEndZone = minOf(
-                (diameter * GUARANTEED_END_TAPER_DIAMETERS).coerceAtLeast(taper.endLengthPx),
-                total * 0.5f,
+                maxOf(naturalEndZone, taper.endLengthPx),
+                total * 0.5f,   // cap so very short strokes still have a visible non-tapered head
             )
             var endTaperT = if (guaranteedEndZone > 0f) ((total - at) / guaranteedEndZone).coerceIn(0f, 1f) else 1f
             if (taper.liftOffSynthesizesPressure && taper.endLengthPx > 0f && endTaperT < 1f) {
                 val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
                 endTaperT = (endTaperT * liftFactor).coerceIn(0f, 1f)
             }
-            // minSize/minOpacity only apply inside the brush's own explicit zone; outside it the
-            // guaranteed zone always fades all the way to zero.
-            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else 0f
-            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else 0f
-            val endSizeFactor = lerp(endMinSz, 1f, endTaperT)
-            val endOpacityFactor = lerp(endMinOp, 1f, endTaperT)
+            // Min size at the end: fast lift → FAST_LIFT_END_FLOOR (brush doesn't pinch to zero),
+            // full stop → 0 (tapers all the way). Explicit brush taper overrides in its own zone.
+            val naturalEndMinSz = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
+            val naturalEndMinOp = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
+            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else naturalEndMinSz
+            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else naturalEndMinOp
+            // Convex curve: stays wide for most of the zone, drops sharply only near the tip.
+            val endCurvedT = sqrt(endTaperT)
+            val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
+            val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)
 
             // Use min so overlapping start/end zones don't compound: the more tapered factor wins.
             val taperSize = minOf(startSizeFactor, endSizeFactor)
@@ -289,6 +317,12 @@ object BrushStamps {
             val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
             val headingDeg = sample.drawingAngleDeg
 
+            // Per-dab speed sensitivity: faster movement → slightly smaller dab, mimicking a real
+            // brush thinning when swept quickly. Applied to radius only (not resolvedDiameter) so
+            // spacing is unaffected and the stroke doesn't develop gaps at high speeds.
+            val speedT = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
+            val speedSizeFactor = 1f - speedT * SPEED_SIZE_SENSITIVITY
+
             repeat(resolveDabCount(brush, countRng)) {
                 val sizeR = rng.nextFloat()
                 val opacR = rng.nextFloat()
@@ -296,7 +330,7 @@ object BrushStamps {
                 val longR = longRng.nextFloat()
 
                 val radius = baseRadius * fadedSizeMultiplier *
-                    taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
+                    taperSize * blotSize * speedSizeFactor * (1f - brush.sizeJitter * sizeR)
                 val alpha = (
                     brush.opacity * fadedOpacityMultiplier *
                         taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)

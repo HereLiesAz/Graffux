@@ -75,7 +75,13 @@ class BrushScatterRotationTest {
         val brush = AzphaltBrush(
             name = "spin-dynamic", spacing = 0.25f, rotationPerPx = 1.5f, dynamics = listOf(neutralRoute),
         )
-        val dabs = BrushStamps.dynamicDabs(straightSamples, 20f, brush, seed = 1L)
+        // Speed=0 on first sample → startSpeedT=0 → no natural entry taper, full size throughout,
+        // so the last dab lands at exactly total=100px and the rotation math is predictable.
+        val slowStartSamples = listOf(
+            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 0f),
+            BrushSample(100f, 0f, uptimeMillis = 100L, speedPxPerMs = 1f),
+        )
+        val dabs = BrushStamps.dynamicDabs(slowStartSamples, 20f, brush, seed = 1L)
         assertEquals(0f, dabs.first().angleDeg, 0.01f)
         assertEquals(brush.rotationPerPx * 100f, dabs.last().angleDeg, 0.5f)
         // Monotonic for a straight, constant-heading stroke.

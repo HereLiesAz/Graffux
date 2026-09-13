@@ -42,6 +42,11 @@ class IncrementalDynamicDabGenerator(
     private var dwellMs = 0f
     // Estimated total stroke length from StrokeLengthPredictor; 0 means unknown (no fade applied).
     private var predictedStrokeTotal = 0f
+    // Peak speed seen so far; grows monotonically. Used for speed-at-start and per-dab sensitivity.
+    private var peakSpeed = 1e-4f
+    // Speed of the first real sample; locked in once firstSample is set and peakSpeed is known.
+    private var startSpeedT = 0f
+    private var startSpeedLocked = false
 
     /**
      * Append a new sample and emit any dabs that fall within the new segment.
@@ -55,6 +60,7 @@ class IncrementalDynamicDabGenerator(
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
         val sample = sampleIn.copy(predicted = false)
+        if (sample.speedPxPerMs > peakSpeed) peakSpeed = sample.speedPxPerMs
         val prev = previous
         if (prev == null) {
             previous = sample
@@ -63,6 +69,11 @@ class IncrementalDynamicDabGenerator(
             return emitAt(sample, 0f)
         }
         if (secondSample == null) secondSample = sample
+        // Lock in startSpeedT after the second sample so peakSpeed has at least two readings.
+        if (!startSpeedLocked && secondSample != null) {
+            startSpeedT = ((firstSample?.speedPxPerMs ?: 0f) / peakSpeed).coerceIn(0f, 1f)
+            startSpeedLocked = true
+        }
 
         val segmentLength = hypot(sample.x - prev.x, sample.y - prev.y)
         if (!firstMovementSeen) {
@@ -106,11 +117,21 @@ class IncrementalDynamicDabGenerator(
         val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
         val taper = brush.taper
         val blot = brush.blot
-        val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
+        // Natural speed-at-start zone: mirrors BrushStamps behavior. Explicit startLengthPx uses
+        // only its own configured zone; natural zone applies only when no explicit setting exists.
+        val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
+        val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
+        val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
+        val naturalStartMinSz = 1f - startSpeedT
+        val naturalStartMinOp = 1f - startSpeedT
+        val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
+        val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
         // Live end taper is intentionally deferred: changing total length would otherwise invalidate
         // already-rendered dabs and recreate the exact growing-prefix work Engine 2 removes.
-        val taperSize = lerp(taper.minSize, 1f, startTaperT)
-        val taperOpacity = lerp(taper.minOpacity, 1f, startTaperT)
+        val taperSize = lerp(startMinSz, 1f, startTaperT)
+        val taperOpacity = lerp(startMinOp, 1f, startTaperT)
+        // Per-dab speed sensitivity: faster → thinner. Applied to radius only (not spacing).
+        val speedSizeFactor = 1f - (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f) * SPEED_SIZE_SENSITIVITY
 
         val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
             val dwellT = (dwellMs / blot.dwellRampMs).coerceIn(0f, 1f)
@@ -143,7 +164,7 @@ class IncrementalDynamicDabGenerator(
             val scatR = rng.nextFloat()
             val longitudinalR = longRng.nextFloat()
             val radius = baseRadius * fadedSizeMultiplier *
-                taperSize * blotSize * (1f - brush.sizeJitter * sizeR)
+                taperSize * blotSize * speedSizeFactor * (1f - brush.sizeJitter * sizeR)
             val alpha = (brush.opacity * fadedOpacityMultiplier *
                 taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
             var x = sample.x
@@ -258,6 +279,8 @@ class IncrementalDynamicDabGenerator(
         const val RAD_TO_DEG = 57.29578f
         const val DEG_TO_RAD = 0.017453292f
         const val EPSILON = 1e-4f
+        const val MAX_LIFT_TAPER_DIAMETERS = 8f
+        const val SPEED_SIZE_SENSITIVITY = 0.2f
         const val MASK_SEED_SALT = 0x4D41534B5F544950L
         const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
         const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L
