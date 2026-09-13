@@ -171,12 +171,11 @@ internal class DrawingEngine(
                 emptyList()
             }
             val paintedDabs: List<Dab>
-            // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
-            // gating on brush.dynamics alone silently dropped taper and masked-tip dynamics from every
-            // committed/replayed stroke whose brush used only those.
+            // Mirrors dynamicDabs()'s own gate: contact mechanics are themselves stateful telemetry
+            // consumers, so a mechanics-only brush must never fall back to the static legacy path.
             val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
             val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive() ||
-                brush.airbrushDabsPerSecond > 0f
+                brush.contact.isActive() || brush.airbrushDabsPerSecond > 0f
             if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
                 // Airbrush (roadmap item 13): this is the commit/replay render. EditorViewModel's
                 // live incremental preview has its own, separate integration (tracked by
