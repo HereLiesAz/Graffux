@@ -3,9 +3,9 @@ package com.hereliesaz.graffitixr.common.azphalt
 /**
  * Converts one already-resolved parent contact dab into stable bundle dabs.
  *
- * This function is renderer-independent: once the generators opt into it, CPU and Vulkan continue
- * consuming ordinary [Dab] geometry. Empty tuft geometry is an exact identity operation so the
- * historical single-contact path remains untouched.
+ * This function is renderer-independent: CPU and Vulkan continue consuming ordinary [Dab]
+ * geometry. Empty/disabled tuft geometry is an exact identity operation so the historical
+ * single-contact path remains untouched.
  */
 object BrushTuftDabExpander {
     fun expand(
@@ -35,5 +35,17 @@ object BrushTuftDabExpander {
                 },
             )
         }
+    }
+
+    /** Compatibility-aware entry point used by the canonical and incremental generators. */
+    fun expandIfEnabled(
+        parent: Dab,
+        contactDiameterPx: Float,
+        contact: BrushContactState,
+        config: BrushTuftConfig,
+    ): List<Dab> = if (config.sanitized().emitsDabs()) {
+        expand(parent, contactDiameterPx, contact.tufts)
+    } else {
+        listOf(parent)
     }
 }
