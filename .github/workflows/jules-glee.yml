@@ -1,7 +1,7 @@
 name: '😈 Glee Audit'
 
-# Runs the Glee adversarial auditor on every PR via Jules.
-# Can also be triggered manually from the Actions tab.
+# Runs the Glee adversarial auditor on human-authored PRs via Jules.
+# Dependabot is skipped automatically; manual dispatch can still audit any PR.
 # Requires: JULES_API_KEY secret
 
 on:
@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   glee:
+    if: github.event_name == 'workflow_dispatch' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
