@@ -37,13 +37,13 @@ data class BrushContactConfig(
     val dragSplay: Float = 0.12f,
     /** Maximum speed-driven flattening/elongation of the contact footprint, 0..0.95. */
     val dragElongation: Float = 0.2f,
-    /** Provisional pressure→compression/splay coupling. Replaceable intent interpretation. */
+    /** Provisional pressure/contact→compression/splay coupling. Replaceable intent interpretation. */
     val pressureCoupling: Float = 0.35f,
     /** Provisional tilt→side-contact/elongation coupling. */
     val tiltCoupling: Float = 0.35f,
     /** Provisional azimuth→presentation-direction coupling; naturally gated by tilt. */
     val orientationCoupling: Float = 0.35f,
-    /** Maximum extra width caused by pressure-driven compression/splay. */
+    /** Maximum extra width caused by compression/splay. */
     val pressureSplay: Float = 0.18f,
     /** Maximum extra flattening caused by brush lean. */
     val tiltElongation: Float = 0.22f,
@@ -68,11 +68,18 @@ data class BrushContactConfig(
     fun isActive(): Boolean = enabled
 }
 
-/** Canonical observation of artist intent signals carried alongside stroke kinematics. */
+/** Canonical observation of artist-intent evidence carried alongside stroke kinematics. */
 data class BrushIntentObservation(
+    val profile: BrushTelemetryProfile = BrushTelemetryProfile.LEGACY,
     val pressure: Float = 0f,
+    val pressureConfidence: Float = 0f,
     val tilt: Float = 0f,
+    val tiltConfidence: Float = 0f,
     val orientationDeg: Float = 0f,
+    val orientationConfidence: Float = 0f,
+    val contactMajor: Float = 0f,
+    val contactMinor: Float = 0f,
+    val contactConfidence: Float = 0f,
 )
 
 /** Persistent mechanics carried across dabs within one stroke. */
@@ -82,11 +89,11 @@ data class BrushMechanicalState(
     val dragAngleDeg: Float = 0f,
     /** 0..1 amount of current speed/bend deformation. */
     val bend: Float = 0f,
-    /** Stateful contact compression. Pressure informs its target but does not bypass mechanics. */
+    /** Stateful contact compression. Telemetry informs its target but does not bypass mechanics. */
     val compression: Float = 0f,
     /** Stateful lean/contact-side amount. Tilt informs its target but does not directly reshape. */
     val lean: Float = 0f,
-    /** Latest normalized intent observation, retained for later richer solvers/tuft models. */
+    /** Latest intent evidence, retained for later richer solvers/tuft models. */
     val intent: BrushIntentObservation = BrushIntentObservation(),
     val lastUptimeMillis: Long = 0L,
 )
@@ -112,10 +119,10 @@ data class BrushMechanicalStep(
 )
 
 /**
- * Deterministic incremental brush-mechanics model. Kinematics and stylus telemetry are fused into
- * mechanical targets, then stiffness/damping/hysteresis decide how the brush actually responds.
- * This preserves room to improve the interpretation of pressure/tilt/orientation later without
- * changing the persistent state or renderer interface.
+ * Deterministic incremental brush-mechanics model. Kinematics and device-specific telemetry are
+ * fused into mechanical targets, then stiffness/damping/hysteresis decide how the brush actually
+ * responds. Signal confidence is part of the calculation, so missing/basic/finger telemetry does
+ * not receive the same authority as a high-quality stylus.
  */
 object BrushContactModel {
     fun step(
@@ -131,17 +138,25 @@ object BrushContactModel {
         val heading = normalizeDegrees(sample.drawingAngleDeg)
         val intent = observeIntent(sample)
         val speedT = (sample.speedPxPerMs / cfg.fullBendSpeedPxPerMs).coerceIn(0f, 1f)
+        val tiltEvidence = (intent.tilt * intent.tiltConfidence).coerceIn(0f, 1f)
 
-        // Azimuth becomes informative as the stylus leans. Near-vertical orientation is noisy and
-        // physically ambiguous, so tilt naturally gates how much it can steer the target rake.
-        val orientationWeight = (cfg.orientationCoupling * intent.tilt).coerceIn(0f, 1f)
+        // Azimuth becomes informative as a trustworthy stylus leans. Near-vertical or low-confidence
+        // orientation is physically ambiguous, so both tilt and signal confidence gate its effect.
+        val orientationWeight = (
+            cfg.orientationCoupling * tiltEvidence * intent.orientationConfidence
+            ).coerceIn(0f, 1f)
         val targetAngle = shortestAngleLerp(heading, intent.orientationDeg, orientationWeight)
         val targetBend = (
-            speedT * cfg.drag +
-                intent.tilt * cfg.tiltCoupling * 0.25f
+            speedT * cfg.drag + tiltEvidence * cfg.tiltCoupling * 0.25f
             ).coerceIn(0f, 1f)
-        val targetCompression = (intent.pressure * cfg.pressureCoupling).coerceIn(0f, 1f)
-        val targetLean = (intent.tilt * cfg.tiltCoupling).coerceIn(0f, 1f)
+
+        // Finger contact area is a separate evidence stream, not synthetic stylus pressure. Use the
+        // stronger trusted compression clue while retaining both values in state for future solvers.
+        val pressureEvidence = (intent.pressure * intent.pressureConfidence).coerceIn(0f, 1f)
+        val contactEvidence = (intent.contactMajor * intent.contactConfidence).coerceIn(0f, 1f)
+        val compressionEvidence = maxOf(pressureEvidence, contactEvidence)
+        val targetCompression = (compressionEvidence * cfg.pressureCoupling).coerceIn(0f, 1f)
+        val targetLean = (tiltEvidence * cfg.tiltCoupling).coerceIn(0f, 1f)
 
         if (!previous.initialized) {
             val initial = BrushMechanicalState(
@@ -199,10 +214,23 @@ object BrushContactModel {
     }
 
     private fun observeIntent(sample: BrushSample): BrushIntentObservation {
-        val pressure = sample.pressure.coerceIn(0f, 1f)
-        val tilt = (sample.tiltRadians / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
-        val orientation = normalizeDegrees(sample.orientationRadians * CONTACT_RAD_TO_DEG)
-        return BrushIntentObservation(pressure, tilt, orientation)
+        val telemetry = sample.intentTelemetry()
+        val tilt = (telemetry.tiltRadians / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
+        val orientation = normalizeDegrees(telemetry.orientationRadians * CONTACT_RAD_TO_DEG)
+        val contactMajor = (telemetry.contactMajorPx / FINGER_CONTACT_FULL_PRESSURE_PX).coerceIn(0f, 1f)
+        val contactMinor = (telemetry.contactMinorPx / FINGER_CONTACT_FULL_PRESSURE_PX).coerceIn(0f, 1f)
+        return BrushIntentObservation(
+            profile = telemetry.profile,
+            pressure = telemetry.pressure,
+            pressureConfidence = telemetry.pressureConfidence,
+            tilt = tilt,
+            tiltConfidence = telemetry.tiltConfidence,
+            orientationDeg = orientation,
+            orientationConfidence = telemetry.orientationConfidence,
+            contactMajor = contactMajor,
+            contactMinor = contactMinor,
+            contactConfidence = telemetry.contactConfidence,
+        )
     }
 
     private fun contactFor(
