@@ -28,8 +28,6 @@ data class BrushSample(
     val uptimeMillis: Long = 0L,
     /** Interpreted/filtered pressure used by legacy dynamics and the mechanics intent layer. */
     val pressure: Float = 1f,
-    /** Original device-reported pressure before profile-specific interpretation/filtering. */
-    val reportedPressure: Float? = null,
     /** Android stylus tilt in radians: 0 = perpendicular, PI/2 = flat. */
     val tiltRadians: Float = 0f,
     /** Android stylus orientation/azimuth in radians, normally -PI..PI. */
@@ -44,8 +42,10 @@ data class BrushSample(
     val predicted: Boolean = false,
     /** Diameter of the reported contact ellipse's major axis, in pixels. */
     val touchMajorPx: Float = 0f,
-    /** Diameter of the reported contact ellipse's minor axis, in pixels. */
+    /** Appended fields keep historical positional BrushSample(...) callers source-compatible. */
     val touchMinorPx: Float = 0f,
+    /** Original device-reported pressure before profile-specific interpretation/filtering. */
+    val reportedPressure: Float? = null,
     /** Device/profile provenance and confidence for the expressive telemetry above. */
     val telemetry: BrushTelemetryMetadata = BrushTelemetryMetadata(),
 )
@@ -120,7 +120,6 @@ class BrushSampleBuilder {
             y = y,
             uptimeMillis = uptimeMillis,
             pressure = filteredPressure,
-            reportedPressure = pressure.coerceIn(0f, 1f),
             tiltRadians = clampedTilt,
             orientationRadians = clampedOrientation,
             distancePx = (prev?.distancePx ?: 0f) + segment,
@@ -129,6 +128,7 @@ class BrushSampleBuilder {
             predicted = predicted,
             touchMajorPx = touchMajorPx.coerceAtLeast(0f),
             touchMinorPx = touchMinorPx.coerceAtLeast(0f),
+            reportedPressure = pressure.coerceIn(0f, 1f),
             telemetry = interpretation.metadata,
         )
         // A predicted sample is disposable presentation state. Do not let it become the basis for
