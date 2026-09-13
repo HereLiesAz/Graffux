@@ -94,15 +94,7 @@ class BrushMechanicalDabIntegrationTest {
         val total = samples.last().distancePx
         val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
 
-        assertEquals(expected.size, actual.size)
-        expected.zip(actual).forEachIndexed { index, (canonical, live) ->
-            assertEquals(canonical.x, live.x, 1e-4f, "x[$index]")
-            assertEquals(canonical.y, live.y, 1e-4f, "y[$index]")
-            assertEquals(canonical.radius, live.radius, 1e-4f, "radius[$index]")
-            assertEquals(canonical.tipRatio, live.tipRatio, 1e-4f, "tipRatio[$index]")
-            assertEquals(canonical.angleDeg, live.angleDeg, 1e-4f, "angle[$index]")
-            assertEquals(canonical.alpha, live.alpha, 1e-4f, "alpha[$index]")
-        }
+        assertDabsEqual(expected, actual)
     }
 
     @Test
@@ -139,6 +131,7 @@ class BrushMechanicalDabIntegrationTest {
                         cohesion = 0.4f,
                         splayResponse = 1.2f,
                         bendDifferential = 0.2f,
+                        emitTuftDabs = false,
                     )
                 )
             ),
@@ -146,5 +139,70 @@ class BrushMechanicalDabIntegrationTest {
         )
 
         assertEquals(baseline, withTopology)
+    }
+
+    @Test
+    fun emittedTuftsProduceStableSeparatedContacts() {
+        val parent = BrushStamps.dynamicDabs(samples, 10f, brush, 77L)
+        val tuftBrush = brush.copy(
+            contact = brush.contact.copy(
+                tufts = BrushTuftConfig(
+                    enabled = true,
+                    count = 5,
+                    rootSpan = 0.8f,
+                    cohesion = 0.45f,
+                    splayResponse = 1.1f,
+                    bendDifferential = 0.2f,
+                    emitTuftDabs = true,
+                )
+            )
+        )
+        val split = BrushStamps.dynamicDabs(samples, 10f, tuftBrush, 77L)
+
+        assertTrue(parent.isNotEmpty())
+        assertEquals(parent.size * 5, split.size)
+        val firstBundle = split.take(5)
+        assertEquals(5, firstBundle.map { it.y }.distinct().size)
+        assertTrue(firstBundle.zipWithNext().all { (a, b) -> a.y < b.y })
+        assertTrue(firstBundle.all { it.radius < parent.first().radius })
+    }
+
+    @Test
+    fun emittedTuftsStayIdenticalBetweenLiveAndCanonicalGenerators() {
+        val tuftBrush = brush.copy(
+            contact = brush.contact.copy(
+                tufts = BrushTuftConfig(
+                    enabled = true,
+                    count = 5,
+                    rootSpan = 0.8f,
+                    cohesion = 0.35f,
+                    splayResponse = 1.25f,
+                    bendDifferential = 0.22f,
+                    emitTuftDabs = true,
+                )
+            )
+        )
+        val expected = BrushStamps.dynamicDabs(samples, 10f, tuftBrush, 77L)
+        val generator = IncrementalDynamicDabGenerator(10f, tuftBrush, 77L)
+        val total = samples.last().distancePx
+        val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+
+        assertTrue(expected.isNotEmpty())
+        assertDabsEqual(expected, actual)
+    }
+
+    private fun assertDabsEqual(expected: List<Dab>, actual: List<Dab>) {
+        assertEquals(expected.size, actual.size)
+        expected.zip(actual).forEachIndexed { index, (canonical, live) ->
+            assertEquals(canonical.x, live.x, 1e-4f, "x[$index]")
+            assertEquals(canonical.y, live.y, 1e-4f, "y[$index]")
+            assertEquals(canonical.radius, live.radius, 1e-4f, "radius[$index]")
+            assertEquals(canonical.tipRatio, live.tipRatio, 1e-4f, "tipRatio[$index]")
+            assertEquals(canonical.angleDeg, live.angleDeg, 1e-4f, "angle[$index]")
+            assertEquals(canonical.alpha, live.alpha, 1e-4f, "alpha[$index]")
+            assertEquals(canonical.mask?.x, live.mask?.x, "mask.x[$index]")
+            assertEquals(canonical.mask?.y, live.mask?.y, "mask.y[$index]")
+            assertEquals(canonical.mask?.radius, live.mask?.radius, "mask.radius[$index]")
+        }
     }
 }
