@@ -1,17 +1,20 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
 import kotlinx.serialization.Serializable
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
 
 private const val CONTACT_DEG_TO_RAD = 0.017453292f
+private const val CONTACT_RAD_TO_DEG = 57.29578f
 
 /**
- * Stroke-local brush mechanics driven by motion first. Pressure / tilt / stylus orientation are
- * deliberately NOT consumed here yet: those become intent inputs only after the intrinsic brush
- * physics is stable. Defaults are identity/off for compatibility.
+ * Stroke-local brush mechanics. Motion, pressure, tilt and stylus orientation all enter the model,
+ * but pressure/tilt/orientation are treated as provisional intent evidence rather than direct dab
+ * parameters. Their couplings are explicit and replaceable so later empirical tuning can improve
+ * the intent model without changing the renderer-facing mechanical state contract.
  */
 @Serializable
 data class BrushContactConfig(
@@ -26,7 +29,7 @@ data class BrushContactConfig(
     val hysteresis: Float = 0.35f,
     /** Recovery rate when motion slows/stops, 0..1. */
     val recovery: Float = 0.55f,
-    /** Maximum allowed angular lag behind the current movement direction. */
+    /** Maximum allowed angular lag behind the current mechanical target. */
     val maxLagDeg: Float = 75f,
     /** Maximum center drag behind the hand, in fractions of current brush diameter. */
     val maxDragOffset: Float = 0.18f,
@@ -34,6 +37,16 @@ data class BrushContactConfig(
     val dragSplay: Float = 0.12f,
     /** Maximum speed-driven flattening/elongation of the contact footprint, 0..0.95. */
     val dragElongation: Float = 0.2f,
+    /** Provisional pressure→compression/splay coupling. Replaceable intent interpretation. */
+    val pressureCoupling: Float = 0.35f,
+    /** Provisional tilt→side-contact/elongation coupling. */
+    val tiltCoupling: Float = 0.35f,
+    /** Provisional azimuth→presentation-direction coupling; naturally gated by tilt. */
+    val orientationCoupling: Float = 0.35f,
+    /** Maximum extra width caused by pressure-driven compression/splay. */
+    val pressureSplay: Float = 0.18f,
+    /** Maximum extra flattening caused by brush lean. */
+    val tiltElongation: Float = 0.22f,
 ) {
     fun sanitized(): BrushContactConfig = copy(
         stiffness = stiffness.coerceIn(0f, 1f),
@@ -45,12 +58,22 @@ data class BrushContactConfig(
         maxDragOffset = maxDragOffset.coerceIn(0f, 1f),
         dragSplay = dragSplay.coerceIn(0f, 1f),
         dragElongation = dragElongation.coerceIn(0f, 0.95f),
+        pressureCoupling = pressureCoupling.coerceIn(0f, 1f),
+        tiltCoupling = tiltCoupling.coerceIn(0f, 1f),
+        orientationCoupling = orientationCoupling.coerceIn(0f, 1f),
+        pressureSplay = pressureSplay.coerceIn(0f, 1f),
+        tiltElongation = tiltElongation.coerceIn(0f, 0.95f),
     )
 
-    fun isActive(): Boolean = enabled && (
-        drag > 0f || maxDragOffset > 0f || dragSplay > 0f || dragElongation > 0f || hysteresis > 0f
-        )
+    fun isActive(): Boolean = enabled
 }
+
+/** Canonical observation of artist intent signals carried alongside stroke kinematics. */
+data class BrushIntentObservation(
+    val pressure: Float = 0f,
+    val tilt: Float = 0f,
+    val orientationDeg: Float = 0f,
+)
 
 /** Persistent mechanics carried across dabs within one stroke. */
 data class BrushMechanicalState(
@@ -59,6 +82,12 @@ data class BrushMechanicalState(
     val dragAngleDeg: Float = 0f,
     /** 0..1 amount of current speed/bend deformation. */
     val bend: Float = 0f,
+    /** Stateful contact compression. Pressure informs its target but does not bypass mechanics. */
+    val compression: Float = 0f,
+    /** Stateful lean/contact-side amount. Tilt informs its target but does not directly reshape. */
+    val lean: Float = 0f,
+    /** Latest normalized intent observation, retained for later richer solvers/tuft models. */
+    val intent: BrushIntentObservation = BrushIntentObservation(),
     val lastUptimeMillis: Long = 0L,
 )
 
@@ -72,6 +101,8 @@ data class BrushContactState(
     val offsetXFraction: Float = 0f,
     val offsetYFraction: Float = 0f,
     val bend: Float = 0f,
+    val compression: Float = 0f,
+    val lean: Float = 0f,
     val splay: Float = 0f,
 )
 
@@ -81,9 +112,10 @@ data class BrushMechanicalStep(
 )
 
 /**
- * Deterministic incremental brush-mechanics model. It uses only stroke kinematics: movement
- * heading, speed and elapsed time. Pressure/tilt/orientation will be layered on later as intent
- * targets that steer this same state rather than bypassing it.
+ * Deterministic incremental brush-mechanics model. Kinematics and stylus telemetry are fused into
+ * mechanical targets, then stiffness/damping/hysteresis decide how the brush actually responds.
+ * This preserves room to improve the interpretation of pressure/tilt/orientation later without
+ * changing the persistent state or renderer interface.
  */
 object BrushContactModel {
     fun step(
@@ -97,14 +129,28 @@ object BrushContactModel {
         }
 
         val heading = normalizeDegrees(sample.drawingAngleDeg)
+        val intent = observeIntent(sample)
         val speedT = (sample.speedPxPerMs / cfg.fullBendSpeedPxPerMs).coerceIn(0f, 1f)
-        val targetBend = speedT * cfg.drag
+
+        // Azimuth becomes informative as the stylus leans. Near-vertical orientation is noisy and
+        // physically ambiguous, so tilt naturally gates how much it can steer the target rake.
+        val orientationWeight = (cfg.orientationCoupling * intent.tilt).coerceIn(0f, 1f)
+        val targetAngle = shortestAngleLerp(heading, intent.orientationDeg, orientationWeight)
+        val targetBend = (
+            speedT * cfg.drag +
+                intent.tilt * cfg.tiltCoupling * 0.25f
+            ).coerceIn(0f, 1f)
+        val targetCompression = (intent.pressure * cfg.pressureCoupling).coerceIn(0f, 1f)
+        val targetLean = (intent.tilt * cfg.tiltCoupling).coerceIn(0f, 1f)
 
         if (!previous.initialized) {
             val initial = BrushMechanicalState(
                 initialized = true,
-                dragAngleDeg = heading,
+                dragAngleDeg = targetAngle,
                 bend = targetBend,
+                compression = targetCompression,
+                lean = targetLean,
+                intent = intent,
                 lastUptimeMillis = sample.uptimeMillis,
             )
             return BrushMechanicalStep(initial, contactFor(initial, heading, cfg))
@@ -113,7 +159,7 @@ object BrushContactModel {
         val dtMs = (sample.uptimeMillis - previous.lastUptimeMillis)
             .coerceIn(1L, 100L)
             .toFloat()
-        val turn = wrapSignedDegrees(heading - previous.dragAngleDeg)
+        val turn = wrapSignedDegrees(targetAngle - previous.dragAngleDeg)
         val turnT = (abs(turn) / 180f).coerceIn(0f, 1f)
 
         // Stiff brushes track quickly; soft brushes take longer. Strong hysteresis slows response
@@ -123,28 +169,40 @@ object BrushContactModel {
         val hysteresisFactor = (1f - cfg.hysteresis * turnT * 0.9f).coerceIn(0.05f, 1f)
         var dragAngle = previous.dragAngleDeg + turn * rawTracking * hysteresisFactor
 
-        // Never let a soft brush accumulate physically absurd multi-turn lag. Clamp relative to
-        // the current path direction while keeping the sign of the established lag.
-        var lag = wrapSignedDegrees(dragAngle - heading)
+        var lag = wrapSignedDegrees(dragAngle - targetAngle)
         lag = lag.coerceIn(-cfg.maxLagDeg, cfg.maxLagDeg)
-        dragAngle = normalizeDegrees(heading + lag)
+        dragAngle = normalizeDegrees(targetAngle + lag)
 
-        val bendTauMs = if (speedT > 0.02f) {
+        val bendTauMs = if (speedT > 0.02f || targetLean > 0.02f) {
             lerp(180f, 28f, cfg.stiffness)
         } else {
-            // At rest, recovery is separately configurable from directional stiffness.
             lerp(360f, 36f, cfg.recovery)
         }
-        val bendResponse = 1f - exp((-dtMs / bendTauMs).toDouble()).toFloat()
-        val bend = (previous.bend + (targetBend - previous.bend) * bendResponse).coerceIn(0f, 1f)
+        val bendResponse = response(dtMs, bendTauMs)
+        val contactTauMs = lerp(150f, 24f, cfg.stiffness)
+        val contactResponse = response(dtMs, contactTauMs)
+
+        val bend = approach(previous.bend, targetBend, bendResponse)
+        val compression = approach(previous.compression, targetCompression, contactResponse)
+        val lean = approach(previous.lean, targetLean, contactResponse)
 
         val next = BrushMechanicalState(
             initialized = true,
             dragAngleDeg = dragAngle,
             bend = bend,
+            compression = compression,
+            lean = lean,
+            intent = intent,
             lastUptimeMillis = sample.uptimeMillis,
         )
         return BrushMechanicalStep(next, contactFor(next, heading, cfg))
+    }
+
+    private fun observeIntent(sample: BrushSample): BrushIntentObservation {
+        val pressure = sample.pressure.coerceIn(0f, 1f)
+        val tilt = (sample.tiltRadians / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
+        val orientation = normalizeDegrees(sample.orientationRadians * CONTACT_RAD_TO_DEG)
+        return BrushIntentObservation(pressure, tilt, orientation)
     }
 
     private fun contactFor(
@@ -153,12 +211,18 @@ object BrushContactModel {
         cfg: BrushContactConfig,
     ): BrushContactState {
         val bend = state.bend.coerceIn(0f, 1f)
+        val compression = state.compression.coerceIn(0f, 1f)
+        val lean = state.lean.coerceIn(0f, 1f)
         val lagOffset = wrapSignedDegrees(state.dragAngleDeg - movementHeadingDeg)
-        val splay = cfg.dragSplay * bend
-        val width = 1f + splay
-        val tipRatio = (1f - cfg.dragElongation * bend).coerceIn(0.05f, 1f)
 
-        // Contact trails opposite the mechanically resolved drag direction.
+        val motionSplay = cfg.dragSplay * bend
+        val pressureSplay = cfg.pressureSplay * compression
+        val splay = (motionSplay + pressureSplay).coerceAtLeast(0f)
+        val width = 1f + splay
+        val flattening = cfg.dragElongation * bend + cfg.tiltElongation * lean
+        val tipRatio = (1f - flattening).coerceIn(0.05f, 1f)
+
+        // Contact trails opposite the mechanically resolved rake direction.
         val dragDistance = cfg.maxDragOffset * bend
         val dragRad = state.dragAngleDeg * CONTACT_DEG_TO_RAD
         val offsetX = -cos(dragRad) * dragDistance
@@ -171,9 +235,20 @@ object BrushContactModel {
             offsetXFraction = offsetX,
             offsetYFraction = offsetY,
             bend = bend,
+            compression = compression,
+            lean = lean,
             splay = splay,
         )
     }
+
+    private fun response(dtMs: Float, tauMs: Float): Float =
+        1f - exp((-dtMs / tauMs.coerceAtLeast(1f)).toDouble()).toFloat()
+
+    private fun approach(current: Float, target: Float, response: Float): Float =
+        (current + (target - current) * response).coerceIn(0f, 1f)
+
+    private fun shortestAngleLerp(fromDeg: Float, toDeg: Float, t: Float): Float =
+        normalizeDegrees(fromDeg + wrapSignedDegrees(toDeg - fromDeg) * t.coerceIn(0f, 1f))
 
     private fun normalizeDegrees(value: Float): Float {
         var v = value % 360f
