@@ -32,6 +32,8 @@ struct SmudgePush {
     float paintB;
     float paintA;
     float dilution;
+    // Packed feature flags carried through the existing scalar to keep the push-constant ABI
+    // stable: +1 = Sample Merged, +2 = material-aware pigment mixing. The shader decodes both.
     float hasSampleMerged;
 };
 static_assert(sizeof(SmudgePush) == 72);
@@ -438,6 +440,8 @@ bool VulkanStampEngine::runColorSmudgePlan(
         float dilution,
         bool hasSampleMerged) {
     if (dabs.size() < 2 || pipeline == VK_NULL_HANDLE) return true;
+    const int baseMode = mode & 1;     // 0=Smear, 1=Dulling
+    const bool pigmentMixing = mode >= 2; // 2/3 are the pigment variants of 0/1.
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
     if (!ensureColorSmudgeCarrier(static_cast<size_t>(diameter) * diameter)) return false;
@@ -482,12 +486,12 @@ bool VulkanStampEngine::runColorSmudgePlan(
         pc.opacity = std::clamp(d.opacity, 0.0f, 1.0f);
         pc.paintR = paintR; pc.paintG = paintG; pc.paintB = paintB; pc.paintA = paintA;
         pc.dilution = std::clamp(dilution, 0.0f, 1.0f);
-        pc.hasSampleMerged = hasSampleMerged ? 1.0f : 0.0f;
+        pc.hasSampleMerged = (hasSampleMerged ? 1.0f : 0.0f) + (pigmentMixing ? 2.0f : 0.0f);
         vkCmdPushConstants(commandBuffer_, smudgePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(pc), &pc);
     };
 
-    if (mode == 0) {
+    if (baseMode == 0) {
         push(0, dabs.front());
         vkCmdDispatch(commandBuffer_, brushGroups, brushGroups, 1);
         barrier();
