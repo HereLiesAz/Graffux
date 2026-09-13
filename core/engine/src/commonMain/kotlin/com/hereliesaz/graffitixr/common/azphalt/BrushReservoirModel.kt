@@ -44,9 +44,14 @@ object BrushReservoirModel {
         return start.copy(load = (start.load * exp(-rate * distance)).coerceIn(0f, 1f))
     }
 
-    /** Base deposition/Color Rate modulated only by currently available reservoir load. */
+    /**
+     * Base deposition/Color Rate modulated only by currently available reservoir load.
+     *
+     * Clamp only the final product. The historical Color Smudge path did the same, so even an old
+     * or malformed rate outside 0..1 replays identically after the reservoir refactor.
+     */
     fun effectiveDeposition(baseRate: Float, state: BrushReservoirState): Float =
-        (baseRate.coerceIn(0f, 1f) * state.sanitized().load).coerceIn(0f, 1f)
+        (baseRate * state.sanitized().load).coerceIn(0f, 1f)
 
     /**
      * Applies one normalized deposition/pickup transaction.
