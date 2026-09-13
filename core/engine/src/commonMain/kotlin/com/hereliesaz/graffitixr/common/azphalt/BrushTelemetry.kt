@@ -14,12 +14,12 @@ enum class BrushInputTool {
 }
 
 /**
- * Telemetry quality profile selected from the actual signals observed during a stroke.
+ * Telemetry quality profile selected from the capabilities actually available during a stroke.
  *
- * STYLUS_HIGH_QUALITY is deliberately capability/evidence based rather than a device-name list:
- * an advertised tilt/orientation axis promotes immediately, while a pressure-only stylus promotes
- * once its pressure stream demonstrates meaningful continuous variation. Promotion is one-way for
- * the duration of a stroke so a transient flat/vertical sample cannot downgrade the device.
+ * A pressure-only pen remains STYLUS_BASIC even when its pressure signal is excellent; that signal
+ * simply earns more pressure confidence. STYLUS_HIGH_QUALITY means the device exposes additional
+ * expressive stylus axes such as tilt/orientation. This keeps the pipelines distinct without a
+ * brittle device-name allowlist.
  */
 @Serializable
 enum class BrushTelemetryProfile {
@@ -113,11 +113,13 @@ class BrushTelemetryInterpreter {
     fun interpret(raw: RawBrushTelemetry, commit: Boolean = true): BrushTelemetryInterpretation {
         val pressure = raw.reportedPressure.coerceIn(0f, 1f)
 
-        if (raw.tool == BrushInputTool.STYLUS && raw.pressureAvailable && commit) {
-            stylusPressureMin = minOf(stylusPressureMin, pressure)
-            stylusPressureMax = maxOf(stylusPressureMax, pressure)
-            stylusPressureSamples++
-            if (raw.tiltAvailable || raw.orientationAvailable || observedStylusPressureSpan() >= PRESSURE_PROMOTION_SPAN) {
+        if (raw.tool == BrushInputTool.STYLUS && commit) {
+            if (raw.pressureAvailable) {
+                stylusPressureMin = minOf(stylusPressureMin, pressure)
+                stylusPressureMax = maxOf(stylusPressureMax, pressure)
+                stylusPressureSamples++
+            }
+            if (raw.tiltAvailable || raw.orientationAvailable) {
                 highQualityStylusSeen = true
             }
         }
@@ -178,6 +180,7 @@ class BrushTelemetryInterpreter {
         BrushTelemetryProfile.STYLUS_BASIC -> {
             val pressureConfidence = when {
                 !raw.pressureAvailable -> 0f
+                observedStylusPressureSpan() >= STRONG_BASIC_PRESSURE_SPAN -> 0.9f
                 observedStylusPressureSpan() >= BASIC_PRESSURE_USEFUL_SPAN -> 0.75f
                 else -> 0.55f
             }
@@ -185,10 +188,10 @@ class BrushTelemetryInterpreter {
                 profile = profile,
                 pressureConfidence = pressureConfidence,
                 pressureSource = if (raw.pressureAvailable) BrushSignalSource.STYLUS_SENSOR else BrushSignalSource.UNAVAILABLE,
-                tiltConfidence = if (raw.tiltAvailable) 0.45f else 0f,
-                tiltSource = if (raw.tiltAvailable) BrushSignalSource.STYLUS_SENSOR else BrushSignalSource.UNAVAILABLE,
-                orientationConfidence = if (raw.orientationAvailable) 0.4f else 0f,
-                orientationSource = if (raw.orientationAvailable) BrushSignalSource.STYLUS_SENSOR else BrushSignalSource.UNAVAILABLE,
+                tiltConfidence = 0f,
+                tiltSource = BrushSignalSource.UNAVAILABLE,
+                orientationConfidence = 0f,
+                orientationSource = BrushSignalSource.UNAVAILABLE,
                 contactSizeConfidence = 0f,
                 contactSource = BrushSignalSource.UNAVAILABLE,
             )
@@ -208,15 +211,19 @@ class BrushTelemetryInterpreter {
             },
             tiltConfidence = 0f,
             tiltSource = BrushSignalSource.UNAVAILABLE,
-            orientationConfidence = 0f,
-            orientationSource = BrushSignalSource.UNAVAILABLE,
+            // On touchscreen hardware AXIS_ORIENTATION describes the contact ellipse, not pen tilt.
+            // Preserve it as touch-contact evidence for future finger-intent inference. The current
+            // brush solver still gates rake steering through stylus tilt, so this does not masquerade
+            // as stylus azimuth today.
+            orientationConfidence = if (raw.orientationAvailable) 0.65f else 0f,
+            orientationSource = if (raw.orientationAvailable) BrushSignalSource.TOUCH_CONTACT else BrushSignalSource.UNAVAILABLE,
             contactSizeConfidence = if (raw.touchMajorPx > 0f) 0.9f else 0f,
             contactSource = if (raw.touchMajorPx > 0f) BrushSignalSource.TOUCH_CONTACT else BrushSignalSource.UNAVAILABLE,
         )
     }
 
     companion object {
-        private const val PRESSURE_PROMOTION_SPAN = 0.08f
+        private const val STRONG_BASIC_PRESSURE_SPAN = 0.08f
         private const val BASIC_PRESSURE_USEFUL_SPAN = 0.02f
     }
 }
