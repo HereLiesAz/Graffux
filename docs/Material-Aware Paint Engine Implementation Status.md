@@ -73,15 +73,15 @@ The default behavior remains legacy RGB. Existing brushes, imported presets and 
 
 ---
 
-## 2026-09-13 — Phase 2 start: deterministic reservoir contract
+## 2026-09-13 — Phase 2: deterministic reservoir and CPU pickup
 
-### Implemented
+### Reservoir contract
 
-A renderer-independent `BrushReservoirModel` now defines deterministic stroke-local reservoir transitions before those transitions are wired into visible paint behavior.
+A renderer-independent `BrushReservoirModel` defines deterministic stroke-local reservoir transitions.
 
-It currently provides:
+It provides:
 
-- `stateAtDistance(...)` — an analytic exponential load envelope matching Color Smudge's existing Charge decay;
+- `stateAtDistance(...)` — an analytic exponential load envelope matching Color Smudge's historical Charge decay;
 - `effectiveDeposition(...)` — base deposition modulated by available load while preserving the historical final-clamp order;
 - bounded deposition that cannot draw the reservoir below zero;
 - bounded pickup that cannot fill the reservoir above capacity;
@@ -90,42 +90,65 @@ It currently provides:
 - selection of the Phase 1 material mixer for contamination;
 - value-typed deterministic transitions suitable for canonical replay and CPU/GPU parity work.
 
-The model deliberately has no bitmap, editor, tile, JNI or Vulkan dependency. Contact-area and material-field logic can evolve independently around this stable transition contract.
+The model deliberately has no bitmap, editor, tile, JNI or Vulkan dependency. Contact-area and material-field logic can evolve independently around this transition contract.
 
-### Reservoir tests
+### Charge integration
 
-Common-engine tests now cover:
+`ColorSmudgeEngine` now routes `chargeDecayRate` through `BrushReservoirModel` rather than evaluating a separate exponential formula in the editor layer.
 
-- zero-rate depletion;
-- the exponential depletion envelope;
-- negative rate/distance bounds;
-- final-clamp compatibility with historical Color Smudge rate semantics;
-- no reservoir overdraw or overfill;
-- load-weighted pickup contamination;
-- pigment-space pickup contamination;
-- repeated-sequence determinism;
-- direct parity between the old Color Smudge Charge equation and the new reservoir load/deposition calculation across multiple stroke distances.
+Compatibility is pinned by an editor-level `resolvePlans()` regression that compares every resolved dab against the historical `colorRate * exp(-chargeDecayRate * distance)` equation.
 
-Safe branch validation run **#2108** (`ci/reservoir-model-validation-3`) completed successfully from the frozen current head:
+Safe branch validation run **#2109** (`ci/reservoir-charge-integration`) completed successfully:
 
 - full unit-test job: **success**;
 - Android `assembleDebug`: **success**;
+- native/CMake/shader build: **success**;
 - release/publishing steps: correctly skipped.
 
-### Compatibility state
+### CPU reservoir pickup
 
-This first Phase 2 tranche changes **no visible paint behavior** yet.
+`ColorSmudgeEngine.Settings` now includes `pickupRate`, defaulting to `0`.
 
-- `ColorSmudgeEngine` still evaluates its existing Charge decay directly.
-- No new Pickup control is exposed.
-- No new persistent canvas material channel is allocated.
-- No Vulkan pickup implementation is enabled.
-- Ordinary brushes remain unchanged.
+When pickup is enabled on the CPU reference:
+
+- the brush begins with reservoir load `1` and the stroke paint colour as its carried material;
+- Charge depletion creates bounded empty reservoir capacity as the stroke travels;
+- each dab samples one representative contact colour **before** the dab mutates pixels;
+- after that dab renders, a `pickupRate` fraction of available capacity is refilled from the sampled material;
+- sampled alpha scales material presence, so fully transparent canvas contributes no pickup mass;
+- carried pigment contamination uses the selected material mixer (`LEGACY_RGB` or `PIGMENT_RYB`);
+- the contaminated carried pigment is deposited by subsequent dabs, not retroactively by the dab that sampled it;
+- Dulling reuses its existing weighted contact sample; Smear takes an equivalent weighted footprint sample for reservoir state while retaining its separate spatial carrier;
+- Sample Merged supplies reservoir pickup from the same pre-composited source used by Color Smudge sampling;
+- canvas wetness is not fabricated yet: pickup preserves current reservoir wetness until Phase 4 provides a real persistent wetness channel.
+
+### Compatibility and backend gate
+
+- `pickupRate = 0` takes the historical Color Smudge raster path and remains the default for old strokes and imported presets.
+- Krita preset mapping leaves `pickupRate` at its Graffux default of `0`.
+- Non-zero pickup is deliberately forced through the CPU reference in `DrawingEngine`.
+- Vulkan pigment Color Smudge remains enabled when pickup is `0`.
+- No native/Vulkan pickup implementation is active yet; the CPU gate prevents devices from silently ignoring pickup state.
+- No Pickup UI control is exposed yet.
+- No persistent canvas wetness/material channel is allocated by this tranche.
+
+### Pickup tests added
+
+Editor tests cover:
+
+- implicit/default pickup zero being byte-identical to explicit `pickupRate = 0`;
+- crossing opaque blue sampled material contaminating later yellow `PIGMENT_RYB` paint toward green;
+- reservoir pickup reading the supplied Sample Merged composite;
+- deterministic repeated pickup output for identical input/seed;
+- the CPU-only backend gate being active only for positive pickup;
+- imported Krita Color Smudge presets retaining default-zero pickup.
+
+These pickup commits use `[skip ci]` on `main`; a safe non-release validation branch is used to run the complete test/build gate before this tranche is called complete.
 
 ### Next implementation target
 
-1. Route the existing `chargeDecayRate` calculation through `BrushReservoirModel` and prove replay/output compatibility.
-2. Add explicit reservoir pickup to the CPU reference behind a default-zero setting; when pickup is non-zero, force the CPU path until the native equivalent exists rather than silently ignoring the state on Vulkan.
-3. Port the same reservoir transition to Vulkan and add hardware CPU/GPU parity coverage.
-4. Expose the minimal **Load / Pickup** product controls only after CPU/GPU behavior is aligned.
-5. Do not begin persistent wetness fields, substrate transport or height-v2 work until the reservoir gate is stable.
+1. Complete safe CI validation of the CPU pickup tranche.
+2. Port the same stateful reservoir depletion/pickup transition to the native/Vulkan Color Smudge path.
+3. Add CPU ↔ Vulkan reservoir/pickup parity instrumentation and run it on real Android Vulkan hardware.
+4. Expose the minimal **Load / Pickup / Pigment Mixing** product controls only after CPU/GPU behavior is aligned.
+5. Do not begin persistent wetness fields, substrate transport or Impasto-v2 material coupling until the reservoir gate is stable.
