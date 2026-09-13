@@ -47,6 +47,8 @@ data class BrushContactConfig(
     val pressureSplay: Float = 0.18f,
     /** Maximum extra flattening caused by brush lean. */
     val tiltElongation: Float = 0.22f,
+    /** Optional stable coarse bristle-bundle topology. Disabled by default for exact compatibility. */
+    val tufts: BrushTuftConfig = BrushTuftConfig(),
 ) {
     fun sanitized(): BrushContactConfig = copy(
         stiffness = stiffness.coerceIn(0f, 1f),
@@ -63,6 +65,7 @@ data class BrushContactConfig(
         orientationCoupling = orientationCoupling.coerceIn(0f, 1f),
         pressureSplay = pressureSplay.coerceIn(0f, 1f),
         tiltElongation = tiltElongation.coerceIn(0f, 0.95f),
+        tufts = tufts.sanitized(),
     )
 
     fun isActive(): Boolean = enabled
@@ -111,6 +114,8 @@ data class BrushContactState(
     val compression: Float = 0f,
     val lean: Float = 0f,
     val splay: Float = 0f,
+    /** Stable bundle contacts relative to this global contact center. Empty when topology is off. */
+    val tufts: List<BrushTuftContact> = emptyList(),
 )
 
 data class BrushMechanicalStep(
@@ -256,7 +261,7 @@ object BrushContactModel {
         val offsetX = -cos(dragRad) * dragDistance
         val offsetY = -sin(dragRad) * dragDistance
 
-        return BrushContactState(
+        val base = BrushContactState(
             widthMultiplier = width,
             tipRatioMultiplier = tipRatio,
             angleOffsetDeg = lagOffset,
@@ -267,6 +272,7 @@ object BrushContactModel {
             lean = lean,
             splay = splay,
         )
+        return base.copy(tufts = BrushTuftTopology.resolve(state, base, cfg.tufts))
     }
 
     private fun response(dtMs: Float, tauMs: Float): Float =
