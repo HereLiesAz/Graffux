@@ -5,6 +5,8 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
+import com.hereliesaz.graffitixr.common.azphalt.MaterialColorMixer
+import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.hypot
@@ -31,6 +33,10 @@ import kotlin.math.roundToInt
  *   colour already under the brush (Procreate's Dilution) before that pigment is blended into the
  *   canvas at [Settings.colorRate]/[Settings.chargeDecayRate]'s rate. Default 0 deposits pure
  *   [Settings.paintColor], matching historical Color Rate exactly.
+ * - [Settings.mixingModel] selects the colour interaction math. [MaterialMixingModel.LEGACY_RGB]
+ *   is the byte-compatible default. [MaterialMixingModel.PIGMENT_RYB] uses the material-aware
+ *   CPU reference so carried/deposited colour behaves more like artist pigments while preserving
+ *   the exact historical path for every existing preset.
  *
  * Attack, Grade, Blur, and Wetness Jitter — Procreate's remaining Wet Mix sliders — don't need new
  * fields: they already map onto [Settings.opacity]/[Settings.smudgeRate] (Attack), [Mode.DULLING]'s
@@ -77,6 +83,8 @@ object ColorSmudgeEngine {
          * the canvas, even though [colorRate]/[chargeDecayRate] are still "spent").
          */
         val dilution: Float = 0f,
+        /** Material colour interaction. Legacy RGB is the compatibility/default path. */
+        val mixingModel: MaterialMixingModel = MaterialMixingModel.LEGACY_RGB,
         /** Overall dab coverage multiplier. */
         val opacity: Float = 1f,
         /** Radius of the brush footprint in bitmap pixels; supplied by DrawingEngine at replay. */
@@ -122,7 +130,6 @@ object ColorSmudgeEngine {
         val opacity: Float,
         val smudgeRadius: Float,
     )
-
 
     /**
      * Resolves the exact resampling and sensor curves the CPU implementation uses into renderer-
@@ -282,22 +289,24 @@ object ColorSmudgeEngine {
                 // Merged changes what colour gets carried, never which layer receives the stroke.
                 val pickedUp = readSource[idx]
                 val under = pixels[idx]
-                carrier[k] = lerpArgb(
-                    pickedUp, carrier[k], resolved.smudgeRate, includeAlpha = settings.smearAlpha,
+                carrier[k] = mixArgb(
+                    pickedUp, carrier[k], resolved.smudgeRate, settings.smearAlpha, settings.mixingModel,
                 )
-                var out = lerpArgb(
+                var out = mixArgb(
                     under,
                     carrier[k],
                     mask * resolved.opacity,
-                    includeAlpha = settings.smearAlpha,
+                    settings.smearAlpha,
+                    settings.mixingModel,
                 )
                 if (resolved.colorRate > 0f) {
                     val pigment = dilutedPigment(settings, pickedUp)
-                    out = lerpArgb(
+                    out = mixArgb(
                         out,
                         pigment,
                         mask * resolved.opacity * resolved.colorRate,
                         includeAlpha = true,
+                        model = settings.mixingModel,
                     )
                 }
                 pixels[idx] = out
@@ -333,19 +342,21 @@ object ColorSmudgeEngine {
                 val idx = indexOf(cx + dx, cy + dy, width, height, settings.wrapAround)
                 if (idx < 0) return@forEachKernel
                 val under = pixels[idx]
-                var out = lerpArgb(
+                var out = mixArgb(
                     under,
                     sampled,
                     mask * resolved.opacity * resolved.smudgeRate,
-                    includeAlpha = settings.smearAlpha,
+                    settings.smearAlpha,
+                    settings.mixingModel,
                 )
                 if (resolved.colorRate > 0f) {
                     val pigment = dilutedPigment(settings, sampled)
-                    out = lerpArgb(
+                    out = mixArgb(
                         out,
                         pigment,
                         mask * resolved.opacity * resolved.colorRate,
                         includeAlpha = true,
+                        model = settings.mixingModel,
                     )
                 }
                 pixels[idx] = out
@@ -362,7 +373,13 @@ object ColorSmudgeEngine {
     private fun dilutedPigment(settings: Settings, under: Int): Int {
         val dilution = settings.dilution.coerceIn(0f, 1f)
         if (dilution <= 0f) return settings.paintColor
-        return lerpArgb(under, settings.paintColor, 1f - dilution, includeAlpha = true)
+        return mixArgb(
+            under,
+            settings.paintColor,
+            1f - dilution,
+            includeAlpha = true,
+            model = settings.mixingModel,
+        )
     }
 
     private class BrushKernel(radius: Float, feathering: Float) {
@@ -483,6 +500,23 @@ object ColorSmudgeEngine {
             (sumG / sumAlphaWeight).roundToInt().coerceIn(0, 255),
             (sumB / sumAlphaWeight).roundToInt().coerceIn(0, 255),
         )
+    }
+
+    /**
+     * Material-aware interpolation. Legacy RGB deliberately calls the original helper unchanged so
+     * existing regression vectors remain byte-for-byte stable; only the explicit pigment mode takes
+     * the renderer-independent material mixer path.
+     */
+    private fun mixArgb(
+        a: Int,
+        b: Int,
+        t: Float,
+        includeAlpha: Boolean,
+        model: MaterialMixingModel,
+    ): Int = if (model == MaterialMixingModel.LEGACY_RGB) {
+        lerpArgb(a, b, t, includeAlpha)
+    } else {
+        MaterialColorMixer.mixArgb(a, b, t, model, includeAlpha)
     }
 
     /** `a` moved towards `b` by `t`, rounded per channel so repeated pickup cannot bias dark. */
