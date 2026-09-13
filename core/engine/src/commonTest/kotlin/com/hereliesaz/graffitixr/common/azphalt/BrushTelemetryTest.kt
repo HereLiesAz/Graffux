@@ -49,7 +49,7 @@ class BrushTelemetryTest {
     }
 
     @Test
-    fun advertisedTiltPromotesStylusImmediately() {
+    fun advertisedTiltSelectsHighQualityStylusProfileImmediately() {
         val sample = BrushSampleBuilder().add(
             0f, 0f, 0L,
             pressure = 0.4f,
@@ -65,7 +65,7 @@ class BrushTelemetryTest {
     }
 
     @Test
-    fun pressureOnlyStylusCanPromoteFromObservedVariation() {
+    fun strongPressureOnlyStylusRemainsBasicButEarnsPressureConfidence() {
         val builder = BrushSampleBuilder()
         val first = builder.add(
             0f, 0f, 0L,
@@ -81,11 +81,12 @@ class BrushTelemetryTest {
         )
 
         assertEquals(BrushTelemetryProfile.STYLUS_BASIC, first.telemetry.profile)
-        assertEquals(BrushTelemetryProfile.STYLUS_HIGH_QUALITY, second.telemetry.profile)
+        assertEquals(BrushTelemetryProfile.STYLUS_BASIC, second.telemetry.profile)
+        assertEquals(0.9f, second.telemetry.pressureConfidence, 1e-6f)
     }
 
     @Test
-    fun predictedTelemetryCannotPromoteAuthoritativeClassifier() {
+    fun predictedTelemetryCannotChangeAuthoritativePressureConfidence() {
         val builder = BrushSampleBuilder()
         builder.add(
             0f, 0f, 0L,
@@ -109,6 +110,7 @@ class BrushTelemetryTest {
 
         assertEquals(BrushTelemetryProfile.STYLUS_BASIC, prediction.telemetry.profile)
         assertEquals(BrushTelemetryProfile.STYLUS_BASIC, real.telemetry.profile)
+        assertTrue(real.telemetry.pressureConfidence < 0.9f)
     }
 
     @Test
