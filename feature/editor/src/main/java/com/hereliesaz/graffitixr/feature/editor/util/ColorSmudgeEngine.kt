@@ -36,6 +36,10 @@ import kotlin.math.roundToInt
  *   colour already under the brush (Procreate's Dilution) before that pigment is blended into the
  *   canvas at [Settings.colorRate]/[Settings.chargeDecayRate]'s rate. Default 0 deposits pure
  *   [Settings.paintColor], matching historical Color Rate exactly.
+ * - [Settings.pickupRate] is material-reservoir pickup: after a dab samples its contact colour, a
+ *   fraction of currently empty reservoir capacity is refilled from that sampled material. Pickup
+ *   happens after the dab writes, so contamination affects subsequent paint rather than the dab
+ *   that discovered it. Default 0 keeps the historical path byte-compatible.
  * - [Settings.mixingModel] selects the colour interaction math. [MaterialMixingModel.LEGACY_RGB]
  *   is the byte-compatible default. [MaterialMixingModel.PIGMENT_RYB] uses the material-aware
  *   CPU reference so carried/deposited colour behaves more like artist pigments while preserving
@@ -86,6 +90,12 @@ object ColorSmudgeEngine {
          * the canvas, even though [colorRate]/[chargeDecayRate] are still "spent").
          */
         val dilution: Float = 0f,
+        /**
+         * Fraction of currently empty reservoir capacity refilled from sampled material per dab.
+         * 0 is the compatibility/default path. Pickup only has room after Charge depletion has
+         * created capacity; transparent contact contributes no material.
+         */
+        val pickupRate: Float = 0f,
         /** Material colour interaction. Legacy RGB is the compatibility/default path. */
         val mixingModel: MaterialMixingModel = MaterialMixingModel.LEGACY_RGB,
         /** Overall dab coverage multiplier. */
@@ -98,7 +108,7 @@ object ColorSmudgeEngine {
         val wrapAround: Boolean = false,
         /** Whether smudging transports alpha along with RGB. */
         val smearAlpha: Boolean = true,
-        /** Foreground colour used only when [colorRate] > 0. */
+        /** Initial foreground/reservoir colour used when [colorRate] > 0. */
         val paintColor: Int = Color.BLACK,
         /** Optional Krita-style sensor routes. */
         val dynamics: List<BrushSensorBinding> = emptyList(),
@@ -137,6 +147,8 @@ object ColorSmudgeEngine {
     /**
      * Resolves the exact resampling and sensor curves the CPU implementation uses into renderer-
      * neutral dabs. Vulkan consumes this plan rather than reimplementing input/sensor semantics.
+     * Reservoir pickup itself is canvas-dependent and therefore intentionally is not represented
+     * by this plan yet; [requiresCpuReservoirSimulation] gates those strokes to the CPU reference.
      */
     fun resolvePlans(
         stroke: List<Offset>,
@@ -166,6 +178,10 @@ object ColorSmudgeEngine {
         }
         return listOf(one(stroke, samples))
     }
+
+    /** True while reservoir pickup has no native/Vulkan equivalent and must use the CPU reference. */
+    internal fun requiresCpuReservoirSimulation(settings: Settings): Boolean =
+        settings.pickupRate.coerceIn(0f, 1f) > 0f
 
     /**
      * @param sampleSource Optional pre-composited "what the artist can see" buffer, same
@@ -216,6 +232,12 @@ object ColorSmudgeEngine {
         }
     }
 
+    private fun initialReservoir(settings: Settings): BrushReservoirState = BrushReservoirState(
+        load = 1f,
+        wetness = settings.dilution.coerceIn(0f, 1f),
+        carriedColor = MaterialColor.fromArgb(settings.paintColor),
+    )
+
     /** @param distancePx cumulative arc length travelled so far, in bitmap pixels — Procreate's `t`. */
     private fun resolve(
         settings: Settings,
@@ -224,17 +246,12 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         dabIndex: Int,
         distancePx: Float,
+        reservoirOverride: BrushReservoirState? = null,
     ): Resolved {
-        // Phase 2 convergence: the existing analytic Charge envelope is now expressed through the
-        // renderer-independent reservoir contract. Initial load 1 + the same decay rate/distance
-        // yields exactly the historical `colorRate * exp(-chargeDecayRate * distancePx)` value.
-        // No pickup or additional depletion semantics are active here yet.
-        val reservoir = BrushReservoirModel.stateAtDistance(
-            initial = BrushReservoirState(
-                load = 1f,
-                wetness = settings.dilution.coerceIn(0f, 1f),
-                carriedColor = MaterialColor.fromArgb(settings.paintColor),
-            ),
+        // The default path remains analytic and byte-compatible with historical Charge. Pickup mode
+        // supplies an evolving reservoir so sampled material can refill/contaminate later dabs.
+        val reservoir = reservoirOverride?.sanitized() ?: BrushReservoirModel.stateAtDistance(
+            initial = initialReservoir(settings),
             depletionRatePerPx = settings.chargeDecayRate,
             distancePx = distancePx,
         )
@@ -277,6 +294,9 @@ object ColorSmudgeEngine {
     ) {
         val carrier = IntArray(kernel.size)
         val start = path.first().position
+        val pickupEnabled = requiresCpuReservoirSimulation(settings)
+        var reservoir = initialReservoir(settings)
+        var previousDistancePx = 0f
 
         // Edge extension prevents a stroke started at a layer border from seeding the carrier with
         // transparent black and dragging a translucent band into otherwise opaque artwork.
@@ -288,17 +308,43 @@ object ColorSmudgeEngine {
 
         for (i in 1 until path.size) {
             val dab = path[i]
-            val resolved = resolve(settings, dab.sample, strokeStartUptimeMillis, strokeSeed, i, i * step)
+            val distancePx = i * step
+            if (pickupEnabled) {
+                reservoir = BrushReservoirModel.stateAtDistance(
+                    reservoir,
+                    settings.chargeDecayRate,
+                    distancePx - previousDistancePx,
+                )
+                previousDistancePx = distancePx
+            }
+            val resolved = resolve(
+                settings,
+                dab.sample,
+                strokeStartUptimeMillis,
+                strokeSeed,
+                i,
+                distancePx,
+                reservoirOverride = reservoir.takeIf { pickupEnabled },
+            )
             val cx = dab.position.x.toInt()
             val cy = dab.position.y.toInt()
+            // Sample the material contact before this dab mutates pixels. The resulting pickup is
+            // applied after rendering, so it only changes the brush's subsequent carried pigment.
+            val reservoirSample = if (pickupEnabled) {
+                weightedAverage(readSource, width, height, cx, cy, kernel.r, settings.wrapAround)
+            } else {
+                Color.TRANSPARENT
+            }
+            val carriedPaintColor = if (pickupEnabled) reservoir.carriedColor.toArgb() else settings.paintColor
+
             forEachKernel(kernel) { dx, dy, k, mask ->
                 if (mask <= 0f) return@forEachKernel
                 val idx = indexOf(cx + dx, cy + dy, width, height, settings.wrapAround)
                 if (idx < 0) return@forEachKernel
 
-                // Pickup reads from readSource (the merged composite when Sample Merged is active);
-                // the paint blend below always reads/writes the active layer's own pixels — Sample
-                // Merged changes what colour gets carried, never which layer receives the stroke.
+                // Spatial Smear pickup remains separate from material-reservoir pickup: this carrier
+                // transports local colour inside the footprint, while reservoir pickup contaminates
+                // foreground pigment that is deposited by later dabs.
                 val pickedUp = readSource[idx]
                 val under = pixels[idx]
                 carrier[k] = mixArgb(
@@ -312,7 +358,7 @@ object ColorSmudgeEngine {
                     settings.mixingModel,
                 )
                 if (resolved.colorRate > 0f) {
-                    val pigment = dilutedPigment(settings, pickedUp)
+                    val pigment = dilutedPigment(settings, pickedUp, carriedPaintColor)
                     out = mixArgb(
                         out,
                         pigment,
@@ -322,6 +368,10 @@ object ColorSmudgeEngine {
                     )
                 }
                 pixels[idx] = out
+            }
+
+            if (pickupEnabled) {
+                reservoir = pickupIntoReservoir(reservoir, reservoirSample, settings)
             }
         }
     }
@@ -339,15 +389,39 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         step: Float,
     ) {
+        val pickupEnabled = requiresCpuReservoirSimulation(settings)
+        var reservoir = initialReservoir(settings)
+        var previousDistancePx = 0f
+
         for (i in 1 until path.size) {
             val dab = path[i]
-            val resolved = resolve(settings, dab.sample, strokeStartUptimeMillis, strokeSeed, i, i * step)
+            val distancePx = i * step
+            if (pickupEnabled) {
+                reservoir = BrushReservoirModel.stateAtDistance(
+                    reservoir,
+                    settings.chargeDecayRate,
+                    distancePx - previousDistancePx,
+                )
+                previousDistancePx = distancePx
+            }
+            val resolved = resolve(
+                settings,
+                dab.sample,
+                strokeStartUptimeMillis,
+                strokeSeed,
+                i,
+                distancePx,
+                reservoirOverride = reservoir.takeIf { pickupEnabled },
+            )
             val cx = dab.position.x.toInt()
             val cy = dab.position.y.toInt()
             val sampleRadius = (settings.radiusPx * resolved.smudgeRadius).roundToInt().coerceAtLeast(1)
+            // Dulling already has exactly the representative pre-write contact sample the reservoir
+            // needs, so the same sampled colour drives both local Dulling and post-dab pickup.
             val sampled = weightedAverage(
                 readSource, width, height, cx, cy, sampleRadius, settings.wrapAround,
             )
+            val carriedPaintColor = if (pickupEnabled) reservoir.carriedColor.toArgb() else settings.paintColor
 
             forEachKernel(kernel) { dx, dy, _, mask ->
                 if (mask <= 0f) return@forEachKernel
@@ -362,7 +436,7 @@ object ColorSmudgeEngine {
                     settings.mixingModel,
                 )
                 if (resolved.colorRate > 0f) {
-                    val pigment = dilutedPigment(settings, sampled)
+                    val pigment = dilutedPigment(settings, sampled, carriedPaintColor)
                     out = mixArgb(
                         out,
                         pigment,
@@ -373,21 +447,56 @@ object ColorSmudgeEngine {
                 }
                 pixels[idx] = out
             }
+
+            if (pickupEnabled) {
+                reservoir = pickupIntoReservoir(reservoir, sampled, settings)
+            }
         }
+    }
+
+    /**
+     * Material pickup fills only reservoir capacity that depletion has already freed. This keeps
+     * load bounded, makes a nearly empty brush contaminate faster than a full one, and avoids
+     * inventing a second hidden depletion mechanism. Alpha scales material presence so transparent
+     * canvas cannot contaminate the brush with meaningless RGB.
+     */
+    private fun pickupIntoReservoir(
+        state: BrushReservoirState,
+        sampledArgb: Int,
+        settings: Settings,
+    ): BrushReservoirState {
+        val current = state.sanitized()
+        val pickupRate = settings.pickupRate.coerceIn(0f, 1f)
+        val capacity = (1f - current.load).coerceIn(0f, 1f)
+        if (pickupRate <= 0f || capacity <= 0f) return current
+
+        val sampled = MaterialColor.fromArgb(sampledArgb)
+        val materialPresence = sampled.alpha.coerceIn(0f, 1f)
+        if (materialPresence <= 0f) return current
+
+        return BrushReservoirModel.transfer(
+            state = current,
+            sampledColor = sampled,
+            // Canvas wetness is not a persistent channel yet. Keep wetness unchanged until Phase 4
+            // provides actual sampled wetness rather than fabricating it from display colour.
+            sampledWetness = current.wetness,
+            pickupRequest = capacity * pickupRate * materialPresence,
+            mixingModel = settings.mixingModel,
+        ).state
     }
 
     /**
      * Procreate's Dilution: the pigment about to be deposited is itself pre-mixed with [under] —
      * the colour already at/near this pixel — before being blended into the canvas at the caller's
-     * `colorRate`. [Settings.dilution] = 0 (the default) returns [Settings.paintColor] unchanged,
-     * matching historical Color Rate deposition exactly.
+     * `colorRate`. [Settings.dilution] = 0 (the default) returns [paintColor] unchanged, matching
+     * historical Color Rate deposition exactly.
      */
-    private fun dilutedPigment(settings: Settings, under: Int): Int {
+    private fun dilutedPigment(settings: Settings, under: Int, paintColor: Int = settings.paintColor): Int {
         val dilution = settings.dilution.coerceIn(0f, 1f)
-        if (dilution <= 0f) return settings.paintColor
+        if (dilution <= 0f) return paintColor
         return mixArgb(
             under,
-            settings.paintColor,
+            paintColor,
             1f - dilution,
             includeAlpha = true,
             model = settings.mixingModel,
