@@ -113,6 +113,7 @@ class KritaPresetMapperTest {
         assertEquals(defaults.wrapAround, settings.wrapAround)
         assertEquals(defaults.dilution, settings.dilution)
         assertEquals(defaults.chargeDecayRate, settings.chargeDecayRate)
+        assertEquals(defaults.pickupRate, settings.pickupRate)
         assertEquals(defaults.dynamics, settings.dynamics)
         assertEquals(defaults.sampleMerged, settings.sampleMerged)
     }
