@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.common.azphalt
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BrushTuftTopologyTest {
@@ -203,5 +204,122 @@ class BrushTuftTopologyTest {
         assertTrue(abs(recoveredOuter.separationFraction) < abs(loadedOuter.separationFraction))
         assertTrue(recoveredOuter.bend < loadedOuter.bend)
         assertTrue(recoveredOuter.trailingFraction < loadedOuter.trailingFraction)
+    }
+
+    @Test
+    fun splitRequiresSustainedLoadingAndKeepsCenterAsAnchor() {
+        val splitConfig = config.copy(
+            cohesion = 0f,
+            splitThreshold = 0.35f,
+            rejoinThreshold = 0.18f,
+            splitResponse = 1f,
+            splitSeparation = 0.2f,
+            splitBendWeight = 0.5f,
+        )
+        val global = BrushMechanicalState(initialized = true, dragAngleDeg = 0f, bend = 1f)
+        val loaded = BrushContactState(splay = 1f, bend = 1f)
+
+        var step = BrushTuftTopology.step(emptyList(), global, loaded, splitConfig, 16f)
+        assertTrue(step.states.none { it.splitLatched })
+        assertTrue(step.states.all { it.splitAmount == 0f })
+
+        repeat(8) {
+            step = BrushTuftTopology.step(step.states, global, loaded, splitConfig, 16f)
+        }
+
+        assertTrue(step.states.first().splitLatched)
+        assertTrue(step.states.last().splitLatched)
+        assertTrue(step.states.first().splitAmount > 0f)
+        assertTrue(step.states.last().splitAmount > 0f)
+        assertFalse(step.states[2].splitLatched)
+        assertEquals(0f, step.states[2].splitAmount, 1e-6f)
+        assertTrue(step.contacts.first().splitAmount > 0f)
+    }
+
+    @Test
+    fun splitLatchSurvivesMidLoadThenRejoinsBelowLowerThreshold() {
+        val splitConfig = config.copy(
+            cohesion = 0f,
+            splitThreshold = 0.35f,
+            rejoinThreshold = 0.18f,
+            splitResponse = 1f,
+            splitSeparation = 0.2f,
+            splitBendWeight = 0.5f,
+            recovery = 1f,
+        )
+        val global = BrushMechanicalState(initialized = true, dragAngleDeg = 0f, bend = 1f)
+        var step = BrushTuftTopology.step(
+            emptyList(),
+            global,
+            BrushContactState(splay = 1f, bend = 1f),
+            splitConfig,
+            16f,
+        )
+        repeat(10) {
+            step = BrushTuftTopology.step(
+                step.states,
+                global,
+                BrushContactState(splay = 1f, bend = 1f),
+                splitConfig,
+                16f,
+            )
+        }
+        assertTrue(step.states.last().splitLatched)
+        val splitSeparation = abs(step.states.last().separationFraction)
+
+        repeat(12) {
+            step = BrushTuftTopology.step(
+                step.states,
+                global.copy(bend = 0.25f),
+                BrushContactState(splay = 0.25f, bend = 0.25f),
+                splitConfig,
+                16f,
+            )
+        }
+        val middle = step.states.last()
+        assertTrue(middle.splitLatched)
+        assertTrue(middle.splitDrive < splitConfig.splitThreshold)
+        assertTrue(middle.splitDrive > splitConfig.rejoinThreshold)
+        assertTrue(abs(middle.separationFraction) > 0f)
+
+        repeat(40) {
+            step = BrushTuftTopology.step(
+                step.states,
+                global.copy(bend = 0f),
+                BrushContactState(splay = 0f, bend = 0f),
+                splitConfig,
+                16f,
+            )
+        }
+        val rejoined = step.states.last()
+        assertFalse(rejoined.splitLatched)
+        assertTrue(rejoined.splitAmount < 0.02f)
+        assertTrue(abs(rejoined.separationFraction) < splitSeparation)
+    }
+
+    @Test
+    fun cohesionRaisesResistanceToBreakaway() {
+        val base = config.copy(
+            splitThreshold = 0.62f,
+            rejoinThreshold = 0.3f,
+            splitResponse = 1f,
+            splitBendWeight = 0.5f,
+        )
+        val global = BrushMechanicalState(initialized = true, dragAngleDeg = 0f, bend = 1f)
+        val loaded = BrushContactState(splay = 1f, bend = 1f)
+
+        fun run(cfg: BrushTuftConfig): BrushTuftMechanicalState {
+            var step = BrushTuftTopology.step(emptyList(), global, loaded, cfg, 16f)
+            repeat(16) {
+                step = BrushTuftTopology.step(step.states, global, loaded, cfg, 16f)
+            }
+            return step.states.last()
+        }
+
+        val loose = run(base.copy(cohesion = 0f))
+        val cohesive = run(base.copy(cohesion = 1f))
+        assertTrue(loose.splitLatched)
+        assertFalse(cohesive.splitLatched)
+        assertTrue(loose.splitDrive > cohesive.splitDrive)
     }
 }
