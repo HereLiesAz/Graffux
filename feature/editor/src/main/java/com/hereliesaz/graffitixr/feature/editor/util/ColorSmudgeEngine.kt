@@ -3,13 +3,15 @@ package com.hereliesaz.graffitixr.feature.editor.util
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
+import com.hereliesaz.graffitixr.common.azphalt.BrushReservoirModel
+import com.hereliesaz.graffitixr.common.azphalt.BrushReservoirState
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
+import com.hereliesaz.graffitixr.common.azphalt.MaterialColor
 import com.hereliesaz.graffitixr.common.azphalt.MaterialColorMixer
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import kotlin.math.ceil
-import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -223,15 +225,24 @@ object ColorSmudgeEngine {
         dabIndex: Int,
         distancePx: Float,
     ): Resolved {
-        val charge = if (settings.chargeDecayRate > 0f) {
-            settings.colorRate * exp(-settings.chargeDecayRate * distancePx)
-        } else {
-            settings.colorRate
-        }
+        // Phase 2 convergence: the existing analytic Charge envelope is now expressed through the
+        // renderer-independent reservoir contract. Initial load 1 + the same decay rate/distance
+        // yields exactly the historical `colorRate * exp(-chargeDecayRate * distancePx)` value.
+        // No pickup or additional depletion semantics are active here yet.
+        val reservoir = BrushReservoirModel.stateAtDistance(
+            initial = BrushReservoirState(
+                load = 1f,
+                wetness = settings.dilution.coerceIn(0f, 1f),
+                carriedColor = MaterialColor.fromArgb(settings.paintColor),
+            ),
+            depletionRatePerPx = settings.chargeDecayRate,
+            distancePx = distancePx,
+        )
+        val charge = BrushReservoirModel.effectiveDeposition(settings.colorRate, reservoir)
         if (sample == null || settings.dynamics.isEmpty()) {
             return Resolved(
                 settings.smudgeRate.coerceIn(0f, 1f),
-                charge.coerceIn(0f, 1f),
+                charge,
                 settings.opacity.coerceIn(0f, 1f),
                 settings.smudgeRadius.coerceAtLeast(0.05f),
             )
