@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor.util
 
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
@@ -487,14 +488,14 @@ object ColorSmudgeEngine {
         if (sumAlphaWeight <= 0.0) {
             val idx = indexOf(cx, cy, width, height, wrapAround)
             val centre = if (idx >= 0) pixels[idx] else 0
-            return Color.argb(
+            return ArgbColor.argb(
                 (sumA / sumW).roundToInt().coerceIn(0, 255),
                 (centre shr 16 and 0xFF),
                 (centre shr 8 and 0xFF),
                 (centre and 0xFF),
             )
         }
-        return Color.argb(
+        return ArgbColor.argb(
             (sumA / sumW).roundToInt().coerceIn(0, 255),
             (sumR / sumAlphaWeight).roundToInt().coerceIn(0, 255),
             (sumG / sumAlphaWeight).roundToInt().coerceIn(0, 255),
