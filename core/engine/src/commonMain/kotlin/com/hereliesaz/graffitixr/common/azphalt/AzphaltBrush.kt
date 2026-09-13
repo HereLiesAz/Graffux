@@ -214,6 +214,8 @@ data class AzphaltBrush(
     val colorMix: Float = 0f,
     val maskedBrush: MaskedBrushConfig? = null,
     val dynamics: List<BrushSensorBinding> = emptyList(),
+    /** Brush-tip mechanics; default identity/off preserves all existing brushes. */
+    val contact: BrushContactConfig = BrushContactConfig(),
     /** Default disables both zones, so existing brushes render exactly as before. */
     val taper: BrushTaper = BrushTaper(),
     /** Default disables it, so existing brushes render exactly as before -- see [BrushBlot]. */
@@ -268,6 +270,7 @@ data class AzphaltBrush(
         colorMix = colorMix.coerceIn(0f, 1f),
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
+        contact = contact.sanitized(),
         taper = taper.sanitized(),
         blot = blot.sanitized(),
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
@@ -305,6 +308,9 @@ data class AzphaltBrush(
             val colorSource = params?.get("colorSource")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<BrushColorSource>(element) }.getOrNull()
             } ?: BrushColorSource.PLAIN
+            val contact = params?.get("contact")?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<BrushContactConfig>(element) }.getOrNull()
+            }?.sanitized() ?: BrushContactConfig()
             val taper = params?.get("taper")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<BrushTaper>(element) }.getOrNull()
             }?.sanitized() ?: BrushTaper()
@@ -339,6 +345,7 @@ data class AzphaltBrush(
                 colorMix = (f("colorMix") ?: f("mix") ?: 0f).coerceIn(0f, 1f),
                 maskedBrush = maskedBrush,
                 dynamics = dynamics,
+                contact = contact,
                 taper = taper,
                 blot = blot,
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
