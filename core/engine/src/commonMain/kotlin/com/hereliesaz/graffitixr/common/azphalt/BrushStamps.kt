@@ -10,27 +10,16 @@ import kotlin.random.Random
 
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
-// How many brush diameters the natural lift-off zone spans when the stroke stops completely
-// (liftDecelT = 1). Scales linearly with deceleration so a fast lift produces no taper zone.
 private const val MAX_LIFT_TAPER_DIAMETERS = 8f
-// Minimum size factor at the end of a fast lift (liftDecelT = 0): the brush fades to this
-// fraction of full size rather than snapping off or pinching to a point. Interpolates toward
-// 0 as deceleration increases so a stopping stroke tapers all the way to nothing.
 private const val FAST_LIFT_END_FLOOR = 0.6f
-// Fraction by which full peak-speed suppresses dab radius. 0.2 → at peak speed, radius is 80%
-// of full size; at rest, 100%. Simulates a real brush thinning under fast movement.
 private const val SPEED_SIZE_SENSITIVITY = 0.2f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
-private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L // "LONG_SCA"
-private const val MASK_LONGITUDINAL_SEED_SALT = 0x4D41534B5F4C4F4EL // "MASK_LON"
-private const val COUNT_SEED_SALT = 0x434F554E545F4A54L // "COUNT_JT"
-private const val BLOT_SEED_SALT = 0x424C4F545F534841L // "BLOT_SHA"
+private const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L
+private const val MASK_LONGITUDINAL_SEED_SALT = 0x4D41534B5F4C4F4EL
+private const val COUNT_SEED_SALT = 0x434F554E545F4A54L
+private const val BLOT_SEED_SALT = 0x424C4F545F534841L
 
-/** How many dabs [AzphaltBrush.count]/[AzphaltBrush.countJitter] emit at one placement point.
- *  count<=1 always returns 1, and count without jitter returns count unchanged, so this draws no
- *  extra randomness (and existing brushes' dab-for-dab output stays identical) unless a brush
- *  actually opts into both. */
 private fun resolveDabCount(brush: AzphaltBrush, rng: Random): Int {
     if (brush.count <= 1) return 1
     if (brush.countJitter <= 0f) return brush.count
@@ -38,7 +27,6 @@ private fun resolveDabCount(brush: AzphaltBrush, rng: Random): Int {
     return (brush.count * factor).roundToInt().coerceIn(1, brush.count)
 }
 
-/** Resolved secondary-tip instruction attached to a primary dab. */
 data class MaskDab(
     val x: Float,
     val y: Float,
@@ -50,10 +38,6 @@ data class MaskDab(
     val invert: Boolean = false,
     val blendMode: MaskedBrushBlendMode = MaskedBrushBlendMode.MULTIPLY,
 ) {
-    /** Krita's Porter-Duff-style secondary-tip compositing rule: `true` = keep primary coverage
-     *  only where this tip is present (DST_IN), `false` = cut it there instead (DST_OUT). Shared
-     *  by the CPU compositor ([com.hereliesaz.graffitixr.feature.editor.StampBrushRenderer]) and
-     *  item 15's GPU dual-brush follow-up so the two never resolve `blendMode`/`invert` differently. */
     val keepInside: Boolean
         get() = when (blendMode) {
             MaskedBrushBlendMode.MULTIPLY -> !invert
@@ -61,10 +45,6 @@ data class MaskDab(
         }
 }
 
-/**
- * A concrete render instruction. [radius] is half the primary tip width; [tipRatio] is height/width.
- * Geometry and sensor options are already resolved here so every renderer consumes the same dabs.
- */
 data class Dab(
     val x: Float,
     val y: Float,
@@ -72,22 +52,17 @@ data class Dab(
     val alpha: Float,
     val angleDeg: Float = 0f,
     val tipRatio: Float = 1f,
-    /** Resolved edge falloff for this dab (0 = soft, 1 = hard); see [AzphaltBrush.hardness]. */
     val hardness: Float = 1f,
     val flowMultiplier: Float = 1f,
     val hueShiftDeg: Float = 0f,
     val saturationMultiplier: Float = 1f,
     val valueMultiplier: Float = 1f,
-    /** Foreground→background selector used by GRADIENT source. */
     val colorMix: Float = 0f,
-    /** Independent deterministic per-dab sample used by UNIFORM_RANDOM source. */
     val sourceRandom: Float = 0f,
     val mask: MaskDab? = null,
 )
 
-/** Arc-length dab placement and deterministic sensor resolution for stamp brushes. */
 object BrushStamps {
-
     fun place(points: List<Float>, stepPx: Float): List<Float> {
         val n = points.size / 2
         if (n == 0) return emptyList()
@@ -181,9 +156,8 @@ object BrushStamps {
     }
 
     /**
-     * Sensor-aware placement. Spacing is evaluated at each emitted dab and advances by the current
-     * resolved brush size. This is the important Krita behavior missing from a fixed-diameter spacing
-     * loop: pressure/speed driven size and spacing change the next impression distance together.
+     * Sensor/mechanics-aware placement. Spacing is evaluated at each emitted dab and advances by
+     * the current resolved contact geometry. All mechanical state is resolved here before rendering.
      */
     fun dynamicDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
         val real = samples.filterNot { it.predicted }
@@ -192,7 +166,10 @@ object BrushStamps {
         val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
         val taper = brush.taper
         val blot = brush.blot
-        if (brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive() && !blot.isActive()) {
+        if (
+            brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive() && !blot.isActive() &&
+            !brush.contact.isActive()
+        ) {
             val points = ArrayList<Float>(real.size * 2)
             real.forEach { points.add(it.x); points.add(it.y) }
             return dabs(points, diameter, brush, seed)
@@ -210,17 +187,10 @@ object BrushStamps {
         val blotRng = Random(seed xor BLOT_SEED_SALT)
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
-        // How fast the stroke was moving at its peak, and how much it decelerated by lift-off.
-        // liftDecelT = 0 → stroke ended at full speed (fast flick); 1 → crawled to a stop.
-        // startSpeedT = 0 → deliberate slow placement (brush full from first dab); 1 → flying entry.
         val peakSpeed = real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
         val endSpeed = real.last().speedPxPerMs
         val liftDecelT = (1f - (endSpeed / peakSpeed)).coerceIn(0f, 1f)
         val startSpeedT = (real.first().speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
-        // How long the pointer dwelled at the touchdown point (within brush.airbrushStillnessRadiusPx
-        // of the first sample) before it first moved away -- feeds BrushBlot's dwellGrowthMultiplier/
-        // dwellRampMs. Computed once from the raw sample stream, same as peakSpeed above, since it's
-        // a property of the whole stroke's start rather than any one placement point.
         val dwellMs = if (blot.dwellRampMs > 0f) {
             val anchor = real.first()
             val stillRadius = brush.airbrushStillnessRadiusPx
@@ -233,13 +203,8 @@ object BrushStamps {
         } else 0f
         val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
             val dwellT = (dwellMs / blot.dwellRampMs).coerceIn(0f, 1f)
-            // Ease-out: rises quickly at first, then levels off, rather than a straight ramp -- a
-            // real pooling blot doesn't grow at a constant rate all the way to its limit.
             1f + (blot.dwellGrowthMultiplier - 1f) * sqrt(dwellT)
         } else 1f
-        // How sharply the tap itself landed -- independent of dwellGrowthFactor above, which only
-        // measures what happens AFTER contact. Read from how fast pressure rose between the first
-        // two recorded samples; stacks multiplicatively with dwell growth.
         val sharpnessFactor = if (blot.sharpnessMultiplier != 1f && real.size >= 2) {
             val dt = (real[1].uptimeMillis - real[0].uptimeMillis).coerceAtLeast(1L).toFloat()
             val pressureRatePerMs = (real[1].pressure - real[0].pressure).coerceAtLeast(0f) / dt
@@ -249,77 +214,60 @@ object BrushStamps {
         val blotPeakFactor = dwellGrowthFactor * sharpnessFactor
         var at = 0f
         var index = 0
+        var mechanicalState = BrushMechanicalState()
 
         do {
             val sample = interpolateSample(real, arc, at)
-
-            // Pressure influence decays from full at stroke start to zero at stroke end,
-            // applied only to SIZE and OPACITY so color/mix bindings are unaffected.
             val strokePositionT = if (total > 0f) (at / total).coerceIn(0f, 1f) else 0f
             val pressureFadeFactor = 1f - strokePositionT
             val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
+            val mechanics = BrushContactModel.step(sample, mechanicalState, brush.contact)
+            mechanicalState = mechanics.state
+            val contact = mechanics.contact
 
-            // Start taper: explicit brush config OR natural speed-at-start zone. A flying entry
-            // (startSpeedT→1) builds from near-zero over up to MAX_LIFT_TAPER_DIAMETERS; a slow
-            // deliberate placement (startSpeedT→0) produces no zone and starts at full size.
-            // Explicit taper.startLengthPx uses only the configured zone/floor so per-brush
-            // settings are unaffected by the natural behavior.
             val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
             val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
             val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
-            val naturalStartMinSz = 1f - startSpeedT  // slow=full, fast=near-zero entry
+            val naturalStartMinSz = 1f - startSpeedT
             val naturalStartMinOp = 1f - startSpeedT
             val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
             val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
             val startSizeFactor = lerp(startMinSz, 1f, startTaperT)
             val startOpacityFactor = lerp(startMinOp, 1f, startTaperT)
 
-            // End taper: zone length and minimum-size floor are both proportional to how much the
-            // stroke decelerated. A fast lift (liftDecelT≈0) produces almost no taper zone —
-            // the brush ends near full size, which is natural for a quick flick. A stroke that
-            // slows to a crawl (liftDecelT≈1) gets a long zone that tapers all the way to zero.
-            // The brush's explicit endLengthPx always sets a floor so per-brush settings still work.
             val naturalEndZone = diameter * MAX_LIFT_TAPER_DIAMETERS * liftDecelT
-            val guaranteedEndZone = minOf(
-                maxOf(naturalEndZone, taper.endLengthPx),
-                total * 0.5f,   // cap so very short strokes still have a visible non-tapered head
-            )
-            var endTaperT = if (guaranteedEndZone > 0f) ((total - at) / guaranteedEndZone).coerceIn(0f, 1f) else 1f
+            val guaranteedEndZone = minOf(maxOf(naturalEndZone, taper.endLengthPx), total * 0.5f)
+            var endTaperT = if (guaranteedEndZone > 0f) {
+                ((total - at) / guaranteedEndZone).coerceIn(0f, 1f)
+            } else 1f
             if (taper.liftOffSynthesizesPressure && taper.endLengthPx > 0f && endTaperT < 1f) {
                 val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
                 endTaperT = (endTaperT * liftFactor).coerceIn(0f, 1f)
             }
-            // Min size at the end: fast lift → FAST_LIFT_END_FLOOR (brush doesn't pinch to zero),
-            // full stop → 0 (tapers all the way). Explicit brush taper overrides in its own zone.
             val naturalEndMinSz = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
             val naturalEndMinOp = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
-            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else naturalEndMinSz
-            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else naturalEndMinOp
-            // Convex curve: stays wide for most of the zone, drops sharply only near the tip.
+            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) {
+                taper.minSize
+            } else naturalEndMinSz
+            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) {
+                taper.minOpacity
+            } else naturalEndMinOp
             val endCurvedT = sqrt(endTaperT)
             val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
             val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)
 
-            // Use min so overlapping start/end zones don't compound: the more tapered factor wins.
             val taperSize = minOf(startSizeFactor, endSizeFactor)
             val taperOpacity = minOf(startOpacityFactor, endOpacityFactor)
-            // First-touch blot: full strength at at=0, linearly decayed away by blot.lengthPx --
-            // independent of (and composes with) the shrink-only taper above, since this spikes
-            // ABOVE the resting size/opacity rather than fading towards it. See BrushBlot's doc
-            // comment for why taper's own 0..1-clamped minSize/minOpacity can't model this.
             val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
             val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
             val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)
-            // Fade only the dynamic portion (deviation from unity) toward 1.0 as the stroke ends,
-            // so brushes without pressure bindings are unaffected and taper floors are respected.
             val fadedSizeMultiplier = 1f + (dynamic.sizeMultiplier - 1f) * pressureFadeFactor
             val fadedOpacityMultiplier = 1f + (dynamic.opacityMultiplier - 1f) * pressureFadeFactor
             val resolvedDiameter = diameter * fadedSizeMultiplier * taperSize * blotSize
+            val contactDiameter = resolvedDiameter * contact.widthMultiplier
             val headingDeg = sample.drawingAngleDeg
+            val mechanicalHeadingDeg = headingDeg + contact.angleOffsetDeg
 
-            // Per-dab speed sensitivity: faster movement → slightly smaller dab, mimicking a real
-            // brush thinning when swept quickly. Applied to radius only (not resolvedDiameter) so
-            // spacing is unaffected and the stroke doesn't develop gaps at high speeds.
             val speedT = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
             val speedSizeFactor = 1f - speedT * SPEED_SIZE_SENSITIVITY
 
@@ -329,41 +277,46 @@ object BrushStamps {
                 val scatR = rng.nextFloat()
                 val longR = longRng.nextFloat()
 
-                val radius = baseRadius * fadedSizeMultiplier *
-                    taperSize * blotSize * speedSizeFactor * (1f - brush.sizeJitter * sizeR)
+                val radius = baseRadius * fadedSizeMultiplier * taperSize * blotSize * speedSizeFactor *
+                    contact.widthMultiplier * (1f - brush.sizeJitter * sizeR)
                 val alpha = (
-                    brush.opacity * fadedOpacityMultiplier *
-                        taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)
+                    brush.opacity * fadedOpacityMultiplier * taperOpacity * blotOpacity *
+                        (1f - brush.opacityJitter * opacR)
                     ).coerceIn(0f, 1f)
 
-                var x = sample.x
-                var y = sample.y
+                var x = sample.x + contact.offsetXFraction * contactDiameter
+                var y = sample.y + contact.offsetYFraction * contactDiameter
                 val scatter = brush.scatter * dynamic.scatterMultiplier
                 if (scatter > 0f) {
-                    val mag = scatter * resolvedDiameter * (scatR * 2f - 1f)
+                    val mag = scatter * contactDiameter * (scatR * 2f - 1f)
                     val perpRad = (headingDeg + 90f) * DEG_TO_RAD
                     x += mag * cos(perpRad)
                     y += mag * sin(perpRad)
                 }
                 val longitudinalScatter = brush.scatterLongitudinal * dynamic.scatterMultiplier
                 if (longitudinalScatter > 0f) {
-                    val mag = longitudinalScatter * resolvedDiameter * (longR * 2f - 1f)
+                    val mag = longitudinalScatter * contactDiameter * (longR * 2f - 1f)
                     val headingRad = headingDeg * DEG_TO_RAD
                     x += mag * cos(headingRad)
                     y += mag * sin(headingRad)
                 }
 
-                val angle = brush.angle +
-                    (if (brush.followStroke) headingDeg else 0f) +
-                    dynamic.rotationOffsetDeg +
-                    brush.rotationPerPx * at
+                val mechanicalAngle = if (brush.contact.isActive()) {
+                    mechanicalHeadingDeg
+                } else if (brush.followStroke) {
+                    headingDeg
+                } else {
+                    0f
+                }
+                val angle = brush.angle + mechanicalAngle + dynamic.rotationOffsetDeg + brush.rotationPerPx * at
+                val maskHeading = if (brush.contact.isActive()) mechanicalHeadingDeg else headingDeg
                 val mask = resolveDynamicMask(
                     brush.maskedBrush,
                     sample,
                     x,
                     y,
-                    resolvedDiameter,
-                    headingDeg,
+                    contactDiameter,
+                    maskHeading,
                     at,
                     startTime,
                     seed,
@@ -371,6 +324,9 @@ object BrushStamps {
                     maskRng,
                     maskLongRng,
                 )
+                val contactTipRatio = (
+                    brush.tipRatio * dynamic.tipRatioMultiplier * contact.tipRatioMultiplier
+                    ).coerceIn(0.05f, 1f)
                 out.add(
                     Dab(
                         x = x,
@@ -378,7 +334,7 @@ object BrushStamps {
                         radius = radius.coerceAtLeast(0f),
                         alpha = alpha,
                         angleDeg = angle,
-                        tipRatio = (brush.tipRatio * dynamic.tipRatioMultiplier).coerceIn(0.05f, 1f),
+                        tipRatio = contactTipRatio,
                         hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
                         flowMultiplier = dynamic.flowMultiplier,
                         hueShiftDeg = dynamic.hueShiftDeg,
@@ -390,15 +346,11 @@ object BrushStamps {
                     )
                 )
 
-                // First-touch blot pattern: extra copies of the same tip, each randomly re-angled
-                // and nudged, layered on top of the primary dab above -- a real brush's bristles
-                // splay in random directions on first contact rather than the mark growing evenly
-                // in every direction. Fades out over the same blot window as the primary spike.
                 if (blot.extraStamps > 0 && blotT < 1f) {
                     val fade = (1f - blotT).coerceIn(0f, 1f)
                     repeat(blot.extraStamps) {
                         val jitterAngle = (blotRng.nextFloat() * 2f - 1f) * blot.angleJitterDeg
-                        val jitterMag = blot.positionJitter * resolvedDiameter * blotRng.nextFloat()
+                        val jitterMag = blot.positionJitter * contactDiameter * blotRng.nextFloat()
                         val jitterDir = blotRng.nextFloat() * 360f * DEG_TO_RAD
                         out.add(
                             Dab(
@@ -407,7 +359,7 @@ object BrushStamps {
                                 radius = radius.coerceAtLeast(0f),
                                 alpha = (alpha * fade).coerceIn(0f, 1f),
                                 angleDeg = angle + jitterAngle,
-                                tipRatio = (brush.tipRatio * dynamic.tipRatioMultiplier).coerceIn(0.05f, 1f),
+                                tipRatio = contactTipRatio,
                                 hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
                                 flowMultiplier = dynamic.flowMultiplier,
                                 hueShiftDeg = dynamic.hueShiftDeg,
@@ -424,9 +376,9 @@ object BrushStamps {
 
             if (total <= 0f) break
             val spacingReference = if (brush.isotropicSpacing) {
-                resolvedDiameter
+                contactDiameter
             } else {
-                resolvedDiameter * brush.tipRatio.coerceIn(0.05f, 1f)
+                contactDiameter * (brush.tipRatio * contact.tipRatioMultiplier).coerceIn(0.05f, 1f)
             }
             val step = (brush.spacing * spacingReference * dynamic.spacingMultiplier).coerceAtLeast(0.01f)
             at += step
@@ -456,7 +408,6 @@ object BrushStamps {
             mx += mag * cos(perp)
             my += mag * sin(perp)
         } else {
-            // Keep the independent RNG cadence stable whether scatter is enabled or not.
             rng.nextFloat()
         }
         if (cfg.scatterLongitudinal > 0f) {
@@ -560,6 +511,11 @@ object BrushStamps {
         val a = samples[lo]
         val b = samples[hi]
         val heading = headingDeg(a.x, a.y, b.x, b.y, a.drawingAngleDeg)
+        val reportedPressure = when {
+            a.reportedPressure != null && b.reportedPressure != null -> lerp(a.reportedPressure, b.reportedPressure, t)
+            t < 0.5f -> a.reportedPressure ?: b.reportedPressure
+            else -> b.reportedPressure ?: a.reportedPressure
+        }
         return BrushSample(
             x = lerp(a.x, b.x, t),
             y = lerp(a.y, b.y, t),
@@ -571,6 +527,10 @@ object BrushStamps {
             speedPxPerMs = lerp(a.speedPxPerMs, b.speedPxPerMs, t),
             drawingAngleDeg = heading,
             predicted = false,
+            touchMajorPx = lerp(a.touchMajorPx, b.touchMajorPx, t),
+            touchMinorPx = lerp(a.touchMinorPx, b.touchMinorPx, t),
+            reportedPressure = reportedPressure,
+            telemetry = a.telemetry.blendTo(b.telemetry, t),
         )
     }
 
