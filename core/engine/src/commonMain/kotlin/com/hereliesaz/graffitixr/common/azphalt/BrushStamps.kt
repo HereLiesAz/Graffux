@@ -88,7 +88,6 @@ object BrushStamps {
         return out
     }
 
-    /** Static/legacy path. Defaults remain pixel-compatible because ratio=1 and isotropic=true. */
     fun dabs(points: List<Float>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
         val diameter = diameterPx.coerceAtLeast(0f)
         if (diameter <= 0f) return emptyList()
@@ -155,10 +154,6 @@ object BrushStamps {
         return out
     }
 
-    /**
-     * Sensor/mechanics-aware placement. Spacing is evaluated at each emitted dab and advances by
-     * the current resolved contact geometry. All mechanical state is resolved here before rendering.
-     */
     fun dynamicDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
         val real = samples.filterNot { it.predicted }
         val diameter = diameterPx.coerceAtLeast(0f)
@@ -246,12 +241,8 @@ object BrushStamps {
             }
             val naturalEndMinSz = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
             val naturalEndMinOp = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
-            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) {
-                taper.minSize
-            } else naturalEndMinSz
-            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) {
-                taper.minOpacity
-            } else naturalEndMinOp
+            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else naturalEndMinSz
+            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else naturalEndMinOp
             val endCurvedT = sqrt(endTaperT)
             val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
             val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)
@@ -267,7 +258,6 @@ object BrushStamps {
             val contactDiameter = resolvedDiameter * contact.widthMultiplier
             val headingDeg = sample.drawingAngleDeg
             val mechanicalHeadingDeg = headingDeg + contact.angleOffsetDeg
-
             val speedT = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
             val speedSizeFactor = 1f - speedT * SPEED_SIZE_SENSITIVITY
 
@@ -276,13 +266,10 @@ object BrushStamps {
                 val opacR = rng.nextFloat()
                 val scatR = rng.nextFloat()
                 val longR = longRng.nextFloat()
-
                 val radius = baseRadius * fadedSizeMultiplier * taperSize * blotSize * speedSizeFactor *
                     contact.widthMultiplier * (1f - brush.sizeJitter * sizeR)
-                val alpha = (
-                    brush.opacity * fadedOpacityMultiplier * taperOpacity * blotOpacity *
-                        (1f - brush.opacityJitter * opacR)
-                    ).coerceIn(0f, 1f)
+                val alpha = (brush.opacity * fadedOpacityMultiplier * taperOpacity * blotOpacity *
+                    (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
 
                 var x = sample.x + contact.offsetXFraction * contactDiameter
                 var y = sample.y + contact.offsetYFraction * contactDiameter
@@ -301,48 +288,37 @@ object BrushStamps {
                     y += mag * sin(headingRad)
                 }
 
-                val mechanicalAngle = if (brush.contact.isActive()) {
-                    mechanicalHeadingDeg
-                } else if (brush.followStroke) {
-                    headingDeg
-                } else {
-                    0f
-                }
+                val mechanicalAngle = if (brush.contact.isActive()) mechanicalHeadingDeg else if (brush.followStroke) headingDeg else 0f
                 val angle = brush.angle + mechanicalAngle + dynamic.rotationOffsetDeg + brush.rotationPerPx * at
                 val maskHeading = if (brush.contact.isActive()) mechanicalHeadingDeg else headingDeg
                 val mask = resolveDynamicMask(
-                    brush.maskedBrush,
-                    sample,
-                    x,
-                    y,
-                    contactDiameter,
-                    maskHeading,
-                    at,
-                    startTime,
-                    seed,
-                    index,
-                    maskRng,
-                    maskLongRng,
+                    brush.maskedBrush, sample, x, y, contactDiameter, maskHeading, at,
+                    startTime, seed, index, maskRng, maskLongRng,
                 )
-                val contactTipRatio = (
-                    brush.tipRatio * dynamic.tipRatioMultiplier * contact.tipRatioMultiplier
-                    ).coerceIn(0.05f, 1f)
-                out.add(
-                    Dab(
-                        x = x,
-                        y = y,
-                        radius = radius.coerceAtLeast(0f),
-                        alpha = alpha,
-                        angleDeg = angle,
-                        tipRatio = contactTipRatio,
-                        hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
-                        flowMultiplier = dynamic.flowMultiplier,
-                        hueShiftDeg = dynamic.hueShiftDeg,
-                        saturationMultiplier = dynamic.saturationMultiplier,
-                        valueMultiplier = dynamic.valueMultiplier,
-                        colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
-                        sourceRandom = colorRng.nextFloat(),
-                        mask = mask,
+                val contactTipRatio = (brush.tipRatio * dynamic.tipRatioMultiplier * contact.tipRatioMultiplier)
+                    .coerceIn(0.05f, 1f)
+                val parent = Dab(
+                    x = x,
+                    y = y,
+                    radius = radius.coerceAtLeast(0f),
+                    alpha = alpha,
+                    angleDeg = angle,
+                    tipRatio = contactTipRatio,
+                    hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
+                    flowMultiplier = dynamic.flowMultiplier,
+                    hueShiftDeg = dynamic.hueShiftDeg,
+                    saturationMultiplier = dynamic.saturationMultiplier,
+                    valueMultiplier = dynamic.valueMultiplier,
+                    colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
+                    sourceRandom = colorRng.nextFloat(),
+                    mask = mask,
+                )
+                out.addAll(
+                    BrushTuftDabExpander.expandIfEnabled(
+                        parent = parent,
+                        contactDiameterPx = contactDiameter,
+                        contact = contact,
+                        config = brush.contact.tufts,
                     )
                 )
 
@@ -352,22 +328,28 @@ object BrushStamps {
                         val jitterAngle = (blotRng.nextFloat() * 2f - 1f) * blot.angleJitterDeg
                         val jitterMag = blot.positionJitter * contactDiameter * blotRng.nextFloat()
                         val jitterDir = blotRng.nextFloat() * 360f * DEG_TO_RAD
-                        out.add(
-                            Dab(
-                                x = x + jitterMag * cos(jitterDir),
-                                y = y + jitterMag * sin(jitterDir),
-                                radius = radius.coerceAtLeast(0f),
-                                alpha = (alpha * fade).coerceIn(0f, 1f),
-                                angleDeg = angle + jitterAngle,
-                                tipRatio = contactTipRatio,
-                                hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
-                                flowMultiplier = dynamic.flowMultiplier,
-                                hueShiftDeg = dynamic.hueShiftDeg,
-                                saturationMultiplier = dynamic.saturationMultiplier,
-                                valueMultiplier = dynamic.valueMultiplier,
-                                colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
-                                sourceRandom = colorRng.nextFloat(),
-                                mask = null,
+                        val blotParent = Dab(
+                            x = x + jitterMag * cos(jitterDir),
+                            y = y + jitterMag * sin(jitterDir),
+                            radius = radius.coerceAtLeast(0f),
+                            alpha = (alpha * fade).coerceIn(0f, 1f),
+                            angleDeg = angle + jitterAngle,
+                            tipRatio = contactTipRatio,
+                            hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
+                            flowMultiplier = dynamic.flowMultiplier,
+                            hueShiftDeg = dynamic.hueShiftDeg,
+                            saturationMultiplier = dynamic.saturationMultiplier,
+                            valueMultiplier = dynamic.valueMultiplier,
+                            colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
+                            sourceRandom = colorRng.nextFloat(),
+                            mask = null,
+                        )
+                        out.addAll(
+                            BrushTuftDabExpander.expandIfEnabled(
+                                parent = blotParent,
+                                contactDiameterPx = contactDiameter,
+                                contact = contact,
+                                config = brush.contact.tufts,
                             )
                         )
                     }
@@ -375,11 +357,8 @@ object BrushStamps {
             }
 
             if (total <= 0f) break
-            val spacingReference = if (brush.isotropicSpacing) {
-                contactDiameter
-            } else {
+            val spacingReference = if (brush.isotropicSpacing) contactDiameter else
                 contactDiameter * (brush.tipRatio * contact.tipRatioMultiplier).coerceIn(0.05f, 1f)
-            }
             val step = (brush.spacing * spacingReference * dynamic.spacingMultiplier).coerceAtLeast(0.01f)
             at += step
             index++
@@ -407,17 +386,13 @@ object BrushStamps {
             val perp = (headingDeg + 90f) * DEG_TO_RAD
             mx += mag * cos(perp)
             my += mag * sin(perp)
-        } else {
-            rng.nextFloat()
-        }
+        } else rng.nextFloat()
         if (cfg.scatterLongitudinal > 0f) {
             val mag = cfg.scatterLongitudinal * primaryDiameter * cfg.sizeRatio * (longRng.nextFloat() * 2f - 1f)
             val headingRad = headingDeg * DEG_TO_RAD
             mx += mag * cos(headingRad)
             my += mag * sin(headingRad)
-        } else {
-            longRng.nextFloat()
-        }
+        } else longRng.nextFloat()
         return MaskDab(
             x = mx,
             y = my,
@@ -447,9 +422,7 @@ object BrushStamps {
     ): MaskDab? {
         if (config == null) return null
         val cfg = config.sanitized()
-        val dynamic = BrushSensorEngine.resolve(
-            sample, cfg.dynamics, startTime, seed xor MASK_SEED_SALT, index,
-        )
+        val dynamic = BrushSensorEngine.resolve(sample, cfg.dynamics, startTime, seed xor MASK_SEED_SALT, index)
         val maskDiameter = primaryDiameter * cfg.sizeRatio * dynamic.sizeMultiplier
         var mx = x
         var my = y
@@ -459,26 +432,22 @@ object BrushStamps {
             val perp = (headingDeg + 90f) * DEG_TO_RAD
             mx += mag * cos(perp)
             my += mag * sin(perp)
-        } else {
-            rng.nextFloat()
-        }
+        } else rng.nextFloat()
         val longitudinalScatter = cfg.scatterLongitudinal * dynamic.scatterMultiplier
         if (longitudinalScatter > 0f) {
             val mag = longitudinalScatter * maskDiameter * (longRng.nextFloat() * 2f - 1f)
             val headingRad = headingDeg * DEG_TO_RAD
             mx += mag * cos(headingRad)
             my += mag * sin(headingRad)
-        } else {
-            longRng.nextFloat()
-        }
+        } else longRng.nextFloat()
         return MaskDab(
             x = mx,
             y = my,
             radius = maskDiameter / 2f,
             tipRatio = cfg.tipRatio,
             alpha = (cfg.opacity * dynamic.opacityMultiplier).coerceIn(0f, 1f),
-            angleDeg = cfg.angle +
-                (if (cfg.followStroke) headingDeg else 0f) + dynamic.rotationOffsetDeg + cfg.rotationPerPx * at,
+            angleDeg = cfg.angle + (if (cfg.followStroke) headingDeg else 0f) +
+                dynamic.rotationOffsetDeg + cfg.rotationPerPx * at,
             flowMultiplier = (cfg.flow * dynamic.flowMultiplier).coerceAtLeast(0f),
             invert = cfg.invert,
             blendMode = cfg.blendMode,
