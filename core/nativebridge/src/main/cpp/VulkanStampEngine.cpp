@@ -53,6 +53,7 @@ struct PushConstants {
     // dragged soft round brush needs this to not read as hardened. Mirrors AzphaltBrush.buildUp.
     float buildUp;
     float hasSubstrate;
+    float hasPaintHeight;
     float substrateBaseHeight;
     float substrateHeightScale;
     float substrateTextureScale;
@@ -77,6 +78,7 @@ struct MaskedPushConstants {
     float grainPhaseY;
     float hasSecondary;
     float hasSubstrate;
+    float hasPaintHeight;
     float substrateBaseHeight;
     float substrateHeightScale;
     float substrateTextureScale;
@@ -518,7 +520,7 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[3]{};
+    VkDescriptorSetLayoutBinding bindings[4]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -531,10 +533,14 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 3;
+    layoutInfo.bindingCount = 4;
     layoutInfo.pBindings = bindings;
     if (!checkResult(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &descriptorSetLayout_),
                       "vkCreateDescriptorSetLayout")) {
@@ -579,7 +585,7 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     poolSizes[1].descriptorCount = 1;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[2].descriptorCount = 1;
+    poolSizes[2].descriptorCount = 2;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1034,6 +1040,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
         pc.originY = originY;
         pc.buildUp = buildUp ? 1.0f : 0.0f;
         pc.hasSubstrate = substrate.enabled ? 1.0f : 0.0f;
+        pc.hasPaintHeight = substrate.hasPaintHeight ? 1.0f : 0.0f;
         pc.substrateBaseHeight = std::clamp(substrate.baseHeight, 0.0f, 1.0f);
         pc.substrateHeightScale = std::clamp(substrate.heightScale, 0.0f, 1.0f);
         pc.substrateTextureScale = std::max(substrate.textureScale, 0.05f);
@@ -1082,7 +1089,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[7]{};
+    VkDescriptorSetLayoutBinding bindings[8]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -1112,10 +1119,14 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[6].descriptorCount = 1;
     bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[7].binding = 7;
+    bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[7].descriptorCount = 1;
+    bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 7;
+    layoutInfo.bindingCount = 8;
     layoutInfo.pBindings = bindings;
     if (!checkResult(
             vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &maskedDescriptorSetLayout_),
@@ -1156,7 +1167,7 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
         return false;
     }
 
-    VkDescriptorPoolSize poolSizes[7]{};
+    VkDescriptorPoolSize poolSizes[8]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1171,11 +1182,13 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     poolSizes[5].descriptorCount = 1;
     poolSizes[6].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[6].descriptorCount = 1;
+    poolSizes[7].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[7].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 7;
+    poolInfo.poolSizeCount = 8;
     poolInfo.pPoolSizes = poolSizes;
     if (!checkResult(vkCreateDescriptorPool(device_, &poolInfo, nullptr, &maskedDescriptorPool_),
                       "vkCreateDescriptorPool(masked)")) {
@@ -1222,6 +1235,19 @@ bool VulkanStampEngine::ensureMaskedPipeline() {
     substrateWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     substrateWrite.pImageInfo = &substrateInfo;
     vkUpdateDescriptorSets(device_, 1, &substrateWrite, 0, nullptr);
+
+    VkDescriptorImageInfo paintHeightInfo{};
+    paintHeightInfo.sampler = paintHeightImage_ != VK_NULL_HANDLE ? paintHeightSampler_ : substrateSampler_;
+    paintHeightInfo.imageView = paintHeightImage_ != VK_NULL_HANDLE ? paintHeightImageView_ : substrateImageView_;
+    paintHeightInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkWriteDescriptorSet paintHeightWrite{};
+    paintHeightWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    paintHeightWrite.dstSet = maskedDescriptorSet_;
+    paintHeightWrite.dstBinding = 7;
+    paintHeightWrite.descriptorCount = 1;
+    paintHeightWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    paintHeightWrite.pImageInfo = &paintHeightInfo;
+    vkUpdateDescriptorSets(device_, 1, &paintHeightWrite, 0, nullptr);
 
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -2079,6 +2105,26 @@ bool VulkanStampEngine::ensureSubstrateTexture(int width, int height) {
         maskedWrite.pImageInfo = &samplerImageInfo;
         vkUpdateDescriptorSets(device_, 1, &maskedWrite, 0, nullptr);
     }
+    if (paintHeightImage_ == VK_NULL_HANDLE && descriptorSet_ != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet dummyPaintWrite{};
+        dummyPaintWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        dummyPaintWrite.dstSet = descriptorSet_;
+        dummyPaintWrite.dstBinding = 3;
+        dummyPaintWrite.descriptorCount = 1;
+        dummyPaintWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        dummyPaintWrite.pImageInfo = &samplerImageInfo;
+        vkUpdateDescriptorSets(device_, 1, &dummyPaintWrite, 0, nullptr);
+    }
+    if (paintHeightImage_ == VK_NULL_HANDLE && maskedDescriptorSet_ != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet dummyMaskedPaintWrite{};
+        dummyMaskedPaintWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        dummyMaskedPaintWrite.dstSet = maskedDescriptorSet_;
+        dummyMaskedPaintWrite.dstBinding = 7;
+        dummyMaskedPaintWrite.descriptorCount = 1;
+        dummyMaskedPaintWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        dummyMaskedPaintWrite.pImageInfo = &samplerImageInfo;
+        vkUpdateDescriptorSets(device_, 1, &dummyMaskedPaintWrite, 0, nullptr);
+    }
     return true;
 }
 
@@ -2156,6 +2202,224 @@ bool VulkanStampEngine::uploadSubstrateTexture(const uint8_t* alpha8, int width,
     return true;
 }
 
+bool VulkanStampEngine::ensurePaintHeightTexture(int width, int height) {
+    if (paintHeightImage_ != VK_NULL_HANDLE && width == paintHeightWidth_ && height == paintHeightHeight_) return true;
+
+    if (paintHeightImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE; }
+    if (paintHeightImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE; }
+    if (paintHeightImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE; }
+    if (paintHeightStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, paintHeightStagingBuffer_, nullptr); paintHeightStagingBuffer_ = VK_NULL_HANDLE; }
+    if (paintHeightStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, paintHeightStagingBufferMemory_, nullptr); paintHeightStagingBufferMemory_ = VK_NULL_HANDLE; }
+    paintHeightImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    paintHeightWidth_ = 0;
+    paintHeightHeight_ = 0;
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R32_SFLOAT;
+    imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!checkResult(vkCreateImage(device_, &imageInfo, nullptr, &paintHeightImage_), "vkCreateImage(paintHeight)")) {
+        return false;
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(device_, paintHeightImage_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for paintHeight image");
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &paintHeightImageMemory_),
+                      "vkAllocateMemory(paintHeight)")) {
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindImageMemory(device_, paintHeightImage_, paintHeightImageMemory_, 0),
+                      "vkBindImageMemory(paintHeight)")) {
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = paintHeightImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R32_SFLOAT;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!checkResult(vkCreateImageView(device_, &viewInfo, nullptr, &paintHeightImageView_),
+                      "vkCreateImageView(paintHeight)")) {
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkDeviceSize stagingSize = static_cast<VkDeviceSize>(width) * height * sizeof(float);
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = stagingSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &bufferInfo, nullptr, &paintHeightStagingBuffer_),
+                      "vkCreateBuffer(paintHeightStaging)")) {
+        vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements stagingMemReq;
+    vkGetBufferMemoryRequirements(device_, paintHeightStagingBuffer_, &stagingMemReq);
+    int32_t stagingMemType = findMemoryType(
+        stagingMemReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (stagingMemType < 0) {
+        LOGE("No host-visible memory type for paintHeight staging buffer");
+        vkDestroyBuffer(device_, paintHeightStagingBuffer_, nullptr); paintHeightStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryAllocateInfo stagingAllocInfo{};
+    stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingAllocInfo.allocationSize = stagingMemReq.size;
+    stagingAllocInfo.memoryTypeIndex = static_cast<uint32_t>(stagingMemType);
+    if (!checkResult(vkAllocateMemory(device_, &stagingAllocInfo, nullptr, &paintHeightStagingBufferMemory_),
+                      "vkAllocateMemory(paintHeightStaging)")) {
+        vkDestroyBuffer(device_, paintHeightStagingBuffer_, nullptr); paintHeightStagingBuffer_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, paintHeightStagingBuffer_, paintHeightStagingBufferMemory_, 0),
+                      "vkBindBufferMemory(paintHeightStaging)")) {
+        vkDestroyBuffer(device_, paintHeightStagingBuffer_, nullptr); paintHeightStagingBuffer_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightStagingBufferMemory_, nullptr); paintHeightStagingBufferMemory_ = VK_NULL_HANDLE;
+        vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE;
+        vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE;
+        vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    paintHeightWidth_ = width;
+    paintHeightHeight_ = height;
+
+    VkDescriptorImageInfo samplerImageInfo{};
+    samplerImageInfo.sampler = paintHeightSampler_;
+    samplerImageInfo.imageView = paintHeightImageView_;
+    samplerImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    if (descriptorSet_ != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet roundWrite{};
+        roundWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        roundWrite.dstSet = descriptorSet_;
+        roundWrite.dstBinding = 3;
+        roundWrite.descriptorCount = 1;
+        roundWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        roundWrite.pImageInfo = &samplerImageInfo;
+        vkUpdateDescriptorSets(device_, 1, &roundWrite, 0, nullptr);
+    }
+    if (maskedDescriptorSet_ != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet maskedWrite{};
+        maskedWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        maskedWrite.dstSet = maskedDescriptorSet_;
+        maskedWrite.dstBinding = 7;
+        maskedWrite.descriptorCount = 1;
+        maskedWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        maskedWrite.pImageInfo = &samplerImageInfo;
+        vkUpdateDescriptorSets(device_, 1, &maskedWrite, 0, nullptr);
+    }
+    return true;
+}
+
+bool VulkanStampEngine::uploadPaintHeightTexture(const float* heightMap, int width, int height) {
+    void* mapped = nullptr;
+    VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height * sizeof(float);
+    if (!checkResult(vkMapMemory(device_, paintHeightStagingBufferMemory_, 0, uploadSize, 0, &mapped),
+                      "vkMapMemory(paintHeightStaging)")) {
+        return false;
+    }
+    std::memcpy(mapped, heightMap, uploadSize);
+    vkUnmapMemory(device_, paintHeightStagingBufferMemory_);
+
+    if (!checkResult(vkResetCommandBuffer(commandBuffer_, 0), "vkResetCommandBuffer(paintHeight)")) {
+        return false;
+    }
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(paintHeight)")) {
+        return false;
+    }
+
+    VkImageMemoryBarrier toTransferDst{};
+    toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toTransferDst.oldLayout = paintHeightImageLayout_;
+    toTransferDst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransferDst.srcAccessMask = 0;
+    toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransferDst.image = paintHeightImage_;
+    toTransferDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransferDst);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(commandBuffer_, paintHeightStagingBuffer_, paintHeightImage_, VK_IMAGE_LAYOUT_GENERAL,
+                            1, &region);
+
+    VkImageMemoryBarrier toShaderRead{};
+    toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toShaderRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toShaderRead.image = paintHeightImage_;
+    toShaderRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                          &toShaderRead);
+
+    if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(paintHeight)")) return false;
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer_;
+
+    vkResetFences(device_, 1, &fence_);
+    if (!checkResult(vkQueueSubmit(queue_, 1, &submitInfo, fence_), "vkQueueSubmit(paintHeight)")) return false;
+    if (!checkResult(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX),
+                      "vkWaitForFences(paintHeight)")) {
+        return false;
+    }
+    paintHeightImageLayout_ = VK_IMAGE_LAYOUT_GENERAL;
+    return true;
+}
+
 bool VulkanStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) {
     if (!isInitialized() || heightR8 == nullptr || width <= 0 || height <= 0) return false;
     const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height);
@@ -2169,6 +2433,24 @@ bool VulkanStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width
     }
     return true;
 }
+
+bool VulkanStampEngine::uploadPaintHeight(const float* heightMap, int width, int height) {
+    if (!isInitialized() || heightMap == nullptr || width <= 0 || height <= 0) return false;
+    // Layer.heightMap is row-major and canvas-sized. Rejecting any other dimensions avoids silently
+    // inventing resampling semantics that the CPU reference does not have.
+    if (width != width_ || height != height_) return false;
+    const size_t bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(float);
+    const uint64_t hash = fnv1a(reinterpret_cast<const uint8_t*>(heightMap), bytes);
+    const bool changed = paintHeightImage_ == VK_NULL_HANDLE || width != paintHeightWidth_ ||
+                         height != paintHeightHeight_ || hash != paintHeightContentHash_;
+    if (!ensurePaintHeightTexture(width, height)) return false;
+    if (changed) {
+        if (!uploadPaintHeightTexture(heightMap, width, height)) return false;
+        paintHeightContentHash_ = hash;
+    }
+    return true;
+}
+
 
 // Item 15 masked/dual-brush follow-up. Mirrors ensureGrainTexture()/uploadGrainTexture()
 // exactly (an R8_UNORM sampled image, re-created only when width/height change), bound to
@@ -2569,6 +2851,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
         pc.grainPhaseY = haveGrain ? grainPhaseY : 0.0f;
         pc.hasSecondary = haveSecondary ? 1.0f : 0.0f;
         pc.hasSubstrate = substrate.enabled ? 1.0f : 0.0f;
+        pc.hasPaintHeight = substrate.hasPaintHeight ? 1.0f : 0.0f;
         pc.substrateBaseHeight = std::clamp(substrate.baseHeight, 0.0f, 1.0f);
         pc.substrateHeightScale = std::clamp(substrate.heightScale, 0.0f, 1.0f);
         pc.substrateTextureScale = std::max(substrate.textureScale, 0.05f);
@@ -2616,10 +2899,21 @@ void VulkanStampEngine::destroyMaskedResources() {
     if (substrateImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, substrateImageMemory_, nullptr); substrateImageMemory_ = VK_NULL_HANDLE; }
     if (substrateStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, substrateStagingBuffer_, nullptr); substrateStagingBuffer_ = VK_NULL_HANDLE; }
     if (substrateStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, substrateStagingBufferMemory_, nullptr); substrateStagingBufferMemory_ = VK_NULL_HANDLE; }
+
+    if (paintHeightSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, paintHeightSampler_, nullptr); paintHeightSampler_ = VK_NULL_HANDLE; }
+    if (paintHeightImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, paintHeightImageView_, nullptr); paintHeightImageView_ = VK_NULL_HANDLE; }
+    if (paintHeightImage_ != VK_NULL_HANDLE) { vkDestroyImage(device_, paintHeightImage_, nullptr); paintHeightImage_ = VK_NULL_HANDLE; }
+    if (paintHeightImageMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, paintHeightImageMemory_, nullptr); paintHeightImageMemory_ = VK_NULL_HANDLE; }
+    if (paintHeightStagingBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, paintHeightStagingBuffer_, nullptr); paintHeightStagingBuffer_ = VK_NULL_HANDLE; }
+    if (paintHeightStagingBufferMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, paintHeightStagingBufferMemory_, nullptr); paintHeightStagingBufferMemory_ = VK_NULL_HANDLE; }
     substrateWidth_ = 0;
     substrateHeight_ = 0;
     substrateImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     substrateContentHash_ = 0;
+    paintHeightWidth_ = 0;
+    paintHeightHeight_ = 0;
+    paintHeightImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    paintHeightContentHash_ = 0;
 
     if (grainSampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, grainSampler_, nullptr); grainSampler_ = VK_NULL_HANDLE; }
     if (grainImageView_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, grainImageView_, nullptr); grainImageView_ = VK_NULL_HANDLE; }

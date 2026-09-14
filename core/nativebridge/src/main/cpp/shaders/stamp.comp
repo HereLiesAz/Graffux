@@ -22,6 +22,7 @@ struct Dab {
 layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
 layout(binding = 1, rgba8) uniform image2D layerImage;
 layout(binding = 2) uniform sampler2D substrateTex;
+layout(binding = 3) uniform sampler2D paintHeightTex;
 
 layout(push_constant) uniform PushConstants {
     uint dabCount;
@@ -40,6 +41,7 @@ layout(push_constant) uniform PushConstants {
     // StampBrushRenderer.paintRoundDabsMaxCombined's fix for the identical CPU-side bug).
     float buildUp;
     float hasSubstrate;
+    float hasPaintHeight;
     float substrateBaseHeight;
     float substrateHeightScale;
     float substrateTextureScale;
@@ -68,9 +70,18 @@ float substrateDeposition(Dab d, vec2 canvasPoint) {
     float substrateHeight = clamp(
         clamp(pc.substrateBaseHeight, 0.0, 1.0) + tooth * clamp(pc.substrateHeightScale, 0.0, 1.0),
         0.0, 1.0);
+    float localPaintHeight = 0.0;
+    if (pc.hasPaintHeight > 0.5) {
+        ivec2 paintSize = textureSize(paintHeightTex, 0);
+        ivec2 paintPixel = ivec2(floor(canvasPoint));
+        if (paintPixel.x >= 0 && paintPixel.y >= 0 && paintPixel.x < paintSize.x && paintPixel.y < paintSize.y) {
+            localPaintHeight = max(texelFetch(paintHeightTex, paintPixel, 0).r, 0.0);
+        }
+    }
+    float barrier = clamp(substrateHeight - localPaintHeight, 0.0, 1.0);
     float contactDepth = clamp(d.material.x, 0.0, 1.0);
     float response = clamp(d.material.w, 0.0, 1.0);
-    float penetrates = contactDepth >= substrateHeight ? 1.0 : 0.0;
+    float penetrates = contactDepth >= barrier ? 1.0 : 0.0;
     float gate = clamp((1.0 - response) + penetrates * response, 0.0, 1.0);
     return clamp(d.material.y, 0.0, 1.0) * clamp(d.material.z, 0.0, 1.0) * gate;
 }
