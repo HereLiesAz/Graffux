@@ -55,9 +55,9 @@ jobs:
               text = text.replace(old, new)
 
           old_guard = "    actual = text.count(old)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
-          new_guard = "    actual = text.count(old)\n    if label == 'plain binding 3':\n        if actual < 1:\n            raise RuntimeError(f'{label}: expected at least one occurrence, found {actual}')\n        return text.replace(old, new, 1)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
+          new_guard = "    actual = text.count(old)\n    if label == 'plain binding 3':\n        if actual < 1:\n            raise RuntimeError(f'{label}: expected at least one occurrence, found {actual}')\n        return text.replace(old, new, 1)\n    if label == 'destroy paint resources':\n        if actual < 1:\n            raise RuntimeError(f'{label}: expected at least one occurrence, found {actual}')\n        index = text.rfind(old)\n        return text[:index] + new + text[index + len(old):]\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
           if text.count(old_guard) != 1:
-              raise SystemExit('plain descriptor scope normalizer drifted')
+              raise SystemExit('replace_exact normalizer drifted')
           path.write_text(text.replace(old_guard, new_guard))
           PY
 
