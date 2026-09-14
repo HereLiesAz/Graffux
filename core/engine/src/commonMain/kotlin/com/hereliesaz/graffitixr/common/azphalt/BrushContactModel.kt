@@ -83,6 +83,7 @@ data class BrushIntentObservation(
     val contactMajor: Float = 0f,
     val contactMinor: Float = 0f,
     val contactConfidence: Float = 0f,
+    val contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
 )
 
 /** Persistent mechanics carried across dabs within one stroke. */
@@ -147,8 +148,6 @@ object BrushContactModel {
         val speedT = (sample.speedPxPerMs / cfg.fullBendSpeedPxPerMs).coerceIn(0f, 1f)
         val tiltEvidence = (intent.tilt * intent.tiltConfidence).coerceIn(0f, 1f)
 
-        // Azimuth becomes informative as a trustworthy stylus leans. Near-vertical or low-confidence
-        // orientation is physically ambiguous, so both tilt and signal confidence gate its effect.
         val orientationWeight = (
             cfg.orientationCoupling * tiltEvidence * intent.orientationConfidence
             ).coerceIn(0f, 1f)
@@ -157,8 +156,6 @@ object BrushContactModel {
             speedT * cfg.drag + tiltEvidence * cfg.tiltCoupling * 0.25f
             ).coerceIn(0f, 1f)
 
-        // Finger contact area is a separate evidence stream, not synthetic stylus pressure. Use the
-        // stronger trusted compression clue while retaining both values in state for future solvers.
         val pressureEvidence = (intent.pressure * intent.pressureConfidence).coerceIn(0f, 1f)
         val contactEvidence = (intent.contactMajor * intent.contactConfidence).coerceIn(0f, 1f)
         val compressionEvidence = maxOf(pressureEvidence, contactEvidence)
@@ -190,8 +187,6 @@ object BrushContactModel {
         val turn = wrapSignedDegrees(targetAngle - previous.dragAngleDeg)
         val turnT = (abs(turn) / 180f).coerceIn(0f, 1f)
 
-        // Stiff brushes track quickly; soft brushes take longer. Strong hysteresis slows response
-        // specifically on large direction changes, preserving established rake/drag direction.
         val trackingTauMs = lerp(240f, 24f, cfg.stiffness)
         val rawTracking = 1f - exp((-dtMs / trackingTauMs).toDouble()).toFloat()
         val hysteresisFactor = (1f - cfg.hysteresis * turnT * 0.9f).coerceIn(0.05f, 1f)
@@ -270,6 +265,7 @@ object BrushContactModel {
             contactMajor = contactMajor,
             contactMinor = contactMinor,
             contactConfidence = telemetry.contactConfidence,
+            contactPhase = telemetry.contactPhase,
         )
     }
 
@@ -290,7 +286,6 @@ object BrushContactModel {
         val flattening = cfg.dragElongation * bend + cfg.tiltElongation * lean
         val tipRatio = (1f - flattening).coerceIn(0.05f, 1f)
 
-        // Contact trails opposite the mechanically resolved rake direction.
         val dragDistance = cfg.maxDragOffset * bend
         val dragRad = state.dragAngleDeg * CONTACT_DEG_TO_RAD
         val offsetX = -cos(dragRad) * dragDistance
