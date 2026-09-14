@@ -394,6 +394,7 @@ fun EditorScreen(
                 activeColor = uiState.activeColor,
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
+                activeBrushPreview = vm.activeBrushForPreview(),
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },
                 onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },

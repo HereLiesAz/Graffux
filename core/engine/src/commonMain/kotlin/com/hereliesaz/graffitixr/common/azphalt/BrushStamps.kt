@@ -319,7 +319,7 @@ object BrushStamps {
                 out.addAll(
                     BrushTuftDabExpander.expandIfEnabled(
                         parent = parent,
-                        contactDiameterPx = contactDiameter,
+                        contactDiameterPx = if (contactConfig.tufts.usesPhysicalPopulation()) diameter else contactDiameter,
                         contact = contact,
                         config = contactConfig.tufts,
                     )
@@ -350,7 +350,7 @@ object BrushStamps {
                         out.addAll(
                             BrushTuftDabExpander.expandIfEnabled(
                                 parent = blotParent,
-                                contactDiameterPx = contactDiameter,
+                                contactDiameterPx = if (contactConfig.tufts.usesPhysicalPopulation()) diameter else contactDiameter,
                                 contact = contact,
                                 config = contactConfig.tufts,
                             )

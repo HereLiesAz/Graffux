@@ -4219,7 +4219,7 @@ class EditorViewModel @Inject constructor(
             // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
             // every stroke whose brush used only those, live and on replay alike.
             val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive()
+            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()
             val dabs = if (mappedSamples.isNotEmpty()) {
                 if (needsDynamicDabs) {
                     var generator = stampDynamicDabGenerator
@@ -8128,6 +8128,9 @@ class EditorViewModel @Inject constructor(
     val customBrushes: StateFlow<List<com.hereliesaz.graffitixr.data.brush.CustomBrush>> =
         customBrushRepository.brushes
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Current resolved Azphalt brush for topology-aware hover rendering; null = basic round brush. */
+    internal fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
 
     /** Selects a saved custom brush. Custom brushes are param-only, so there's no tip image to load. */
     fun selectCustomBrush(id: String) {
