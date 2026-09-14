@@ -98,6 +98,7 @@ class BrushContactModelTest {
         )
         assertTrue(heavy.state.compression > light.state.compression)
         assertTrue(heavy.contact.widthMultiplier > light.contact.widthMultiplier)
+        assertTrue(heavy.contact.contactDepth > light.contact.contactDepth)
         assertTrue(heavy.state.intent.pressure > light.state.intent.pressure)
     }
 

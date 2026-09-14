@@ -14,6 +14,7 @@ class BrushTuftDabExpanderTest {
         tipRatio = 0.6f,
         hardness = 0.7f,
         flowMultiplier = 0.9f,
+        contactDepth = 0.8f,
         colorMix = 0.25f,
         sourceRandom = 0.75f,
         mask = MaskDab(
@@ -50,6 +51,25 @@ class BrushTuftDabExpanderTest {
         assertEquals(32f, children[2].angleDeg, 1e-6f)
         assertEquals(parent.colorMix, children[0].colorMix, 0f)
         assertEquals(parent.sourceRandom, children[2].sourceRandom, 0f)
+        assertEquals(parent.contactDepth, children[1].contactDepth, 0f)
+    }
+
+    @Test
+    fun bundleEngagementScalesSubstrateContactDepth() {
+        val tuft = BrushTuftContact(
+            id = 0,
+            rootLateralFraction = 0f,
+            offsetXFraction = 0f,
+            offsetYFraction = 0f,
+            radiusScale = 1f,
+            alphaScale = 1f,
+            angleOffsetDeg = 0f,
+            stiffnessScale = 1f,
+            contactWeight = 0.25f,
+        )
+
+        val child = BrushTuftDabExpander.expand(parent, 40f, listOf(tuft)).single()
+        assertEquals(0.2f, child.contactDepth, 1e-6f)
     }
 
     @Test
