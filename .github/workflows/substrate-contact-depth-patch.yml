@@ -1,0 +1,35 @@
+name: Substrate Contact Depth Patch
+
+on:
+  push:
+    branches: [ "feat/substrate-deposition-core" ]
+    paths: [ ".github/workflows/substrate-contact-depth-patch.yml" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-deposition-core
+
+      - name: Apply guarded contact-depth patch
+        run: python scripts/patch_substrate_contact_depth.py
+
+      - name: Commit contact-depth plumbing
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushContactModel.kt \
+            core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushStamps.kt \
+            core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushTuftDabExpander.kt \
+            core/engine/src/commonTest/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushContactModelTest.kt \
+            core/engine/src/commonTest/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushTuftDabExpanderTest.kt
+          git diff --cached --check
+          git commit -m "paint: carry resolved substrate contact depth"
+          git push origin HEAD:feat/substrate-deposition-core
