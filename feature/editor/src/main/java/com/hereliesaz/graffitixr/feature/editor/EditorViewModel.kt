@@ -4433,6 +4433,7 @@ class EditorViewModel @Inject constructor(
                                         ),
                                         flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                         tipRatio = dab.tipRatio,
+                                        contactDepth = dab.contactDepth,
                                     )
                                 }
                                 val secondaryDabs = if (hasDualBrush && newDabs.all { it.mask != null }) {
@@ -4475,6 +4476,7 @@ class EditorViewModel @Inject constructor(
                                 ),
                                 flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                 hardness = dab.hardness,
+                                contactDepth = dab.contactDepth,
                             )
                             val gpuDabs = newDabs.map(::resolve)
                             engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
@@ -4577,6 +4579,7 @@ class EditorViewModel @Inject constructor(
                                         ),
                                         flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                         tipRatio = dab.tipRatio,
+                                        contactDepth = dab.contactDepth,
                                     )
                                 }
                                 val secondaryHeldDabs = emptyList<SecondaryBrushDab>()
@@ -4602,6 +4605,7 @@ class EditorViewModel @Inject constructor(
                                 ),
                                 flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                 hardness = dab.hardness,
+                                contactDepth = dab.contactDepth,
                             )
                             val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
                             engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&

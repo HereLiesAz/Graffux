@@ -56,6 +56,7 @@ class VulkanStampEngine {
     private var poolKey: PoolKey? = null
     private var healthy = true
     private var hardwareBufferExported = false
+    private var substrateHeightUploaded = false
 
     val isInitialized: Boolean get() = nativeHandle != 0L
 
@@ -65,6 +66,7 @@ class VulkanStampEngine {
     private fun initialize(width: Int, height: Int, hardwareBufferBacked: Boolean): Boolean {
         if (width <= 0 || height <= 0) { destroy(); return false }
         destroy()
+        substrateHeightUploaded = false
         val key = PoolKey(width, height, hardwareBufferBacked)
         val cached = takePooled(key)
         if (cached != 0L) {
@@ -100,6 +102,18 @@ class VulkanStampEngine {
         return nativeUpload(nativeHandle, bitmap).also { if (!it) healthy = false }
     }
 
+    /** Upload a static R8 canvas-height tile. Call once before substrate-enabled stamping. */
+    fun uploadSubstrateHeight(heightR8: ByteArray, width: Int, height: Int): Boolean {
+        if (!isInitialized || width <= 0 || height <= 0) return false
+        require(heightR8.size >= width * height) {
+            "heightR8 too small: need ${width * height}, got ${heightR8.size}"
+        }
+        val ok = nativeUploadSubstrateHeight(nativeHandle, heightR8, width, height)
+        substrateHeightUploaded = ok
+        if (!ok) healthy = false
+        return ok
+    }
+
     /** Historical stroke-level paint entry point. */
     fun stampDabs(dabs: List<BrushDab>, colorArgb: Int, hardness: Float): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
@@ -122,12 +136,17 @@ class VulkanStampEngine {
      * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
      * live-paint path either); true composites sequentially in submission order instead.
      */
-    fun stampResolvedDabs(dabs: List<ResolvedBrushDab>, buildUp: Boolean = false): Boolean {
+    fun stampResolvedDabs(
+        dabs: List<ResolvedBrushDab>,
+        buildUp: Boolean = false,
+        substrate: VulkanSubstrateParams? = null,
+    ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
-        val flat = FloatArray(dabs.size * 11)
+        if (substrate != null && !substrateHeightUploaded) return false
+        val flat = FloatArray(dabs.size * 15)
         for (i in dabs.indices) {
             val d = dabs[i]
-            val base = i * 11
+            val base = i * 15
             flat[base] = d.x
             flat[base + 1] = d.y
             flat[base + 2] = d.radius
@@ -139,8 +158,17 @@ class VulkanStampEngine {
             flat[base + 8] = Color.alpha(d.colorArgb) / 255f
             flat[base + 9] = d.flow
             flat[base + 10] = d.hardness.coerceIn(0f, 1f)
+            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
+            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
+            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
+            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
         }
-        return nativeStampResolvedDabs(nativeHandle, flat, buildUp).also { if (!it) healthy = false }
+        val cfg = substrate?.sanitized()
+        return nativeStampResolvedDabs(
+            nativeHandle, flat, buildUp, cfg != null,
+            cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
+            cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
+        ).also { if (!it) healthy = false }
     }
 
     /**
@@ -186,8 +214,10 @@ class VulkanStampEngine {
         secondaryMaskAlpha8: ByteArray? = null,
         secondaryMaskWidth: Int = 0,
         secondaryMaskHeight: Int = 0,
+        substrate: VulkanSubstrateParams? = null,
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
+        if (substrate != null && !substrateHeightUploaded) return false
         require(maskWidth > 0 && maskHeight > 0) { "maskWidth/maskHeight must be positive" }
         require(maskAlpha8.size >= maskWidth * maskHeight) {
             "maskAlpha8 too small: need ${maskWidth * maskHeight}, got ${maskAlpha8.size}"
@@ -209,10 +239,10 @@ class VulkanStampEngine {
                 "secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"
             }
         }
-        val flat = FloatArray(dabs.size * 11)
+        val flat = FloatArray(dabs.size * 15)
         for (i in dabs.indices) {
             val d = dabs[i]
-            val base = i * 11
+            val base = i * 15
             flat[base] = d.x
             flat[base + 1] = d.y
             flat[base + 2] = d.radius
@@ -224,6 +254,10 @@ class VulkanStampEngine {
             flat[base + 8] = Color.alpha(d.colorArgb) / 255f
             flat[base + 9] = d.flow
             flat[base + 10] = d.tipRatio
+            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
+            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
+            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
+            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
         }
         val secondaryFlat = if (secondaryDabs.isNotEmpty()) {
             FloatArray(secondaryDabs.size * 8).also { out ->
@@ -241,10 +275,13 @@ class VulkanStampEngine {
                 }
             }
         } else null
+        val cfg = substrate?.sanitized()
         return nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
             secondaryFlat, secondaryMaskAlpha8, secondaryMaskWidth, secondaryMaskHeight,
+            cfg != null, cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
+            cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
         ).also { if (!it) healthy = false }
     }
 
@@ -350,6 +387,7 @@ class VulkanStampEngine {
         val mayPool = healthy && key != null && !hardwareBufferExported
         healthy = true
         hardwareBufferExported = false
+        substrateHeightUploaded = false
         if (!mayPool) { nativeDestroy(handle); return }
         val evicted = putPooled(CachedHandle(key!!, handle))
         if (evicted != 0L) nativeDestroy(evicted)
@@ -360,8 +398,13 @@ class VulkanStampEngine {
     private external fun nativeClear(handle: Long): Boolean
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
+    private external fun nativeUploadSubstrateHeight(handle: Long, heightR8: ByteArray, width: Int, height: Int): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
-    private external fun nativeStampResolvedDabs(handle: Long, dabData: FloatArray, buildUp: Boolean): Boolean
+    private external fun nativeStampResolvedDabs(
+        handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean,
+        substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float,
+        substrateOffsetX: Float, substrateOffsetY: Float,
+    ): Boolean
     private external fun nativeStampMaskedDabs(
         handle: Long,
         dabData: FloatArray,
@@ -380,6 +423,12 @@ class VulkanStampEngine {
         secondaryMaskAlpha8: ByteArray?,
         secondaryMaskWidth: Int,
         secondaryMaskHeight: Int,
+        hasSubstrate: Boolean,
+        substrateBaseHeight: Float,
+        substrateHeightScale: Float,
+        substrateTextureScale: Float,
+        substrateOffsetX: Float,
+        substrateOffsetY: Float,
     ): Boolean
     private external fun nativeColorSmudge(
         handle: Long,
@@ -423,6 +472,20 @@ data class ColorSmudgeBenchmarkInfo(
     val nanos16: Long,
 )
 
+data class VulkanSubstrateParams(
+    val baseHeight: Float = 0f,
+    val heightScale: Float = 1f,
+    val textureScale: Float = 1f,
+    val textureOffsetX: Float = 0f,
+    val textureOffsetY: Float = 0f,
+) {
+    fun sanitized(): VulkanSubstrateParams = copy(
+        baseHeight = baseHeight.coerceIn(0f, 1f),
+        heightScale = heightScale.coerceIn(0f, 1f),
+        textureScale = textureScale.coerceAtLeast(0.05f),
+    )
+}
+
 data class ResolvedBrushDab(
     val x: Float,
     val y: Float,
@@ -436,6 +499,10 @@ data class ResolvedBrushDab(
      *  entry point) so a pressure/tilt-driven hardness dynamic renders identically on the GPU
      *  path as it already does on StampBrushRenderer's CPU path. */
     val hardness: Float = 1f,
+    val contactDepth: Float = 1f,
+    val reservoirLoad: Float = 1f,
+    val depositionRate: Float = 1f,
+    val substrateResponse: Float = 0f,
 )
 
 /** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [VulkanStampEngine.stampMaskedDabs]. */
@@ -448,6 +515,10 @@ data class MaskedBrushDab(
     val colorArgb: Int,
     val flow: Float,
     val tipRatio: Float,
+    val contactDepth: Float = 1f,
+    val reservoirLoad: Float = 1f,
+    val depositionRate: Float = 1f,
+    val substrateResponse: Float = 0f,
 )
 
 /**
