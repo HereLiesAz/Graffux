@@ -47,12 +47,13 @@ class PaintMediaProfileTest {
 
     @Test
     fun `colour remains explicit stroke intent rather than profile identity`() {
+        val medium = PaintMedium(
+            mixingModel = MaterialMixingModel.PIGMENT_RYB,
+            pickupRate = 0.4f,
+        )
         val profile = PaintMediaProfile(
             id = "same-medium",
-            medium = PaintMedium(
-                mixingModel = MaterialMixingModel.PIGMENT_RYB,
-                pickupRate = 0.4f,
-            ),
+            medium = medium,
             initialLoad = 0.75f,
             initialWetness = 0.35f,
         )
@@ -67,7 +68,8 @@ class PaintMediaProfileTest {
         assertNotEquals(redReservoir.carriedColor, blueReservoir.carriedColor)
         assertEquals(redReservoir.load, blueReservoir.load)
         assertEquals(redReservoir.wetness, blueReservoir.wetness)
-        assertEquals(profile.medium, profile.medium)
+        assertEquals(medium, profile.medium)
+        assertEquals("same-medium", profile.id)
     }
 
     @Test
@@ -88,6 +90,22 @@ class PaintMediaProfileTest {
             PaintMediaProfile(
                 id = "pigment",
                 medium = PaintMedium(mixingModel = MaterialMixingModel.PIGMENT_RYB),
+            ).usesMaterialPath,
+        )
+    }
+
+    @Test
+    fun `invalid coefficients are sanitized before material path selection`() {
+        assertFalse(
+            PaintMediaProfile(
+                id = "malformed-legacy",
+                medium = PaintMedium(
+                    pickupRate = -5f,
+                    dryingRate = -2f,
+                    heightResponse = -1f,
+                ),
+                initialLoad = 3f,
+                initialWetness = -4f,
             ).usesMaterialPath,
         )
     }
