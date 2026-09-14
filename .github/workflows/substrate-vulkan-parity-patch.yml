@@ -49,6 +49,7 @@ jobs:
               'core/nativebridge/src/main/cpp/shaders/stamp_masked.comp',
               'core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt',
               'core/nativebridge/src/androidTest/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngineInstrumentedTest.kt',
+              'scripts/patch_substrate_vulkan_parity.py',
           }
           changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
           if changed != expected:
