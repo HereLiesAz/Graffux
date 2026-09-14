@@ -1,0 +1,1 @@
+Validation marker for replayable device-attitude telemetry and brush-presentation intent foundation.
