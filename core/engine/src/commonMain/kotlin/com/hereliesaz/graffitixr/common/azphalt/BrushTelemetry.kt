@@ -270,3 +270,17 @@ fun BrushSample.intentTelemetry(): BrushIntentTelemetry {
         contactPhase = meta.contactPhase,
     )
 }
+
+internal fun pressureSmoothingAlpha(profile: BrushTelemetryProfile): Float = when (profile) {
+    BrushTelemetryProfile.STYLUS_HIGH_QUALITY -> 0.65f
+    BrushTelemetryProfile.STYLUS_BASIC -> 0.45f
+    BrushTelemetryProfile.FINGER -> 0.30f
+    BrushTelemetryProfile.LEGACY -> 0.45f
+}
+
+internal fun speedSmoothingAlpha(profile: BrushTelemetryProfile): Float = when (profile) {
+    BrushTelemetryProfile.STYLUS_HIGH_QUALITY -> 0.45f
+    BrushTelemetryProfile.STYLUS_BASIC -> 0.35f
+    BrushTelemetryProfile.FINGER -> 0.30f
+    BrushTelemetryProfile.LEGACY -> 0.35f
+}
