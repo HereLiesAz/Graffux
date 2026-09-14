@@ -37,6 +37,7 @@ object BrushTuftDabExpander {
                 radius = radius,
                 alpha = (parent.alpha * alphaScale).coerceIn(0f, 1f),
                 angleDeg = parent.angleDeg + tuft.angleOffsetDeg,
+                contactDepth = (parent.contactDepth * tuft.contactWeight).coerceIn(0f, 1f),
                 // A physical bundle is a cluster of fixed-diameter hairs. Do not inherit the
                 // parent's broad/chisel aspect and silently turn every hair group into a scaled nib.
                 tipRatio = if (physical) 1f else parent.tipRatio,

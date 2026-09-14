@@ -134,6 +134,11 @@ data class BrushContactState(
     val compression: Float = 0f,
     val lean: Float = 0f,
     val splay: Float = 0f,
+    /**
+     * Normalized resolved surface penetration. 1 is the compatibility/full-contact fallback;
+     * active mechanics replace it with pressure/contact evidence before renderers see the dab.
+     */
+    val contactDepth: Float = 1f,
     /** Stable bundle contacts relative to this global contact center. Empty when topology is off. */
     val tufts: List<BrushTuftContact> = emptyList(),
     /** Screen-space shaft lean used to decide which part of an angular tip contacts first. */
@@ -294,6 +299,11 @@ object BrushContactModel {
         val motionSplay = cfg.dragSplay * bend
         val pressureSplay = cfg.pressureSplay * compression
         val splay = (motionSplay + pressureSplay).coerceAtLeast(0f)
+        val contactDepth = maxOf(
+            state.intent.pressure * state.intent.pressureConfidence,
+            state.intent.contactMajor * state.intent.contactConfidence,
+            compression,
+        ).coerceIn(0f, 1f)
         val width = 1f + splay
         val flattening = cfg.dragElongation * bend + cfg.tiltElongation * lean
         val tipRatio = (1f - flattening).coerceIn(0.05f, 1f)
@@ -313,6 +323,7 @@ object BrushContactModel {
             compression = compression,
             lean = lean,
             splay = splay,
+            contactDepth = contactDepth,
             tipLeanX = state.presentation.leanX,
             tipLeanY = state.presentation.leanY,
             tipTwistDeg = state.presentation.twistDeg,
