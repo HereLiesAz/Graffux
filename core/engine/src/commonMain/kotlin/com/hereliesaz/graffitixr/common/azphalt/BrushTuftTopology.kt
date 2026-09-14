@@ -626,19 +626,24 @@ object BrushTuftTopology {
         cfg: BrushTuftConfig,
         contact: BrushContactState,
     ): BrushTuftContact {
-        val twist = if (cfg.usesPhysicalPopulation()) contact.tipTwistDeg else 0f
-        val localAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg + twist)
-        val angleRad = localAngleDeg * TUFT_DEG_TO_RAD
-        val dragX = cos(angleRad)
-        val dragY = sin(angleRad)
-        val lateralX = -dragY
-        val lateralY = dragX
-        val x = lateralX * lateralFraction +
-            dragX * identity.rootLongitudinalFraction -
-            dragX * trailingFraction
-        val y = lateralY * lateralFraction +
-            dragY * identity.rootLongitudinalFraction -
-            dragY * trailingFraction
+        val physicalPopulation = cfg.usesPhysicalPopulation()
+        // Root/ferrule pose and drag are deliberately different frames. Device roll twists the
+        // physical tip around its own shaft; changing stroke direction only bends/trails hairs and
+        // must not rotate a flat/chisel/fan root array with the path.
+        val localDragAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg)
+        val dragAngleRad = localDragAngleDeg * TUFT_DEG_TO_RAD
+        val dragX = cos(dragAngleRad)
+        val dragY = sin(dragAngleRad)
+        val rootAngleDeg = if (physicalPopulation) contact.tipTwistDeg else localDragAngleDeg
+        val rootAngleRad = rootAngleDeg * TUFT_DEG_TO_RAD
+        val rootForwardX = cos(rootAngleRad)
+        val rootForwardY = sin(rootAngleRad)
+        val rootLateralX = -rootForwardY
+        val rootLateralY = rootForwardX
+        val rootX = rootLateralX * lateralFraction + rootForwardX * identity.rootLongitudinalFraction
+        val rootY = rootLateralY * lateralFraction + rootForwardY * identity.rootLongitudinalFraction
+        val x = rootX - dragX * trailingFraction
+        val y = rootY - dragY * trailingFraction
 
         val baseRadiusScale = (
             cfg.tuftWidthScale * identity.widthScale / cfg.count.toFloat()
@@ -658,7 +663,7 @@ object BrushTuftTopology {
                 1f
             } else {
                 val norm = (maxOf(cfg.rootSpan, cfg.physicalHeightSpan) * 0.5f).coerceAtLeast(0.01f)
-                val plane = ((x * contact.tipLeanX + y * contact.tipLeanY) / norm).coerceIn(-1f, 1f)
+                val plane = ((rootX * contact.tipLeanX + rootY * contact.tipLeanY) / norm).coerceIn(-1f, 1f)
                 val firstContact = (0.12f + (0.5f + plane * 0.5f) * 0.88f).coerceIn(0.08f, 1f)
                 (firstContact + (1f - firstContact) * contact.compression).coerceIn(0f, 1f)
             }
@@ -671,7 +676,7 @@ object BrushTuftTopology {
             offsetYFraction = y,
             radiusScale = (baseRadiusScale * touchdownScale * liftScale).coerceAtLeast(0.01f),
             alphaScale = 1f,
-            angleOffsetDeg = wrapSignedDegrees(localAngleDeg - globalDragAngleDeg),
+            angleOffsetDeg = wrapSignedDegrees(localDragAngleDeg - globalDragAngleDeg),
             stiffnessScale = identity.stiffnessScale,
             splitAmount = splitAmount,
             touchdownAmount = touchdownAmount,
