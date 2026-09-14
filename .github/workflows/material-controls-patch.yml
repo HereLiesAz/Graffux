@@ -3,13 +3,13 @@ name: Material Controls Patch
 on:
   push:
     branches: [ "feat/material-controls" ]
+    paths: [ ".github/workflows/material-controls-patch.yml" ]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, '[material-controls-patched]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
