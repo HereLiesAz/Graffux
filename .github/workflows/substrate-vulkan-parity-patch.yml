@@ -68,6 +68,6 @@ jobs:
                   core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt \
                   core/nativebridge/src/androidTest/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngineInstrumentedTest.kt
           git commit -m "feat: add Vulkan substrate deposition parity"
-          git rm scripts/patch_substrate_vulkan_parity.py .github/workflows/substrate-vulkan-parity-patch.yml
+          git rm -f scripts/patch_substrate_vulkan_parity.py .github/workflows/substrate-vulkan-parity-patch.yml
           git commit -m "chore: remove temporary Vulkan substrate patch machinery"
           git push origin HEAD:feat/substrate-vulkan-parity
