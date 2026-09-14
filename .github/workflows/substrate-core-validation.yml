@@ -38,3 +38,5 @@ jobs:
             --tests "*BrushContactModelTest" \
             --tests "*BrushTuftDabExpanderTest" \
             --stacktrace
+
+# Temporary branch-only validator; remove before merge.
