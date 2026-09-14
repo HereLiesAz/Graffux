@@ -101,6 +101,12 @@ class BrushMorphologyDabParityTest {
                 assertEquals(canonical.tipRatio, live.tipRatio, 1e-4f, "${morphology.name} tipRatio[$index]")
                 assertEquals(canonical.angleDeg, live.angleDeg, 1e-4f, "${morphology.name} angle[$index]")
                 assertEquals(canonical.alpha, live.alpha, 1e-4f, "${morphology.name} alpha[$index]")
+                assertEquals(
+                    canonical.contactDepth,
+                    live.contactDepth,
+                    1e-4f,
+                    "${morphology.name} contactDepth[$index]",
+                )
             }
         }
     }
