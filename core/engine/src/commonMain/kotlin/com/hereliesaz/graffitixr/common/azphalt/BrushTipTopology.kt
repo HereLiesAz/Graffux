@@ -7,7 +7,6 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -27,8 +26,9 @@ enum class BrushTipKind {
  * Scale model for real hairs versus coarse simulated bundles.
  *
  * [bristleDiameterPx] never scales with brush diameter. Larger brushes increase estimated hair
- * population instead. [mechanicalBundleDiameterPx] similarly keeps the coarse solver bounded: a
- * tuft represents a small cluster of constant-diameter hairs, and wider brushes get more tufts.
+ * population instead. [mechanicalBundleDiameterPx] similarly keeps the coarse solver bounded: one
+ * mechanical tuft represents a small cluster of constant-diameter hairs, and larger brush sizes
+ * receive more tufts rather than larger hairs.
  */
 @Serializable
 data class BrushBristlePopulationConfig(
@@ -109,12 +109,16 @@ object BrushTipTopology {
         val hull = rotatedHull(footprint.first, footprint.second, pose.twistDeg, cfg.kind, morphology)
         val population = cfg.population
         val area = footprintArea(footprint.first, footprint.second, cfg.kind, morphology)
-        val hairArea = PI.toFloat() * (population.bristleDiameterPx * 0.5f) *
-            (population.bristleDiameterPx * 0.5f)
+        val hairArea = circleArea(population.bristleDiameterPx)
         val bristleCount = if (cfg.kind == BrushTipKind.BRISTLE && population.enabled) {
             max(1, (area * population.packingFraction / hairArea.coerceAtLeast(1e-4f)).toInt())
         } else 0
-        val tuftCount = resolvedMechanicalTuftCount(diameter, morphology, cfg)
+        val tuftCount = resolvedMechanicalTuftCount(
+            diameterPx = diameter,
+            morphology = morphology,
+            geometry = cfg,
+            legacyTipRatio = legacyTipRatio,
+        )
         val cells = if (cfg.kind == BrushTipKind.BRISTLE && population.enabled) {
             previewCells(
                 width = footprint.first,
@@ -141,18 +145,55 @@ object BrushTipTopology {
     }
 
     /**
-     * Returns a size-aware copy for the coarse tuft solver. CUSTOM/legacy brushes remain fixed unless
-     * the population model is explicitly enabled.
+     * Resolves the coarse mechanical topology for one selected brush size.
+     *
+     * Population-enabled bristle brushes deliberately force the tuft path on: the physical model is
+     * itself the opt-in. Count scales with projected brush-tip AREA, while each emitted mechanical
+     * bundle retains [BrushBristlePopulationConfig.mechanicalBundleDiameterPx]. Thus doubling brush
+     * diameter approaches four times as many represented hair groups instead of twice-as-large
+     * hairs. Legacy/non-bristle brushes are returned byte-for-byte equivalent after sanitization.
      */
     fun resolvedTuftConfig(
         config: BrushTuftConfig,
         diameterPx: Float,
         geometry: BrushTipGeometryConfig,
+        legacyTipRatio: Float = 1f,
     ): BrushTuftConfig {
+        val base = config.sanitized()
         val tip = geometry.sanitized()
-        if (!tip.population.enabled || tip.kind != BrushTipKind.BRISTLE) return config.sanitized()
-        return config.sanitized().copy(
-            count = resolvedMechanicalTuftCount(diameterPx, config.morphology, tip),
+        if (!tip.population.enabled || tip.kind != BrushTipKind.BRISTLE) return base
+
+        val diameter = diameterPx.coerceAtLeast(0.5f)
+        val size = footprint(diameter, legacyTipRatio, base.morphology, 0f, tip)
+        val count = resolvedMechanicalTuftCount(
+            diameterPx = diameter,
+            morphology = base.morphology,
+            geometry = tip,
+            legacyTipRatio = legacyTipRatio,
+        )
+        return base.copy(
+            enabled = true,
+            count = count,
+            rootSpan = (size.first / diameter).coerceIn(0.05f, 1.5f),
+            physicalHeightSpan = (size.second / diameter).coerceIn(0.05f, 1.5f),
+            physicalBundleDiameterPx = tip.population.mechanicalBundleDiameterPx,
+            emitTuftDabs = true,
+        ).sanitized()
+    }
+
+    fun resolvedContactConfig(
+        contact: BrushContactConfig,
+        diameterPx: Float,
+        legacyTipRatio: Float,
+    ): BrushContactConfig {
+        val cfg = contact.sanitized()
+        return cfg.copy(
+            tufts = resolvedTuftConfig(
+                config = cfg.tufts,
+                diameterPx = diameterPx,
+                geometry = cfg.tipGeometry,
+                legacyTipRatio = legacyTipRatio,
+            ),
         )
     }
 
@@ -160,20 +201,23 @@ object BrushTipTopology {
         diameterPx: Float,
         morphology: BrushMorphology,
         geometry: BrushTipGeometryConfig,
+        legacyTipRatio: Float = 1f,
     ): Int {
         val cfg = geometry.sanitized()
         val population = cfg.population
         if (!population.enabled || cfg.kind != BrushTipKind.BRISTLE) return 0
-        val widthFactor = when (morphology) {
-            BrushMorphology.RIGGER -> 0.32f
-            BrushMorphology.ROUND -> 0.88f
-            BrushMorphology.FILBERT -> 0.96f
-            BrushMorphology.FAN -> 1.12f
-            else -> 1f
-        }
-        val usableWidth = diameterPx.coerceAtLeast(0.5f) * widthFactor
-        val raw = ceil(usableWidth / population.mechanicalBundleDiameterPx).toInt()
+
+        val diameter = diameterPx.coerceAtLeast(0.5f)
+        val size = footprint(diameter, legacyTipRatio, morphology, 0f, cfg)
+        val area = footprintArea(size.first, size.second, cfg.kind, morphology)
+        val bundleArea = circleArea(population.mechanicalBundleDiameterPx).coerceAtLeast(1e-4f)
+        val raw = ceil(area * population.packingFraction / bundleArea).toInt()
         return raw.coerceIn(population.minMechanicalTufts, population.maxMechanicalTufts)
+    }
+
+    private fun circleArea(diameter: Float): Float {
+        val radius = diameter * 0.5f
+        return PI.toFloat() * radius * radius
     }
 
     private fun footprint(
@@ -254,8 +298,11 @@ object BrushTipTopology {
             row++
         }
         if (candidates.size <= population.maxPreviewCells) return candidates
-        val stride = ceil(candidates.size.toFloat() / population.maxPreviewCells.toFloat()).toInt().coerceAtLeast(1)
-        return candidates.filterIndexed { index, _ -> index % stride == 0 }.take(population.maxPreviewCells)
+        val stride = ceil(candidates.size.toFloat() / population.maxPreviewCells.toFloat())
+            .toInt()
+            .coerceAtLeast(1)
+        return candidates.filterIndexed { index, _ -> index % stride == 0 }
+            .take(population.maxPreviewCells)
     }
 
     private fun insideFootprint(
