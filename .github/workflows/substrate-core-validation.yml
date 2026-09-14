@@ -1,4 +1,4 @@
-name: Substrate Core Baseline Validation
+name: Substrate Core Targeted Validation
 
 on:
   push:
@@ -9,13 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  test-core-main-baseline:
+  test-substrate-core:
     runs-on: macos-15
     steps:
-      - name: Checkout current main baseline
+      - name: Checkout Phase 3 branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          ref: feat/substrate-deposition-core
 
       - name: Set up JDK 21
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -29,7 +29,12 @@ jobs:
           cache-read-only: true
           dependency-graph: disabled
 
-      - name: Run core engine desktop tests on main
+      - name: Run targeted substrate core tests
         run: |
           chmod +x gradlew
-          ./gradlew :core:engine:desktopTest --stacktrace
+          ./gradlew :core:engine:desktopTest \
+            --tests "*SubstrateDepositionModelTest" \
+            --tests "*SubstrateContactDepthParityTest" \
+            --tests "*BrushContactModelTest" \
+            --tests "*BrushTuftDabExpanderTest" \
+            --stacktrace
