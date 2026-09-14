@@ -16,9 +16,10 @@ layout(std430, binding = 1) buffer CarrierBuffer { vec4 carrier[]; };
 layout(binding = 2) uniform sampler2D sampleSourceTex;
 
 // One pipeline handles all ordered Color Smudge stages. C++ submits phases sequentially with
-// compute->compute barriers between them, so every dab reads the pixels written by the previous dab.
+// compute->compute barriers between them, so every dab reads the pixels/state written by the
+// previous phase before advancing the finite brush reservoir.
 layout(push_constant) uniform SmudgePush {
-    int phase;          // 0 seed carrier, 1 Smear, 2 Dulling sample, 3 Dulling deposit
+    int phase;          // 0 seed, 1 Smear, 2 Dulling sample, 3 Dulling deposit, 4..7 reservoir stages
     int centerX;
     int centerY;
     int radius;
@@ -34,10 +35,17 @@ layout(push_constant) uniform SmudgePush {
     float paintG;
     float paintB;
     float paintA;
-    float dilution;    // Procreate-style Dilution: 0 deposits pure paint, 1 deposits the sampled/carried colour.
+    float dilution;
     // Packed feature flags from VulkanColorSmudge.cpp: +1 = Sample Merged, +2 = pigment RYB mixing.
-    // Keeping both in this historical scalar leaves the push-constant ABI/layout unchanged.
     float hasSampleMerged;
+    // Stateful Phase-2 reservoir inputs. reservoirEnabled is intentionally separate from the
+    // packed historical flags so pickup=0 remains the old shader path byte-for-byte in intent.
+    float reservoirEnabled;
+    float baseColorRate;
+    float chargeDecayRate;
+    float pickupRate;
+    float colorRateMultiplier;
+    float distanceDeltaPx;
 } pc;
 
 int featureFlags() {
@@ -51,6 +59,19 @@ bool sampleMergedEnabled() {
 bool pigmentMixingEnabled() {
     return (featureFlags() & 2) != 0;
 }
+
+bool reservoirEnabled() {
+    return pc.reservoirEnabled > 0.5;
+}
+
+int reservoirBase() {
+    int diameter = pc.radius * 2 + 1;
+    return diameter * diameter;
+}
+
+int reservoirColorIndex() { return reservoirBase(); }
+int reservoirMetaIndex() { return reservoirBase() + 1; }
+int reservoirSampleIndex() { return reservoirBase() + 2; }
 
 float brushMask(int dx, int dy) {
     float r = float(max(pc.radius, 1));
@@ -67,8 +88,7 @@ vec4 rounded8(vec4 v) {
 
 vec4 roundedMaterial8(vec4 v) {
     // Kotlin roundToInt() on our non-negative 0..255 channels is half-up. Keep the pigment path's
-    // quantisation deterministic against MaterialColor.toArgb() instead of relying on GLSL round's
-    // implementation-dependent tie direction. Legacy still uses rounded8() unchanged above.
+    // and reservoir sampling quantisation deterministic against MaterialColor.toArgb().
     return floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
 }
 
@@ -145,20 +165,22 @@ vec3 rybToRgb(vec3 ryb) {
     return vec3(r + white, green + white, b + white);
 }
 
-vec4 pigmentArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
+vec4 pigmentContinuous(vec4 a, vec4 b, float t, bool includeAlpha) {
     float f = clamp(t, 0.0, 1.0);
-    if (f <= 0.0) return roundedMaterial8(a);
+    vec4 ac = clamp(a, 0.0, 1.0);
+    vec4 bc = clamp(b, 0.0, 1.0);
+    if (f <= 0.0) return ac;
     if (f >= 1.0) {
-        vec4 endpoint = b;
-        if (!includeAlpha) endpoint.a = a.a;
-        return roundedMaterial8(endpoint);
+        if (!includeAlpha) bc.a = ac.a;
+        return bc;
     }
+    vec3 rgb = rybToRgb(mix(rgbToRyb(ac.rgb), rgbToRyb(bc.rgb), f));
+    float alpha = includeAlpha ? mix(ac.a, bc.a, f) : ac.a;
+    return clamp(vec4(rgb, alpha), 0.0, 1.0);
+}
 
-    vec3 aryb = rgbToRyb(a.rgb);
-    vec3 bryb = rgbToRyb(b.rgb);
-    vec3 rgb = rybToRgb(mix(aryb, bryb, f));
-    float alpha = includeAlpha ? mix(a.a, b.a, f) : a.a;
-    return roundedMaterial8(vec4(rgb, alpha));
+vec4 pigmentArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
+    return roundedMaterial8(pigmentContinuous(a, b, t, includeAlpha));
 }
 
 vec4 materialMixArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
@@ -167,17 +189,79 @@ vec4 materialMixArgb(vec4 a, vec4 b, float t, bool includeAlpha) {
         : lerpArgb(a, b, t, includeAlpha);
 }
 
-// Procreate-style Dilution: at dilution=0 (default) returns the raw paint colour, matching flat
-// Krita Color Rate exactly; at dilution=1 returns `under` unchanged, so no new pigment reaches the
-// canvas even though colorRate is still being "spent" -- mirrors ColorSmudgeEngine.dilutedPigment().
+// BrushReservoirModel keeps carried MaterialColor in float state rather than quantizing it after
+// every pickup. Framebuffer output still uses the 8-bit functions above; this one is for reservoir
+// contamination only.
+vec4 materialMixContinuous(vec4 a, vec4 b, float t, bool includeAlpha) {
+    float f = clamp(t, 0.0, 1.0);
+    vec4 ac = clamp(a, 0.0, 1.0);
+    vec4 bc = clamp(b, 0.0, 1.0);
+    if (pigmentMixingEnabled()) return pigmentContinuous(ac, bc, f, includeAlpha);
+    vec4 outColor = mix(ac, bc, f);
+    if (!includeAlpha) outColor.a = ac.a;
+    return clamp(outColor, 0.0, 1.0);
+}
+
+float effectiveColorRate() {
+    if (!reservoirEnabled()) return clamp(pc.colorRate, 0.0, 1.0);
+    float load = clamp(carrier[reservoirMetaIndex()].x, 0.0, 1.0);
+    // Exact CPU clamp order: effectiveDeposition(base, state) first, sensor multiplier second.
+    float charge = clamp(pc.baseColorRate * load, 0.0, 1.0);
+    return clamp(charge * max(pc.colorRateMultiplier, 0.0), 0.0, 1.0);
+}
+
+// Procreate-style Dilution: at dilution=0 returns raw carried paint; at dilution=1 returns `under`.
+// Stateful pickup uses the carried reservoir colour, quantized exactly where the CPU converts its
+// MaterialColor to ARGB for deposition. The reservoir itself remains continuous between pickups.
 vec4 dilutedPigment(vec4 under) {
-    vec4 paint = vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
+    vec4 paint = reservoirEnabled()
+        ? roundedMaterial8(carrier[reservoirColorIndex()])
+        : vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA);
     return materialMixArgb(under, paint, 1.0 - pc.dilution, true);
 }
 
 bool inLayer(ivec2 p) {
     ivec2 size = imageSize(layerImage);
     return p.x >= 0 && p.y >= 0 && p.x < size.x && p.y < size.y;
+}
+
+vec4 sourceTexel(ivec2 p) {
+    return sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+}
+
+// Matches ColorSmudgeEngine.weightedAverage(): alpha is spatially averaged, RGB is alpha-weighted
+// (premultiplied for the reduction, then un-premultiplied), and all output channels are half-up
+// quantized to the same 8-bit sample the CPU turns into MaterialColor.
+vec4 weightedSourceAverage(int sampleRadius) {
+    int sr = max(sampleRadius, 1);
+    float sumA = 0.0;
+    vec3 sumRgb = vec3(0.0);
+    float sumW = 0.0;
+    float sumAlphaWeight = 0.0;
+    for (int dy = -sr; dy <= sr; ++dy) {
+        for (int dx = -sr; dx <= sr; ++dx) {
+            float distancePx = length(vec2(float(dx), float(dy)));
+            if (distancePx > float(sr)) continue;
+            ivec2 p = ivec2(pc.centerX + dx, pc.centerY + dy);
+            if (!inLayer(p)) continue;
+            float weight = clamp(1.0 - distancePx / float(sr), 0.0, 1.0);
+            if (weight <= 0.0) continue;
+            vec4 texel = sourceTexel(p);
+            float alphaWeight = weight * texel.a;
+            sumA += texel.a * weight;
+            sumRgb += texel.rgb * alphaWeight;
+            sumW += weight;
+            sumAlphaWeight += alphaWeight;
+        }
+    }
+    ivec2 center = ivec2(pc.centerX, pc.centerY);
+    vec4 centerTexel = inLayer(center) ? sourceTexel(center) : vec4(0.0);
+    if (sumW <= 0.0) return roundedMaterial8(centerTexel);
+    float alpha = sumA / sumW;
+    if (sumAlphaWeight <= 0.0) {
+        return roundedMaterial8(vec4(centerTexel.rgb, alpha));
+    }
+    return roundedMaterial8(vec4(sumRgb / sumAlphaWeight, alpha));
 }
 
 void seedCarrier() {
@@ -189,6 +273,54 @@ void seedCarrier() {
     ivec2 size = imageSize(layerImage);
     ivec2 src = clamp(ivec2(pc.centerX + dx, pc.centerY + dy), ivec2(0), size - ivec2(1));
     carrier[local.y * diameter + local.x] = imageLoad(layerImage, src);
+}
+
+void reservoirInit() {
+    if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
+    carrier[reservoirColorIndex()] = clamp(vec4(pc.paintR, pc.paintG, pc.paintB, pc.paintA), 0.0, 1.0);
+    carrier[reservoirMetaIndex()] = vec4(1.0, clamp(pc.dilution, 0.0, 1.0), 0.0, 0.0);
+    carrier[reservoirSampleIndex()] = vec4(0.0);
+}
+
+void reservoirDecay() {
+    if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
+    vec4 meta = carrier[reservoirMetaIndex()];
+    float rate = max(pc.chargeDecayRate, 0.0);
+    float distancePx = max(pc.distanceDeltaPx, 0.0);
+    if (rate > 0.0 && distancePx > 0.0 && meta.x > 0.0) {
+        meta.x = clamp(meta.x * exp(-rate * distancePx), 0.0, 1.0);
+    }
+    carrier[reservoirMetaIndex()] = meta;
+}
+
+void reservoirSampleSmear() {
+    if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
+    carrier[reservoirSampleIndex()] = weightedSourceAverage(pc.radius);
+}
+
+void reservoirPickup() {
+    if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
+    vec4 meta = carrier[reservoirMetaIndex()];
+    float load = clamp(meta.x, 0.0, 1.0);
+    float capacity = clamp(1.0 - load, 0.0, 1.0);
+    if (capacity <= 0.0 || pc.pickupRate <= 0.0) return;
+
+    vec4 sampled = roundedMaterial8(carrier[reservoirSampleIndex()]);
+    float materialPresence = clamp(sampled.a, 0.0, 1.0);
+    if (materialPresence <= 0.0) return;
+
+    float pickup = min(capacity, capacity * clamp(pc.pickupRate, 0.0, 1.0) * materialPresence);
+    float finalLoad = clamp(load + pickup, 0.0, 1.0);
+    if (pickup > 0.0 && finalLoad > 0.0) {
+        float pickupRatio = clamp(pickup / finalLoad, 0.0, 1.0);
+        carrier[reservoirColorIndex()] = materialMixContinuous(
+            carrier[reservoirColorIndex()], sampled, pickupRatio, true
+        );
+        // Canvas wetness is not a persistent channel yet. Keep meta.y unchanged exactly as the CPU
+        // reference does by feeding current.wetness back as sampledWetness.
+        meta.x = finalLoad;
+        carrier[reservoirMetaIndex()] = meta;
+    }
 }
 
 void smearDab() {
@@ -206,52 +338,26 @@ void smearDab() {
     vec4 under = imageLoad(layerImage, dstPos);
     // Pickup reads sampleSourceTex when Sample Merged is active; the carrier/under blend basis
     // below always stays on `under` (the active layer's own pixel) regardless -- mirrors
-    // ColorSmudgeEngine.smear()'s `pickedUp` (readSource[idx]) vs `under` (pixels[idx]) split
-    // exactly. Without Sample Merged, pickedUp == under, reproducing the original single-image path.
+    // ColorSmudgeEngine.smear()'s `pickedUp` (readSource[idx]) vs `under` (pixels[idx]) split.
     vec4 pickedUp = sampleMergedEnabled() ? texelFetch(sampleSourceTex, dstPos, 0) : under;
     vec4 carried = materialMixArgb(pickedUp, carrier[k], pc.smudgeRate, pc.smearAlpha != 0);
     carrier[k] = carried;
     vec4 outColor = materialMixArgb(under, carried, mask * pc.opacity, pc.smearAlpha != 0);
-    if (pc.colorRate > 0.0) {
+    float colorRate = effectiveColorRate();
+    if (colorRate > 0.0) {
         vec4 pigment = dilutedPigment(pickedUp);
-        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
+        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }
 
 void dullSample() {
     // Exactly one invocation performs the weighted neighbourhood reduction. This correctness-first
-    // reduction deliberately matches the CPU reference before any subgroup/tiled optimization.
+    // reduction is shared with reservoir sampling and matches the CPU's premultiplied averaging.
     if (gl_GlobalInvocationID.x != 0 || gl_GlobalInvocationID.y != 0) return;
-    int sr = max(pc.sampleRadius, 1);
-    vec4 sum = vec4(0.0);
-    float sumW = 0.0;
-    for (int dy = -sr; dy <= sr; ++dy) {
-        for (int dx = -sr; dx <= sr; ++dx) {
-            float distancePx = length(vec2(float(dx), float(dy)));
-            if (distancePx > float(sr)) continue;
-            ivec2 p = ivec2(pc.centerX + dx, pc.centerY + dy);
-            if (!inLayer(p)) continue;
-            float weight = clamp(1.0 - distancePx / float(sr), 0.0, 1.0);
-            if (weight <= 0.0) continue;
-            // Same pickup swap as smearDab(): the weighted-average neighbourhood reduction reads
-            // sampleSourceTex when Sample Merged is active, matching ColorSmudgeEngine.dull()'s
-            // weightedAverage(readSource, ...) call exactly.
-            vec4 texel = sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
-            sum += texel * weight;
-            sumW += weight;
-        }
-    }
-    if (sumW > 0.0) {
-        carrier[0] = rounded8(sum / sumW);
-    } else {
-        ivec2 p = ivec2(pc.centerX, pc.centerY);
-        if (!inLayer(p)) {
-            carrier[0] = vec4(0.0);
-        } else {
-            carrier[0] = sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
-        }
-    }
+    vec4 sampled = weightedSourceAverage(pc.sampleRadius);
+    carrier[0] = sampled;
+    if (reservoirEnabled()) carrier[reservoirSampleIndex()] = sampled;
 }
 
 void dullDeposit() {
@@ -269,9 +375,10 @@ void dullDeposit() {
     vec4 outColor = materialMixArgb(
         under, carrier[0], mask * pc.opacity * pc.smudgeRate, pc.smearAlpha != 0
     );
-    if (pc.colorRate > 0.0) {
+    float colorRate = effectiveColorRate();
+    if (colorRate > 0.0) {
         vec4 pigment = dilutedPigment(carrier[0]);
-        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * pc.colorRate, true);
+        outColor = materialMixArgb(outColor, pigment, mask * pc.opacity * colorRate, true);
     }
     imageStore(layerImage, dstPos, outColor);
 }
@@ -281,4 +388,8 @@ void main() {
     else if (pc.phase == 1) smearDab();
     else if (pc.phase == 2) dullSample();
     else if (pc.phase == 3) dullDeposit();
+    else if (pc.phase == 4) reservoirInit();
+    else if (pc.phase == 5) reservoirDecay();
+    else if (pc.phase == 6) reservoirPickup();
+    else if (pc.phase == 7) reservoirSampleSmear();
 }

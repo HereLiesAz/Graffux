@@ -251,6 +251,11 @@ class VulkanStampEngine {
     /**
      * Persistent Color Smudge pass. The image must already be seeded with [upload].
      *
+     * Reservoir pickup remains part of this same Color Smudge operation. [baseColorRate],
+     * [chargeDecayRate], and [pickupRate] let native code evolve the same finite brush load and
+     * carried colour as the CPU reference while [ColorSmudgeDab.colorRateMultiplier] preserves
+     * sensor authority per resolved dab.
+     *
      * [sampleSource] (item 11's Sample Merged follow-up) is an optional composite of the other
      * visible layers, ARGB ints in the same layout [android.graphics.Bitmap.getPixels] produces --
      * the GPU counterpart to `ColorSmudgeEngine.apply`'s `sampleSource` parameter. When supplied
@@ -270,21 +275,26 @@ class VulkanStampEngine {
         smearAlpha: Boolean,
         paintColorArgb: Int,
         dilution: Float = 0f,
+        baseColorRate: Float = 0f,
+        chargeDecayRate: Float = 0f,
+        pickupRate: Float = 0f,
         sampleSource: IntArray? = null,
         sampleSourceWidth: Int = 0,
         sampleSourceHeight: Int = 0,
     ): Boolean {
         if (!isInitialized || dabs.size < 2) return false
-        val flat = FloatArray(dabs.size * 6)
+        val flat = FloatArray(dabs.size * 8)
         for (i in dabs.indices) {
             val d = dabs[i]
-            val base = i * 6
+            val base = i * 8
             flat[base] = d.x
             flat[base + 1] = d.y
             flat[base + 2] = d.smudgeRate
             flat[base + 3] = d.colorRate
             flat[base + 4] = d.opacity
             flat[base + 5] = d.smudgeRadius
+            flat[base + 6] = d.colorRateMultiplier
+            flat[base + 7] = d.distanceDeltaPx
         }
         val sampleSourceRgba8 = if (
             sampleSource != null && sampleSourceWidth > 0 && sampleSourceHeight > 0 &&
@@ -304,6 +314,7 @@ class VulkanStampEngine {
         } else null
         val ok = nativeColorSmudge(
             nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
+            baseColorRate, chargeDecayRate, pickupRate,
             sampleSourceRgba8, sampleSourceWidth, sampleSourceHeight,
         )
         if (!ok) healthy = false
@@ -379,6 +390,9 @@ class VulkanStampEngine {
         smearAlpha: Boolean,
         paintColorArgb: Int,
         dilution: Float,
+        baseColorRate: Float,
+        chargeDecayRate: Float,
+        pickupRate: Float,
         sampleSourceRgba8: ByteArray?,
         sampleSourceWidth: Int,
         sampleSourceHeight: Int,
@@ -397,6 +411,8 @@ data class ColorSmudgeDab(
     val colorRate: Float,
     val opacity: Float,
     val smudgeRadius: Float,
+    val colorRateMultiplier: Float = 1f,
+    val distanceDeltaPx: Float = 0f,
 )
 
 data class ColorSmudgeBenchmarkInfo(

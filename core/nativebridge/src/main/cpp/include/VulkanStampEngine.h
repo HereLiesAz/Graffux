@@ -70,6 +70,16 @@ struct ColorSmudgeDab {
     float colorRate;
     float opacity;
     float smudgeRadius;
+    // Sensor-only multiplier before finite reservoir load is applied.
+    float colorRateMultiplier = 1.0f;
+    // Arc-length increment from the preceding resolved dab.
+    float distanceDeltaPx = 0.0f;
+    // Stroke-level reservoir configuration repeated on each dab by the JNI bridge. Keeping these
+    // here preserves colorSmudge()/runColorSmudgePlan()'s public call shape while letting the
+    // ordered native pass evolve exactly the same state as BrushReservoirModel.
+    float baseColorRate = 0.0f;
+    float chargeDecayRate = 0.0f;
+    float pickupRate = 0.0f;
 };
 
 struct ColorSmudgeBenchmarkInfo {
@@ -194,6 +204,9 @@ public:
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
+    // Reservoir configuration travels on ColorSmudgeDab and is ignored when pickupRate == 0,
+    // preserving the historical path while allowing the same ordered pass to own finite load,
+    // contamination, and carried colour when pickup is enabled.
     //
     // Item 11 (Sample Merged) follow-up: `sampleSourceRgba8`, when non-null, is a `sampleSourceWidth`
     // x `sampleSourceHeight` RGBA8 composite of the other visible layers -- the GPU counterpart to
