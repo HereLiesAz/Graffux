@@ -56,6 +56,8 @@ fun DrawingCanvas(
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
     val view = LocalView.current
+    val deviceAttitudeState = rememberDeviceAttitude(view, enabled = activeTool == Tool.BRUSH)
+    val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
     val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
     val predictionTournament = remember(androidXPredictor) {
         PredictionTournament(
@@ -113,7 +115,10 @@ fun DrawingCanvas(
             orientationAvailable = latestOrientationAvailable,
         )
         return sample.copy(
-            telemetry = sample.telemetry.copy(contactPhase = contactPhase),
+            telemetry = sample.telemetry.copy(
+                contactPhase = contactPhase,
+                deviceAttitude = latestDeviceAttitudeState.value,
+            ),
         )
     }
 
