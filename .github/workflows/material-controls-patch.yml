@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   patch:
-    runs-on: macos-15
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -18,7 +21,7 @@ jobs:
           ref: feat/material-controls
 
       - name: Patch minimal material controls
-        run: python3 scripts/patch_material_controls.py
+        run: python scripts/patch_material_controls.py
 
       - name: Commit patch
         run: |
