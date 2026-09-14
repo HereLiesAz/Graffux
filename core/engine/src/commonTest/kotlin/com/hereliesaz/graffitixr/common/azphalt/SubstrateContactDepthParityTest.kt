@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 
 class SubstrateContactDepthParityTest {
     @Test
-    fun resolvedContactDepthMatchesIncrementalAndCanonicalDabStreams() {
+    fun resolvedContactDepthMatchesIncrementalAndCanonicalNormalAndBlotDabs() {
         val brush = AzphaltBrush(
             name = "Substrate contact depth parity",
             spacing = 0.25f,
@@ -18,59 +18,55 @@ class SubstrateContactDepthParityTest {
                 pressureSplay = 0f,
                 tufts = BrushTuftConfig(enabled = false),
             ),
+            // Force the separate blot-parent constructor to participate in the same one-sample
+            // parity fixture without depending on the repo's pre-existing incremental spacing
+            // size-parity debt for multi-segment strokes.
+            blot = BrushBlot(
+                lengthPx = 20f,
+                extraStamps = 2,
+                positionJitter = 0f,
+                angleJitterDeg = 0f,
+            ),
         )
-        val samples = listOf(
-            BrushSample(
-                x = 0f,
-                y = 0f,
-                uptimeMillis = 0L,
-                pressure = 0.2f,
+
+        fun assertPressure(pressure: Float): Float {
+            val sample = BrushSample(
+                x = 12f,
+                y = 8f,
+                uptimeMillis = 100L,
+                pressure = pressure,
                 distancePx = 0f,
                 speedPxPerMs = 0.5f,
                 drawingAngleDeg = 0f,
-            ),
-            BrushSample(
-                x = 12f,
-                y = 0f,
-                uptimeMillis = 16L,
-                pressure = 0.4f,
-                distancePx = 12f,
-                speedPxPerMs = 0.5f,
-                drawingAngleDeg = 0f,
-            ),
-            BrushSample(
-                x = 24f,
-                y = 0f,
-                uptimeMillis = 32L,
-                pressure = 0.7f,
-                distancePx = 24f,
-                speedPxPerMs = 0.5f,
-                drawingAngleDeg = 0f,
-            ),
-            BrushSample(
-                x = 36f,
-                y = 0f,
-                uptimeMillis = 48L,
-                pressure = 1f,
-                distancePx = 36f,
-                speedPxPerMs = 0.5f,
-                drawingAngleDeg = 0f,
-            ),
-        )
-
-        val canonical = BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = brush, seed = 77L)
-        val generator = IncrementalDynamicDabGenerator(diameterPx = 10f, brush = brush, seed = 77L)
-        val total = samples.last().distancePx
-        val live = samples.flatMap { generator.append(it, predictedTotal = total) }
-
-        assertTrue(canonical.isNotEmpty())
-        assertEquals(canonical.size, live.size)
-        canonical.zip(live).forEachIndexed { index, (expected, actual) ->
-            assertTrue(
-                abs(expected.contactDepth - actual.contactDepth) <= 1e-5f,
-                "contactDepth[$index]: expected ${expected.contactDepth}, got ${actual.contactDepth}",
             )
+            val canonical = BrushStamps.dynamicDabs(
+                listOf(sample), diameterPx = 10f, brush = brush, seed = 77L,
+            )
+            val live = IncrementalDynamicDabGenerator(
+                diameterPx = 10f, brush = brush, seed = 77L,
+            ).append(sample, predictedTotal = 0f)
+
+            assertEquals(3, canonical.size, "canonical normal + two blot dabs")
+            assertEquals(canonical.size, live.size, "single-sample canonical/live dab count")
+            canonical.zip(live).forEachIndexed { index, (expected, actual) ->
+                assertTrue(
+                    abs(expected.contactDepth - actual.contactDepth) <= 1e-5f,
+                    "contactDepth[$index]: expected ${expected.contactDepth}, got ${actual.contactDepth}",
+                )
+            }
+            // The extra stamps are alternate geometry from the same resolved contact, so both blot
+            // parents must carry the exact same penetration state as the normal parent.
+            live.drop(1).forEachIndexed { index, blot ->
+                assertTrue(
+                    abs(live.first().contactDepth - blot.contactDepth) <= 1e-5f,
+                    "blot contactDepth[$index] did not inherit the resolved contact",
+                )
+            }
+            return live.first().contactDepth
         }
-        assertTrue(canonical.minOf { it.contactDepth } < canonical.maxOf { it.contactDepth })
+
+        val light = assertPressure(0.2f)
+        val heavy = assertPressure(0.9f)
+        assertTrue(light < heavy, "resolved substrate contact depth should increase with pressure")
     }
 }
