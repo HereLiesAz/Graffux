@@ -59,7 +59,7 @@ class BrushPhysicalPopulationDabTest {
     @Test
     fun largerBrushAddsBundlesWithoutEnlargingEachBundle() {
         val brush = physicalFlatBrush()
-        val tap = listOf(sample(20f, 20f, 0L, 0f, 0f, 0f, BrushContactPhase.TOUCHDOWN))
+        val tap = listOf(sample(20f, 20f, 0L, 0f, 0f, 0f))
 
         val small = BrushStamps.dynamicDabs(tap, 20f, brush, 17L)
         val large = BrushStamps.dynamicDabs(tap, 60f, brush, 17L)
@@ -116,13 +116,13 @@ class BrushPhysicalPopulationDabTest {
             ),
         )
         val low = BrushStamps.dynamicDabs(
-            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, BrushContactPhase.TOUCHDOWN, pressure = 0f)),
+            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, pressure = 0f)),
             40f,
             brush,
             41L,
         )
         val high = BrushStamps.dynamicDabs(
-            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, BrushContactPhase.TOUCHDOWN, pressure = 1f)),
+            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, pressure = 1f)),
             40f,
             brush,
             41L,
