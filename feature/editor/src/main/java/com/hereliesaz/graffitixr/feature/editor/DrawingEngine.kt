@@ -324,38 +324,38 @@ internal class DrawingEngine(
             // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
             // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact RYB
-            // material mixer. Reservoir pickup is intentionally CPU-only until native stateful
-            // pickup is implemented; entering Vulkan would silently ignore canvas-dependent state.
-            val gpuPainted = if (ColorSmudgeEngine.requiresCpuReservoirSimulation(settings)) {
-                false
-            } else {
-                runCatching {
-                    val engine = VulkanStampEngine()
-                    try {
-                        if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
-                        val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
-                        val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
-                        for (plan in plans) {
-                            if (plan.dabs.size < 2) continue
-                            val nativeDabs = plan.dabs.map { dab ->
-                                ColorSmudgeDab(
-                                    dab.x, dab.y, dab.smudgeRate, dab.colorRate,
-                                    dab.opacity, dab.smudgeRadius,
-                                )
-                            }
-                            if (!engine.colorSmudge(
-                                    nativeDabs, mode, settings.radiusPx, settings.feathering,
-                                    settings.smearAlpha, settings.paintColor, settings.dilution,
-                                    sampleSource = sampleSource,
-                                    sampleSourceWidth = width, sampleSourceHeight = height,
-                                )) return@runCatching false
+            // material mixer. Stateful reservoir load/pickup now runs inside this same native
+            // Color Smudge pipeline; a failed native stage still falls back to the CPU reference.
+            val gpuPainted = runCatching {
+                val engine = VulkanStampEngine()
+                try {
+                    if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
+                    val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+                    val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
+                    for (plan in plans) {
+                        if (plan.dabs.size < 2) continue
+                        val nativeDabs = plan.dabs.map { dab ->
+                            ColorSmudgeDab(
+                                dab.x, dab.y, dab.smudgeRate, dab.colorRate,
+                                dab.opacity, dab.smudgeRadius,
+                                dab.colorRateMultiplier, dab.distanceDeltaPx,
+                            )
                         }
-                        engine.readback(target)
-                    } finally {
-                        engine.destroy()
+                        if (!engine.colorSmudge(
+                                nativeDabs, mode, settings.radiusPx, settings.feathering,
+                                settings.smearAlpha, settings.paintColor, settings.dilution,
+                                baseColorRate = settings.colorRate,
+                                chargeDecayRate = settings.chargeDecayRate,
+                                pickupRate = settings.pickupRate,
+                                sampleSource = sampleSource,
+                                sampleSourceWidth = width, sampleSourceHeight = height,
+                            )) return@runCatching false
                     }
-                }.getOrDefault(false)
-            }
+                    engine.readback(target)
+                } finally {
+                    engine.destroy()
+                }
+            }.getOrDefault(false)
 
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
