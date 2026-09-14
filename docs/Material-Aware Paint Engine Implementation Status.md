@@ -14,9 +14,9 @@ Status legend:
 - ⬜ **Pending** — not implemented in this session.
 - 🔬 **Research only** — deliberately not on the critical path unless a cheaper approximation visibly fails.
 
-## 2026-09-13 session checkpoint
+## 2026-09-14 checkpoint
 
-Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation merges through the telemetry-profile validation merge.
+Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation work plus Vulkan reservoir parity, translucent-pickup hardening, the versioned media-profile boundary, the consolidated material golden matrix, and minimal material controls.
 
 The session began with the material-aware 2.5D sequence:
 
@@ -55,15 +55,16 @@ Session-start items:
 - ✅ Existing brushes remain on legacy behavior unless material behavior is explicitly selected.
 - ✅ Basic/dry brush paths are not forced to allocate wet/material channels.
 - 🟡 Latency/input telemetry infrastructure exists, but material-stage-specific timing/budget reporting is not yet a complete product validation matrix.
-- 🟡 Deterministic fixtures now cover pigment, reservoir, telemetry, and brush-mechanics behavior, but the original complete material fixture set is not yet present as one consolidated golden suite.
-- ⬜ Explicit semantic media profiles are not yet the source of material behavior.
+- ✅ `MaterialGoldenFixtureMatrixTest` now consolidates explicit numeric golden vectors for the current material contract: pigment mixing, long-stroke depletion, wet pickup, repeated crossings, and the legacy dry baseline. Future substrate/wetness/Impasto-v2 vectors extend this same matrix.
+- ✅ Versioned renderer-independent `PaintMediaProfile` boundary landed with stable id/version, `PaintMedium`, channel requirements, initial reservoir state, and an exact `LEGACY_DRY` compatibility profile. Colour remains explicit stroke intent rather than profile identity.
+- ⬜ Named/tuned semantic product profiles such as Heavy Oil/Acrylic/etc. are not yet the source of material behavior.
 - ⬜ A recorded physical-device baseline matrix for all material stages has not been completed.
 
 Original fixture list retained for completion:
 
 - ✅ slow pressure-ramp coverage exists across brush/telemetry tests;
 - ✅ fast motion/flick-related stroke behavior has existing baseline coverage in the brush engine;
-- 🟡 repeated crossings are exercised by material/brush tests, but are not yet a consolidated material golden fixture;
+- ✅ repeated crossings are pinned in the consolidated material golden fixture matrix;
 - 🟡 wet-over-wet behavior exists through Color Smudge/pickup semantics, but no persistent wetness field exists yet;
 - ⬜ low-load substrate dry drag fixture awaits Phase 3;
 - ✅ existing Impasto has stab/height behavior, but Impasto-v2 material coupling is pending;
@@ -90,7 +91,7 @@ Compatibility:
 - ✅ Existing brushes/imported presets default to legacy RGB.
 - ✅ Existing stroke replay does not opt into pigment behavior merely because the mixer exists.
 
-### Phase 2 — Stateful reservoir, depletion, and pickup — 🟡
+### Phase 2 — Stateful reservoir, depletion, and pickup — ✅ implementation; 🟡 hardware parity gate
 
 Implemented:
 
@@ -105,14 +106,16 @@ Implemented:
 - ✅ Pickup samples contact material before the dab mutates it and affects subsequent dabs rather than retroactively changing the sampling dab.
 - ✅ Smear and Dulling both feed reservoir pickup while keeping their existing spatial behavior.
 - ✅ Sample Merged can supply pickup from the same pre-composited source used by Color Smudge.
-- ✅ Deterministic pickup tests and compatibility tests are landed.
-- ✅ The CPU pickup tranche's safe validation branches were merged after hosted validation.
+- ✅ Native/Vulkan reservoir depletion, pickup, carried-colour contamination, and ordered post-dab pickup are implemented in the existing Color Smudge backend.
+- ✅ Renderer-neutral resolved plans carry per-dab distance and Color Rate dynamics into the native reservoir state machine.
+- ✅ Real-device Vulkan parity instrumentation covers Smear, Dulling, pigment pickup, and translucent layer pickup.
+- ✅ Non-Sample-Merged translucent pickup unpremultiplies `layerImage` before alpha-weighted sampling, preventing double-alpha darkening while preserving the straight-alpha Sample Merged path.
+- ✅ Failed/unavailable Vulkan execution still falls back to the CPU reference rather than dropping reservoir state.
+- ✅ Minimal artist-facing **Load / Pickup / Pigment Mixing** controls are wired to the existing Color Smudge/Wet Mix state rather than a second material backend.
 
 Still pending:
 
-- ⬜ Native/Vulkan reservoir depletion + pickup implementation.
-- ⬜ CPU ↔ Vulkan reservoir/pickup parity instrumentation on real Android Vulkan hardware.
-- ⬜ Product controls for **Load / Pickup / Pigment Mixing**.
+- 🟡 Execute the existing CPU ↔ Vulkan pigment/reservoir parity suite on representative real Android Vulkan hardware and record the results.
 - ⬜ Persistent canvas wetness; current pickup does not fabricate a wetness field.
 - ⬜ Per-sub-tuft reservoir load; current reservoir is stroke-level.
 
@@ -120,7 +123,7 @@ Compatibility/backend gate:
 
 - ✅ `pickupRate = 0` remains the historical default path.
 - ✅ Imported Krita presets keep pickup at the Graffux default of zero.
-- ✅ Positive pickup is deliberately CPU-only until Vulkan parity exists; devices cannot silently ignore pickup state.
+- ✅ Positive pickup has native/Vulkan support; unsupported/failed GPU execution recomputes through the CPU reference instead of silently ignoring pickup.
 
 ### Phase 3 — Substrate-aware deposition and dry-brush breakup — ⬜
 
@@ -179,8 +182,9 @@ The original material roadmap described this as a later phase. It is now one of 
 
 ### Phase 7 — Media profiles and artistic controls — ⬜ / 🟡
 
-- ⬜ Semantic media profiles such as Heavy Oil, Soft Oil, Acrylic, Gouache, Watercolour, Ink, Dry Bristle, and Marker-like legacy mode are not implemented as the material-engine product layer.
-- ⬜ The intended minimal artistic material vocabulary — Load, Wetness/Dilution, Flow/Body, Pickup, Drying, Thickness, Texture Interaction — is not fully exposed.
+- ✅ The versioned `PaintMediaProfile` core boundary is implemented, including an exact `LEGACY_DRY` compatibility profile and the invariant that colour is not medium.
+- ⬜ Tuned semantic product profiles such as Heavy Oil, Soft Oil, Acrylic, Gouache, Watercolour, Ink, Dry Bristle, and Marker-like legacy mode are not yet implemented as a catalogue/product layer.
+- 🟡 Minimal **Load / Pickup / Pigment Mixing** controls are exposed on Color Smudge/Wet Mix; the broader artistic vocabulary — Wetness/Dilution, Flow/Body, Drying, Thickness, Texture Interaction — remains phase-dependent and intentionally incomplete.
 - 🟡 Brush stiffness/splay mechanics now exist internally, but artist-facing tuning remains intentionally conservative until mechanics are stable.
 - ✅ The rule **colour is not medium** remains intact; selecting RGB colour does not silently assign pigment/viscosity semantics.
 
@@ -383,7 +387,7 @@ Implemented:
 
 Still pending:
 
-- ⬜ Full artist-facing material controls for Load/Pickup/Pigment Mixing after CPU/GPU parity.
+- ✅ Minimal artist-facing material controls for **Load / Pickup / Pigment Mixing** are exposed on the existing Color Smudge/Wet Mix path.
 - 🟡 Mechanical controls should stay minimal until archetype defaults are visually tuned; do not expose every solver coefficient as a permanent UI wall.
 - ⬜ Media-profile selection/product UI for the Phase 7 material system.
 
@@ -428,12 +432,16 @@ Implemented or substantially covered:
 - ✅ pigment CPU reference/golden vectors;
 - ✅ pigment Vulkan build integration;
 - ✅ deterministic reservoir charge/depletion;
-- ✅ deterministic CPU reservoir pickup and compatibility gate.
+- ✅ deterministic CPU reservoir pickup and compatibility gate;
+- ✅ native/Vulkan reservoir depletion + pickup implementation and device-test instrumentation;
+- ✅ translucent non-Sample-Merged reservoir sampling parity regression coverage;
+- ✅ consolidated current-material golden fixture matrix;
+- ✅ versioned media-profile boundary and exact legacy-dry profile.
 
 Still useful/required:
 
 - ⬜ real-device CPU ↔ Vulkan pigment parity execution;
-- ⬜ native/Vulkan reservoir pickup + real-device parity;
+- 🟡 execute the landed native/Vulkan reservoir pickup parity tests on representative real Android Vulkan hardware;
 - ⬜ explicit end-to-end finger-contact-change tuft geometry parity fixture;
 - ⬜ larger visual golden suite for straight drag, 90° corner, 180° reversal, pressure ramp, tilt sweep, hover roll/lean, and each morphology;
 - ⬜ physical performance baselines on Adreno high/mid and Mali high/mid tiers;
@@ -445,18 +453,16 @@ Still useful/required:
 
 This is the recommended order from the current state, not the original dependency order.
 
-1. **Finish Phase 2 backend parity:** implement native/Vulkan reservoir depletion + pickup using the same `BrushReservoirModel` semantics.
-2. Add **CPU ↔ Vulkan reservoir/pickup parity instrumentation** and run pigment + reservoir parity on real Android Vulkan hardware.
-3. Only after parity, expose the minimal material controls: **Load / Pickup / Pigment Mixing**.
-4. Complete the remaining Phase-0 product/measurement gaps: explicit material/media profile boundary, consolidated material golden fixtures, and physical-device latency/performance baselines.
-5. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
-6. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
-7. Add capability-tier/performance policy for physical tuft population and verify bounded cost on representative Adreno/Mali devices.
-8. Begin **Phase 3 substrate-aware deposition** using the now-stable physical contact topology.
-9. Then add **Phase 4 persistent wetness + bounded active-tile transport**.
-10. Then evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction and wet/dry optics.
-11. Build **Phase 7 semantic media profiles/product controls** after the underlying mechanics/material channels have stable behavior.
-12. Keep full spectral/Kubelka-Munk, full individual-bristle PBD/DER, FLIP/PIC/pressure-projected fluids, porous-paper capillary simulation, and Gaussian-splat material research behind explicit evidence that the cheaper model cannot produce the required marks.
+1. Run the existing **CPU ↔ Vulkan pigment + reservoir/pickup parity suite on real Android Vulkan hardware** and record the device/result matrix.
+2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines. The versioned media-profile boundary and consolidated current-material golden matrix are landed.
+3. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
+4. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
+5. Add capability-tier/performance policy for physical tuft population and verify bounded cost on representative Adreno/Mali devices.
+6. Begin **Phase 3 substrate-aware deposition** using the now-stable physical contact topology.
+7. Then add **Phase 4 persistent wetness + bounded active-tile transport**.
+8. Then evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction and wet/dry optics.
+9. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary after the underlying material channels have stable behavior.
+10. Keep full spectral/Kubelka-Munk, full individual-bristle PBD/DER, FLIP/PIC/pressure-projected fluids, porous-paper capillary simulation, and Gaussian-splat material research behind explicit evidence that the cheaper model cannot produce the required marks.
 
 Do not start a second wet-mix/pickup backend beside Color Smudge, do not make renderers reinterpret raw telemetry, and do not trade bounded input latency for higher simulation fidelity.
 
@@ -491,12 +497,12 @@ Experimental rendering/content-generation work only; no current critical-path de
 Even though a large amount of this session's mechanics is now implemented, the following must remain explicit before calling the overall system production-complete:
 
 - real Android Vulkan parity for pigment mode;
-- native/Vulkan reservoir pickup and parity;
+- real Android Vulkan execution/results for the landed pigment and reservoir/pickup parity suites;
 - representative physical-device telemetry validation;
 - physical tuft population performance/capability tiers;
 - artist tuning/reference strokes for morphology and lifecycle behavior;
 - substrate/wetness/Impasto-v2 material phases if those features are advertised;
 - project persistence/reconstruction for any new canonical material channels;
-- media-profile/product UX after engine behavior is stable.
+- tuned semantic media-profile catalogue/product UX after engine behavior is stable (the versioned core profile boundary is already landed).
 
 The target remains a **responsive, deterministic, phone-first material-aware 2.5D paint engine**. Literal physics is optional; convincing marks, stable replay, renderer parity, and bounded latency are not.
