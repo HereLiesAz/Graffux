@@ -18,6 +18,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.BrushContactPhase
 import com.hereliesaz.graffitixr.common.azphalt.BrushInputTool
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
@@ -29,30 +30,8 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredicto
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
 import kotlin.math.roundToLong
 
-/** How long a still touch becomes the eyedropper (Procreate's touch-and-hold sample). */
 private const val EYEDROP_HOLD_MS = 500L
 
-/**
- * The touch surface for the raster tools. Procreate-shaped gesture grammar:
- *
- *  - **Drag** paints with the active tool (live preview via the view-model's working bitmap).
- *  - **Hold still** (before moving) becomes the **eyedropper**: the colour under the finger is
- *    sampled continuously and committed on lift.
- *  - **A second finger cancels the stroke** — two fingers mean a gesture (tap = undo, pinch =
- *    navigate), not painting. The partial stroke is discarded, exactly as Procreate does.
- *  - With [Tool.FILL] active, a **tap or lift** flood-fills at the finger instead of stroking.
- *
- * [gate] tells the app-level multi-finger tap observer whether a stroke was in progress, so a
- * cancelling two-finger tap doesn't ALSO fire an undo of the previous action.
- *
- * Brush latency prediction is presentation-only: predictors race to extend the visible tail to the
- * next frame, but predicted points are NEVER sent to [onStrokePoint]. Only real input can enter the
- * bitmap/history path, so a bad prediction disappears on the next sample instead of becoming paint.
- *
- * Real input is normalized here into [BrushSample] before viewport/layer transforms. Device class
- * and axis capability are preserved too: a high-quality stylus, basic stylus and finger therefore
- * enter separate telemetry interpretation paths instead of being flattened into one fake pointer.
- */
 @Composable
 fun DrawingCanvas(
     activeTool: Tool,
@@ -106,7 +85,12 @@ fun DrawingCanvas(
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
     var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
 
-    fun recordRealPoint(position: Offset, uptimeMillis: Long, pressure: Float): BrushSample {
+    fun recordRealPoint(
+        position: Offset,
+        uptimeMillis: Long,
+        pressure: Float,
+        contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
+    ): BrushSample {
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
         val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
         predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
@@ -114,7 +98,7 @@ fun DrawingCanvas(
         } else {
             null
         }
-        return brushSampleBuilder.add(
+        val sample = brushSampleBuilder.add(
             x = position.x,
             y = position.y,
             uptimeMillis = uptimeMillis,
@@ -127,6 +111,9 @@ fun DrawingCanvas(
             pressureAvailable = latestPressureAvailable,
             tiltAvailable = latestTiltAvailable,
             orientationAvailable = latestOrientationAvailable,
+        )
+        return sample.copy(
+            telemetry = sample.telemetry.copy(contactPhase = contactPhase),
         )
     }
 
@@ -239,16 +226,20 @@ fun DrawingCanvas(
                         }
 
                         if (!change.pressed) {
-                            if (began) {
-                                predictionTournament.record(
-                                    GestureSample(change.position, change.uptimeMillis, change.pressure)
-                                )
-                            }
                             predictionTail = null
                             when {
                                 pickingCloneSource -> onPickCloneSource(change.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
                                 began -> {
+                                    onStrokePoint(
+                                        recordRealPoint(
+                                            change.position,
+                                            change.uptimeMillis,
+                                            change.pressure,
+                                            BrushContactPhase.LIFT_OFF,
+                                        )
+                                    )
+                                    predictionTail = null
                                     if (activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty()) {
                                         liquifyPending = liquifyPoints
                                         liquifyPoints = emptyList()
@@ -259,22 +250,23 @@ fun DrawingCanvas(
                                 else -> {
                                     gate.strokeActive = true
                                     onStrokeStart(
-                                        brushSampleBuilder.add(
-                                            x = down.position.x,
-                                            y = down.position.y,
-                                            uptimeMillis = down.uptimeMillis,
-                                            pressure = down.pressure,
-                                            tiltRadians = latestTiltRadians,
-                                            orientationRadians = latestOrientationRadians,
-                                            touchMajorPx = latestTouchMajorPx,
-                                            touchMinorPx = latestTouchMinorPx,
-                                            tool = latestInputTool,
-                                            pressureAvailable = latestPressureAvailable,
-                                            tiltAvailable = latestTiltAvailable,
-                                            orientationAvailable = latestOrientationAvailable,
+                                        recordRealPoint(
+                                            down.position,
+                                            down.uptimeMillis,
+                                            down.pressure,
+                                            BrushContactPhase.TOUCHDOWN,
                                         ),
                                         canvasSize,
                                     )
+                                    onStrokePoint(
+                                        recordRealPoint(
+                                            change.position,
+                                            change.uptimeMillis,
+                                            change.pressure,
+                                            BrushContactPhase.LIFT_OFF,
+                                        )
+                                    )
+                                    predictionTail = null
                                     gate.strokeActive = false
                                     onStrokeEnd()
                                 }
@@ -291,7 +283,12 @@ fun DrawingCanvas(
                                 liquifyPending = emptyList()
                             }
                             onStrokeStart(
-                                recordRealPoint(down.position, down.uptimeMillis, down.pressure),
+                                recordRealPoint(
+                                    down.position,
+                                    down.uptimeMillis,
+                                    down.pressure,
+                                    BrushContactPhase.TOUCHDOWN,
+                                ),
                                 canvasSize,
                             )
                             change.historical.forEach { hist ->
