@@ -81,18 +81,40 @@ class BrushPhysicalPopulationDabTest {
     }
 
     @Test
+    fun physicalTipPoseDoesNotRotateWhenStrokeHeadingChanges() {
+        val resolved = physicalFlatBrush().contact.resolvedForBrushDiameter(40f, 0.7f)
+        val contact = BrushContactState(tipTwistDeg = 31f)
+        val horizontalDrag = BrushTuftTopology.resolve(
+            BrushMechanicalState(initialized = true, dragAngleDeg = 0f),
+            contact,
+            resolved.tufts,
+        )
+        val verticalDrag = BrushTuftTopology.resolve(
+            BrushMechanicalState(initialized = true, dragAngleDeg = 90f),
+            contact,
+            resolved.tufts,
+        )
+
+        assertEquals(horizontalDrag.size, verticalDrag.size)
+        horizontalDrag.zip(verticalDrag).forEachIndexed { index, (a, b) ->
+            assertEquals(a.offsetXFraction, b.offsetXFraction, 1e-5f, "root x[$index]")
+            assertEquals(a.offsetYFraction, b.offsetYFraction, 1e-5f, "root y[$index]")
+        }
+    }
+
+    @Test
     fun selectedBrushSizeFreezesPopulationForWholeStroke() {
         val brush = physicalFlatBrush()
         val resolved = brush.contact.resolvedForBrushDiameter(42f, brush.tipRatio)
         val firstCount = resolved.tufts.count
-        val tinyDynamicDiameter = BrushTipTopology.resolvedTuftConfig(
+        val sameSelectedSize = BrushTipTopology.resolvedTuftConfig(
             config = brush.contact.tufts,
             diameterPx = 42f,
             geometry = brush.contact.tipGeometry,
             legacyTipRatio = brush.tipRatio,
         ).count
 
-        assertEquals(firstCount, tinyDynamicDiameter)
+        assertEquals(firstCount, sameSelectedSize)
         assertTrue(firstCount > brush.contact.tufts.count)
     }
 
