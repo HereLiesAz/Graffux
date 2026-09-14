@@ -7104,6 +7104,15 @@ class EditorViewModel @Inject constructor(
     fun setColorSmudgeDilution(amount: Float) =
         _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
 
+    /** Phase 2 material pickup: refill empty reservoir capacity from paint under the brush. */
+    fun setColorSmudgePickupRate(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(pickupRate = amount.coerceIn(0f, 1f)) }
+
+    /** Phase 1 material interaction; legacy RGB remains the compatibility default. */
+    fun setColorSmudgeMixingModel(
+        model: com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel,
+    ) = _colorSmudgeSettings.update { it.copy(mixingModel = model) }
+
     fun setColorSmudgeRadius(amount: Float) =
         _colorSmudgeSettings.update { it.copy(smudgeRadius = amount.coerceIn(0.05f, 3f)) }
 

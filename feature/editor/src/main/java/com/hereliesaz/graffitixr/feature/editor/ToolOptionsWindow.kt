@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -52,6 +53,8 @@ fun ToolOptionsWindow(
     onSetColorSmudgeColorRate: (Float) -> Unit,
     onSetColorSmudgeChargeDecayRate: (Float) -> Unit,
     onSetColorSmudgeDilution: (Float) -> Unit,
+    onSetColorSmudgePickupRate: (Float) -> Unit,
+    onSetColorSmudgeMixingModel: (MaterialMixingModel) -> Unit,
     onSetColorSmudgeRadius: (Float) -> Unit,
     onSetColorSmudgeOpacity: (Float) -> Unit,
     onSetColorSmudgeAlphaCarry: (Boolean) -> Unit,
@@ -94,8 +97,11 @@ fun ToolOptionsWindow(
                 }
                 Text("Smudge  ${(smudge.smudgeRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
                 Slider(value = smudge.smudgeRate, onValueChange = onSetColorSmudgeRate, valueRange = 0f..1f)
-                Text("Color rate  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
-                Text("Adds the active colour independently of how much existing paint is moved.", style = MaterialTheme.typography.labelSmall)
+                Text("Load  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "How much carried paint the brush can deposit; this is Color Rate/Charge in the engine.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
                 Slider(value = smudge.colorRate, onValueChange = onSetColorSmudgeColorRate, valueRange = 0f..1f)
                 AzButton(
                     text = if (showWetMix) "Wet Mix ▴" else "Wet Mix ▾",
@@ -125,6 +131,34 @@ fun ToolOptionsWindow(
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Slider(value = smudge.dilution, onValueChange = onSetColorSmudgeDilution, valueRange = 0f..1f)
+                    Text("Pickup  ${(smudge.pickupRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Refills empty brush load from paint under the brush, contaminating later dabs.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Slider(value = smudge.pickupRate, onValueChange = onSetColorSmudgePickupRate, valueRange = 0f..1f)
+                    AzButton(
+                        text = if (smudge.mixingModel == MaterialMixingModel.PIGMENT_RYB) {
+                            "Pigment Mixing ✓"
+                        } else {
+                            "Pigment Mixing"
+                        },
+                        onClick = {
+                            onSetColorSmudgeMixingModel(
+                                if (smudge.mixingModel == MaterialMixingModel.PIGMENT_RYB) {
+                                    MaterialMixingModel.LEGACY_RGB
+                                } else {
+                                    MaterialMixingModel.PIGMENT_RYB
+                                },
+                            )
+                        },
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    )
+                    Text(
+                        "Uses artist-oriented subtractive mixing instead of legacy RGB interpolation.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
                 if (smudge.mode == ColorSmudgeEngine.Mode.DULLING) {
                     Text("Sample radius  ${"%.2f".format(smudge.smudgeRadius)}×", style = MaterialTheme.typography.bodySmall)
