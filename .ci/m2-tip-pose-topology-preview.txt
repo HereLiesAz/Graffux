@@ -1,0 +1,1 @@
+Validation marker for device tip pose, size-aware bristle topology, and hover-outline foundation.
