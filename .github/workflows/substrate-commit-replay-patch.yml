@@ -1,0 +1,33 @@
+name: Substrate Commit Replay Patch
+
+on:
+  push:
+    branches: [ "feat/substrate-commit-replay" ]
+    paths: [ ".github/workflows/substrate-commit-replay-patch.yml" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-commit-replay
+
+      - name: Apply guarded patch
+        run: python3 scripts/patch_substrate_commit_replay.py
+
+      - name: Validate patch shape
+        run: git diff --check
+
+      - name: Commit product patch and remove temporary machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/DrawingEngine.kt
+          git rm scripts/patch_substrate_commit_replay.py .github/workflows/substrate-commit-replay-patch.yml
+          git commit -m "feat: thread substrate context through commit and replay"
+          git push origin HEAD:feat/substrate-commit-replay
