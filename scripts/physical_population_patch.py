@@ -79,19 +79,39 @@ count = tuft.count(old_basis)
 if count != 1:
     raise SystemExit(f"Expected exactly one physical contact basis block, found {count}")
 tuft = tuft.replace(old_basis, new_basis, 1)
+old_plane = "val plane = ((x * contact.tipLeanX + y * contact.tipLeanY) / norm).coerceIn(-1f, 1f)"
+if tuft.count(old_plane) != 1:
+    raise SystemExit("Expected physical contact-plane expression")
 tuft = tuft.replace(
-    "val localAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg + twist)",
-    "val localAngleDeg = localDragAngleDeg",
-)
-tuft = tuft.replace(
-    "val plane = ((x * contact.tipLeanX + y * contact.tipLeanY) / norm).coerceIn(-1f, 1f)",
+    old_plane,
     "val plane = ((rootX * contact.tipLeanX + rootY * contact.tipLeanY) / norm).coerceIn(-1f, 1f)",
+    1,
 )
+old_angle = "angleOffsetDeg = wrapSignedDegrees(localAngleDeg - globalDragAngleDeg)"
+if tuft.count(old_angle) != 1:
+    raise SystemExit("Expected physical angle-offset expression")
 tuft = tuft.replace(
-    "angleOffsetDeg = wrapSignedDegrees(localAngleDeg - globalDragAngleDeg)",
+    old_angle,
     "angleOffsetDeg = wrapSignedDegrees(localDragAngleDeg - globalDragAngleDeg)",
+    1,
 )
 tuft_path.write_text(tuft)
+
+for relative in (
+    "core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/BrushStamps.kt",
+    "core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/IncrementalDynamicDabGenerator.kt",
+):
+    path = Path(relative)
+    text = path.read_text()
+    old = "contactDiameterPx = contactDiameter,"
+    count = text.count(old)
+    if count != 2:
+        raise SystemExit(f"Expected two tuft-expander diameter calls in {relative}, found {count}")
+    text = text.replace(
+        old,
+        "contactDiameterPx = if (contactConfig.tufts.usesPhysicalPopulation()) diameter else contactDiameter,",
+    )
+    path.write_text(text)
 
 Path(".github/workflows/physical-population-ui-patch.yml").unlink(missing_ok=True)
 Path("scripts/physical_population_patch.py").unlink(missing_ok=True)
