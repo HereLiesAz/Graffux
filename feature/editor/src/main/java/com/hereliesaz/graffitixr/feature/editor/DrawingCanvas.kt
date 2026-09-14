@@ -18,10 +18,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushContactPhase
+import com.hereliesaz.graffitixr.common.azphalt.BrushDevicePresentationConfig
+import com.hereliesaz.graffitixr.common.azphalt.BrushDevicePresentationModel
+import com.hereliesaz.graffitixr.common.azphalt.BrushDevicePresentationState
 import com.hereliesaz.graffitixr.common.azphalt.BrushInputTool
+import com.hereliesaz.graffitixr.common.azphalt.BrushMorphology
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
+import com.hereliesaz.graffitixr.common.azphalt.BrushTipGeometryConfig
+import com.hereliesaz.graffitixr.common.azphalt.BrushTipTopology
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.prediction.AccelerationGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
@@ -50,10 +57,17 @@ fun DrawingCanvas(
     onEyedropStart: (IntSize) -> Unit,
     onEyedropSample: (Offset) -> Unit,
     onEyedropEnd: (commit: Boolean) -> Unit,
+    /**
+     * Optional physical brush definition for the cursor. Existing callers remain compatible; null
+     * falls back to the historical round/elliptical footprint. When supplied, hover uses the same
+     * morphology, bristle population and device-pose model as the mechanics layer.
+     */
+    activeBrushPreview: AzphaltBrush? = null,
 ) {
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var brushCursorPosition by remember { mutableStateOf<Offset?>(null) }
 
     val view = LocalView.current
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = activeTool == Tool.BRUSH)
@@ -130,6 +144,7 @@ fun DrawingCanvas(
         liquifyPoints = emptyList()
         liquifyPending = emptyList()
         predictionTail = null
+        if (activeTool != Tool.BRUSH) brushCursorPosition = null
     }
 
     DisposableEffect(gate) {
@@ -160,6 +175,21 @@ fun DrawingCanvas(
                     latestOrientationRadians = event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
                     latestTouchMajorPx = event.getTouchMajor(pointerIndex)
                     latestTouchMinorPx = event.getTouchMinor(pointerIndex)
+
+                    if (activeTool == Tool.BRUSH) {
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_HOVER_ENTER,
+                            MotionEvent.ACTION_HOVER_MOVE,
+                            MotionEvent.ACTION_DOWN,
+                            MotionEvent.ACTION_MOVE -> {
+                                brushCursorPosition = Offset(
+                                    event.getX(pointerIndex),
+                                    event.getY(pointerIndex),
+                                )
+                            }
+                            MotionEvent.ACTION_HOVER_EXIT -> brushCursorPosition = null
+                        }
+                    }
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     predictionTournament.reset()
@@ -171,6 +201,9 @@ fun DrawingCanvas(
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
                     predictionTail = null
+                    if (latestInputTool == BrushInputTool.FINGER || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        brushCursorPosition = null
+                    }
                 }
             }
             .pointerInput(activeTool, nextFrameMs, pickingCloneSource) {
@@ -354,6 +387,57 @@ fun DrawingCanvas(
                 cap = StrokeCap.Round,
                 blendMode = BlendMode.SrcOver,
             )
+        }
+
+        if (activeTool == Tool.BRUSH) {
+            brushCursorPosition?.let { cursor ->
+                val contact = activeBrushPreview?.contact?.sanitized()
+                val pose = BrushDevicePresentationModel.resolve(
+                    attitude = latestDeviceAttitudeState.value,
+                    previous = BrushDevicePresentationState(),
+                    config = contact?.devicePresentation ?: BrushDevicePresentationConfig(),
+                )
+                val topology = BrushTipTopology.preview(
+                    diameterPx = brushSize.coerceAtLeast(1f),
+                    legacyTipRatio = activeBrushPreview?.tipRatio ?: 1f,
+                    morphology = contact?.tufts?.morphology ?: BrushMorphology.CUSTOM,
+                    pose = pose,
+                    geometry = contact?.tipGeometry ?: BrushTipGeometryConfig(),
+                )
+
+                if (topology.hull.isNotEmpty()) {
+                    val outline = Path().apply {
+                        val first = topology.hull.first()
+                        moveTo(cursor.x + first.first, cursor.y + first.second)
+                        topology.hull.drop(1).forEach { point ->
+                            lineTo(cursor.x + point.first, cursor.y + point.second)
+                        }
+                        close()
+                    }
+                    // Dark under-stroke plus bright hairline keeps the projected tip readable on
+                    // both light and dark artwork without hiding the art beneath it.
+                    drawPath(
+                        path = outline,
+                        color = Color.Black.copy(alpha = 0.72f),
+                        style = Stroke(width = 3f),
+                    )
+                    drawPath(
+                        path = outline,
+                        color = Color.White.copy(alpha = 0.92f),
+                        style = Stroke(width = 1.25f),
+                    )
+                }
+
+                topology.cells.forEach { cell ->
+                    val center = Offset(cursor.x + cell.xPx, cursor.y + cell.yPx)
+                    val alpha = 0.12f + cell.contactWeight * 0.38f
+                    drawCircle(
+                        color = activeColor.copy(alpha = alpha.coerceIn(0.08f, 0.55f)),
+                        radius = cell.radiusPx.coerceAtMost(2.5f),
+                        center = center,
+                    )
+                }
+            }
         }
     }
 }
