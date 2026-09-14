@@ -1,154 +1,502 @@
-# Material-Aware Paint Engine — Implementation Status
+# Material-Aware Paint Engine — Implementation Status / TODO
 
-Companion to `Material-Aware Paint Engine Roadmap.md`.
+Companion to:
 
-This file records what has actually landed. The roadmap describes intended architecture; this file is the implementation checkpoint.
+- `Material-Aware Paint Engine Roadmap.md` — original material-aware 2.5D implementation plan.
+- `Brush Stroke Mechanics Roadmap.md` — brush/contact mechanics plan that became the primary critical path during this session.
 
-## 2026-09-13 — Phase 0 / Phase 1 implementation
+This file is the **authoritative implementation checkpoint and session TODO**. The roadmap documents describe intended architecture; this file records what has actually landed, what remains partial, and what has not started.
 
-### Implemented
+Status legend:
 
-- Renderer-independent `MaterialColor` model in `core/engine`.
-- `MaterialMixingModel` with:
-  - `LEGACY_RGB` — historical compatibility path.
-  - `PIGMENT_RYB` — first bounded subtractive/artist-space approximation.
-- Deterministic `MaterialColorMixer` CPU reference.
-- RYB latent transform is explicitly an approximation, not a claim of full Kubelka-Munk or spectral simulation.
-- Phase-0 material scaffolding:
-  - `PaintMedium` immutable configuration.
-  - `BrushReservoirState` stroke-local live state container.
-  - `MaterialChannels` optional layer-channel declaration.
-- `ColorSmudgeEngine.Settings` carries `mixingModel`, defaulting to `LEGACY_RGB`.
-- CPU Color Smudge uses the material mixer for pickup, deposition, dilution and Dulling/Smear interpolation only when pigment mode is selected.
-- The original `lerpArgb` path remains the explicit legacy branch, so existing presets and stroke replay do not opt into new colour behavior accidentally.
-- The exact CPU RYB transform is ported to `color_smudge.comp`.
-- Native Color Smudge mode values remain ABI-compatible:
-  - `0` / `1` = legacy RGB Smear / Dulling;
-  - `2` / `3` = pigment RYB Smear / Dulling.
-- Pigment selection is carried through Kotlin/native Vulkan without expanding the JNI signature or the Vulkan push-constant layout.
-- `DrawingEngine` now allows pigment Color Smudge to use Vulkan; failed or unavailable GPU execution still recomputes from the pristine source through the CPU reference.
-- Color Smudge's CPU weighted-average colour packing uses Graffux's platform-independent `ArgbColor` helper, so the same code is testable on the JVM rather than depending on Android framework stubs.
+- ✅ **Implemented / landed** — code is on `main` and the hosted build/test gate for the tranche has been completed or merged through its validation PR.
+- 🟡 **Partial / hardening remaining** — useful implementation exists, but one or more parity, hardware, persistence, UX, tuning, or performance gates remain.
+- ⬜ **Pending** — not implemented in this session.
+- 🔬 **Research only** — deliberately not on the critical path unless a cheaper approximation visibly fails.
 
-### Tests added
+## 2026-09-13 session checkpoint
 
-Common-engine pigment tests cover:
+Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation merges through the telemetry-profile validation merge.
 
-- ratio endpoints;
-- legacy RGB interpolation;
-- yellow + blue producing a green-dominant pigment result;
-- cyan + red;
-- high-chroma complements;
-- black/white tinting;
-- repeated mixing;
-- complementary-ratio order symmetry;
-- alpha preservation;
-- material-medium defaults and clamping;
-- reservoir-state clamping;
-- allocation-free/default color-only material-channel declaration.
+The session began with the material-aware 2.5D sequence:
 
-Editor integration tests cover:
+```text
+material scaffolding
+→ pigment mixing
+→ reservoir / depletion / pickup
+→ substrate-aware deposition
+→ wetness / bounded transport
+→ Impasto v2 / wet-dry optics
+→ coarse deformable tuft
+→ media profiles / product polish
+```
 
-- default Color Smudge mixing staying byte-identical to explicit `LEGACY_RGB`;
-- yellow/blue pigment interaction becoming green-dominant;
-- pigment mode producing visibly different output from legacy RGB for the same interaction.
+After the first material tranches landed, we explicitly changed the implementation priority: **brushstroke mechanics became the primary path**. Pressure, tilt, orientation, contact lifecycle, stable tuft mechanics, physical brush population, morphology, hover visualization, and live/replay parity were advanced before substrate/wetness/Impasto-v2. That reordering is intentional, not a skipped dependency.
 
-Android instrumentation coverage now includes CPU ↔ Vulkan pigment Color Smudge parity for both Smear and Dulling with a bounded per-channel tolerance, plus a guard proving the pigment fixture does not collapse back to legacy RGB behavior.
+The governing rule remains:
 
-### Validation
-
-Safe branch validation run **#2105** (`ci/pigment-vulkan-validation-3`) completed successfully:
-
-- full unit-test job: **success**;
-- Android `assembleDebug`: **success**;
-- native/CMake/shader build: **success**;
-- release/publishing steps: correctly skipped because the validation ref was not `main`.
-
-This proves the Phase 1 code and shader/native integration are build-valid and the hosted JVM suite is green.
-
-The instrumentation CPU ↔ Vulkan pixel-parity test is compiled but has **not** been claimed as executed by hosted CI: it requires a real Android Vulkan device. That physical-device run remains the final hardware parity/product-exposure gate.
-
-### Compatibility contract
-
-The default behavior remains legacy RGB. Existing brushes, imported presets and replayed strokes do not opt into pigment behavior merely because the new mixer exists. Native mode values `0` and `1` retain their historical meaning.
+> **Brushstroke mechanics wins over material work unless material work is required to preserve correctness.**
 
 ---
 
-## 2026-09-13 — Phase 2: deterministic reservoir and CPU pickup
+# Master session checklist
 
-### Reservoir contract
+## A. Original material-aware 2.5D roadmap
 
-A renderer-independent `BrushReservoirModel` defines deterministic stroke-local reservoir transitions.
+### Phase 0 — Measurement, fixtures, and material-state scaffolding — 🟡
 
-It provides:
+Session-start items:
 
-- `stateAtDistance(...)` — an analytic exponential load envelope matching Color Smudge's historical Charge decay;
-- `effectiveDeposition(...)` — base deposition modulated by available load while preserving the historical final-clamp order;
-- bounded deposition that cannot draw the reservoir below zero;
-- bounded pickup that cannot fill the reservoir above capacity;
-- load-weighted carried-colour contamination;
-- load-weighted wetness transfer;
-- selection of the Phase 1 material mixer for contamination;
-- value-typed deterministic transitions suitable for canonical replay and CPU/GPU parity work.
+- ✅ Renderer-independent `MaterialColor` model in `core/engine`.
+- ✅ Explicit `MaterialMixingModel` with legacy and pigment-like modes.
+- ✅ Immutable `PaintMedium` configuration boundary.
+- ✅ Stroke-local `BrushReservoirState` value model.
+- ✅ Optional `MaterialChannels` declaration.
+- ✅ Existing brushes remain on legacy behavior unless material behavior is explicitly selected.
+- ✅ Basic/dry brush paths are not forced to allocate wet/material channels.
+- 🟡 Latency/input telemetry infrastructure exists, but material-stage-specific timing/budget reporting is not yet a complete product validation matrix.
+- 🟡 Deterministic fixtures now cover pigment, reservoir, telemetry, and brush-mechanics behavior, but the original complete material fixture set is not yet present as one consolidated golden suite.
+- ⬜ Explicit semantic media profiles are not yet the source of material behavior.
+- ⬜ A recorded physical-device baseline matrix for all material stages has not been completed.
 
-The model deliberately has no bitmap, editor, tile, JNI or Vulkan dependency. Contact-area and material-field logic can evolve independently around this transition contract.
+Original fixture list retained for completion:
 
-### Charge integration
+- ✅ slow pressure-ramp coverage exists across brush/telemetry tests;
+- ✅ fast motion/flick-related stroke behavior has existing baseline coverage in the brush engine;
+- 🟡 repeated crossings are exercised by material/brush tests, but are not yet a consolidated material golden fixture;
+- 🟡 wet-over-wet behavior exists through Color Smudge/pickup semantics, but no persistent wetness field exists yet;
+- ⬜ low-load substrate dry drag fixture awaits Phase 3;
+- ✅ existing Impasto has stab/height behavior, but Impasto-v2 material coupling is pending;
+- 🟡 long-stroke determinism/performance is covered in pieces, but the full material stress benchmark matrix remains pending.
 
-`ColorSmudgeEngine` now routes `chargeDecayRate` through `BrushReservoirModel` rather than evaluating a separate exponential formula in the editor layer.
+### Phase 1 — Pigment-like colour mixing — ✅ implementation; 🟡 hardware parity gate
 
-Compatibility is pinned by an editor-level `resolvePlans()` regression that compares every resolved dab against the historical `colorRate * exp(-chargeDecayRate * distance)` equation.
+Implemented:
 
-Safe branch validation run **#2109** (`ci/reservoir-charge-integration`) completed successfully:
+- ✅ Deterministic CPU `MaterialColorMixer` reference.
+- ✅ Explicit `LEGACY_RGB` compatibility mode.
+- ✅ `PIGMENT_RYB` bounded subtractive/artist-space approximation.
+- ✅ Pigment mixing integrated into Color Smudge only when explicitly selected.
+- ✅ Exact matching RYB transform ported to the Vulkan Color Smudge shader.
+- ✅ Native mode values preserve historical ABI meaning for legacy modes.
+- ✅ Failed/unavailable GPU execution recomputes from the pristine source through the CPU reference.
+- ✅ Golden coverage includes ratio endpoints, yellow + blue, cyan + red, high-chroma complements, black/white tinting, repeated mixing, order symmetry, and alpha preservation.
+- ✅ Hosted unit/build/native-shader validation completed for the pigment tranche.
+- 🟡 CPU ↔ Vulkan instrumentation is compiled, but real Android Vulkan-device pixel parity is still a hardware gate.
+- ⬜ Full spectral/Kubelka-Munk mixing remains research-only and is not required unless the bounded mixer visibly fails.
 
-- full unit-test job: **success**;
-- Android `assembleDebug`: **success**;
-- native/CMake/shader build: **success**;
-- release/publishing steps: correctly skipped.
+Compatibility:
 
-### CPU reservoir pickup
+- ✅ Existing brushes/imported presets default to legacy RGB.
+- ✅ Existing stroke replay does not opt into pigment behavior merely because the mixer exists.
 
-`ColorSmudgeEngine.Settings` now includes `pickupRate`, defaulting to `0`.
+### Phase 2 — Stateful reservoir, depletion, and pickup — 🟡
 
-When pickup is enabled on the CPU reference:
+Implemented:
 
-- the brush begins with reservoir load `1` and the stroke paint colour as its carried material;
-- Charge depletion creates bounded empty reservoir capacity as the stroke travels;
-- each dab samples one representative contact colour **before** the dab mutates pixels;
-- after that dab renders, a `pickupRate` fraction of available capacity is refilled from the sampled material;
-- sampled alpha scales material presence, so fully transparent canvas contributes no pickup mass;
-- carried pigment contamination uses the selected material mixer (`LEGACY_RGB` or `PIGMENT_RYB`);
-- the contaminated carried pigment is deposited by subsequent dabs, not retroactively by the dab that sampled it;
-- Dulling reuses its existing weighted contact sample; Smear takes an equivalent weighted footprint sample for reservoir state while retaining its separate spatial carrier;
-- Sample Merged supplies reservoir pickup from the same pre-composited source used by Color Smudge sampling;
-- canvas wetness is not fabricated yet: pickup preserves current reservoir wetness until Phase 4 provides a real persistent wetness channel.
+- ✅ Renderer-independent deterministic `BrushReservoirModel`.
+- ✅ Analytic charge/load depletion compatible with historical Color Smudge Charge behavior.
+- ✅ Bounded deposition that cannot overdraw reservoir load.
+- ✅ Bounded pickup that cannot overfill the reservoir.
+- ✅ Carried-colour contamination using the selected material mixer.
+- ✅ Load-weighted carried material/wetness state transitions.
+- ✅ Color Smudge Charge routes through the reservoir model.
+- ✅ CPU reservoir pickup with `pickupRate`, default `0`.
+- ✅ Pickup samples contact material before the dab mutates it and affects subsequent dabs rather than retroactively changing the sampling dab.
+- ✅ Smear and Dulling both feed reservoir pickup while keeping their existing spatial behavior.
+- ✅ Sample Merged can supply pickup from the same pre-composited source used by Color Smudge.
+- ✅ Deterministic pickup tests and compatibility tests are landed.
+- ✅ The CPU pickup tranche's safe validation branches were merged after hosted validation.
 
-### Compatibility and backend gate
+Still pending:
 
-- `pickupRate = 0` takes the historical Color Smudge raster path and remains the default for old strokes and imported presets.
-- Krita preset mapping leaves `pickupRate` at its Graffux default of `0`.
-- Non-zero pickup is deliberately forced through the CPU reference in `DrawingEngine`.
-- Vulkan pigment Color Smudge remains enabled when pickup is `0`.
-- No native/Vulkan pickup implementation is active yet; the CPU gate prevents devices from silently ignoring pickup state.
-- No Pickup UI control is exposed yet.
-- No persistent canvas wetness/material channel is allocated by this tranche.
+- ⬜ Native/Vulkan reservoir depletion + pickup implementation.
+- ⬜ CPU ↔ Vulkan reservoir/pickup parity instrumentation on real Android Vulkan hardware.
+- ⬜ Product controls for **Load / Pickup / Pigment Mixing**.
+- ⬜ Persistent canvas wetness; current pickup does not fabricate a wetness field.
+- ⬜ Per-sub-tuft reservoir load; current reservoir is stroke-level.
 
-### Pickup tests added
+Compatibility/backend gate:
 
-Editor tests cover:
+- ✅ `pickupRate = 0` remains the historical default path.
+- ✅ Imported Krita presets keep pickup at the Graffux default of zero.
+- ✅ Positive pickup is deliberately CPU-only until Vulkan parity exists; devices cannot silently ignore pickup state.
 
-- implicit/default pickup zero being byte-identical to explicit `pickupRate = 0`;
-- crossing opaque blue sampled material contaminating later yellow `PIGMENT_RYB` paint toward green;
-- reservoir pickup reading the supplied Sample Merged composite;
-- deterministic repeated pickup output for identical input/seed;
-- the CPU-only backend gate being active only for positive pickup;
-- imported Krita Color Smudge presets retaining default-zero pickup.
+### Phase 3 — Substrate-aware deposition and dry-brush breakup — ⬜
 
-These pickup commits use `[skip ci]` on `main`; a safe non-release validation branch is used to run the complete test/build gate before this tranche is called complete.
+All original items remain pending:
 
-### Next implementation target
+- ⬜ Substrate height/tooth field.
+- ⬜ Absorbency scalar/texture.
+- ⬜ Optional anisotropy/fibre direction.
+- ⬜ Contact-depth-vs-substrate-height deposition rule.
+- ⬜ Crest-only scumble under light contact.
+- ⬜ Pressure-driven penetration/full coverage.
+- ⬜ Material-height filling of substrate valleys.
+- ⬜ GPU-local/static substrate sampling with no per-frame CPU texture work.
 
-1. Complete safe CI validation of the CPU pickup tranche.
-2. Port the same stateful reservoir depletion/pickup transition to the native/Vulkan Color Smudge path.
-3. Add CPU ↔ Vulkan reservoir/pickup parity instrumentation and run it on real Android Vulkan hardware.
-4. Expose the minimal **Load / Pickup / Pigment Mixing** product controls only after CPU/GPU behavior is aligned.
-5. Do not begin persistent wetness fields, substrate transport or Impasto-v2 material coupling until the reservoir gate is stable.
+Important change since the original plan: coarse brush geometry now exists, so Phase 3 can eventually consume real stable tuft contacts instead of a single synthetic ellipse.
+
+### Phase 4 — Persistent wetness field and bounded local transport — ⬜
+
+All original items remain pending:
+
+- ⬜ Optional wetness material channel.
+- ⬜ Wetness-controlled pickup eligibility and mobility.
+- ⬜ Short-range bounded diffusion/advection approximation.
+- ⬜ Conservation-aware local transfer where practical.
+- ⬜ Fixed small iteration budget.
+- ⬜ Drying transition.
+- ⬜ Active material tile set.
+- ⬜ Zero effective idle cost for dry documents.
+- ⬜ Explicit deterministic simulation-time advancement for tests/replay.
+
+A full Navier-Stokes/FLIP solver is still **not** the starting point.
+
+### Phase 5 — Impasto v2 / material height / wet-dry optics — ⬜ v2; existing v1 baseline remains
+
+Existing baseline already in Graffux:
+
+- ✅ `ImpastoEngine` and per-layer height state.
+- ✅ Brush-controlled height deposition.
+- ✅ Relief shading.
+- ✅ Live-preview/commit integration and dirty-region shading improvements from earlier work.
+
+Impasto-v2 items remain pending:
+
+- ⬜ Reservoir-volume/contact-driven height transfer.
+- ⬜ Brush pickup/removal of height/material.
+- ⬜ Wet leveling.
+- ⬜ Yield-like freeze / structure recovery.
+- ⬜ Substrate interaction.
+- ⬜ Wetness-driven roughness/specular response.
+- ⬜ Versioned persistence for all new canonical material channels or deterministic reconstruction from persisted commands.
+- ⬜ No-full-canvas live normal/material update path for the expanded material model.
+
+### Phase 6 — Coarse deformable tuft — ✅ foundation implemented ahead of material Phases 3–5
+
+The original material roadmap described this as a later phase. It is now one of the strongest completed pieces of this session; see the brush-mechanics checklist below for detail.
+
+### Phase 7 — Media profiles and artistic controls — ⬜ / 🟡
+
+- ⬜ Semantic media profiles such as Heavy Oil, Soft Oil, Acrylic, Gouache, Watercolour, Ink, Dry Bristle, and Marker-like legacy mode are not implemented as the material-engine product layer.
+- ⬜ The intended minimal artistic material vocabulary — Load, Wetness/Dilution, Flow/Body, Pickup, Drying, Thickness, Texture Interaction — is not fully exposed.
+- 🟡 Brush stiffness/splay mechanics now exist internally, but artist-facing tuning remains intentionally conservative until mechanics are stable.
+- ✅ The rule **colour is not medium** remains intact; selecting RGB colour does not silently assign pigment/viscosity semantics.
+
+---
+
+## B. Device-aware telemetry foundation — ✅
+
+Architecture implemented this session:
+
+```text
+raw device events
+→ device-specific telemetry interpreter
+→ values + availability + provenance + confidence
+→ canonical mechanical-intent frame
+→ brush physics
+```
+
+### High-quality stylus — ✅
+
+- ✅ Continuous pressure.
+- ✅ Tilt where available.
+- ✅ Orientation/azimuth where available.
+- ✅ Historical/coalesced samples.
+- ✅ High confidence only for signals the device actually exposes.
+
+### Basic stylus — ✅
+
+- ✅ Pressure-only styluses remain basic styluses even with good pressure sensors.
+- ✅ Missing tilt/orientation remain explicitly unavailable.
+- ✅ Missing axes are never fabricated.
+
+### Finger — ✅ foundation
+
+- ✅ Distinct modality rather than fake stylus data.
+- ✅ Touch contact geometry and pressure evidence where meaningful.
+- ✅ Touch ellipse/orientation evidence where available.
+- ✅ Motion, dwell, touchdown, and lift context remain available to mechanics.
+
+### Shared metadata/replay contract — ✅
+
+- ✅ Availability, confidence, and provenance survive serialization/replay.
+- ✅ Contact phase is carried in replayable telemetry.
+- ✅ Device attitude/presentation data is carried where available.
+- ✅ Legacy samples remain replay-compatible.
+- ✅ Device-aware telemetry and mechanics validation branches were merged, including the final telemetry-profile validation merge.
+
+Still useful to add later:
+
+- ⬜ Physical-device coverage matrix across representative premium stylus, pressure-only/basic stylus, and finger devices.
+- ⬜ End-to-end artist calibration/tuning data for confidence thresholds; the architecture is intentionally ready before those empirical constants are final.
+
+---
+
+## C. Brushstroke mechanics roadmap
+
+### M1 — Stateful contact mechanics — ✅ baseline implemented
+
+Implemented:
+
+- ✅ Speed-dependent bend.
+- ✅ Drag/rake direction.
+- ✅ Stiffness-controlled directional lag.
+- ✅ Direction-change hysteresis.
+- ✅ Recovery as motion slows.
+- ✅ Pressure/contact-driven compression target.
+- ✅ Tilt-driven lean target.
+- ✅ Confidence-gated orientation steering.
+- ✅ Contact-center drag.
+- ✅ Width/splay and elongation output.
+- ✅ Stateful rake/contact angle.
+- ✅ Canonical replay integration.
+- ✅ Incremental/live integration.
+- ✅ Telemetry confidence changes mechanical authority without destroying provenance.
+- ✅ Disabled/legacy configurations preserve the existing path.
+
+Remaining hardening:
+
+- 🟡 Artist tuning of the provisional pressure/tilt/orientation couplings.
+- 🟡 Representative physical-device validation rather than only hosted deterministic tests.
+
+### M2 — Stable coarse tuft topology and stateful bundle mechanics — ✅ foundation implemented
+
+Implemented:
+
+- ✅ Renderer-independent `BrushTuftConfig` / stable topology contract.
+- ✅ Explicit tuft-emission compatibility gate; old brushes do not split into tuft dabs by accident.
+- ✅ Stable deterministic identities with no RNG-based bristle scatter.
+- ✅ Ferrule-local root placement.
+- ✅ Width/contact weight, stiffness, morphology modifiers, cohesion/splay/bend/split/trailing factors.
+- ✅ Renderer-independent tuft-to-ordinary-`Dab` expansion; renderers remain dumb consumers of resolved geometry.
+- ✅ Same topology/emission path in canonical replay and incremental live generation.
+- ✅ Parent spacing remains authoritative so tuft count does not multiply path density.
+- ✅ Mask geometry and blot/extra stamps follow tuft expansion.
+- ✅ Persistent per-tuft mechanical state.
+- ✅ Damped bend/lag/recovery.
+- ✅ Stateful separation/cohesion.
+- ✅ Hysteretic split/rejoin transitions.
+- ✅ Touchdown/lift/reversal state.
+- ✅ Reversal persistence and temporary lag.
+- ✅ Live/replay parity tests for stateful tuft behavior.
+- ✅ Structured multi-contact output rather than random scatter.
+
+### Physical bristle/bundle population law — ✅
+
+This was a major additional requirement added during the session and is now landed:
+
+- ✅ Real/bristle-scale diameter is fixed; increasing brush size increases represented population rather than scaling each hair/bundle up.
+- ✅ Mechanical bundle diameter is fixed independently of parent brush radius.
+- ✅ Population count is resolved from projected brush-tip area and bounded by configured min/max counts.
+- ✅ Physical tuft layout is two-dimensional rather than one synthetic row.
+- ✅ Elliptical/radial families use deterministic packed layouts; flat/rake families use deterministic grid-like layouts.
+- ✅ Brush size is frozen for physical root spacing across the stroke; pressure/taper can deform/contact the population but does not shrink the ferrule's roots.
+- ✅ Device roll/twist rotates the ferrule/root frame.
+- ✅ Stroke direction bends/trails contacts but does not rotate the ferrule layout with the path.
+- ✅ Pitch/yaw/lean biases contact-first engagement and contact weight.
+- ✅ Fixed-diameter bundle dabs do not inherit the parent broad/chisel aspect as fake giant hairs.
+- ✅ Size-law, projected topology, root-pose independence, and live/replay parity tests are landed.
+- ✅ Physical population validation PRs were merged, including alternate-runner validation.
+
+### M3 — Brush morphology / archetypes — ✅ initial set implemented
+
+Initial physical morphologies landed and validated:
+
+- ✅ Round.
+- ✅ Flat.
+- ✅ Filbert.
+- ✅ Rigger/Liner.
+- ✅ Fan.
+- ✅ Rake/Comb.
+
+The morphology layer changes stable topology and mechanical coefficients rather than merely swapping a static bitmap mask.
+
+Remaining:
+
+- 🟡 Artist-facing tuning of each archetype's stiffness/cohesion/splay/bend/split/trailing defaults.
+- 🟡 More visual golden/reference strokes per archetype on representative hardware.
+
+### M4 — Touchdown, dwell, cornering, reversal, and lift-off — 🟡
+
+Implemented:
+
+- ✅ Explicit touchdown mechanics.
+- ✅ Compression/stab state.
+- ✅ Transition toward drag as bend develops.
+- ✅ Stateful corner lag through persistent tuft orientation.
+- ✅ Reversal detection, split retention, and snap toward the new direction.
+- ✅ Lift-off release and convergence/recovery behavior.
+- ✅ Existing blot/dwell engine behavior remains available.
+
+Still pending/refinement:
+
+- ⬜ Per-tuft dwell deformation that is more physically explicit than the current touchdown/hold + existing blot/dwell behavior.
+- 🟡 Fast-flick versus slow deliberate lift needs more artist-tuned differentiation.
+- 🟡 Lifecycle inference for basic stylus/finger should continue to be tuned from real-device traces.
+
+### M5 — Intent-model refinement — 🟡
+
+The telemetry architecture is already present; this phase is now about replacing provisional mappings with better empirically informed ones.
+
+Current provisional mappings already exist for:
+
+- ✅ pressure → compression/splay/contact authority;
+- ✅ tilt/lean → asymmetric engagement and bend/contact bias;
+- ✅ orientation/device presentation → ferrule/presentation intent where available;
+- ✅ finger contact evidence → touch-specific intent without pretending it is stylus tilt;
+- ✅ kinematic disagreement → stateful lag/hysteresis instead of instantaneous angle jumps.
+
+Still pending:
+
+- ⬜ Empirical tuning/calibration from a representative device set and artist reference strokes.
+- ⬜ Final per-morphology intent curves after visual evaluation.
+
+### M6 — Native/GPU and performance hardening — 🟡
+
+Already true:
+
+- ✅ Mechanics resolve before rendering.
+- ✅ CPU/Vulkan stamp paths consume resolved geometry rather than reinterpreting raw pressure/tilt/orientation.
+- ✅ Incremental/live mechanics operate on new stroke work rather than recomputing total stroke history.
+- ✅ Physical tuft counts are bounded.
+- ✅ Basic/static brush remains the compatibility/latency baseline.
+
+Still required:
+
+- ⬜ Real-device Adreno/Mali performance matrix for the new physical population at representative brush sizes.
+- ⬜ Capability-tier policy that can reduce mechanical tuft count/solver complexity while preserving deterministic semantics.
+- ⬜ Explicit performance thresholds for the physical population based on measured hardware data.
+- ⬜ Real stylus/finger hardware validation of hover/contact presentation and parity.
+
+---
+
+## D. Hover / UI / editor integration — 🟡
+
+Implemented:
+
+- ✅ Size-aware brush-tip topology model used by the physical bristle mechanics.
+- ✅ Topology-aware hover/preview geometry can show brush hull/cells and presentation.
+- ✅ Editor routing sends physical bristle brushes through the mechanics path.
+- ✅ Live physical-brush hover/presentation wiring landed.
+
+Still pending:
+
+- ⬜ Full artist-facing material controls for Load/Pickup/Pigment Mixing after CPU/GPU parity.
+- 🟡 Mechanical controls should stay minimal until archetype defaults are visually tuned; do not expose every solver coefficient as a permanent UI wall.
+- ⬜ Media-profile selection/product UI for the Phase 7 material system.
+
+---
+
+## E. Compatibility and determinism contract — ✅ foundation, continuous gate
+
+These are permanent requirements, not one-time tasks:
+
+- ✅ Legacy behavior is the default unless a brush/material feature explicitly opts in.
+- ✅ Tuft emission is explicitly gated.
+- ✅ Physical population is activated by the physical bristle-tip configuration rather than silently changing legacy brush footprints.
+- ✅ Missing stylus axes remain unavailable rather than synthesized.
+- ✅ Finger input remains a distinct modality.
+- ✅ Live and canonical paths share the same mechanical/topology logic.
+- ✅ Renderers receive resolved geometry; they do not reinterpret device telemetry.
+- ✅ Deterministic topology uses no RNG scatter.
+- ✅ Existing pigment/reservoir features preserve legacy defaults when disabled.
+- ✅ Prediction remains presentation-only; predicted samples do not become canonical paint.
+- 🟡 Continue adding regression fixtures whenever a new physical/material feature is introduced.
+
+---
+
+## F. Validation / test matrix from this session
+
+Implemented or substantially covered:
+
+- ✅ legacy/default compatibility when new mechanics are disabled;
+- ✅ deterministic telemetry classification and metadata preservation;
+- ✅ high-quality stylus/basic stylus/finger profile separation;
+- ✅ stable tuft identities;
+- ✅ renderer-ready tuft expansion;
+- ✅ explicit split-emission gating;
+- ✅ stateful tuft lag and recovery;
+- ✅ split/rejoin hysteresis;
+- ✅ touchdown/reversal/lift mechanics;
+- ✅ phase-aware live/replay parity;
+- ✅ morphology live/replay parity;
+- ✅ physical brush size law and projected topology;
+- ✅ fixed-diameter physical bundles;
+- ✅ ferrule/root pose independence from drag heading;
+- ✅ pigment CPU reference/golden vectors;
+- ✅ pigment Vulkan build integration;
+- ✅ deterministic reservoir charge/depletion;
+- ✅ deterministic CPU reservoir pickup and compatibility gate.
+
+Still useful/required:
+
+- ⬜ real-device CPU ↔ Vulkan pigment parity execution;
+- ⬜ native/Vulkan reservoir pickup + real-device parity;
+- ⬜ explicit end-to-end finger-contact-change tuft geometry parity fixture;
+- ⬜ larger visual golden suite for straight drag, 90° corner, 180° reversal, pressure ramp, tilt sweep, hover roll/lean, and each morphology;
+- ⬜ physical performance baselines on Adreno high/mid and Mali high/mid tiers;
+- ⬜ material-substrate/wetness/Impasto-v2 fixtures when those phases begin.
+
+---
+
+# Remaining prioritized TODO
+
+This is the recommended order from the current state, not the original dependency order.
+
+1. **Finish Phase 2 backend parity:** implement native/Vulkan reservoir depletion + pickup using the same `BrushReservoirModel` semantics.
+2. Add **CPU ↔ Vulkan reservoir/pickup parity instrumentation** and run pigment + reservoir parity on real Android Vulkan hardware.
+3. Only after parity, expose the minimal material controls: **Load / Pickup / Pigment Mixing**.
+4. Complete the remaining Phase-0 product/measurement gaps: explicit material/media profile boundary, consolidated material golden fixtures, and physical-device latency/performance baselines.
+5. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
+6. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
+7. Add capability-tier/performance policy for physical tuft population and verify bounded cost on representative Adreno/Mali devices.
+8. Begin **Phase 3 substrate-aware deposition** using the now-stable physical contact topology.
+9. Then add **Phase 4 persistent wetness + bounded active-tile transport**.
+10. Then evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction and wet/dry optics.
+11. Build **Phase 7 semantic media profiles/product controls** after the underlying mechanics/material channels have stable behavior.
+12. Keep full spectral/Kubelka-Munk, full individual-bristle PBD/DER, FLIP/PIC/pressure-projected fluids, porous-paper capillary simulation, and Gaussian-splat material research behind explicit evidence that the cheaper model cannot produce the required marks.
+
+Do not start a second wet-mix/pickup backend beside Color Smudge, do not make renderers reinterpret raw telemetry, and do not trade bounded input latency for higher simulation fidelity.
+
+---
+
+# Research tracks — deliberately deferred
+
+### R1 — Full spectral / Kubelka-Munk mixing — 🔬
+
+Only prototype if the bounded pigment mixer cannot meet visual goals.
+
+### R2 — Full PBD/DER individual-bristle simulation — 🔬
+
+Only prototype if the coarse stable bundle system cannot produce the required splay/split/contact marks.
+
+### R3 — FLIP/PIC or pressure-projected fluid solver — 🔬
+
+Only prototype if bounded local wetness transport visibly fails.
+
+### R4 — Porous-paper capillary/evaporation model — 🔬
+
+A future specialized watercolor path, not mandatory overhead for every medium.
+
+### R5 — 3D Gaussian-splat / photogrammetric brush material — 🔬
+
+Experimental rendering/content-generation work only; no current critical-path dependency.
+
+---
+
+# Production-complete gates still open
+
+Even though a large amount of this session's mechanics is now implemented, the following must remain explicit before calling the overall system production-complete:
+
+- real Android Vulkan parity for pigment mode;
+- native/Vulkan reservoir pickup and parity;
+- representative physical-device telemetry validation;
+- physical tuft population performance/capability tiers;
+- artist tuning/reference strokes for morphology and lifecycle behavior;
+- substrate/wetness/Impasto-v2 material phases if those features are advertised;
+- project persistence/reconstruction for any new canonical material channels;
+- media-profile/product UX after engine behavior is stable.
+
+The target remains a **responsive, deterministic, phone-first material-aware 2.5D paint engine**. Literal physics is optional; convincing marks, stable replay, renderer parity, and bounded latency are not.
