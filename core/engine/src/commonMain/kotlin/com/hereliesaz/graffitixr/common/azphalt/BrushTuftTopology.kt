@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.cos
@@ -7,6 +8,21 @@ import kotlin.math.exp
 import kotlin.math.sin
 
 private const val TUFT_DEG_TO_RAD = 0.017453292f
+
+/**
+ * Coarse physical brush families. CUSTOM is the exact historical topology and remains the default
+ * so existing serialized brushes and replay geometry do not change merely by loading newer code.
+ */
+@Serializable
+enum class BrushMorphology {
+    @SerialName("custom") CUSTOM,
+    @SerialName("round") ROUND,
+    @SerialName("flat") FLAT,
+    @SerialName("filbert") FILBERT,
+    @SerialName("rigger") RIGGER,
+    @SerialName("fan") FAN,
+    @SerialName("rake") RAKE,
+}
 
 @Serializable
 data class BrushTuftConfig(
@@ -43,6 +59,8 @@ data class BrushTuftConfig(
     /** Temporary angular lag allowed while a reversal impulse is unloading. */
     val reversalMaxLagDeg: Float = 140f,
     val emitTuftDabs: Boolean = false,
+    /** Stable internal tuft arrangement/deformation family. CUSTOM preserves legacy mechanics. */
+    val morphology: BrushMorphology = BrushMorphology.CUSTOM,
 ) {
     fun sanitized(): BrushTuftConfig {
         val split = splitThreshold.coerceIn(0.01f, 1f)
@@ -81,6 +99,24 @@ data class BrushTuftIdentity(
     val id: Int,
     val rootLateralFraction: Float,
     val stiffnessScale: Float,
+    /** Ferrule-local forward/back root placement in brush-diameter fractions. */
+    val rootLongitudinalFraction: Float = 0f,
+    /** Per-bundle width before touchdown/lift scaling. */
+    val widthScale: Float = 1f,
+    /** Stable local presentation angle; fan tufts use this to radiate rather than form one row. */
+    val angleBiasDeg: Float = 0f,
+    /** Local multiplier on global cohesion. */
+    val cohesionScale: Float = 1f,
+    /** Local multiplier on splay response. */
+    val splayScale: Float = 1f,
+    /** Local multiplier on bend loading. */
+    val bendScale: Float = 1f,
+    /** Local multiplier on split/breakaway loading. */
+    val splitScale: Float = 1f,
+    /** Local multiplier on differential trailing displacement. */
+    val trailScale: Float = 1f,
+    /** Stable normalized distance from the topology center, independent of morphology span. */
+    val edgeWeight: Float = 0f,
 )
 
 data class BrushTuftMechanicalState(
@@ -118,6 +154,9 @@ data class BrushTuftContact(
     val touchdownAmount: Float = 0f,
     val liftAmount: Float = 0f,
     val reversalImpulse: Float = 0f,
+    /** Diagnostics/future morphology tools; appended to preserve positional constructor callers. */
+    val rootLongitudinalFraction: Float = 0f,
+    val morphology: BrushMorphology = BrushMorphology.CUSTOM,
 )
 
 data class BrushTuftMechanicalStep(
@@ -126,6 +165,10 @@ data class BrushTuftMechanicalStep(
 )
 
 object BrushTuftTopology {
+    /**
+     * Stable deterministic roots for one physical brush family. No RNG participates in morphology.
+     * CUSTOM intentionally reproduces the pre-morphology one-dimensional layout exactly.
+     */
     fun layout(config: BrushTuftConfig): List<BrushTuftIdentity> {
         val cfg = config.sanitized()
         if (!cfg.isActive()) return emptyList()
@@ -133,9 +176,115 @@ object BrushTuftTopology {
         val halfSpan = cfg.rootSpan * 0.5f
         return List(count) { index ->
             val normalized = if (count == 1) 0f else index.toFloat() / (count - 1).toFloat()
-            val root = (normalized * 2f - 1f) * halfSpan
-            val edgeT = if (halfSpan > 0f) (abs(root) / halfSpan).coerceIn(0f, 1f) else 0f
-            BrushTuftIdentity(index, root, 1f - edgeT * 0.2f)
+            val signedT = normalized * 2f - 1f
+            val edgeT = if (halfSpan > 0f) abs(signedT).coerceIn(0f, 1f) else 0f
+            morphologyIdentity(cfg, index, signedT, edgeT, halfSpan)
+        }
+    }
+
+    private fun morphologyIdentity(
+        cfg: BrushTuftConfig,
+        index: Int,
+        signedT: Float,
+        edgeT: Float,
+        halfSpan: Float,
+    ): BrushTuftIdentity {
+        val edgeSq = edgeT * edgeT
+        return when (cfg.morphology) {
+            BrushMorphology.CUSTOM -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan,
+                stiffnessScale = 1f - edgeT * 0.2f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.ROUND -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan * 0.88f,
+                stiffnessScale = 1f - edgeT * 0.16f,
+                rootLongitudinalFraction = (1f - edgeSq) * cfg.rootSpan * 0.055f,
+                widthScale = 0.82f + (1f - edgeSq) * 0.18f,
+                cohesionScale = 1.08f,
+                splayScale = 0.82f + edgeT * 0.18f,
+                bendScale = 0.94f + edgeT * 0.08f,
+                splitScale = 0.78f + edgeT * 0.2f,
+                trailScale = 0.88f + edgeT * 0.12f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.FLAT -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan,
+                stiffnessScale = 0.98f - edgeT * 0.06f,
+                widthScale = 1f,
+                cohesionScale = 1.12f,
+                splayScale = 0.72f + edgeT * 0.12f,
+                bendScale = 0.9f,
+                splitScale = 0.7f + edgeT * 0.12f,
+                trailScale = 0.82f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.FILBERT -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan * 0.96f,
+                stiffnessScale = 1f - edgeT * 0.22f,
+                rootLongitudinalFraction = (1f - edgeSq) * cfg.rootSpan * 0.085f,
+                widthScale = 0.68f + (1f - edgeSq) * 0.32f,
+                cohesionScale = 0.98f,
+                splayScale = 0.92f + edgeT * 0.22f,
+                bendScale = 0.96f + edgeT * 0.16f,
+                splitScale = 0.9f + edgeT * 0.28f,
+                trailScale = 0.92f + edgeT * 0.24f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.RIGGER -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan * 0.3f,
+                stiffnessScale = 0.84f - edgeT * 0.12f,
+                rootLongitudinalFraction = (1f - edgeSq) * cfg.rootSpan * 0.14f,
+                widthScale = 0.52f + (1f - edgeT) * 0.18f,
+                cohesionScale = 1.06f,
+                splayScale = 0.48f + edgeT * 0.22f,
+                bendScale = 1.22f + edgeT * 0.08f,
+                splitScale = 0.62f + edgeT * 0.12f,
+                trailScale = 1.35f + edgeT * 0.15f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.FAN -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan * 1.12f,
+                stiffnessScale = 0.88f - edgeT * 0.16f,
+                rootLongitudinalFraction = -edgeSq * cfg.rootSpan * 0.035f,
+                widthScale = 0.66f + (1f - edgeT) * 0.2f,
+                angleBiasDeg = signedT * 22f,
+                cohesionScale = 0.72f,
+                splayScale = 1.2f + edgeT * 0.18f,
+                bendScale = 1.02f + edgeT * 0.12f,
+                splitScale = 1.18f + edgeT * 0.22f,
+                trailScale = 1.05f + edgeT * 0.15f,
+                edgeWeight = edgeT,
+            )
+
+            BrushMorphology.RAKE -> BrushTuftIdentity(
+                id = index,
+                rootLateralFraction = signedT * halfSpan,
+                stiffnessScale = 0.94f - edgeT * 0.04f,
+                rootLongitudinalFraction = if (index % 2 == 0) {
+                    cfg.rootSpan * 0.025f
+                } else {
+                    -cfg.rootSpan * 0.025f
+                },
+                widthScale = 0.54f,
+                cohesionScale = 0.62f,
+                splayScale = 0.94f + edgeT * 0.12f,
+                bendScale = 0.94f,
+                splitScale = 1.32f + edgeT * 0.16f,
+                trailScale = 0.9f,
+                edgeWeight = edgeT,
+            )
         }
     }
 
@@ -229,23 +378,29 @@ object BrushTuftTopology {
     )
 
     private fun targets(identity: BrushTuftIdentity, contact: BrushContactState, cfg: BrushTuftConfig): TuftTargets {
-        val halfSpan = cfg.rootSpan * 0.5f
-        val edgeT = if (halfSpan > 0f) (abs(identity.rootLateralFraction) / halfSpan).coerceIn(0f, 1f) else 0f
-        val freeMotion = 1f - cfg.cohesion
-        val splayGain = 1f + contact.splay * cfg.splayResponse * (0.35f + freeMotion * 0.65f)
+        val edgeT = identity.edgeWeight.coerceIn(0f, 1f)
+        val localCohesion = (cfg.cohesion * identity.cohesionScale).coerceIn(0f, 1f)
+        val freeMotion = 1f - localCohesion
+        val splayGain = 1f + contact.splay * cfg.splayResponse * identity.splayScale *
+            (0.35f + freeMotion * 0.65f)
         val lateral = identity.rootLateralFraction * splayGain
         val cohesiveSeparation = lateral - identity.rootLateralFraction
-        val softness = 1f - identity.stiffnessScale
-        val bend = (contact.bend * (1f + softness * 0.2f)).coerceIn(0f, 1f)
-        val trailing = bend * cfg.bendDifferential * softness * (0.25f + freeMotion * 0.75f)
-        val rawLoad = (contact.splay * (1f - cfg.splitBendWeight) + contact.bend * cfg.splitBendWeight).coerceIn(0f, 1f)
+        val softness = 1f - identity.stiffnessScale.coerceIn(0f, 1f)
+        val bend = (
+            contact.bend * identity.bendScale * (1f + softness * 0.2f)
+            ).coerceIn(0f, 1f)
+        val trailing = bend * cfg.bendDifferential * identity.trailScale * softness *
+            (0.25f + freeMotion * 0.75f)
+        val rawLoad = (
+            contact.splay * (1f - cfg.splitBendWeight) + contact.bend * cfg.splitBendWeight
+            ).coerceIn(0f, 1f)
         val edgeExposure = if (edgeT <= 1e-4f) 0f else 0.35f + edgeT * 0.65f
-        val cohesionResistance = 1f - cfg.cohesion * 0.45f
+        val cohesionResistance = 1f - localCohesion * 0.45f
         return TuftTargets(
             bend = bend,
             cohesiveSeparationFraction = cohesiveSeparation,
             trailingFraction = trailing,
-            splitLoad = (rawLoad * edgeExposure * cohesionResistance).coerceIn(0f, 1f),
+            splitLoad = (rawLoad * edgeExposure * cohesionResistance * identity.splitScale).coerceIn(0f, 1f),
             edgeT = edgeT,
         )
     }
@@ -393,14 +548,21 @@ object BrushTuftTopology {
         reversalImpulse: Float,
         cfg: BrushTuftConfig,
     ): BrushTuftContact {
-        val angleRad = dragAngleDeg * TUFT_DEG_TO_RAD
+        val localAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg)
+        val angleRad = localAngleDeg * TUFT_DEG_TO_RAD
         val dragX = cos(angleRad)
         val dragY = sin(angleRad)
         val lateralX = -dragY
         val lateralY = dragX
-        val x = lateralX * lateralFraction - dragX * trailingFraction
-        val y = lateralY * lateralFraction - dragY * trailingFraction
-        val baseRadiusScale = (cfg.tuftWidthScale / cfg.count.toFloat()).coerceIn(0.04f, 1f)
+        val x = lateralX * lateralFraction +
+            dragX * identity.rootLongitudinalFraction -
+            dragX * trailingFraction
+        val y = lateralY * lateralFraction +
+            dragY * identity.rootLongitudinalFraction -
+            dragY * trailingFraction
+        val baseRadiusScale = (
+            cfg.tuftWidthScale * identity.widthScale / cfg.count.toFloat()
+            ).coerceIn(0.02f, 1f)
         val touchdownScale = 1f + touchdownAmount * cfg.touchdownCompression
         val liftScale = lerp(1f, cfg.liftRadiusFloor, liftAmount)
         return BrushTuftContact(
@@ -410,12 +572,14 @@ object BrushTuftTopology {
             offsetYFraction = y,
             radiusScale = (baseRadiusScale * touchdownScale * liftScale).coerceAtLeast(0.01f),
             alphaScale = 1f,
-            angleOffsetDeg = wrapSignedDegrees(dragAngleDeg - globalDragAngleDeg),
+            angleOffsetDeg = wrapSignedDegrees(localAngleDeg - globalDragAngleDeg),
             stiffnessScale = identity.stiffnessScale,
             splitAmount = splitAmount,
             touchdownAmount = touchdownAmount,
             liftAmount = liftAmount,
             reversalImpulse = reversalImpulse,
+            rootLongitudinalFraction = identity.rootLongitudinalFraction,
+            morphology = cfg.morphology,
         )
     }
 
