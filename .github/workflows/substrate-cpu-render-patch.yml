@@ -1,0 +1,33 @@
+name: Substrate CPU Renderer Patch
+
+on:
+  push:
+    branches: [ "feat/substrate-cpu-render" ]
+    paths: [ ".github/workflows/substrate-cpu-render-patch.yml" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: macos-15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-cpu-render
+
+      - name: Apply guarded renderer patch
+        run: python3 scripts/patch_substrate_cpu_renderer.py
+
+      - name: Validate patch shape
+        run: git diff --check
+
+      - name: Commit product patch and remove temporary machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/StampBrushRenderer.kt
+          git rm scripts/patch_substrate_cpu_renderer.py .github/workflows/substrate-cpu-render-patch.yml
+          git commit -m "feat: apply substrate deposition in CPU stamp renderer"
+          git push origin HEAD:feat/substrate-cpu-render
