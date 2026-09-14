@@ -1,0 +1,59 @@
+name: Substrate Vulkan Parity Patch
+
+on:
+  push:
+    branches: [ "feat/substrate-vulkan-parity" ]
+    paths:
+      - "scripts/patch_substrate_vulkan_parity.py"
+      - ".github/workflows/substrate-vulkan-parity-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-vulkan-parity
+          fetch-depth: 0
+
+      - name: Apply guarded patch
+        run: python3 scripts/patch_substrate_vulkan_parity.py
+
+      - name: Validate product diff
+        run: |
+          git diff --check
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'core/nativebridge/src/main/cpp/include/VulkanStampEngine.h',
+              'core/nativebridge/src/main/cpp/VulkanStampEngine.cpp',
+              'core/nativebridge/src/main/cpp/VulkanStampDynamicsJNI.cpp',
+              'core/nativebridge/src/main/cpp/shaders/stamp.comp',
+              'core/nativebridge/src/main/cpp/shaders/stamp_masked.comp',
+              'core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt',
+              'core/nativebridge/src/androidTest/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngineInstrumentedTest.kt',
+          }
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          if changed != expected:
+              raise SystemExit(f'unexpected product diff: {sorted(changed)}')
+          PY
+
+      - name: Commit product patch and remove temporary machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/nativebridge/src/main/cpp/include/VulkanStampEngine.h \
+                  core/nativebridge/src/main/cpp/VulkanStampEngine.cpp \
+                  core/nativebridge/src/main/cpp/VulkanStampDynamicsJNI.cpp \
+                  core/nativebridge/src/main/cpp/shaders/stamp.comp \
+                  core/nativebridge/src/main/cpp/shaders/stamp_masked.comp \
+                  core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt \
+                  core/nativebridge/src/androidTest/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngineInstrumentedTest.kt
+          git commit -m "feat: add Vulkan substrate deposition parity"
+          git rm scripts/patch_substrate_vulkan_parity.py .github/workflows/substrate-vulkan-parity-patch.yml
+          git commit -m "chore: remove temporary Vulkan substrate patch machinery"
+          git push origin HEAD:feat/substrate-vulkan-parity
