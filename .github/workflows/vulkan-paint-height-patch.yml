@@ -30,19 +30,26 @@ jobs:
           cache-read-only: true
           dependency-graph: disabled
 
-      - name: Normalize wrapped Kotlin anchor
+      - name: Normalize guarded patch anchors
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('patch_vulkan_paint_height.py')
           text = path.read_text()
+
           old_a = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean,\\n',"
           new_a = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean,\\n',"
           old_b = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
           new_b = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
           if text.count(old_a) != 1 or text.count(old_b) != 1:
               raise SystemExit('wrapped Kotlin anchor normalizer drifted')
-          path.write_text(text.replace(old_a, new_a).replace(old_b, new_b))
+          text = text.replace(old_a, new_a).replace(old_b, new_b)
+
+          old_guard = "    actual = text.count(old)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
+          new_guard = "    actual = text.count(old)\n    if label == 'plain binding 3':\n        if actual < 1:\n            raise RuntimeError(f'{label}: expected at least one occurrence, found {actual}')\n        return text.replace(old, new, 1)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
+          if text.count(old_guard) != 1:
+              raise SystemExit('plain descriptor scope normalizer drifted')
+          path.write_text(text.replace(old_guard, new_guard))
           PY
 
       - name: Apply guarded product patch
@@ -62,6 +69,7 @@ jobs:
               'core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt',
           }
           actual = set(filter(None, subprocess.check_output(['git','diff','--name-only','HEAD'], text=True).splitlines()))
+          actual.discard('patch_vulkan_paint_height.py')
           if actual != expected:
               raise SystemExit(f'unexpected product diff: {sorted(actual)}')
           print('exact product diff:', *sorted(actual), sep='\n  ')
