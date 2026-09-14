@@ -49,6 +49,8 @@ data class BrushContactConfig(
     val tiltElongation: Float = 0.22f,
     /** Optional stable coarse bristle-bundle topology. Disabled by default for exact compatibility. */
     val tufts: BrushTuftConfig = BrushTuftConfig(),
+    /** Physical tip family + fixed-diameter bristle population model used by paint and hover preview. */
+    val tipGeometry: BrushTipGeometryConfig = BrushTipGeometryConfig(),
     /** Optional phone/tablet attitude + manual 3D tip-pose controls. */
     val devicePresentation: BrushDevicePresentationConfig = BrushDevicePresentationConfig(),
 ) {
@@ -68,6 +70,7 @@ data class BrushContactConfig(
         pressureSplay = pressureSplay.coerceIn(0f, 1f),
         tiltElongation = tiltElongation.coerceIn(0f, 0.95f),
         tufts = tufts.sanitized(),
+        tipGeometry = tipGeometry.sanitized(),
         devicePresentation = devicePresentation.sanitized(),
     )
 
@@ -138,12 +141,6 @@ data class BrushMechanicalStep(
     val contact: BrushContactState,
 )
 
-/**
- * Deterministic incremental brush-mechanics model. Kinematics and device-specific telemetry are
- * fused into mechanical targets, then stiffness/damping/hysteresis decide how the brush actually
- * responds. Signal confidence is part of the calculation, so missing/basic/finger telemetry does
- * not receive the same authority as a high-quality stylus.
- */
 object BrushContactModel {
     fun step(
         sample: BrushSample,
@@ -190,13 +187,7 @@ object BrushContactModel {
                 lastUptimeMillis = sample.uptimeMillis,
                 presentation = presentation,
             )
-            return withTuftMechanics(
-                global = global,
-                previousTufts = emptyList(),
-                movementHeadingDeg = heading,
-                cfg = cfg,
-                dtMs = 0f,
-            )
+            return withTuftMechanics(global, emptyList(), heading, cfg, 0f)
         }
 
         val dtMs = (sample.uptimeMillis - previous.lastUptimeMillis)
@@ -237,13 +228,7 @@ object BrushContactModel {
             lastUptimeMillis = sample.uptimeMillis,
             presentation = presentation,
         )
-        return withTuftMechanics(
-            global = global,
-            previousTufts = previous.tufts,
-            movementHeadingDeg = heading,
-            cfg = cfg,
-            dtMs = dtMs,
-        )
+        return withTuftMechanics(global, previous.tufts, heading, cfg, dtMs)
     }
 
     private fun withTuftMechanics(
