@@ -226,7 +226,20 @@ bool inLayer(ivec2 p) {
 }
 
 vec4 sourceTexel(ivec2 p) {
-    return sampleMergedEnabled() ? texelFetch(sampleSourceTex, p, 0) : imageLoad(layerImage, p);
+    if (sampleMergedEnabled()) {
+        // The Kotlin bridge uploads Sample Merged from straight ARGB ints into straight RGBA bytes.
+        // Keep that path untouched: weightedSourceAverage() must apply alpha exactly once below.
+        return texelFetch(sampleSourceTex, p, 0);
+    }
+
+    // layerImage stores premultiplied RGBA. ColorSmudgeEngine.weightedAverage() consumes straight
+    // ARGB from Bitmap.getPixels(), then applies sample alpha once as part of the spatial reduction.
+    // Convert the native layer texel back to straight RGB here so the shared reduction below does
+    // not multiply already-premultiplied RGB by alpha a second time. Fully transparent pixels have
+    // no recoverable colour in the premultiplied image and correctly collapse to transparent black.
+    vec4 premultiplied = imageLoad(layerImage, p);
+    if (premultiplied.a <= 0.0) return vec4(0.0);
+    return vec4(clamp(premultiplied.rgb / premultiplied.a, 0.0, 1.0), premultiplied.a);
 }
 
 // Matches ColorSmudgeEngine.weightedAverage(): alpha is spatially averaged, RGB is alpha-weighted
