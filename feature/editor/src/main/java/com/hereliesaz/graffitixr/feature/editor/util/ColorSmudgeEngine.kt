@@ -132,6 +132,10 @@ object ColorSmudgeEngine {
         val colorRate: Float,
         val opacity: Float,
         val smudgeRadius: Float,
+        /** Sensor-only Color Rate multiplier, before reservoir load is applied. */
+        val colorRateMultiplier: Float = 1f,
+        /** Arc-length increment from the preceding resolved dab. */
+        val distanceDeltaPx: Float = 0f,
     )
 
     /** One ordered carrier lifetime. */
@@ -142,13 +146,14 @@ object ColorSmudgeEngine {
         val colorRate: Float,
         val opacity: Float,
         val smudgeRadius: Float,
+        val colorRateMultiplier: Float,
     )
 
     /**
      * Resolves the exact resampling and sensor curves the CPU implementation uses into renderer-
      * neutral dabs. Vulkan consumes this plan rather than reimplementing input/sensor semantics.
-     * Reservoir pickup itself is canvas-dependent and therefore intentionally is not represented
-     * by this plan yet; [requiresCpuReservoirSimulation] gates those strokes to the CPU reference.
+     * Canvas-dependent reservoir pickup is resolved natively from the same per-dab sensor
+     * multiplier and distance increment, so CPU and Vulkan evolve the same stroke-local state.
      */
     fun resolvePlans(
         stroke: List<Offset>,
@@ -173,14 +178,16 @@ object ColorSmudgeEngine {
                     colorRate = r.colorRate,
                     opacity = r.opacity,
                     smudgeRadius = r.smudgeRadius,
+                    colorRateMultiplier = r.colorRateMultiplier,
+                    distanceDeltaPx = if (index == 0) 0f else step,
                 )
             })
         }
         return listOf(one(stroke, samples))
     }
 
-    /** True while reservoir pickup has no native/Vulkan equivalent and must use the CPU reference. */
-    internal fun requiresCpuReservoirSimulation(settings: Settings): Boolean =
+    /** True when pickup makes the brush carry mutable material state across dabs. */
+    internal fun usesStatefulReservoir(settings: Settings): Boolean =
         settings.pickupRate.coerceIn(0f, 1f) > 0f
 
     /**
@@ -262,6 +269,7 @@ object ColorSmudgeEngine {
                 charge,
                 settings.opacity.coerceIn(0f, 1f),
                 settings.smudgeRadius.coerceAtLeast(0.05f),
+                1f,
             )
         }
         val dynamic = BrushSensorEngine.resolve(
@@ -276,6 +284,7 @@ object ColorSmudgeEngine {
             (charge * dynamic.colorRateMultiplier).coerceIn(0f, 1f),
             (settings.opacity * dynamic.opacityMultiplier).coerceIn(0f, 1f),
             (settings.smudgeRadius * dynamic.smudgeRadiusMultiplier).coerceAtLeast(0.05f),
+            dynamic.colorRateMultiplier.coerceAtLeast(0f),
         )
     }
 
@@ -294,7 +303,7 @@ object ColorSmudgeEngine {
     ) {
         val carrier = IntArray(kernel.size)
         val start = path.first().position
-        val pickupEnabled = requiresCpuReservoirSimulation(settings)
+        val pickupEnabled = usesStatefulReservoir(settings)
         var reservoir = initialReservoir(settings)
         var previousDistancePx = 0f
 
@@ -389,7 +398,7 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         step: Float,
     ) {
-        val pickupEnabled = requiresCpuReservoirSimulation(settings)
+        val pickupEnabled = usesStatefulReservoir(settings)
         var reservoir = initialReservoir(settings)
         var previousDistancePx = 0f
 
