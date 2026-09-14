@@ -3,7 +3,9 @@ name: Material Controls Patch
 on:
   push:
     branches: [ "feat/material-controls" ]
-    paths: [ ".github/workflows/material-controls-patch.yml" ]
+    paths:
+      - ".github/workflows/material-controls-patch.yml"
+      - "scripts/patch_material_controls.py"
 
 permissions:
   contents: write
