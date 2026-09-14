@@ -69,12 +69,16 @@ internal class DrawingEngine(
         strokes: List<StrokeCommand>,
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
+        substrate: SubstrateRenderContext? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
         for (stroke in strokes) {
             val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
-            else applyTool(current, stroke, replaceExisting = true, otherLayers = otherLayers, heightMap = heightMap)
+            else applyTool(
+                current, stroke, replaceExisting = true, otherLayers = otherLayers,
+                heightMap = heightMap, substrate = substrate,
+            )
             if (next !== current && current !== base) current.recycle()
             current = next
         }
@@ -86,9 +90,13 @@ internal class DrawingEngine(
         command: StrokeCommand,
         otherLayers: List<Layer> = emptyList(),
         heightMap: FloatArray? = null,
+        substrate: SubstrateRenderContext? = null,
     ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
-        else applyTool(base, command, replaceExisting = false, otherLayers = { otherLayers }, heightMap = heightMap)
+        else applyTool(
+            base, command, replaceExisting = false, otherLayers = { otherLayers },
+            heightMap = heightMap, substrate = substrate,
+        )
 
     private suspend fun applyTool(
         bitmap: Bitmap,
@@ -96,6 +104,7 @@ internal class DrawingEngine(
         replaceExisting: Boolean,
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
+        substrate: SubstrateRenderContext? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -202,13 +211,13 @@ internal class DrawingEngine(
                 StampBrushRenderer.paintDabs(
                     stampCanvas, movementDabs, brush, stroke.brushColor, stroke.flow,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                    stroke.secondaryBrushColor,
+                    stroke.secondaryBrushColor, substrate = substrate,
                 )
                 if (heldDabs.isNotEmpty()) {
                     StampBrushRenderer.paintDabs(
                         stampCanvas, heldDabs, brush, stroke.brushColor, stroke.flow,
                         stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                        stroke.secondaryBrushColor, allowBuildUp = true,
+                        stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
                     )
                 }
                 paintedDabs = movementDabs + heldDabs
@@ -217,7 +226,7 @@ internal class DrawingEngine(
                     stampCanvas, pts, brush, stroke.brushColor,
                     stroke.brushSize * brushScale, stroke.flow, stroke.seed,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
-                    stroke.secondaryBrushColor,
+                    stroke.secondaryBrushColor, substrate = substrate,
                 )
                 // Only materialized when Impasto is actually active (see below) -- paintStroke
                 // already resolves the identical dab list internally (via the same
