@@ -12,13 +12,9 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 replace_once(
     "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt",
-    """    /** Procreate's Dilution: how much deposited pigment pre-mixes with the colour already there. */
-    fun setColorSmudgeDilution(amount: Float) =
-        _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
-
-    fun setColorSmudgeRadius(amount: Float) =""",
-    """    /** Procreate's Dilution: how much deposited pigment pre-mixes with the colour already there. */
-    fun setColorSmudgeDilution(amount: Float) =
+    """    fun setColorSmudgeDilution(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }""",
+    """    fun setColorSmudgeDilution(amount: Float) =
         _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
 
     /** Phase 2 material pickup: refill empty reservoir capacity from paint under the brush. */
@@ -28,9 +24,7 @@ replace_once(
     /** Phase 1 material interaction; legacy RGB remains the compatibility default. */
     fun setColorSmudgeMixingModel(
         model: com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel,
-    ) = _colorSmudgeSettings.update { it.copy(mixingModel = model) }
-
-    fun setColorSmudgeRadius(amount: Float) =""",
+    ) = _colorSmudgeSettings.update { it.copy(mixingModel = model) }""",
 )
 
 replace_once(
