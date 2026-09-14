@@ -32,11 +32,16 @@ struct SmudgePush {
     float paintB;
     float paintA;
     float dilution;
-    // Packed feature flags carried through the existing scalar to keep the push-constant ABI
-    // stable: +1 = Sample Merged, +2 = material-aware pigment mixing. The shader decodes both.
+    // Packed feature flags: +1 = Sample Merged, +2 = material-aware pigment mixing.
     float hasSampleMerged;
+    float reservoirEnabled;
+    float baseColorRate;
+    float chargeDecayRate;
+    float pickupRate;
+    float colorRateMultiplier;
+    float distanceDeltaPx;
 };
-static_assert(sizeof(SmudgePush) == 72);
+static_assert(sizeof(SmudgePush) == 96);
 
 std::mutex gBenchmarkMutex;
 std::unordered_map<uint64_t, ColorSmudgeBenchmarkInfo> gBenchmarkCache;
@@ -392,6 +397,9 @@ bool VulkanStampEngine::ensureColorSmudgeCarrier(size_t pixelCount) {
     }
     smudgeCarrierCapacity_ = 0;
 
+    // Reserve a generous tail after the spatial carrier. Phase-2 reservoir state occupies only
+    // three vec4 slots there (continuous carried colour, load/wetness metadata, pre-write sample),
+    // so no second descriptor or paint backend is needed.
     size_t capacity = pixelCount + pixelCount / 2 + 64;
     VkDeviceSize bytes = static_cast<VkDeviceSize>(capacity) * sizeof(float) * 4;
     VkBufferCreateInfo info{};
@@ -442,6 +450,7 @@ bool VulkanStampEngine::runColorSmudgePlan(
     if (dabs.size() < 2 || pipeline == VK_NULL_HANDLE) return true;
     const int baseMode = mode & 1;     // 0=Smear, 1=Dulling
     const bool pigmentMixing = mode >= 2; // 2/3 are the pigment variants of 0/1.
+    const bool reservoirEnabled = dabs.front().pickupRate > 0.0f;
     const int radius = std::max(1, static_cast<int>(radiusPx));
     const int diameter = radius * 2 + 1;
     if (!ensureColorSmudgeCarrier(static_cast<size_t>(diameter) * diameter)) return false;
@@ -487,27 +496,55 @@ bool VulkanStampEngine::runColorSmudgePlan(
         pc.paintR = paintR; pc.paintG = paintG; pc.paintB = paintB; pc.paintA = paintA;
         pc.dilution = std::clamp(dilution, 0.0f, 1.0f);
         pc.hasSampleMerged = (hasSampleMerged ? 1.0f : 0.0f) + (pigmentMixing ? 2.0f : 0.0f);
+        pc.reservoirEnabled = reservoirEnabled ? 1.0f : 0.0f;
+        pc.baseColorRate = d.baseColorRate;
+        pc.chargeDecayRate = std::max(d.chargeDecayRate, 0.0f);
+        pc.pickupRate = std::clamp(d.pickupRate, 0.0f, 1.0f);
+        pc.colorRateMultiplier = std::max(d.colorRateMultiplier, 0.0f);
+        pc.distanceDeltaPx = std::max(d.distanceDeltaPx, 0.0f);
         vkCmdPushConstants(commandBuffer_, smudgePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(pc), &pc);
     };
+    auto dispatchScalar = [&](int phase, const ColorSmudgeDab& d) {
+        push(phase, d);
+        vkCmdDispatch(commandBuffer_, 1, 1, 1);
+        barrier();
+    };
+
+    // Initialize stroke-local reservoir state once. Pickup=0 deliberately skips every new phase,
+    // so historical Color Smudge retains its previous ordered dispatch graph.
+    if (reservoirEnabled) {
+        dispatchScalar(4, dabs.front());
+    }
 
     if (baseMode == 0) {
         push(0, dabs.front());
         vkCmdDispatch(commandBuffer_, brushGroups, brushGroups, 1);
         barrier();
         for (size_t i = 1; i < dabs.size(); ++i) {
+            if (reservoirEnabled) {
+                // CPU order: decay -> sample pre-write contact -> paint -> pickup. Pickup therefore
+                // contaminates only subsequent dabs, never the dab that discovered the material.
+                dispatchScalar(5, dabs[i]);
+                dispatchScalar(7, dabs[i]);
+            }
             push(1, dabs[i]);
             vkCmdDispatch(commandBuffer_, brushGroups, brushGroups, 1);
             barrier();
+            if (reservoirEnabled) dispatchScalar(6, dabs[i]);
         }
     } else {
         for (size_t i = 1; i < dabs.size(); ++i) {
+            if (reservoirEnabled) dispatchScalar(5, dabs[i]);
+            // Phase 2 already computes Dulling's representative pre-write contact sample. The
+            // shader also copies it into the reservoir sample slot when stateful pickup is active.
             push(2, dabs[i]);
             vkCmdDispatch(commandBuffer_, 1, 1, 1);
             barrier();
             push(3, dabs[i]);
             vkCmdDispatch(commandBuffer_, brushGroups, brushGroups, 1);
             barrier();
+            if (reservoirEnabled) dispatchScalar(6, dabs[i]);
         }
     }
 
