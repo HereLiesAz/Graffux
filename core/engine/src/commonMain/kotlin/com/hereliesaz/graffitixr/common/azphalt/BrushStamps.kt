@@ -54,14 +54,18 @@ data class Dab(
     val tipRatio: Float = 1f,
     val hardness: Float = 1f,
     val flowMultiplier: Float = 1f,
-    /** Resolved surface penetration; renderers/material stages must not reinterpret raw pressure. */
-    val contactDepth: Float = 1f,
     val hueShiftDeg: Float = 0f,
     val saturationMultiplier: Float = 1f,
     val valueMultiplier: Float = 1f,
     val colorMix: Float = 0f,
     val sourceRandom: Float = 0f,
     val mask: MaskDab? = null,
+    /**
+     * Resolved surface penetration; renderers/material stages must not reinterpret raw pressure.
+     * Appended at the end of the public value contract so existing positional Dab callers retain
+     * the exact meaning of every pre-Phase-3 argument.
+     */
+    val contactDepth: Float = 1f,
 )
 
 object BrushStamps {
