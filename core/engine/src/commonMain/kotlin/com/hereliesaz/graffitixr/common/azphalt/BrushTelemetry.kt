@@ -64,12 +64,15 @@ data class BrushTelemetryMetadata(
     val contactSource: BrushSignalSource = BrushSignalSource.UNAVAILABLE,
     /** Discrete stroke-contact phase; CONTACT is the historical/replay-compatible default. */
     val contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
+    /** Screen-remapped phone/tablet attitude captured independently from pointer/stylus telemetry. */
+    val deviceAttitude: BrushDeviceAttitude = BrushDeviceAttitude(),
 ) {
     fun sanitized(): BrushTelemetryMetadata = copy(
         pressureConfidence = pressureConfidence.coerceIn(0f, 1f),
         tiltConfidence = tiltConfidence.coerceIn(0f, 1f),
         orientationConfidence = orientationConfidence.coerceIn(0f, 1f),
         contactSizeConfidence = contactSizeConfidence.coerceIn(0f, 1f),
+        deviceAttitude = deviceAttitude.sanitized(),
     )
 
     /** Preserve confidence through arc-length interpolation without inventing a new tool class. */
@@ -87,6 +90,7 @@ data class BrushTelemetryMetadata(
             contactSizeConfidence = lerp(contactSizeConfidence, other.contactSizeConfidence, clamped),
             contactSource = discrete.contactSource,
             contactPhase = discrete.contactPhase,
+            deviceAttitude = deviceAttitude.blendTo(other.deviceAttitude, clamped),
         ).sanitized()
     }
 
@@ -252,6 +256,7 @@ data class BrushIntentTelemetry(
     val contactMinorPx: Float,
     val contactConfidence: Float,
     val contactPhase: BrushContactPhase,
+    val deviceAttitude: BrushDeviceAttitude = BrushDeviceAttitude(),
 )
 
 fun BrushSample.intentTelemetry(): BrushIntentTelemetry {
@@ -268,6 +273,7 @@ fun BrushSample.intentTelemetry(): BrushIntentTelemetry {
         contactMinorPx = touchMinorPx.coerceAtLeast(0f),
         contactConfidence = meta.contactSizeConfidence,
         contactPhase = meta.contactPhase,
+        deviceAttitude = meta.deviceAttitude,
     )
 }
 
