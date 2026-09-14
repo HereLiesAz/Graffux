@@ -1,0 +1,113 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    file_path = Path(path)
+    text = file_path.read_text()
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected exactly one match, found {count}")
+    file_path.write_text(text.replace(old, new, 1))
+
+
+replace_once(
+    "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt",
+    """    /** Procreate's Dilution: how much deposited pigment pre-mixes with the colour already there. */
+    fun setColorSmudgeDilution(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
+
+    fun setColorSmudgeRadius(amount: Float) =""",
+    """    /** Procreate's Dilution: how much deposited pigment pre-mixes with the colour already there. */
+    fun setColorSmudgeDilution(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(dilution = amount.coerceIn(0f, 1f)) }
+
+    /** Phase 2 material pickup: refill empty reservoir capacity from paint under the brush. */
+    fun setColorSmudgePickupRate(amount: Float) =
+        _colorSmudgeSettings.update { it.copy(pickupRate = amount.coerceIn(0f, 1f)) }
+
+    /** Phase 1 material interaction; legacy RGB remains the compatibility default. */
+    fun setColorSmudgeMixingModel(
+        model: com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel,
+    ) = _colorSmudgeSettings.update { it.copy(mixingModel = model) }
+
+    fun setColorSmudgeRadius(amount: Float) =""",
+)
+
+replace_once(
+    "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/ToolOptionsWindow.kt",
+    """import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm""",
+    """import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm""",
+)
+replace_once(
+    "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/ToolOptionsWindow.kt",
+    """    onSetColorSmudgeChargeDecayRate: (Float) -> Unit,
+    onSetColorSmudgeDilution: (Float) -> Unit,
+    onSetColorSmudgeRadius: (Float) -> Unit,""",
+    """    onSetColorSmudgeChargeDecayRate: (Float) -> Unit,
+    onSetColorSmudgeDilution: (Float) -> Unit,
+    onSetColorSmudgePickupRate: (Float) -> Unit,
+    onSetColorSmudgeMixingModel: (MaterialMixingModel) -> Unit,
+    onSetColorSmudgeRadius: (Float) -> Unit,""",
+)
+replace_once(
+    "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/ToolOptionsWindow.kt",
+    """                Text("Color rate  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text("Adds the active colour independently of how much existing paint is moved.", style = MaterialTheme.typography.labelSmall)
+                Slider(value = smudge.colorRate, onValueChange = onSetColorSmudgeColorRate, valueRange = 0f..1f)""",
+    """                Text("Load  ${(smudge.colorRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "How much carried paint the brush can deposit; this is Color Rate/Charge in the engine.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Slider(value = smudge.colorRate, onValueChange = onSetColorSmudgeColorRate, valueRange = 0f..1f)""",
+)
+replace_once(
+    "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/ToolOptionsWindow.kt",
+    """                    Slider(value = smudge.dilution, onValueChange = onSetColorSmudgeDilution, valueRange = 0f..1f)
+                }""",
+    """                    Slider(value = smudge.dilution, onValueChange = onSetColorSmudgeDilution, valueRange = 0f..1f)
+                    Text("Pickup  ${(smudge.pickupRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Refills empty brush load from paint under the brush, contaminating later dabs.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Slider(value = smudge.pickupRate, onValueChange = onSetColorSmudgePickupRate, valueRange = 0f..1f)
+                    AzButton(
+                        text = if (smudge.mixingModel == MaterialMixingModel.PIGMENT_RYB) {
+                            "Pigment Mixing ✓"
+                        } else {
+                            "Pigment Mixing"
+                        },
+                        onClick = {
+                            onSetColorSmudgeMixingModel(
+                                if (smudge.mixingModel == MaterialMixingModel.PIGMENT_RYB) {
+                                    MaterialMixingModel.LEGACY_RGB
+                                } else {
+                                    MaterialMixingModel.PIGMENT_RYB
+                                },
+                            )
+                        },
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    )
+                    Text(
+                        "Uses artist-oriented subtractive mixing instead of legacy RGB interpolation.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }""",
+)
+
+replace_once(
+    "app/src/main/java/com/hereliesaz/graffux/MainActivity.kt",
+    """                        onSetColorSmudgeChargeDecayRate = { vm.setColorSmudgeChargeDecayRate(it) },
+                        onSetColorSmudgeDilution = { vm.setColorSmudgeDilution(it) },
+                        onSetColorSmudgeRadius = { vm.setColorSmudgeRadius(it) },""",
+    """                        onSetColorSmudgeChargeDecayRate = { vm.setColorSmudgeChargeDecayRate(it) },
+                        onSetColorSmudgeDilution = { vm.setColorSmudgeDilution(it) },
+                        onSetColorSmudgePickupRate = { vm.setColorSmudgePickupRate(it) },
+                        onSetColorSmudgeMixingModel = { vm.setColorSmudgeMixingModel(it) },
+                        onSetColorSmudgeRadius = { vm.setColorSmudgeRadius(it) },""",
+)
