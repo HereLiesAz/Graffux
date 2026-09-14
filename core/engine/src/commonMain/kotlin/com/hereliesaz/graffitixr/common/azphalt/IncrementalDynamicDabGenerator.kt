@@ -23,6 +23,12 @@ class IncrementalDynamicDabGenerator(
 ) {
     private val diameter = diameterPx.coerceAtLeast(0f)
     private val baseRadius = diameter / 2f
+    /**
+     * Freeze physical hair/bundle population from the selected brush size once per stroke. Dynamic
+     * pressure/taper may deform or engage those identities, but it never changes how many hairs the
+     * brush physically contains.
+     */
+    private val contactConfig = brush.contact.resolvedForBrushDiameter(diameter, brush.tipRatio)
     private val rng = Random(seed)
     private val maskRng = Random(seed xor MASK_SEED_SALT)
     private val maskLongRng = Random(seed xor MASK_LONGITUDINAL_SEED_SALT)
@@ -100,7 +106,7 @@ class IncrementalDynamicDabGenerator(
         val strokePositionT = if (predictedStrokeTotal > 0f) (at / predictedStrokeTotal).coerceIn(0f, 1f) else 0f
         val pressureFadeFactor = 1f - strokePositionT
         val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
-        val mechanics = BrushContactModel.step(sample, mechanicalState, brush.contact)
+        val mechanics = BrushContactModel.step(sample, mechanicalState, contactConfig)
         mechanicalState = mechanics.state
         val contact = mechanics.contact
         val taper = brush.taper
@@ -168,7 +174,7 @@ class IncrementalDynamicDabGenerator(
                 x += mag * cos(heading)
                 y += mag * sin(heading)
             }
-            val mechanicalAngle = if (brush.contact.isActive()) {
+            val mechanicalAngle = if (contactConfig.isActive()) {
                 mechanicalHeadingDeg
             } else if (brush.followStroke) {
                 headingDeg
@@ -176,7 +182,7 @@ class IncrementalDynamicDabGenerator(
                 0f
             }
             val angle = brush.angle + mechanicalAngle + dynamic.rotationOffsetDeg + brush.rotationPerPx * at
-            val maskHeading = if (brush.contact.isActive()) mechanicalHeadingDeg else headingDeg
+            val maskHeading = if (contactConfig.isActive()) mechanicalHeadingDeg else headingDeg
             val mask = resolveMask(sample, x, y, contactDiameter, maskHeading, at)
             val contactTipRatio = (
                 brush.tipRatio * dynamic.tipRatioMultiplier * contact.tipRatioMultiplier
@@ -202,7 +208,7 @@ class IncrementalDynamicDabGenerator(
                     parent = parent,
                     contactDiameterPx = contactDiameter,
                     contact = contact,
-                    config = brush.contact.tufts,
+                    config = contactConfig.tufts,
                 )
             )
             if (blot.extraStamps > 0 && blotT < 1f) {
@@ -232,7 +238,7 @@ class IncrementalDynamicDabGenerator(
                             parent = blotParent,
                             contactDiameterPx = contactDiameter,
                             contact = contact,
-                            config = brush.contact.tufts,
+                            config = contactConfig.tufts,
                         )
                     )
                 }
