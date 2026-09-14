@@ -13,10 +13,16 @@ def replace_once(old: str, new: str) -> None:
 
 
 replace_once(
-'''        otherLayers: () -> List<Layer> = { emptyList() },
+'''    suspend fun composite(
+        base: Bitmap,
+        strokes: List<StrokeCommand>,
+        otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
     ): Bitmap {''',
-'''        otherLayers: () -> List<Layer> = { emptyList() },
+'''    suspend fun composite(
+        base: Bitmap,
+        strokes: List<StrokeCommand>,
+        otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
     ): Bitmap {''',
