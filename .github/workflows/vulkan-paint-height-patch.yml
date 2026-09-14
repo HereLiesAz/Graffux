@@ -1,0 +1,80 @@
+name: Vulkan Paint Height Parity Patch
+
+on:
+  push:
+    branches: [ "feat/substrate-vulkan-height-parity" ]
+    paths: [ ".github/workflows/vulkan-paint-height-patch.yml" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-vulkan-height-parity
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-read-only: true
+          dependency-graph: disabled
+
+      - name: Apply guarded product patch
+        run: python3 patch_vulkan_paint_height.py
+
+      - name: Validate exact product diff
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'core/nativebridge/src/androidTest/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngineInstrumentedTest.kt',
+              'core/nativebridge/src/main/cpp/VulkanStampDynamicsJNI.cpp',
+              'core/nativebridge/src/main/cpp/VulkanStampEngine.cpp',
+              'core/nativebridge/src/main/cpp/include/VulkanStampEngine.h',
+              'core/nativebridge/src/main/cpp/shaders/stamp.comp',
+              'core/nativebridge/src/main/cpp/shaders/stamp_masked.comp',
+              'core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt',
+          }
+          actual = set(filter(None, subprocess.check_output(['git','diff','--name-only','HEAD'], text=True).splitlines()))
+          if actual != expected:
+              raise SystemExit(f'unexpected product diff: {sorted(actual)}')
+          print('exact product diff:', *sorted(actual), sep='\n  ')
+          PY
+
+      - name: Compile shaders and native engine
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:nativebridge:externalNativeBuildDebug --stacktrace
+
+      - name: Compile instrumentation tests
+        run: ./gradlew :core:nativebridge:compileDebugAndroidTestKotlin --stacktrace
+
+      - name: Compile editor callers
+        run: ./gradlew :feature:editor:compileDebugKotlin --stacktrace
+
+      - name: Run CPU substrate regression slice
+        run: |
+          ./gradlew :feature:editor:testDebugUnitTest \
+            --tests "*StampBrushSubstrateRendererTest" \
+            --tests "*DrawingEngineSubstrateTest" \
+            --stacktrace
+
+      - name: Commit product patch and remove temporary machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f patch_vulkan_paint_height.py .github/workflows/vulkan-paint-height-patch.yml
+          git add -A
+          git commit -m "feat: add Vulkan existing-paint height parity"
+          git push origin HEAD:feat/substrate-vulkan-height-parity
