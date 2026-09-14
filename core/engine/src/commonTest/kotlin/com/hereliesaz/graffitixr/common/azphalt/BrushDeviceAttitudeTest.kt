@@ -63,7 +63,7 @@ class BrushDeviceAttitudeTest {
     }
 
     @Test
-    fun firstSampleBecomesNeutralAndManualPresentationStillApplies() {
+    fun manualPresentationCanUseStrokeStartReferenceWithoutDeviceDelta() {
         val attitude = BrushDeviceAttitude(
             pitchRadians = 0.3f,
             rollRadians = -0.2f,
@@ -80,6 +80,8 @@ class BrushDeviceAttitudeTest {
             rollCoupling = 1f,
             pitchCoupling = 1f,
             yawCoupling = 1f,
+            pitchRollReference = BrushDeviceAttitudeReference.STROKE_START,
+            yawReference = BrushDeviceAttitudeReference.STROKE_START,
         )
 
         val resolved = BrushDevicePresentationModel.resolve(
@@ -89,10 +91,44 @@ class BrushDeviceAttitudeTest {
         )
 
         assertTrue(resolved.initialized)
-        assertEquals(attitude.sanitized(), resolved.neutralAttitude)
+        assertEquals(attitude.sanitized(), resolved.strokeNeutralAttitude)
         assertEquals(0.25f, resolved.lateralBias, 1e-6f)
         assertEquals(-0.3f, resolved.longitudinalBias, 1e-6f)
         assertEquals(18f, resolved.rotationDeg, 1e-6f)
+    }
+
+    @Test
+    fun calibratedPitchRollCanChangeFirstContactBeforeTouchdown() {
+        val attitude = BrushDeviceAttitude(
+            pitchRadians = 0.25f,
+            rollRadians = -0.4f,
+            yawRadians = 1.4f,
+            tiltConfidence = 1f,
+            yawConfidence = 1f,
+            source = BrushDeviceAttitudeSource.GAME_ROTATION_VECTOR,
+        )
+        val config = BrushDevicePresentationConfig(
+            enabled = true,
+            rollCoupling = 1f,
+            pitchCoupling = 1f,
+            yawCoupling = 1f,
+            fullPitchRadians = 0.5f,
+            fullRollRadians = 0.5f,
+            pitchRollReference = BrushDeviceAttitudeReference.CALIBRATED,
+            neutralPitchRadians = 0f,
+            neutralRollRadians = 0f,
+            yawReference = BrushDeviceAttitudeReference.STROKE_START,
+        )
+
+        val resolved = BrushDevicePresentationModel.resolve(
+            attitude,
+            BrushDevicePresentationState(),
+            config,
+        )
+
+        assertEquals(-0.8f, resolved.lateralBias, 1e-5f)
+        assertEquals(0.5f, resolved.longitudinalBias, 1e-5f)
+        assertEquals(0f, resolved.rotationDeg, 1e-5f)
     }
 
     @Test
@@ -114,6 +150,8 @@ class BrushDeviceAttitudeTest {
             fullRollRadians = 0.5f,
             fullYawRadians = 0.5f,
             maxYawRotationDeg = 90f,
+            pitchRollReference = BrushDeviceAttitudeReference.STROKE_START,
+            yawReference = BrushDeviceAttitudeReference.STROKE_START,
         )
         val first = BrushDevicePresentationModel.resolve(
             neutral,
