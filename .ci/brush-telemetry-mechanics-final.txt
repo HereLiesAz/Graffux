@@ -1,0 +1,1 @@
+Validate device-specific telemetry profiles plus canonical/live brush mechanical geometry.
