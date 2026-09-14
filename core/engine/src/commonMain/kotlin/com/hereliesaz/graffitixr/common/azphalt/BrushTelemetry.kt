@@ -13,6 +13,14 @@ enum class BrushInputTool {
     @SerialName("finger") FINGER,
 }
 
+/** Canonical contact-phase evidence carried with replayable telemetry. */
+@Serializable
+enum class BrushContactPhase {
+    @SerialName("contact") CONTACT,
+    @SerialName("touchdown") TOUCHDOWN,
+    @SerialName("liftOff") LIFT_OFF,
+}
+
 /**
  * Telemetry quality profile selected from the capabilities actually available during a stroke.
  *
@@ -54,6 +62,8 @@ data class BrushTelemetryMetadata(
     val orientationSource: BrushSignalSource = BrushSignalSource.LEGACY,
     val contactSizeConfidence: Float = 0f,
     val contactSource: BrushSignalSource = BrushSignalSource.UNAVAILABLE,
+    /** Discrete stroke-contact phase; CONTACT is the historical/replay-compatible default. */
+    val contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
 ) {
     fun sanitized(): BrushTelemetryMetadata = copy(
         pressureConfidence = pressureConfidence.coerceIn(0f, 1f),
@@ -76,6 +86,7 @@ data class BrushTelemetryMetadata(
             orientationSource = discrete.orientationSource,
             contactSizeConfidence = lerp(contactSizeConfidence, other.contactSizeConfidence, clamped),
             contactSource = discrete.contactSource,
+            contactPhase = discrete.contactPhase,
         ).sanitized()
     }
 
@@ -240,6 +251,7 @@ data class BrushIntentTelemetry(
     val contactMajorPx: Float,
     val contactMinorPx: Float,
     val contactConfidence: Float,
+    val contactPhase: BrushContactPhase,
 )
 
 fun BrushSample.intentTelemetry(): BrushIntentTelemetry {
@@ -255,19 +267,6 @@ fun BrushSample.intentTelemetry(): BrushIntentTelemetry {
         contactMajorPx = touchMajorPx.coerceAtLeast(0f),
         contactMinorPx = touchMinorPx.coerceAtLeast(0f),
         contactConfidence = meta.contactSizeConfidence,
+        contactPhase = meta.contactPhase,
     )
-}
-
-internal fun pressureSmoothingAlpha(profile: BrushTelemetryProfile): Float = when (profile) {
-    BrushTelemetryProfile.STYLUS_HIGH_QUALITY -> 0.65f
-    BrushTelemetryProfile.STYLUS_BASIC -> 0.45f
-    BrushTelemetryProfile.FINGER -> 0.30f
-    BrushTelemetryProfile.LEGACY -> 0.45f
-}
-
-internal fun speedSmoothingAlpha(profile: BrushTelemetryProfile): Float = when (profile) {
-    BrushTelemetryProfile.STYLUS_HIGH_QUALITY -> 0.45f
-    BrushTelemetryProfile.STYLUS_BASIC -> 0.35f
-    BrushTelemetryProfile.FINGER -> 0.30f
-    BrushTelemetryProfile.LEGACY -> 0.35f
 }
