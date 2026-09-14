@@ -11,10 +11,10 @@ private const val CONTACT_DEG_TO_RAD = 0.017453292f
 private const val CONTACT_RAD_TO_DEG = 57.29578f
 
 /**
- * Stroke-local brush mechanics. Motion, pressure, tilt and stylus orientation all enter the model,
- * but pressure/tilt/orientation are treated as provisional intent evidence rather than direct dab
- * parameters. Their couplings are explicit and replaceable so later empirical tuning can improve
- * the intent model without changing the renderer-facing mechanical state contract.
+ * Stroke-local brush mechanics. Motion, pressure, tilt, stylus orientation and device presentation
+ * all enter the model, but expressive telemetry is treated as intent evidence rather than direct
+ * renderer parameters. Couplings remain explicit/replaceable so richer physics can reinterpret
+ * them without changing the renderer-facing contact contract.
  */
 @Serializable
 data class BrushContactConfig(
@@ -49,6 +49,8 @@ data class BrushContactConfig(
     val tiltElongation: Float = 0.22f,
     /** Optional stable coarse bristle-bundle topology. Disabled by default for exact compatibility. */
     val tufts: BrushTuftConfig = BrushTuftConfig(),
+    /** Optional phone/tablet attitude + manual ferrule/contact presentation controls. */
+    val devicePresentation: BrushDevicePresentationConfig = BrushDevicePresentationConfig(),
 ) {
     fun sanitized(): BrushContactConfig = copy(
         stiffness = stiffness.coerceIn(0f, 1f),
@@ -66,6 +68,7 @@ data class BrushContactConfig(
         pressureSplay = pressureSplay.coerceIn(0f, 1f),
         tiltElongation = tiltElongation.coerceIn(0f, 0.95f),
         tufts = tufts.sanitized(),
+        devicePresentation = devicePresentation.sanitized(),
     )
 
     fun isActive(): Boolean = enabled
@@ -84,6 +87,8 @@ data class BrushIntentObservation(
     val contactMinor: Float = 0f,
     val contactConfidence: Float = 0f,
     val contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
+    /** Phone/tablet attitude remains independent from pointer/stylus orientation evidence. */
+    val deviceAttitude: BrushDeviceAttitude = BrushDeviceAttitude(),
 )
 
 /** Persistent mechanics carried across dabs within one stroke. */
@@ -102,6 +107,8 @@ data class BrushMechanicalState(
     /** Latest intent evidence, retained for later richer solvers/tuft models. */
     val intent: BrushIntentObservation = BrushIntentObservation(),
     val lastUptimeMillis: Long = 0L,
+    /** Stroke-neutral device attitude and resolved user/device brush presentation. */
+    val presentation: BrushDevicePresentationState = BrushDevicePresentationState(),
 )
 
 /** Renderer-independent instantaneous brush contact resolved from mechanical state. */
@@ -119,6 +126,12 @@ data class BrushContactState(
     val splay: Float = 0f,
     /** Stable bundle contacts relative to this global contact center. Empty when topology is off. */
     val tufts: List<BrushTuftContact> = emptyList(),
+    /** -1..1 left/right edge-first presentation resolved from manual control + device roll. */
+    val presentationLateralBias: Float = 0f,
+    /** -1..1 heel/toe presentation resolved from manual control + device pitch. */
+    val presentationLongitudinalBias: Float = 0f,
+    /** Ferrule/topology rotation resolved from manual control + relative device yaw. */
+    val presentationRotationDeg: Float = 0f,
 )
 
 data class BrushMechanicalStep(
@@ -145,6 +158,11 @@ object BrushContactModel {
 
         val heading = normalizeDegrees(sample.drawingAngleDeg)
         val intent = observeIntent(sample)
+        val presentation = BrushDevicePresentationModel.resolve(
+            attitude = intent.deviceAttitude,
+            previous = previous.presentation,
+            config = cfg.devicePresentation,
+        )
         val speedT = (sample.speedPxPerMs / cfg.fullBendSpeedPxPerMs).coerceIn(0f, 1f)
         val tiltEvidence = (intent.tilt * intent.tiltConfidence).coerceIn(0f, 1f)
 
@@ -171,6 +189,7 @@ object BrushContactModel {
                 lean = targetLean,
                 intent = intent,
                 lastUptimeMillis = sample.uptimeMillis,
+                presentation = presentation,
             )
             return withTuftMechanics(
                 global = global,
@@ -217,6 +236,7 @@ object BrushContactModel {
             lean = lean,
             intent = intent,
             lastUptimeMillis = sample.uptimeMillis,
+            presentation = presentation,
         )
         return withTuftMechanics(
             global = global,
@@ -266,6 +286,7 @@ object BrushContactModel {
             contactMinor = contactMinor,
             contactConfidence = telemetry.contactConfidence,
             contactPhase = telemetry.contactPhase,
+            deviceAttitude = telemetry.deviceAttitude,
         )
     }
 
@@ -301,6 +322,9 @@ object BrushContactModel {
             compression = compression,
             lean = lean,
             splay = splay,
+            presentationLateralBias = state.presentation.lateralBias,
+            presentationLongitudinalBias = state.presentation.longitudinalBias,
+            presentationRotationDeg = state.presentation.rotationDeg,
         )
     }
 
