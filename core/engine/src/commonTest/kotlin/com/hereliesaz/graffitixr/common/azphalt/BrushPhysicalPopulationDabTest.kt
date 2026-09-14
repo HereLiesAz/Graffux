@@ -44,11 +44,12 @@ class BrushPhysicalPopulationDabTest {
         speed: Float,
         angle: Float,
         phase: BrushContactPhase = BrushContactPhase.CONTACT,
+        pressure: Float = 0.8f,
     ) = BrushSample(
         x = x,
         y = y,
         uptimeMillis = time,
-        pressure = 0.8f,
+        pressure = pressure,
         distancePx = distance,
         speedPxPerMs = speed,
         drawingAngleDeg = angle,
@@ -100,6 +101,42 @@ class BrushPhysicalPopulationDabTest {
             assertEquals(a.offsetXFraction, b.offsetXFraction, 1e-5f, "root x[$index]")
             assertEquals(a.offsetYFraction, b.offsetYFraction, 1e-5f, "root y[$index]")
         }
+    }
+
+    @Test
+    fun pressureRecruitsMoreOfLeanedTipWithoutChangingBundleDiameter() {
+        val base = physicalFlatBrush()
+        val brush = base.copy(
+            contact = base.contact.copy(
+                pressureCoupling = 1f,
+                devicePresentation = BrushDevicePresentationConfig(
+                    enabled = true,
+                    manualLeanX = 1f,
+                ),
+            ),
+        )
+        val low = BrushStamps.dynamicDabs(
+            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, BrushContactPhase.TOUCHDOWN, pressure = 0f)),
+            40f,
+            brush,
+            41L,
+        )
+        val high = BrushStamps.dynamicDabs(
+            listOf(sample(10f, 10f, 0L, 0f, 0f, 0f, BrushContactPhase.TOUCHDOWN, pressure = 1f)),
+            40f,
+            brush,
+            41L,
+        )
+
+        assertEquals(low.size, high.size)
+        assertTrue(low.isNotEmpty())
+        assertTrue(low.all { abs(it.radius - 2f) < 1e-5f })
+        assertTrue(high.all { abs(it.radius - 2f) < 1e-5f })
+        val lowSpread = low.maxOf { it.alpha } - low.minOf { it.alpha }
+        val highSpread = high.maxOf { it.alpha } - high.minOf { it.alpha }
+        assertTrue(lowSpread > 0.2f, "lean should make one side contact before the other")
+        assertTrue(highSpread < lowSpread, "pressure should recruit the high side of the tip")
+        assertTrue(high.sumOf { it.alpha.toDouble() } > low.sumOf { it.alpha.toDouble() })
     }
 
     @Test
