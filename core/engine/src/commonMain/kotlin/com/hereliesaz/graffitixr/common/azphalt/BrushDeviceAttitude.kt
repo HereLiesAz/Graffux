@@ -15,17 +15,17 @@ enum class BrushDeviceAttitudeSource {
 enum class BrushDeviceAttitudeReference {
     /** Compare against the first captured attitude of this stroke. */
     @SerialName("strokeStart") STROKE_START,
-    /** Compare against the persistent neutral values saved with the brush/configuration. */
+    /** Compare against persistent neutral values saved with the brush/configuration. */
     @SerialName("calibrated") CALIBRATED,
 }
 
 /**
  * Screen-remapped device attitude captured alongside pointer telemetry.
  *
- * Pitch/roll are gravity-referenced. Yaw may be either earth-referenced (rotation vector) or a
- * drifting relative heading (game rotation vector), so yaw has its own confidence. The values stay
- * separate from stylus tilt/orientation because the device frame and pointer frame are different
- * sources of artist-intent evidence.
+ * The raw Android Euler channels are preserved only at the input boundary. Brush mechanics then
+ * interpret them as three independent controls of a virtual brush pose: pitch/yaw lean the shaft
+ * over the drawing surface, while roll twists the tip around its own shaft. Canvas rotation is a
+ * separate editor transform and is never inferred from these values.
  */
 @Serializable
 data class BrushDeviceAttitude(
@@ -80,58 +80,65 @@ data class BrushDeviceAttitude(
 }
 
 /**
- * User-adjustable mapping from device motion to the physical presentation of the brush.
+ * User-adjustable mapping from phone/tablet attitude to a virtual 3D brush pose.
  *
- * These are intentionally separate from stylus tilt/orientation. Manual biases make it possible to
- * choose the edge/heel/toe of the brush that contacts first even on hardware with no motion sensor.
- * Device couplings add a motion-driven offset around that user-selected presentation.
+ * - pitch -> one shaft-lean axis over the drawing surface
+ * - yaw   -> the orthogonal shaft-lean axis
+ * - roll  -> axial twist of the brush/nib/tip itself
+ *
+ * This deliberately does not rotate the canvas or use stroke heading as tip orientation. A chisel
+ * marker, calligraphy nib, flat brush or pencil may move in one direction while its tip stays
+ * twisted and leaned in a completely different orientation.
  */
 @Serializable
 data class BrushDevicePresentationConfig(
     val enabled: Boolean = false,
-    /** -1 = left edge first, +1 = right edge first. */
-    val manualLateralBias: Float = 0f,
-    /** -1 = heel first, +1 = toe/front first. */
-    val manualLongitudinalBias: Float = 0f,
-    /** Fixed ferrule/topology rotation around the contact normal. */
-    val manualRotationDeg: Float = 0f,
-    /** Screen-roll -> left/right contact bias. */
-    val rollCoupling: Float = 0f,
-    /** Screen-pitch -> heel/toe contact bias. */
-    val pitchCoupling: Float = 0f,
-    /** Yaw -> ferrule/topology rotation. Negative values naturally provide world-lock compensation. */
-    val yawCoupling: Float = 0f,
-    /** Device delta required to reach full pitch-driven bias. */
+    /** Manual shaft lean along screen X, -1..1. */
+    val manualLeanX: Float = 0f,
+    /** Manual shaft lean along screen Y, -1..1. */
+    val manualLeanY: Float = 0f,
+    /** Manual axial twist of the tip. */
+    val manualTwistDeg: Float = 0f,
+    /** Device yaw -> screen-X shaft lean. */
+    val yawLeanCoupling: Float = 0f,
+    /** Device pitch -> screen-Y shaft lean. */
+    val pitchLeanCoupling: Float = 0f,
+    /** Device roll -> axial tip twist. */
+    val rollTwistCoupling: Float = 0f,
+    /** Device pitch delta required to reach full Y lean. */
     val fullPitchRadians: Float = 0.65f,
-    /** Device delta required to reach full roll-driven bias. */
-    val fullRollRadians: Float = 0.65f,
-    /** Device yaw delta required to reach full yaw-driven rotation. */
-    val fullYawRadians: Float = 0.8f,
-    /** Maximum device-driven ferrule rotation before the manual rotation is added. */
-    val maxYawRotationDeg: Float = 90f,
-    /** Pitch/roll default to persistent calibration so pre-touch tablet tilt remains meaningful. */
-    val pitchRollReference: BrushDeviceAttitudeReference = BrushDeviceAttitudeReference.CALIBRATED,
-    /** Yaw defaults stroke-relative because game-rotation heading is arbitrary and may drift. */
-    val yawReference: BrushDeviceAttitudeReference = BrushDeviceAttitudeReference.STROKE_START,
-    /** Persistent neutral values; a future Calibrate action can write the current attitude here. */
+    /** Device yaw delta required to reach full X lean. */
+    val fullYawRadians: Float = 0.65f,
+    /** Device roll delta required to reach maximum configured tip twist. */
+    val fullRollRadians: Float = 0.8f,
+    /** Maximum device-driven axial twist before manual twist is added. */
+    val maxRollTwistDeg: Float = 180f,
+    /**
+     * All three default to persistent calibration so the user can pose the device before touchdown
+     * and have that pose determine first contact. STROKE_START remains available for relative modes.
+     */
+    val pitchReference: BrushDeviceAttitudeReference = BrushDeviceAttitudeReference.CALIBRATED,
+    val yawReference: BrushDeviceAttitudeReference = BrushDeviceAttitudeReference.CALIBRATED,
+    val rollReference: BrushDeviceAttitudeReference = BrushDeviceAttitudeReference.CALIBRATED,
+    /** Persistent neutral values; a Calibrate action can write the current attitude here. */
     val neutralPitchRadians: Float = 0f,
-    val neutralRollRadians: Float = 0f,
     val neutralYawRadians: Float = 0f,
+    val neutralRollRadians: Float = 0f,
 ) {
     fun sanitized(): BrushDevicePresentationConfig = copy(
-        manualLateralBias = manualLateralBias.coerceIn(-1f, 1f),
-        manualLongitudinalBias = manualLongitudinalBias.coerceIn(-1f, 1f),
-        manualRotationDeg = wrapDegrees(manualRotationDeg),
-        rollCoupling = rollCoupling.coerceIn(-1f, 1f),
-        pitchCoupling = pitchCoupling.coerceIn(-1f, 1f),
-        yawCoupling = yawCoupling.coerceIn(-1f, 1f),
+        manualLeanX = manualLeanX.coerceIn(-1f, 1f),
+        manualLeanY = manualLeanY.coerceIn(-1f, 1f),
+        manualTwistDeg = wrapDegrees(manualTwistDeg),
+        yawLeanCoupling = yawLeanCoupling.coerceIn(-1f, 1f),
+        pitchLeanCoupling = pitchLeanCoupling.coerceIn(-1f, 1f),
+        rollTwistCoupling = rollTwistCoupling.coerceIn(-1f, 1f),
         fullPitchRadians = fullPitchRadians.coerceIn(0.05f, PI.toFloat()),
-        fullRollRadians = fullRollRadians.coerceIn(0.05f, PI.toFloat()),
         fullYawRadians = fullYawRadians.coerceIn(0.05f, PI.toFloat()),
-        maxYawRotationDeg = maxYawRotationDeg.coerceIn(0f, 180f),
+        fullRollRadians = fullRollRadians.coerceIn(0.05f, PI.toFloat()),
+        maxRollTwistDeg = maxRollTwistDeg.coerceIn(0f, 180f),
         neutralPitchRadians = wrapRadians(neutralPitchRadians),
-        neutralRollRadians = wrapRadians(neutralRollRadians),
         neutralYawRadians = wrapRadians(neutralYawRadians),
+        neutralRollRadians = wrapRadians(neutralRollRadians),
     )
 
     companion object {
@@ -157,12 +164,14 @@ data class BrushDevicePresentationState(
     val initialized: Boolean = false,
     /** First device attitude of the stroke, used only by axes configured as STROKE_START. */
     val strokeNeutralAttitude: BrushDeviceAttitude = BrushDeviceAttitude(),
-    val lateralBias: Float = 0f,
-    val longitudinalBias: Float = 0f,
-    val rotationDeg: Float = 0f,
+    /** Normalized screen-space shaft lean. This is independent from stroke heading. */
+    val leanX: Float = 0f,
+    val leanY: Float = 0f,
+    /** Axial twist of the physical tip/nib around its shaft. */
+    val twistDeg: Float = 0f,
 )
 
-/** Pure/replayable mapping from captured device attitude to brush-presentation intent. */
+/** Pure/replayable mapping from captured device attitude to virtual brush-tip pose. */
 object BrushDevicePresentationModel {
     fun resolve(
         attitude: BrushDeviceAttitude,
@@ -174,47 +183,49 @@ object BrushDevicePresentationModel {
 
         val current = attitude.sanitized()
         val strokeNeutral = if (previous.initialized) previous.strokeNeutralAttitude else current
-        val tiltConfidence = current.tiltConfidence.coerceIn(0f, 1f)
+        val pitchRollConfidence = current.tiltConfidence.coerceIn(0f, 1f)
         val yawConfidence = current.yawConfidence.coerceIn(0f, 1f)
 
-        val pitchReference = if (cfg.pitchRollReference == BrushDeviceAttitudeReference.STROKE_START) {
-            strokeNeutral.pitchRadians
-        } else {
-            cfg.neutralPitchRadians
-        }
-        val rollReference = if (cfg.pitchRollReference == BrushDeviceAttitudeReference.STROKE_START) {
-            strokeNeutral.rollRadians
-        } else {
-            cfg.neutralRollRadians
-        }
-        val yawReference = if (cfg.yawReference == BrushDeviceAttitudeReference.STROKE_START) {
-            strokeNeutral.yawRadians
-        } else {
-            cfg.neutralYawRadians
-        }
-
-        val pitchDelta = shortestRadians(current.pitchRadians - pitchReference)
-        val rollDelta = shortestRadians(current.rollRadians - rollReference)
-        val yawDelta = shortestRadians(current.yawRadians - yawReference)
-
-        val pitchT = (pitchDelta / cfg.fullPitchRadians).coerceIn(-1f, 1f) * tiltConfidence
-        val rollT = (rollDelta / cfg.fullRollRadians).coerceIn(-1f, 1f) * tiltConfidence
-        val yawT = (yawDelta / cfg.fullYawRadians).coerceIn(-1f, 1f) * yawConfidence
-
-        val lateral = (cfg.manualLateralBias + rollT * cfg.rollCoupling).coerceIn(-1f, 1f)
-        val longitudinal = (cfg.manualLongitudinalBias + pitchT * cfg.pitchCoupling).coerceIn(-1f, 1f)
-        val rotation = wrapDegrees(
-            cfg.manualRotationDeg + yawT * cfg.yawCoupling * cfg.maxYawRotationDeg
+        val pitchReferenceValue = reference(
+            cfg.pitchReference,
+            strokeNeutral.pitchRadians,
+            cfg.neutralPitchRadians,
         )
+        val yawReferenceValue = reference(
+            cfg.yawReference,
+            strokeNeutral.yawRadians,
+            cfg.neutralYawRadians,
+        )
+        val rollReferenceValue = reference(
+            cfg.rollReference,
+            strokeNeutral.rollRadians,
+            cfg.neutralRollRadians,
+        )
+
+        val pitchDelta = shortestRadians(current.pitchRadians - pitchReferenceValue)
+        val yawDelta = shortestRadians(current.yawRadians - yawReferenceValue)
+        val rollDelta = shortestRadians(current.rollRadians - rollReferenceValue)
+
+        val pitchT = (pitchDelta / cfg.fullPitchRadians).coerceIn(-1f, 1f) * pitchRollConfidence
+        val yawT = (yawDelta / cfg.fullYawRadians).coerceIn(-1f, 1f) * yawConfidence
+        val rollT = (rollDelta / cfg.fullRollRadians).coerceIn(-1f, 1f) * pitchRollConfidence
 
         return BrushDevicePresentationState(
             initialized = true,
             strokeNeutralAttitude = strokeNeutral,
-            lateralBias = lateral,
-            longitudinalBias = longitudinal,
-            rotationDeg = rotation,
+            leanX = (cfg.manualLeanX + yawT * cfg.yawLeanCoupling).coerceIn(-1f, 1f),
+            leanY = (cfg.manualLeanY + pitchT * cfg.pitchLeanCoupling).coerceIn(-1f, 1f),
+            twistDeg = wrapDegrees(
+                cfg.manualTwistDeg + rollT * cfg.rollTwistCoupling * cfg.maxRollTwistDeg
+            ),
         )
     }
+
+    private fun reference(
+        mode: BrushDeviceAttitudeReference,
+        strokeStart: Float,
+        calibrated: Float,
+    ): Float = if (mode == BrushDeviceAttitudeReference.STROKE_START) strokeStart else calibrated
 
     private fun shortestRadians(value: Float): Float {
         val pi = PI.toFloat()
