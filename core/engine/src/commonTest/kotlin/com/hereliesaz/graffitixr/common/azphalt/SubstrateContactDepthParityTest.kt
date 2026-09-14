@@ -9,6 +9,7 @@ class SubstrateContactDepthParityTest {
     @Test
     fun resolvedContactDepthMatchesIncrementalAndCanonicalDabStreams() {
         val brush = AzphaltBrush(
+            name = "Substrate contact depth parity",
             spacing = 0.25f,
             contact = BrushContactConfig(
                 enabled = true,
@@ -57,8 +58,8 @@ class SubstrateContactDepthParityTest {
             ),
         )
 
-        val canonical = BrushStamps.dynamicDabs(samples, baseRadius = 10f, brush = brush, seed = 77L)
-        val generator = IncrementalDynamicDabGenerator(baseRadius = 10f, brush = brush, seed = 77L)
+        val canonical = BrushStamps.dynamicDabs(samples, diameterPx = 10f, brush = brush, seed = 77L)
+        val generator = IncrementalDynamicDabGenerator(diameterPx = 10f, brush = brush, seed = 77L)
         val total = samples.last().distancePx
         val live = samples.flatMap { generator.append(it, predictedTotal = total) }
 
