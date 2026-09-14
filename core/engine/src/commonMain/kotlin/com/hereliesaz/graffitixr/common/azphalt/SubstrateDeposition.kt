@@ -79,17 +79,40 @@ class SubstrateField(
         }
     }
 
-    fun sample(canvasX: Float, canvasY: Float, profile: SubstrateProfile): SubstrateSample {
-        val cfg = profile.sanitized()
-        val tx = wrap(floor(canvasX / cfg.textureScale + cfg.textureOffsetX).toInt(), width)
-        val ty = wrap(floor(canvasY / cfg.textureScale + cfg.textureOffsetY).toInt(), height)
-        val index = ty * width + tx
+    /** Allocation-free height-only sampling for raster hot paths. */
+    fun sampleHeight(canvasX: Float, canvasY: Float, profile: SubstrateProfile): Float {
+        val index = sampleIndex(canvasX, canvasY, profile)
         val tooth = unsigned(heightBytes[index]) / 255f
-        val sampledAbsorbency = absorbencyBytes?.let { unsigned(it[index]) / 255f } ?: cfg.absorbency
+        val base = profile.baseHeight.coerceIn(0f, 1f)
+        val scale = profile.heightScale.coerceIn(0f, 1f)
+        return (base + tooth * scale).coerceIn(0f, 1f)
+    }
+
+    /** Allocation-free absorbency-only sampling for later wetness/transport hot paths. */
+    fun sampleAbsorbency(canvasX: Float, canvasY: Float, profile: SubstrateProfile): Float {
+        val index = sampleIndex(canvasX, canvasY, profile)
+        return absorbencyBytes?.let { unsigned(it[index]) / 255f }
+            ?: profile.absorbency.coerceIn(0f, 1f)
+    }
+
+    fun sample(canvasX: Float, canvasY: Float, profile: SubstrateProfile): SubstrateSample {
+        val index = sampleIndex(canvasX, canvasY, profile)
+        val tooth = unsigned(heightBytes[index]) / 255f
+        val base = profile.baseHeight.coerceIn(0f, 1f)
+        val scale = profile.heightScale.coerceIn(0f, 1f)
+        val sampledAbsorbency = absorbencyBytes?.let { unsigned(it[index]) / 255f }
+            ?: profile.absorbency.coerceIn(0f, 1f)
         return SubstrateSample(
-            height = (cfg.baseHeight + tooth * cfg.heightScale).coerceIn(0f, 1f),
+            height = (base + tooth * scale).coerceIn(0f, 1f),
             absorbency = sampledAbsorbency.coerceIn(0f, 1f),
         )
+    }
+
+    private fun sampleIndex(canvasX: Float, canvasY: Float, profile: SubstrateProfile): Int {
+        val scale = profile.textureScale.coerceAtLeast(0.05f)
+        val tx = wrap(floor(canvasX / scale + profile.textureOffsetX).toInt(), width)
+        val ty = wrap(floor(canvasY / scale + profile.textureOffsetY).toInt(), height)
+        return ty * width + tx
     }
 
     private fun unsigned(value: Byte): Int = value.toInt() and 0xFF
@@ -127,6 +150,40 @@ data class SubstrateDeposition(
  * multiplicative material limits rather than being hidden inside the substrate texture itself.
  */
 object SubstrateDepositionModel {
+    /** Allocation-free coverage-only form for CPU/GPU raster parity work. */
+    fun coverageMultiplier(
+        contactDepth: Float,
+        localPaintHeightContribution: Float,
+        substrateResponse: Float,
+        substrateHeight: Float,
+    ): Float {
+        val depth = contactDepth.coerceIn(0f, 1f)
+        val paintHeight = localPaintHeightContribution.coerceAtLeast(0f)
+        val barrier = (substrateHeight.coerceIn(0f, 1f) - paintHeight).coerceIn(0f, 1f)
+        val substrateCoverage = if (depth >= barrier) 1f else 0f
+        val response = substrateResponse.coerceIn(0f, 1f)
+        return ((1f - response) + substrateCoverage * response).coerceIn(0f, 1f)
+    }
+
+    /** Allocation-free visible-deposition multiplier for per-pixel raster hot paths. */
+    fun depositionMultiplier(
+        contactDepth: Float,
+        localPaintHeightContribution: Float,
+        reservoirLoad: Float,
+        depositionRate: Float,
+        substrateResponse: Float,
+        substrateHeight: Float,
+    ): Float = (
+        depositionRate.coerceIn(0f, 1f) *
+            reservoirLoad.coerceIn(0f, 1f) *
+            coverageMultiplier(
+                contactDepth,
+                localPaintHeightContribution,
+                substrateResponse,
+                substrateHeight,
+            )
+        ).coerceIn(0f, 1f)
+
     fun resolve(
         contactDepth: Float,
         localPaintHeightContribution: Float,
@@ -141,10 +198,15 @@ object SubstrateDepositionModel {
         val paintHeight = localPaintHeightContribution.coerceAtLeast(0f)
         val barrier = (sample.height - paintHeight).coerceIn(0f, 1f)
         val penetrates = depth >= barrier
-        val substrateCoverage = if (penetrates) 1f else 0f
-        val response = material.substrateResponse
-        val coverage = ((1f - response) + substrateCoverage * response).coerceIn(0f, 1f)
-        val deposition = (material.depositionRate * state.load * coverage).coerceIn(0f, 1f)
+        val coverage = coverageMultiplier(depth, paintHeight, material.substrateResponse, sample.height)
+        val deposition = depositionMultiplier(
+            depth,
+            paintHeight,
+            state.load,
+            material.depositionRate,
+            material.substrateResponse,
+            sample.height,
+        )
         return SubstrateDeposition(
             penetrationBarrier = barrier,
             penetrates = penetrates,
