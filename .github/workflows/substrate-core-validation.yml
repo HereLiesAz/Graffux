@@ -39,4 +39,4 @@ jobs:
             --tests "*BrushTuftDabExpanderTest" \
             --stacktrace
 
-# Temporary branch-only validator; remove before merge.
+# Temporary branch-only validator; rerun after isolated parity fixture fix, remove before merge.
