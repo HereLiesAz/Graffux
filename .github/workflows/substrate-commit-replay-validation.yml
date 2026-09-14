@@ -1,0 +1,40 @@
+name: Substrate Commit Replay Validation
+
+on:
+  push:
+    branches: [ "feat/substrate-commit-replay" ]
+    paths: [ ".github/workflows/substrate-commit-replay-validation.yml" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-substrate-commit-replay:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/substrate-commit-replay
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-read-only: true
+          dependency-graph: disabled
+
+      - name: Run substrate commit and renderer tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :feature:editor:testDebugUnitTest \
+            --tests "*DrawingEngineSubstrateTest" \
+            --tests "*StampBrushSubstrateRendererTest" \
+            --stacktrace
+
+# Temporary branch-only validator; remove before merge.
