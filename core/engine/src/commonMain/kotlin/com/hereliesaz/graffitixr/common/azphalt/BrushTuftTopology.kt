@@ -8,53 +8,40 @@ import kotlin.math.sin
 
 private const val TUFT_DEG_TO_RAD = 0.017453292f
 
-/**
- * Coarse bristle-bundle topology for M2 brush mechanics.
- *
- * This is intentionally not a random scatter system. A tuft has a stable identity and a stable
- * ferrule-local root for the entire stroke and across deterministic replay. The topology only
- * describes brush-internal contact structure; renderers do not reinterpret it.
- */
 @Serializable
 data class BrushTuftConfig(
     val enabled: Boolean = false,
-    /** Number of stable coarse bundles across the brush. */
     val count: Int = 5,
-    /** Total lateral span of tuft roots, in brush-diameter fractions. */
     val rootSpan: Float = 0.72f,
-    /** 0 allows free bundle separation, 1 strongly preserves the rest arrangement. */
     val cohesion: Float = 0.72f,
-    /** How strongly global contact splay pushes outer bundles farther apart. */
     val splayResponse: Float = 0.8f,
-    /** Differential trailing displacement of softer/outer bundles under bend. */
     val bendDifferential: Float = 0.12f,
-    /** Relative width assigned to each bundle for split-tip rendering. */
     val tuftWidthScale: Float = 1f,
-    /** 0 = very slow bundle deformation, 1 = quickly follows its mechanical target. */
     val deformationResponse: Float = 0.62f,
-    /** Resistance to a bundle changing an established drag direction. */
     val hysteresis: Float = 0.45f,
-    /** How quickly a bundle returns toward its rest separation/bend as loading falls. */
     val recovery: Float = 0.68f,
-    /** Maximum additional angular lag of one tuft behind the global brush contact. */
     val maxLagDeg: Float = 22f,
-    /** Filtered split load at which a cohesive tuft breaks away from its neighboring bundle mass. */
     val splitThreshold: Float = 0.46f,
-    /** Lower load at which an already split tuft is allowed to rejoin. Must not exceed splitThreshold. */
     val rejoinThreshold: Float = 0.28f,
-    /** How quickly rake/splay loading accumulates into or releases split-tip deformation. */
     val splitResponse: Float = 0.7f,
-    /** Maximum extra lateral displacement of a fully split outer tuft, in diameter fractions. */
     val splitSeparation: Float = 0.16f,
-    /** Contribution of bend/rake to split loading; the remainder comes from contact splay. */
     val splitBendWeight: Float = 0.45f,
-    /**
-     * Emit one ordinary renderer-facing [Dab] per resolved bundle.
-     *
-     * False is the compatibility default: topology can be computed/tested without changing pixels.
-     * Turning this on is the M2 split-contact opt-in; CPU and Vulkan continue consuming the same
-     * ordinary Dab contract and do not need their own tuft interpretation.
-     */
+    /** Extra footprint width on explicit touchdown before the tuft settles into drag. */
+    val touchdownCompression: Float = 0.22f,
+    /** Maximum time a non-dragging touchdown remains in the compressed stab state. */
+    val touchdownHoldMs: Float = 48f,
+    /** Global bend at which a stab is considered to have transitioned into drag. */
+    val stabToDragBend: Float = 0.22f,
+    /** Response speed for explicit lift-off collapse. */
+    val liftReleaseResponse: Float = 0.8f,
+    /** Minimum tuft radius scale retained at full lift-off. */
+    val liftRadiusFloor: Float = 0.3f,
+    /** Global rake-direction change that counts as a reversal impulse. */
+    val reversalThresholdDeg: Float = 105f,
+    /** How strongly an established split is retained through a reversal. */
+    val reversalPersistence: Float = 0.75f,
+    /** Temporary angular lag allowed while a reversal impulse is unloading. */
+    val reversalMaxLagDeg: Float = 140f,
     val emitTuftDabs: Boolean = false,
 ) {
     fun sanitized(): BrushTuftConfig {
@@ -75,6 +62,14 @@ data class BrushTuftConfig(
             splitResponse = splitResponse.coerceIn(0f, 1f),
             splitSeparation = splitSeparation.coerceIn(0f, 0.75f),
             splitBendWeight = splitBendWeight.coerceIn(0f, 1f),
+            touchdownCompression = touchdownCompression.coerceIn(0f, 1f),
+            touchdownHoldMs = touchdownHoldMs.coerceIn(0f, 500f),
+            stabToDragBend = stabToDragBend.coerceIn(0f, 1f),
+            liftReleaseResponse = liftReleaseResponse.coerceIn(0f, 1f),
+            liftRadiusFloor = liftRadiusFloor.coerceIn(0.05f, 1f),
+            reversalThresholdDeg = reversalThresholdDeg.coerceIn(45f, 180f),
+            reversalPersistence = reversalPersistence.coerceIn(0f, 1f),
+            reversalMaxLagDeg = reversalMaxLagDeg.coerceIn(maxLagDeg.coerceIn(0f, 90f), 180f),
         )
     }
 
@@ -82,39 +77,34 @@ data class BrushTuftConfig(
     fun emitsDabs(): Boolean = isActive() && emitTuftDabs
 }
 
-/** Stable ferrule-local identity. No RNG participates in layout. */
 data class BrushTuftIdentity(
     val id: Int,
-    /** Lateral root position relative to brush center, in brush-diameter fractions. */
     val rootLateralFraction: Float,
-    /** Edge bundles are slightly softer than center bundles, but retain stable identities. */
     val stiffnessScale: Float,
 )
 
-/** Persistent deformation state for one stable tuft identity. */
 data class BrushTuftMechanicalState(
     val id: Int,
     val initialized: Boolean = false,
-    /** Current bundle drag direction. This may lag the global brush direction at corners/reversals. */
     val dragAngleDeg: Float = 0f,
-    /** Per-bundle bend amount, retained across samples. */
     val bend: Float = 0f,
-    /** Signed displacement away from the ferrule-local root. */
     val separationFraction: Float = 0f,
-    /** Trailing displacement behind the tuft's own drag direction. */
     val trailingFraction: Float = 0f,
-    /** Low-pass mechanical loading that must build before a tuft breaks away. */
     val splitDrive: Float = 0f,
-    /** Continuous 0..1 split deformation, separately filtered from the latch decision. */
     val splitAmount: Float = 0f,
-    /** Hysteretic split state: set above splitThreshold, cleared only below rejoinThreshold. */
     val splitLatched: Boolean = false,
+    /** Stroke-local time since this stable tuft first contacted the surface. */
+    val contactAgeMs: Float = 0f,
+    /** 0..1 compressed stab/touchdown state. */
+    val touchdownAmount: Float = 0f,
+    /** 0..1 explicit lift-off release state. */
+    val liftAmount: Float = 0f,
+    /** Short-lived reversal impulse used to retain split and then snap direction. */
+    val reversalImpulse: Float = 0f,
+    /** Previous global rake direction, retained to detect true reversals. */
+    val lastGlobalDragAngleDeg: Float = 0f,
 )
 
-/**
- * Renderer-independent resolved bundle contact relative to the already-resolved primary contact
- * center. Offsets are brush-diameter fractions in canvas x/y coordinates.
- */
 data class BrushTuftContact(
     val id: Int,
     val rootLateralFraction: Float,
@@ -124,8 +114,10 @@ data class BrushTuftContact(
     val alphaScale: Float,
     val angleOffsetDeg: Float,
     val stiffnessScale: Float,
-    /** 0..1 persistent split-tip deformation for diagnostics/future morphology. */
     val splitAmount: Float = 0f,
+    val touchdownAmount: Float = 0f,
+    val liftAmount: Float = 0f,
+    val reversalImpulse: Float = 0f,
 )
 
 data class BrushTuftMechanicalStep(
@@ -134,7 +126,6 @@ data class BrushTuftMechanicalStep(
 )
 
 object BrushTuftTopology {
-    /** Stable identities depend only on sanitized brush configuration. */
     fun layout(config: BrushTuftConfig): List<BrushTuftIdentity> {
         val cfg = config.sanitized()
         if (!cfg.isActive()) return emptyList()
@@ -144,28 +135,18 @@ object BrushTuftTopology {
             val normalized = if (count == 1) 0f else index.toFloat() / (count - 1).toFloat()
             val root = (normalized * 2f - 1f) * halfSpan
             val edgeT = if (halfSpan > 0f) (abs(root) / halfSpan).coerceIn(0f, 1f) else 0f
-            BrushTuftIdentity(
-                id = index,
-                rootLateralFraction = root,
-                stiffnessScale = 1f - edgeT * 0.2f,
-            )
+            BrushTuftIdentity(index, root, 1f - edgeT * 0.2f)
         }
     }
 
-    /**
-     * Stateless reference resolution. This remains useful for topology previews/tests and defines
-     * the cohesive target geometry persistent tuft state approaches during a real stroke. Split
-     * transitions intentionally require history and therefore remain inactive in this function.
-     */
+    /** Stateless cohesive reference geometry. Phase transitions require stroke history. */
     fun resolve(
         state: BrushMechanicalState,
         contact: BrushContactState,
         config: BrushTuftConfig,
     ): List<BrushTuftContact> {
         val cfg = config.sanitized()
-        val identities = layout(cfg)
-        if (identities.isEmpty()) return emptyList()
-        return identities.map { tuft ->
+        return layout(cfg).map { tuft ->
             val target = targets(tuft, contact, cfg)
             contactFor(
                 identity = tuft,
@@ -174,17 +155,14 @@ object BrushTuftTopology {
                 lateralFraction = tuft.rootLateralFraction + target.cohesiveSeparationFraction,
                 trailingFraction = target.trailingFraction,
                 splitAmount = 0f,
+                touchdownAmount = 0f,
+                liftAmount = 0f,
+                reversalImpulse = 0f,
                 cfg = cfg,
             )
         }
     }
 
-    /**
-     * Incremental per-tuft mechanics. Stable bundle identities keep their own bend, separation,
-     * trailing displacement, drag direction and split state. Split loading is low-pass filtered,
-     * then a breakaway/rejoin threshold pair supplies real hysteresis: a tuft does not chatter in
-     * and out of a split merely because instantaneous splay hovers near one threshold.
-     */
     fun step(
         previous: List<BrushTuftMechanicalState>,
         state: BrushMechanicalState,
@@ -204,18 +182,23 @@ object BrushTuftTopology {
             val target = targets(identity, contact, cfg)
             val old = previousById[identity.id]
             val next = if (old == null || !old.initialized || dtMs <= 0f) {
-                // New contact begins cohesive even under a hard touchdown. Split drive must build
-                // through subsequent samples before the bundle can break away.
+                val touchdown = if (state.intent.contactPhase == BrushContactPhase.TOUCHDOWN) 1f else 0f
+                val lift = if (state.intent.contactPhase == BrushContactPhase.LIFT_OFF) 1f else 0f
                 BrushTuftMechanicalState(
                     id = identity.id,
                     initialized = true,
                     dragAngleDeg = normalizeDegrees(state.dragAngleDeg),
-                    bend = target.bend,
-                    separationFraction = target.cohesiveSeparationFraction,
-                    trailingFraction = target.trailingFraction,
+                    bend = if (lift > 0f) 0f else target.bend,
+                    separationFraction = if (lift > 0f) 0f else target.cohesiveSeparationFraction,
+                    trailingFraction = 0f,
                     splitDrive = 0f,
                     splitAmount = 0f,
                     splitLatched = false,
+                    contactAgeMs = 0f,
+                    touchdownAmount = touchdown,
+                    liftAmount = lift,
+                    reversalImpulse = 0f,
+                    lastGlobalDragAngleDeg = state.dragAngleDeg,
                 )
             } else {
                 evolve(old, identity, state, target, cfg, dtMs)
@@ -228,10 +211,12 @@ object BrushTuftTopology {
                 lateralFraction = identity.rootLateralFraction + next.separationFraction,
                 trailingFraction = next.trailingFraction,
                 splitAmount = next.splitAmount,
+                touchdownAmount = next.touchdownAmount,
+                liftAmount = next.liftAmount,
+                reversalImpulse = next.reversalImpulse,
                 cfg = cfg,
             )
         }
-
         return BrushTuftMechanicalStep(nextStates, contacts)
     }
 
@@ -243,15 +228,9 @@ object BrushTuftTopology {
         val edgeT: Float,
     )
 
-    private fun targets(
-        identity: BrushTuftIdentity,
-        contact: BrushContactState,
-        cfg: BrushTuftConfig,
-    ): TuftTargets {
+    private fun targets(identity: BrushTuftIdentity, contact: BrushContactState, cfg: BrushTuftConfig): TuftTargets {
         val halfSpan = cfg.rootSpan * 0.5f
-        val edgeT = if (halfSpan > 0f) {
-            (abs(identity.rootLateralFraction) / halfSpan).coerceIn(0f, 1f)
-        } else 0f
+        val edgeT = if (halfSpan > 0f) (abs(identity.rootLateralFraction) / halfSpan).coerceIn(0f, 1f) else 0f
         val freeMotion = 1f - cfg.cohesion
         val splayGain = 1f + contact.splay * cfg.splayResponse * (0.35f + freeMotion * 0.65f)
         val lateral = identity.rootLateralFraction * splayGain
@@ -259,21 +238,14 @@ object BrushTuftTopology {
         val softness = 1f - identity.stiffnessScale
         val bend = (contact.bend * (1f + softness * 0.2f)).coerceIn(0f, 1f)
         val trailing = bend * cfg.bendDifferential * softness * (0.25f + freeMotion * 0.75f)
-
-        // Center bundles act as the cohesive anchor. Outer bundles see more separating load, while
-        // cohesion reduces the effective rake/splay available to tear a tuft away from the mass.
-        val rawLoad = (
-            contact.splay * (1f - cfg.splitBendWeight) + contact.bend * cfg.splitBendWeight
-            ).coerceIn(0f, 1f)
+        val rawLoad = (contact.splay * (1f - cfg.splitBendWeight) + contact.bend * cfg.splitBendWeight).coerceIn(0f, 1f)
         val edgeExposure = if (edgeT <= 1e-4f) 0f else 0.35f + edgeT * 0.65f
         val cohesionResistance = 1f - cfg.cohesion * 0.45f
-        val splitLoad = (rawLoad * edgeExposure * cohesionResistance).coerceIn(0f, 1f)
-
         return TuftTargets(
             bend = bend,
             cohesiveSeparationFraction = cohesiveSeparation,
             trailingFraction = trailing,
-            splitLoad = splitLoad,
+            splitLoad = (rawLoad * edgeExposure * cohesionResistance).coerceIn(0f, 1f),
             edgeT = edgeT,
         )
     }
@@ -290,59 +262,106 @@ object BrushTuftTopology {
         val responseStrength = (cfg.deformationResponse * stiffness).coerceIn(0f, 1f)
         val deformationTauMs = lerp(260f, 24f, responseStrength)
         val recoveryTauMs = lerp(420f, 42f, cfg.recovery * stiffness)
+        val ageMs = previous.contactAgeMs + dtMs
+        val phase = globalState.intent.contactPhase
+
+        val touchdownTarget = if (
+            phase != BrushContactPhase.LIFT_OFF &&
+            previous.touchdownAmount > 0f &&
+            ageMs <= cfg.touchdownHoldMs &&
+            target.bend < cfg.stabToDragBend
+        ) 1f else 0f
+        val touchdown = approach(
+            previous.touchdownAmount,
+            touchdownTarget,
+            response(dtMs, lerp(160f, 22f, cfg.deformationResponse)),
+        )
+
+        val liftTarget = if (phase == BrushContactPhase.LIFT_OFF) 1f else 0f
+        val liftTauMs = lerp(220f, 20f, cfg.liftReleaseResponse * stiffness)
+        val lift = approach(previous.liftAmount, liftTarget, response(dtMs, liftTauMs))
+
+        val globalTurn = abs(wrapSignedDegrees(globalState.dragAngleDeg - previous.lastGlobalDragAngleDeg))
+        val reversalDetected = phase != BrushContactPhase.LIFT_OFF &&
+            globalTurn >= cfg.reversalThresholdDeg && previous.bend > 0.05f
+        val reversal = if (reversalDetected) {
+            1f
+        } else {
+            approach(previous.reversalImpulse, 0f, response(dtMs, recoveryTauMs))
+        }
 
         val turn = wrapSignedDegrees(globalState.dragAngleDeg - previous.dragAngleDeg)
         val turnT = (abs(turn) / 180f).coerceIn(0f, 1f)
         val angleResponse = response(dtMs, deformationTauMs) *
             (1f - cfg.hysteresis * turnT * 0.9f).coerceIn(0.05f, 1f)
         var tuftAngle = previous.dragAngleDeg + turn * angleResponse
+        val allowedLag = lerp(cfg.maxLagDeg, cfg.reversalMaxLagDeg, reversal)
         var lag = wrapSignedDegrees(tuftAngle - globalState.dragAngleDeg)
-        lag = lag.coerceIn(-cfg.maxLagDeg, cfg.maxLagDeg)
+        lag = lag.coerceIn(-allowedLag, allowedLag)
         tuftAngle = normalizeDegrees(globalState.dragAngleDeg + lag)
 
-        val loadingBend = target.bend >= previous.bend
-        val bendResponse = response(dtMs, if (loadingBend) deformationTauMs else recoveryTauMs)
-        val bend = approach(previous.bend, target.bend, bendResponse)
+        val effectiveBendTarget = if (phase == BrushContactPhase.LIFT_OFF) 0f else target.bend
+        val loadingBend = effectiveBendTarget >= previous.bend
+        val bend = approach(
+            previous.bend,
+            effectiveBendTarget,
+            response(dtMs, if (loadingBend) deformationTauMs else recoveryTauMs),
+        )
 
         val splitTauMs = lerp(320f, 28f, cfg.splitResponse * stiffness)
-        val splitDriveResponse = response(
-            dtMs,
-            if (target.splitLoad >= previous.splitDrive) splitTauMs else recoveryTauMs,
-        )
-        val splitDrive = approach(previous.splitDrive, target.splitLoad, splitDriveResponse)
-        val splitLatched = if (previous.splitLatched) {
-            splitDrive > cfg.rejoinThreshold
+        val effectiveSplitLoad = if (phase == BrushContactPhase.LIFT_OFF || touchdown > 0.5f) {
+            0f
         } else {
-            splitDrive >= cfg.splitThreshold
+            maxOf(target.splitLoad, previous.splitDrive * reversal * cfg.reversalPersistence)
         }
-        val splitTarget = if (splitLatched && target.edgeT > 0f) {
-            ((splitDrive - cfg.rejoinThreshold) / (1f - cfg.rejoinThreshold).coerceAtLeast(0.01f))
-                .coerceIn(0f, 1f)
-        } else 0f
-        val splitAmountResponse = response(
-            dtMs,
-            if (splitTarget >= previous.splitAmount) splitTauMs else recoveryTauMs,
+        val splitDrive = approach(
+            previous.splitDrive,
+            effectiveSplitLoad,
+            response(dtMs, if (effectiveSplitLoad >= previous.splitDrive) splitTauMs else recoveryTauMs),
         )
-        val splitAmount = approach(previous.splitAmount, splitTarget, splitAmountResponse)
+        val splitLatched = when {
+            phase == BrushContactPhase.LIFT_OFF -> false
+            previous.splitLatched && reversal > 0.05f -> true
+            previous.splitLatched -> splitDrive > cfg.rejoinThreshold
+            else -> splitDrive >= cfg.splitThreshold
+        }
+        val baseSplitTarget = if (splitLatched && target.edgeT > 0f) {
+            ((splitDrive - cfg.rejoinThreshold) / (1f - cfg.rejoinThreshold).coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+        } else 0f
+        val splitTarget = if (reversal > 0.05f && previous.splitLatched) {
+            maxOf(baseSplitTarget, previous.splitAmount * cfg.reversalPersistence)
+        } else baseSplitTarget
+        val splitAmount = approach(
+            previous.splitAmount,
+            splitTarget,
+            response(dtMs, if (splitTarget >= previous.splitAmount) splitTauMs else recoveryTauMs),
+        )
+
         val side = when {
             identity.rootLateralFraction < 0f -> -1f
             identity.rootLateralFraction > 0f -> 1f
             else -> 0f
         }
         val splitSeparation = side * cfg.splitSeparation * splitAmount * (0.4f + target.edgeT * 0.6f)
-        val targetSeparation = target.cohesiveSeparationFraction + splitSeparation
-
+        var targetSeparation = target.cohesiveSeparationFraction + splitSeparation
+        if (phase == BrushContactPhase.LIFT_OFF) targetSeparation = 0f
+        targetSeparation *= (1f - touchdown * 0.25f)
         val loadingSeparation = abs(targetSeparation) >= abs(previous.separationFraction)
-        val separationResponse = response(dtMs, if (loadingSeparation) deformationTauMs else recoveryTauMs)
         val separation = approachSigned(
             previous.separationFraction,
             targetSeparation,
-            separationResponse * directionalHysteresis(previous.separationFraction, targetSeparation, cfg.hysteresis),
+            response(dtMs, if (loadingSeparation) deformationTauMs else recoveryTauMs) *
+                directionalHysteresis(previous.separationFraction, targetSeparation, cfg.hysteresis),
         )
 
-        val loadingTrail = target.trailingFraction >= previous.trailingFraction
-        val trailResponse = response(dtMs, if (loadingTrail) deformationTauMs else recoveryTauMs)
-        val trailing = approachSigned(previous.trailingFraction, target.trailingFraction, trailResponse)
+        var trailTarget = if (phase == BrushContactPhase.LIFT_OFF) 0f else target.trailingFraction
+        trailTarget *= (1f - touchdown * 0.8f)
+        val loadingTrail = trailTarget >= previous.trailingFraction
+        val trailing = approachSigned(
+            previous.trailingFraction,
+            trailTarget,
+            response(dtMs, if (loadingTrail) deformationTauMs else recoveryTauMs),
+        )
 
         return BrushTuftMechanicalState(
             id = identity.id,
@@ -354,6 +373,11 @@ object BrushTuftTopology {
             splitDrive = splitDrive,
             splitAmount = splitAmount,
             splitLatched = splitLatched,
+            contactAgeMs = ageMs,
+            touchdownAmount = touchdown,
+            liftAmount = lift,
+            reversalImpulse = reversal,
+            lastGlobalDragAngleDeg = globalState.dragAngleDeg,
         )
     }
 
@@ -364,6 +388,9 @@ object BrushTuftTopology {
         lateralFraction: Float,
         trailingFraction: Float,
         splitAmount: Float,
+        touchdownAmount: Float,
+        liftAmount: Float,
+        reversalImpulse: Float,
         cfg: BrushTuftConfig,
     ): BrushTuftContact {
         val angleRad = dragAngleDeg * TUFT_DEG_TO_RAD
@@ -374,16 +401,21 @@ object BrushTuftTopology {
         val x = lateralX * lateralFraction - dragX * trailingFraction
         val y = lateralY * lateralFraction - dragY * trailingFraction
         val baseRadiusScale = (cfg.tuftWidthScale / cfg.count.toFloat()).coerceIn(0.04f, 1f)
+        val touchdownScale = 1f + touchdownAmount * cfg.touchdownCompression
+        val liftScale = lerp(1f, cfg.liftRadiusFloor, liftAmount)
         return BrushTuftContact(
             id = identity.id,
             rootLateralFraction = identity.rootLateralFraction,
             offsetXFraction = x,
             offsetYFraction = y,
-            radiusScale = baseRadiusScale,
+            radiusScale = (baseRadiusScale * touchdownScale * liftScale).coerceAtLeast(0.01f),
             alphaScale = 1f,
             angleOffsetDeg = wrapSignedDegrees(dragAngleDeg - globalDragAngleDeg),
             stiffnessScale = identity.stiffnessScale,
             splitAmount = splitAmount,
+            touchdownAmount = touchdownAmount,
+            liftAmount = liftAmount,
+            reversalImpulse = reversalImpulse,
         )
     }
 
