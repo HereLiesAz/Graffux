@@ -74,7 +74,14 @@ data class BrushContactConfig(
         devicePresentation = devicePresentation.sanitized(),
     )
 
-    fun isActive(): Boolean = enabled
+    /**
+     * Physical bristle population is itself an explicit mechanics opt-in. Older brush JSON may not
+     * have the general contact flag because the population model did not exist when it was saved;
+     * do not let that silently route a physical brush through the legacy static-stamp path.
+     */
+    fun isActive(): Boolean = enabled || (
+        tipGeometry.kind == BrushTipKind.BRISTLE && tipGeometry.population.enabled
+        )
 }
 
 /** Canonical observation of artist-intent evidence carried alongside stroke kinematics. */
