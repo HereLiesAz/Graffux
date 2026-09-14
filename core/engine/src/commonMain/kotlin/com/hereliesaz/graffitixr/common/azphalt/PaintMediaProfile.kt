@@ -57,10 +57,17 @@ data class PaintMediaProfile(
         )
     }
 
-    /** True when selecting this profile requires behavior beyond the historical dry colour path. */
+    /**
+     * True when selecting this profile requires behavior beyond the historical dry colour path.
+     * Evaluate the sanitized coefficients so malformed imported/user values do not accidentally
+     * allocate material state before the same values are clamped back to compatibility defaults.
+     */
     val usesMaterialPath: Boolean
-        get() = medium.usesMaterialPath || !channels.isColorOnly ||
-            initialLoad != 1f || initialWetness != 0f
+        get() {
+            val profile = sanitized()
+            return profile.medium.usesMaterialPath || !profile.channels.isColorOnly ||
+                profile.initialLoad != 1f || profile.initialWetness != 0f
+        }
 
     companion object {
         /** Exact compatibility profile: colour-only, full load, dry reservoir, legacy RGB mixing. */
