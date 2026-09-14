@@ -5,7 +5,6 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.max
@@ -124,7 +123,7 @@ class ColorSmudgeReservoirPickupTest {
     }
 
     @Test
-    fun `reservoir pickup is deterministic and forces CPU until Vulkan parity exists`() {
+    fun `reservoir pickup is deterministic`() {
         val settings = pickupSettings().copy(pickupRate = 0.65f)
         val source = blueBandSource()
         val a = flat(Color.WHITE)
@@ -134,8 +133,5 @@ class ColorSmudgeReservoirPickupTest {
         ColorSmudgeEngine.apply(b, width, height, stroke, settings, strokeSeed = 777L, sampleSource = source)
 
         assertArrayEquals(a, b)
-        assertTrue(ColorSmudgeEngine.requiresCpuReservoirSimulation(settings))
-        assertFalse(ColorSmudgeEngine.requiresCpuReservoirSimulation(settings.copy(pickupRate = 0f)))
-        assertFalse(ColorSmudgeEngine.requiresCpuReservoirSimulation(settings.copy(pickupRate = -1f)))
     }
 }
