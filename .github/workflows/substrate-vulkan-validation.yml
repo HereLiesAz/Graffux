@@ -47,4 +47,5 @@ jobs:
             --tests "*DrawingEngineSubstrateTest" \
             --stacktrace
 
-# Temporary branch-only validator; remove before merge.
+# Temporary branch-only validator. This rerun includes the command-buffer-before-texture-upload fix.
+# Remove before merge.
