@@ -71,6 +71,7 @@ internal object StampBrushRenderer {
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
         secondaryColorArgb: Int = colorArgb,
+        substrate: SubstrateRenderContext? = null,
     ) {
         val curved = CatmullRom.densify(points)
         paintDabs(
@@ -84,6 +85,7 @@ internal object StampBrushRenderer {
             maskStamp,
             seed,
             secondaryColorArgb,
+            substrate = substrate,
         )
     }
 
@@ -99,6 +101,7 @@ internal object StampBrushRenderer {
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
         secondaryColorArgb: Int = colorArgb,
+        substrate: SubstrateRenderContext? = null,
     ) {
         paintDabs(
             canvas,
@@ -111,6 +114,7 @@ internal object StampBrushRenderer {
             maskStamp,
             seed,
             secondaryColorArgb,
+            substrate = substrate,
         )
     }
 
@@ -132,11 +136,16 @@ internal object StampBrushRenderer {
         // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead --
         // see that function's doc comment for why movement dabs must NOT use this same build-up.
         allowBuildUp: Boolean = false,
+        substrate: SubstrateRenderContext? = null,
     ) {
         if (dabs.isEmpty()) return
-        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
+        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null ||
+            (substrate != null && (stamp != null || allowBuildUp || brush.buildUp))
         if (advancedMaskPipeline) {
-            paintMaskedDabs(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, stamp, grain, maskStamp, seed)
+            paintMaskedDabs(
+                canvas, dabs, brush, colorArgb, secondaryColorArgb, flow,
+                stamp, grain, maskStamp, seed, substrate,
+            )
             return
         }
 
@@ -171,7 +180,9 @@ internal object StampBrushRenderer {
         if (allowBuildUp || brush.buildUp) {
             paintRoundDabsSequential(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
         } else {
-            paintRoundDabsMaxCombined(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
+            paintRoundDabsMaxCombined(
+                canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, substrate,
+            )
         }
     }
 
@@ -213,6 +224,7 @@ internal object StampBrushRenderer {
         colorArgb: Int,
         flow: Float,
         secondaryColorArgb: Int = colorArgb,
+        substrate: SubstrateRenderContext? = null,
     ) {
         if (dabs.isEmpty()) return
         var minX = Float.MAX_VALUE
@@ -239,7 +251,9 @@ internal object StampBrushRenderer {
         val restorePaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
         val region = android.graphics.Rect(left, top, right, bottom)
         canvas.drawBitmap(baseBitmap, region, region, restorePaint)
-        paintRoundDabsMaxCombined(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
+        paintRoundDabsMaxCombined(
+            canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, substrate,
+        )
     }
 
     /** The original per-dab `RadialGradient` + `SRC_OVER` compositing -- every dab builds on
@@ -316,6 +330,7 @@ internal object StampBrushRenderer {
         colorArgb: Int,
         secondaryColorArgb: Int,
         flow: Float,
+        substrate: SubstrateRenderContext? = null,
     ) {
         val baseFlow = flow.coerceIn(0f, 1f)
 
@@ -362,7 +377,14 @@ internal object StampBrushRenderer {
                     val dx = px + 0.5f - d.x
                     val rNorm = hypot(dx, dy) / radius
                     if (rNorm < 1f) {
-                        val localAlpha = BrushStamps.stampCoverage(rNorm, d.hardness) * strength
+                        val deposition = substrate?.depositionAt(
+                            px + 0.5f,
+                            py + 0.5f,
+                            d,
+                            canvas.width,
+                            canvas.height,
+                        ) ?: 1f
+                        val localAlpha = BrushStamps.stampCoverage(rNorm, d.hardness) * strength * deposition
                         val idx = rowBase + (px - left)
                         if (localAlpha > alphaBuf[idx]) {
                             alphaBuf[idx] = localAlpha
@@ -402,6 +424,7 @@ internal object StampBrushRenderer {
         grain: Bitmap?,
         maskStamp: Bitmap?,
         seed: Long,
+        substrate: SubstrateRenderContext? = null,
     ) {
         val scratch = DabScratch()
         val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -483,6 +506,17 @@ internal object StampBrushRenderer {
                         grainPhaseY,
                     )
                 }
+                if (substrate != null) {
+                    applySubstrate(
+                        scratch.primary,
+                        substrate,
+                        dab,
+                        left,
+                        top,
+                        destination.width,
+                        destination.height,
+                    )
+                }
 
                 val dabColor = resolvedColor(baseColor, secondaryColor, brush, dab)
                 val alphaVal = (
@@ -497,6 +531,38 @@ internal object StampBrushRenderer {
         } finally {
             scratch.close()
         }
+    }
+
+    private fun applySubstrate(
+        mask: Bitmap,
+        substrate: SubstrateRenderContext,
+        dab: Dab,
+        globalLeft: Int,
+        globalTop: Int,
+        canvasWidth: Int,
+        canvasHeight: Int,
+    ) {
+        val width = mask.width
+        val height = mask.height
+        val pixels = IntArray(width * height)
+        mask.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val index = y * width + x
+                val currentAlpha = Color.alpha(pixels[index])
+                if (currentAlpha == 0) continue
+                val deposition = substrate.depositionAt(
+                    globalLeft + x + 0.5f,
+                    globalTop + y + 0.5f,
+                    dab,
+                    canvasWidth,
+                    canvasHeight,
+                )
+                val outAlpha = (currentAlpha * deposition).roundToInt().coerceIn(0, 255)
+                pixels[index] = (outAlpha shl 24) or 0x00FFFFFF
+            }
+        }
+        mask.setPixels(pixels, 0, width, 0, 0, width, height)
     }
 
     private fun drawCenteredMask(
