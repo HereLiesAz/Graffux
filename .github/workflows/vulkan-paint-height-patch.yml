@@ -37,13 +37,22 @@ jobs:
           path = Path('patch_vulkan_paint_height.py')
           text = path.read_text()
 
-          old_a = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean,\\n',"
-          new_a = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean,\\n',"
-          old_b = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
-          new_b = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
-          if text.count(old_a) != 1 or text.count(old_b) != 1:
-              raise SystemExit('wrapped Kotlin anchor normalizer drifted')
-          text = text.replace(old_a, new_a).replace(old_b, new_b)
+          replacements = {
+              "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean,\\n',":
+                  "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean,\\n',",
+              "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',":
+                  "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',",
+              "upload_paint = upload_paint.replace('const uint8_t* heightR8', 'const float* heightMap')":
+                  "upload_paint = upload_paint.replace('const uint8_t* alpha8', 'const float* heightMap')",
+              "upload_paint = upload_paint.replace('heightR8', 'heightMap')":
+                  "upload_paint = upload_paint.replace('alpha8', 'heightMap')",
+              "    'VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height;',\n    'VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * sizeof(float);',":
+                  "    'VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height;',\n    'VkDeviceSize uploadSize = static_cast<VkDeviceSize>(width) * height * sizeof(float);',",
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'patch anchor normalizer drifted: {old[:80]}')
+              text = text.replace(old, new)
 
           old_guard = "    actual = text.count(old)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
           new_guard = "    actual = text.count(old)\n    if label == 'plain binding 3':\n        if actual < 1:\n            raise RuntimeError(f'{label}: expected at least one occurrence, found {actual}')\n        return text.replace(old, new, 1)\n    if actual != count:\n        raise RuntimeError(f'{label}: expected {count} occurrences, found {actual}')\n    return text.replace(old, new, count)\n"
