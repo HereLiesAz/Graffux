@@ -20,6 +20,19 @@ jobs:
           ref: feat/substrate-vulkan-parity
           fetch-depth: 0
 
+      - name: Tighten ambiguous Kotlin stride guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/patch_substrate_vulkan_parity.py')
+          s = p.read_text(encoding='utf-8')
+          old = "k = replace_once(k, '            val base = i * 11\\n', '            val base = i * 15\\n', 'resolved base stride')"
+          new = "old_base = '            val base = i * 11\\n'\nif k.count(old_base) != 2:\n    raise SystemExit(f'resolved base stride: expected two pre-patch stride sites, found {k.count(old_base)}')\nk = k.replace(old_base, '            val base = i * 15\\n', 1)"
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one stride-guard patch site, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Apply guarded patch
         run: python3 scripts/patch_substrate_vulkan_parity.py
 
