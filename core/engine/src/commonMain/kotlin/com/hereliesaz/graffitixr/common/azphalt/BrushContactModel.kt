@@ -11,8 +11,8 @@ private const val CONTACT_DEG_TO_RAD = 0.017453292f
 private const val CONTACT_RAD_TO_DEG = 57.29578f
 
 /**
- * Stroke-local brush mechanics. Motion, pressure, tilt, stylus orientation and device presentation
- * all enter the model, but expressive telemetry is treated as intent evidence rather than direct
+ * Stroke-local brush mechanics. Motion, pressure, tilt, stylus orientation and device tip pose all
+ * enter the model, but expressive telemetry is treated as intent evidence rather than direct
  * renderer parameters. Couplings remain explicit/replaceable so richer physics can reinterpret
  * them without changing the renderer-facing contact contract.
  */
@@ -49,7 +49,9 @@ data class BrushContactConfig(
     val tiltElongation: Float = 0.22f,
     /** Optional stable coarse bristle-bundle topology. Disabled by default for exact compatibility. */
     val tufts: BrushTuftConfig = BrushTuftConfig(),
-    /** Optional phone/tablet attitude + manual ferrule/contact presentation controls. */
+    /** Physical tip family + fixed-diameter bristle population model used by paint and hover preview. */
+    val tipGeometry: BrushTipGeometryConfig = BrushTipGeometryConfig(),
+    /** Optional phone/tablet attitude + manual 3D tip-pose controls. */
     val devicePresentation: BrushDevicePresentationConfig = BrushDevicePresentationConfig(),
 ) {
     fun sanitized(): BrushContactConfig = copy(
@@ -68,10 +70,18 @@ data class BrushContactConfig(
         pressureSplay = pressureSplay.coerceIn(0f, 1f),
         tiltElongation = tiltElongation.coerceIn(0f, 0.95f),
         tufts = tufts.sanitized(),
+        tipGeometry = tipGeometry.sanitized(),
         devicePresentation = devicePresentation.sanitized(),
     )
 
-    fun isActive(): Boolean = enabled
+    /**
+     * Physical bristle population is itself an explicit mechanics opt-in. Older brush JSON may not
+     * have the general contact flag because the population model did not exist when it was saved;
+     * do not let that silently route a physical brush through the legacy static-stamp path.
+     */
+    fun isActive(): Boolean = enabled || (
+        tipGeometry.kind == BrushTipKind.BRISTLE && tipGeometry.population.enabled
+        )
 }
 
 /** Canonical observation of artist-intent evidence carried alongside stroke kinematics. */
@@ -100,14 +110,14 @@ data class BrushMechanicalState(
     val bend: Float = 0f,
     /** Stateful contact compression. Telemetry informs its target but does not bypass mechanics. */
     val compression: Float = 0f,
-    /** Stateful lean/contact-side amount. Tilt informs its target but does not directly reshape. */
+    /** Stateful lean/contact-side amount. Stylus tilt informs its target but does not directly reshape. */
     val lean: Float = 0f,
     /** Stable per-bundle deformation memory. Empty when coarse tuft mechanics are disabled. */
     val tufts: List<BrushTuftMechanicalState> = emptyList(),
     /** Latest intent evidence, retained for later richer solvers/tuft models. */
     val intent: BrushIntentObservation = BrushIntentObservation(),
     val lastUptimeMillis: Long = 0L,
-    /** Stroke-neutral device attitude and resolved user/device brush presentation. */
+    /** Independent 3D tip pose derived from phone/tablet attitude and user calibration. */
     val presentation: BrushDevicePresentationState = BrushDevicePresentationState(),
 )
 
@@ -115,7 +125,7 @@ data class BrushMechanicalState(
 data class BrushContactState(
     val widthMultiplier: Float = 1f,
     val tipRatioMultiplier: Float = 1f,
-    /** Add this to a heading-based footprint angle to get the mechanically lagged angle. */
+    /** Add this to a heading-based footprint angle to get the mechanically lagged drag angle. */
     val angleOffsetDeg: Float = 0f,
     /** Contact-center drag in brush-diameter fractions. */
     val offsetXFraction: Float = 0f,
@@ -126,12 +136,11 @@ data class BrushContactState(
     val splay: Float = 0f,
     /** Stable bundle contacts relative to this global contact center. Empty when topology is off. */
     val tufts: List<BrushTuftContact> = emptyList(),
-    /** -1..1 left/right edge-first presentation resolved from manual control + device roll. */
-    val presentationLateralBias: Float = 0f,
-    /** -1..1 heel/toe presentation resolved from manual control + device pitch. */
-    val presentationLongitudinalBias: Float = 0f,
-    /** Ferrule/topology rotation resolved from manual control + relative device yaw. */
-    val presentationRotationDeg: Float = 0f,
+    /** Screen-space shaft lean used to decide which part of an angular tip contacts first. */
+    val tipLeanX: Float = 0f,
+    val tipLeanY: Float = 0f,
+    /** Axial twist of the tip/nib around its own shaft; unrelated to canvas rotation. */
+    val tipTwistDeg: Float = 0f,
 )
 
 data class BrushMechanicalStep(
@@ -139,12 +148,6 @@ data class BrushMechanicalStep(
     val contact: BrushContactState,
 )
 
-/**
- * Deterministic incremental brush-mechanics model. Kinematics and device-specific telemetry are
- * fused into mechanical targets, then stiffness/damping/hysteresis decide how the brush actually
- * responds. Signal confidence is part of the calculation, so missing/basic/finger telemetry does
- * not receive the same authority as a high-quality stylus.
- */
 object BrushContactModel {
     fun step(
         sample: BrushSample,
@@ -191,13 +194,7 @@ object BrushContactModel {
                 lastUptimeMillis = sample.uptimeMillis,
                 presentation = presentation,
             )
-            return withTuftMechanics(
-                global = global,
-                previousTufts = emptyList(),
-                movementHeadingDeg = heading,
-                cfg = cfg,
-                dtMs = 0f,
-            )
+            return withTuftMechanics(global, emptyList(), heading, cfg, 0f)
         }
 
         val dtMs = (sample.uptimeMillis - previous.lastUptimeMillis)
@@ -238,13 +235,7 @@ object BrushContactModel {
             lastUptimeMillis = sample.uptimeMillis,
             presentation = presentation,
         )
-        return withTuftMechanics(
-            global = global,
-            previousTufts = previous.tufts,
-            movementHeadingDeg = heading,
-            cfg = cfg,
-            dtMs = dtMs,
-        )
+        return withTuftMechanics(global, previous.tufts, heading, cfg, dtMs)
     }
 
     private fun withTuftMechanics(
@@ -322,9 +313,9 @@ object BrushContactModel {
             compression = compression,
             lean = lean,
             splay = splay,
-            presentationLateralBias = state.presentation.lateralBias,
-            presentationLongitudinalBias = state.presentation.longitudinalBias,
-            presentationRotationDeg = state.presentation.rotationDeg,
+            tipLeanX = state.presentation.leanX,
+            tipLeanY = state.presentation.leanY,
+            tipTwistDeg = state.presentation.twistDeg,
         )
     }
 

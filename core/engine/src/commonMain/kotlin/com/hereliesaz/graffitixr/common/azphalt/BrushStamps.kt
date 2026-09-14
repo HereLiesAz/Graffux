@@ -161,9 +161,12 @@ object BrushStamps {
         val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
         val taper = brush.taper
         val blot = brush.blot
+        // Freeze physical hair/bundle population from the selected brush size. Dynamic diameter
+        // changes later in this function deform the fixed identities rather than spawning hairs.
+        val contactConfig = brush.contact.resolvedForBrushDiameter(diameter, brush.tipRatio)
         if (
             brush.dynamics.isEmpty() && !hasMaskDynamics && !taper.isActive() && !blot.isActive() &&
-            !brush.contact.isActive()
+            !contactConfig.isActive()
         ) {
             val points = ArrayList<Float>(real.size * 2)
             real.forEach { points.add(it.x); points.add(it.y) }
@@ -216,7 +219,7 @@ object BrushStamps {
             val strokePositionT = if (total > 0f) (at / total).coerceIn(0f, 1f) else 0f
             val pressureFadeFactor = 1f - strokePositionT
             val dynamic = BrushSensorEngine.resolve(sample, brush.dynamics, startTime, seed, index)
-            val mechanics = BrushContactModel.step(sample, mechanicalState, brush.contact)
+            val mechanics = BrushContactModel.step(sample, mechanicalState, contactConfig)
             mechanicalState = mechanics.state
             val contact = mechanics.contact
 
@@ -288,9 +291,9 @@ object BrushStamps {
                     y += mag * sin(headingRad)
                 }
 
-                val mechanicalAngle = if (brush.contact.isActive()) mechanicalHeadingDeg else if (brush.followStroke) headingDeg else 0f
+                val mechanicalAngle = if (contactConfig.isActive()) mechanicalHeadingDeg else if (brush.followStroke) headingDeg else 0f
                 val angle = brush.angle + mechanicalAngle + dynamic.rotationOffsetDeg + brush.rotationPerPx * at
-                val maskHeading = if (brush.contact.isActive()) mechanicalHeadingDeg else headingDeg
+                val maskHeading = if (contactConfig.isActive()) mechanicalHeadingDeg else headingDeg
                 val mask = resolveDynamicMask(
                     brush.maskedBrush, sample, x, y, contactDiameter, maskHeading, at,
                     startTime, seed, index, maskRng, maskLongRng,
@@ -316,9 +319,9 @@ object BrushStamps {
                 out.addAll(
                     BrushTuftDabExpander.expandIfEnabled(
                         parent = parent,
-                        contactDiameterPx = contactDiameter,
+                        contactDiameterPx = if (contactConfig.tufts.usesPhysicalPopulation()) diameter else contactDiameter,
                         contact = contact,
-                        config = brush.contact.tufts,
+                        config = contactConfig.tufts,
                     )
                 )
 
@@ -347,9 +350,9 @@ object BrushStamps {
                         out.addAll(
                             BrushTuftDabExpander.expandIfEnabled(
                                 parent = blotParent,
-                                contactDiameterPx = contactDiameter,
+                                contactDiameterPx = if (contactConfig.tufts.usesPhysicalPopulation()) diameter else contactDiameter,
                                 contact = contact,
-                                config = brush.contact.tufts,
+                                config = contactConfig.tufts,
                             )
                         )
                     }

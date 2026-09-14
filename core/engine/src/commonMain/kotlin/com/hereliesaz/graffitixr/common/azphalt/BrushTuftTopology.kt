@@ -3,11 +3,14 @@ package com.hereliesaz.graffitixr.common.azphalt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 private const val TUFT_DEG_TO_RAD = 0.017453292f
+private const val GOLDEN_ANGLE_RAD = 2.3999632f
 
 /**
  * Coarse physical brush families. CUSTOM is the exact historical topology and remains the default
@@ -61,11 +64,21 @@ data class BrushTuftConfig(
     val emitTuftDabs: Boolean = false,
     /** Stable internal tuft arrangement/deformation family. CUSTOM preserves legacy mechanics. */
     val morphology: BrushMorphology = BrushMorphology.CUSTOM,
+    /**
+     * Resolved physical footprint height in brush-diameter fractions. Zero means legacy one-row
+     * topology. This is populated per selected brush size by [BrushTipTopology.resolvedTuftConfig].
+     */
+    val physicalHeightSpan: Float = 0f,
+    /**
+     * Constant mechanical bundle diameter in pixels. Positive means this is a physical population
+     * layout and emitted bundle dabs must use this absolute diameter instead of parent-radius scale.
+     */
+    val physicalBundleDiameterPx: Float = 0f,
 ) {
     fun sanitized(): BrushTuftConfig {
         val split = splitThreshold.coerceIn(0.01f, 1f)
         return copy(
-            count = count.coerceIn(1, 16),
+            count = count.coerceIn(1, 96),
             rootSpan = rootSpan.coerceIn(0f, 1.5f),
             cohesion = cohesion.coerceIn(0f, 1f),
             splayResponse = splayResponse.coerceIn(0f, 2f),
@@ -88,11 +101,15 @@ data class BrushTuftConfig(
             reversalThresholdDeg = reversalThresholdDeg.coerceIn(45f, 180f),
             reversalPersistence = reversalPersistence.coerceIn(0f, 1f),
             reversalMaxLagDeg = reversalMaxLagDeg.coerceIn(maxLagDeg.coerceIn(0f, 90f), 180f),
+            physicalHeightSpan = physicalHeightSpan.coerceIn(0f, 1.5f),
+            physicalBundleDiameterPx = physicalBundleDiameterPx.coerceIn(0f, 64f),
         )
     }
 
     fun isActive(): Boolean = enabled && count > 1
     fun emitsDabs(): Boolean = isActive() && emitTuftDabs
+    fun usesPhysicalPopulation(): Boolean =
+        isActive() && physicalHeightSpan > 0f && physicalBundleDiameterPx > 0f
 }
 
 data class BrushTuftIdentity(
@@ -157,6 +174,10 @@ data class BrushTuftContact(
     /** Diagnostics/future morphology tools; appended to preserve positional constructor callers. */
     val rootLongitudinalFraction: Float = 0f,
     val morphology: BrushMorphology = BrushMorphology.CUSTOM,
+    /** Absolute physical bundle radius in px; 0 keeps the historical parent-relative radius path. */
+    val physicalRadiusPx: Float = 0f,
+    /** Contact-plane engagement after device lean and pressure/compression recruitment. */
+    val contactWeight: Float = 1f,
 )
 
 data class BrushTuftMechanicalStep(
@@ -167,11 +188,14 @@ data class BrushTuftMechanicalStep(
 object BrushTuftTopology {
     /**
      * Stable deterministic roots for one physical brush family. No RNG participates in morphology.
-     * CUSTOM intentionally reproduces the pre-morphology one-dimensional layout exactly.
+     * CUSTOM intentionally reproduces the pre-morphology one-dimensional layout exactly unless a
+     * physical population has explicitly been resolved for the selected brush size.
      */
     fun layout(config: BrushTuftConfig): List<BrushTuftIdentity> {
         val cfg = config.sanitized()
         if (!cfg.isActive()) return emptyList()
+        if (cfg.usesPhysicalPopulation()) return physicalLayout(cfg)
+
         val count = cfg.count
         val halfSpan = cfg.rootSpan * 0.5f
         return List(count) { index ->
@@ -179,6 +203,57 @@ object BrushTuftTopology {
             val signedT = normalized * 2f - 1f
             val edgeT = if (halfSpan > 0f) abs(signedT).coerceIn(0f, 1f) else 0f
             morphologyIdentity(cfg, index, signedT, edgeT, halfSpan)
+        }
+    }
+
+    /**
+     * Bounded 2D mechanical population. Elliptical families use a deterministic sunflower packing;
+     * flat/rake families use a deterministic grid. Because [count] was resolved from footprint area
+     * and constant bundle diameter, spacing remains approximately constant as overall brush size
+     * grows while the number of stable identities increases.
+     */
+    private fun physicalLayout(cfg: BrushTuftConfig): List<BrushTuftIdentity> {
+        val count = cfg.count
+        val halfW = cfg.rootSpan * 0.5f
+        val halfH = cfg.physicalHeightSpan * 0.5f
+        val aspect = (cfg.rootSpan / cfg.physicalHeightSpan.coerceAtLeast(0.01f)).coerceIn(0.1f, 10f)
+        val gridColumns = ceil(sqrt(count.toFloat() * aspect)).toInt().coerceAtLeast(1)
+        val gridRows = ceil(count.toFloat() / gridColumns.toFloat()).toInt().coerceAtLeast(1)
+
+        return List(count) { index ->
+            val point = when (cfg.morphology) {
+                BrushMorphology.FLAT, BrushMorphology.RAKE -> {
+                    val column = index % gridColumns
+                    val row = index / gridColumns
+                    val nx = if (gridColumns == 1) 0f else ((column + 0.5f) / gridColumns) * 2f - 1f
+                    var ny = if (gridRows == 1) 0f else ((row + 0.5f) / gridRows) * 2f - 1f
+                    if (cfg.morphology == BrushMorphology.RAKE) {
+                        ny *= 0.55f
+                        if (column % 2 != 0) ny += 0.12f / gridRows.toFloat()
+                    }
+                    nx * halfW to ny.coerceIn(-1f, 1f) * halfH
+                }
+
+                else -> {
+                    val radial = sqrt((index + 0.5f) / count.toFloat()).coerceIn(0f, 1f)
+                    val theta = index * GOLDEN_ANGLE_RAD
+                    var nx = cos(theta) * radial
+                    var ny = sin(theta) * radial
+                    if (cfg.morphology == BrushMorphology.FAN) {
+                        ny *= 0.35f + (1f - abs(nx)) * 0.65f
+                    }
+                    nx * halfW to ny * halfH
+                }
+            }
+
+            val nx = if (halfW > 1e-5f) (point.first / halfW).coerceIn(-1f, 1f) else 0f
+            val ny = if (halfH > 1e-5f) (point.second / halfH).coerceIn(-1f, 1f) else 0f
+            val edgeT = sqrt(nx * nx + ny * ny).coerceIn(0f, 1f)
+            morphologyIdentity(cfg, index, nx, edgeT, halfW).copy(
+                rootLateralFraction = point.first,
+                rootLongitudinalFraction = point.second,
+                edgeWeight = edgeT,
+            )
         }
     }
 
@@ -308,6 +383,7 @@ object BrushTuftTopology {
                 liftAmount = 0f,
                 reversalImpulse = 0f,
                 cfg = cfg,
+                contact = contact,
             )
         }
     }
@@ -364,6 +440,7 @@ object BrushTuftTopology {
                 liftAmount = next.liftAmount,
                 reversalImpulse = next.reversalImpulse,
                 cfg = cfg,
+                contact = contact,
             )
         }
         return BrushTuftMechanicalStep(nextStates, contacts)
@@ -547,24 +624,51 @@ object BrushTuftTopology {
         liftAmount: Float,
         reversalImpulse: Float,
         cfg: BrushTuftConfig,
+        contact: BrushContactState,
     ): BrushTuftContact {
-        val localAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg)
-        val angleRad = localAngleDeg * TUFT_DEG_TO_RAD
-        val dragX = cos(angleRad)
-        val dragY = sin(angleRad)
-        val lateralX = -dragY
-        val lateralY = dragX
-        val x = lateralX * lateralFraction +
-            dragX * identity.rootLongitudinalFraction -
-            dragX * trailingFraction
-        val y = lateralY * lateralFraction +
-            dragY * identity.rootLongitudinalFraction -
-            dragY * trailingFraction
+        val physicalPopulation = cfg.usesPhysicalPopulation()
+        // Root/ferrule pose and drag are deliberately different frames. Device roll twists the
+        // physical tip around its own shaft; changing stroke direction only bends/trails hairs and
+        // must not rotate a flat/chisel/fan root array with the path.
+        val localDragAngleDeg = normalizeDegrees(dragAngleDeg + identity.angleBiasDeg)
+        val dragAngleRad = localDragAngleDeg * TUFT_DEG_TO_RAD
+        val dragX = cos(dragAngleRad)
+        val dragY = sin(dragAngleRad)
+        val rootAngleDeg = if (physicalPopulation) contact.tipTwistDeg else localDragAngleDeg
+        val rootAngleRad = rootAngleDeg * TUFT_DEG_TO_RAD
+        val rootForwardX = cos(rootAngleRad)
+        val rootForwardY = sin(rootAngleRad)
+        val rootLateralX = -rootForwardY
+        val rootLateralY = rootForwardX
+        val rootX = rootLateralX * lateralFraction + rootForwardX * identity.rootLongitudinalFraction
+        val rootY = rootLateralY * lateralFraction + rootForwardY * identity.rootLongitudinalFraction
+        val x = rootX - dragX * trailingFraction
+        val y = rootY - dragY * trailingFraction
+
         val baseRadiusScale = (
             cfg.tuftWidthScale * identity.widthScale / cfg.count.toFloat()
             ).coerceIn(0.02f, 1f)
         val touchdownScale = 1f + touchdownAmount * cfg.touchdownCompression
         val liftScale = lerp(1f, cfg.liftRadiusFloor, liftAmount)
+        val physicalRadius = if (cfg.usesPhysicalPopulation()) {
+            cfg.physicalBundleDiameterPx * 0.5f * cfg.tuftWidthScale * identity.widthScale *
+                touchdownScale * liftScale
+        } else 0f
+
+        val contactWeight = if (cfg.usesPhysicalPopulation()) {
+            val leanMagnitude = sqrt(
+                contact.tipLeanX * contact.tipLeanX + contact.tipLeanY * contact.tipLeanY
+            ).coerceIn(0f, 1f)
+            if (leanMagnitude < 0.04f) {
+                1f
+            } else {
+                val norm = (maxOf(cfg.rootSpan, cfg.physicalHeightSpan) * 0.5f).coerceAtLeast(0.01f)
+                val plane = ((rootX * contact.tipLeanX + rootY * contact.tipLeanY) / norm).coerceIn(-1f, 1f)
+                val firstContact = (0.12f + (0.5f + plane * 0.5f) * 0.88f).coerceIn(0.08f, 1f)
+                (firstContact + (1f - firstContact) * contact.compression).coerceIn(0f, 1f)
+            }
+        } else 1f
+
         return BrushTuftContact(
             id = identity.id,
             rootLateralFraction = identity.rootLateralFraction,
@@ -572,7 +676,7 @@ object BrushTuftTopology {
             offsetYFraction = y,
             radiusScale = (baseRadiusScale * touchdownScale * liftScale).coerceAtLeast(0.01f),
             alphaScale = 1f,
-            angleOffsetDeg = wrapSignedDegrees(localAngleDeg - globalDragAngleDeg),
+            angleOffsetDeg = wrapSignedDegrees(localDragAngleDeg - globalDragAngleDeg),
             stiffnessScale = identity.stiffnessScale,
             splitAmount = splitAmount,
             touchdownAmount = touchdownAmount,
@@ -580,6 +684,8 @@ object BrushTuftTopology {
             reversalImpulse = reversalImpulse,
             rootLongitudinalFraction = identity.rootLongitudinalFraction,
             morphology = cfg.morphology,
+            physicalRadiusPx = physicalRadius.coerceAtLeast(0f),
+            contactWeight = contactWeight,
         )
     }
 

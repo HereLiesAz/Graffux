@@ -6,6 +6,11 @@ package com.hereliesaz.graffitixr.common.azphalt
  * This function is renderer-independent: CPU and Vulkan continue consuming ordinary [Dab]
  * geometry. Empty/disabled tuft geometry is an exact identity operation so the historical
  * single-contact path remains untouched.
+ *
+ * Physical-population contacts carry [BrushTuftContact.physicalRadiusPx]. That absolute radius is
+ * intentionally independent of the parent brush radius: larger brushes add more bundle contacts
+ * instead of enlarging the represented hairs. Legacy topology keeps the old parent-relative
+ * [BrushTuftContact.radiusScale] behavior exactly.
  */
 object BrushTuftDabExpander {
     fun expand(
@@ -18,19 +23,31 @@ object BrushTuftDabExpander {
         return tufts.map { tuft ->
             val dx = tuft.offsetXFraction * diameter
             val dy = tuft.offsetYFraction * diameter
+            val physical = tuft.physicalRadiusPx > 0f
+            val radius = if (physical) {
+                tuft.physicalRadiusPx
+            } else {
+                parent.radius * tuft.radiusScale
+            }.coerceAtLeast(0f)
+            val alphaScale = (tuft.alphaScale * tuft.contactWeight).coerceIn(0f, 1f)
+
             parent.copy(
                 x = parent.x + dx,
                 y = parent.y + dy,
-                radius = (parent.radius * tuft.radiusScale).coerceAtLeast(0f),
-                alpha = (parent.alpha * tuft.alphaScale).coerceIn(0f, 1f),
+                radius = radius,
+                alpha = (parent.alpha * alphaScale).coerceIn(0f, 1f),
                 angleDeg = parent.angleDeg + tuft.angleOffsetDeg,
+                // A physical bundle is a cluster of fixed-diameter hairs. Do not inherit the
+                // parent's broad/chisel aspect and silently turn every hair group into a scaled nib.
+                tipRatio = if (physical) 1f else parent.tipRatio,
                 mask = parent.mask?.let { mask ->
                     mask.copy(
                         x = mask.x + dx,
                         y = mask.y + dy,
-                        radius = (mask.radius * tuft.radiusScale).coerceAtLeast(0f),
+                        radius = if (physical) radius else (mask.radius * tuft.radiusScale).coerceAtLeast(0f),
+                        tipRatio = if (physical) 1f else mask.tipRatio,
                         angleDeg = mask.angleDeg + tuft.angleOffsetDeg,
-                        alpha = (mask.alpha * tuft.alphaScale).coerceIn(0f, 1f),
+                        alpha = (mask.alpha * alphaScale).coerceIn(0f, 1f),
                     )
                 },
             )
