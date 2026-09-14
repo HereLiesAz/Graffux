@@ -30,6 +30,21 @@ jobs:
           cache-read-only: true
           dependency-graph: disabled
 
+      - name: Normalize wrapped Kotlin anchor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('patch_vulkan_paint_height.py')
+          text = path.read_text()
+          old_a = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean,\\n',"
+          new_a = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean,\\n',"
+          old_b = "'        secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
+          new_b = "'        secondaryMaskWidth: Int,\\n        secondaryMaskHeight: Int,\\n        hasSubstrate: Boolean, hasPaintHeight: Boolean,\\n',"
+          if text.count(old_a) != 1 or text.count(old_b) != 1:
+              raise SystemExit('wrapped Kotlin anchor normalizer drifted')
+          path.write_text(text.replace(old_a, new_a).replace(old_b, new_b))
+          PY
+
       - name: Apply guarded product patch
         run: python3 patch_vulkan_paint_height.py
 
