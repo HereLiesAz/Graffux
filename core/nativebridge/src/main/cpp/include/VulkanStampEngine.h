@@ -14,10 +14,12 @@ struct AHardwareBuffer;
 namespace graffux {
 
 // One dab. The first five fields are the historical ABI. The resolved paint fields widen the
-// buffer to 12 floats / 48 bytes; old aggregate initializers that provide only five values leave
+// buffer to 16 floats / 64 bytes; old aggregate initializers that provide only five values leave
 // `resolved` at zero, so the shader falls back to the stroke-level push-constant colour exactly as
 // before. New callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
 // shaders/stamp.comp AND shaders/stamp_masked.comp (both share this exact struct layout).
+// The fourth vec4 carries Phase-3 material state; it is ignored unless a dispatch explicitly
+// enables substrate sampling, preserving every historical/legacy dab path.
 //
 // `tipRatio` is read only by stamp_masked.comp (height/width of the tip -- see AzphaltBrush.
 // tipRatio), and is ignored entirely by stamp.comp's plain round-dab path -- its default of 1.0
@@ -41,8 +43,22 @@ struct GpuDab {
     float flow = 0.0f;
     float resolved = 0.0f;
     float tipRatio = 1.0f;
+    // Phase 3 material/deposition state. Defaults preserve historical output.
+    float contactDepth = 1.0f;
+    float reservoirLoad = 1.0f;
+    float depositionRate = 1.0f;
+    float substrateResponse = 0.0f;
 };
-static_assert(sizeof(GpuDab) == 48, "GpuDab must match the shader's 3xvec4 std430 record");
+static_assert(sizeof(GpuDab) == 64, "GpuDab must match the shader's 4xvec4 std430 record");
+
+struct SubstrateStampParams {
+    bool enabled = false;
+    float baseHeight = 0.0f;
+    float heightScale = 0.0f;
+    float textureScale = 1.0f;
+    float textureOffsetX = 0.0f;
+    float textureOffsetY = 0.0f;
+};
 
 // Item 15's masked/dual-brush follow-up: the secondary tip stampMaskedDabs() composites onto a
 // primary dab's coverage, one entry per primary dab (same index, parallel arrays) -- see
@@ -153,6 +169,11 @@ public:
     // artwork). Returns false if the engine isn't initialized or `inSizeBytes` is too small.
     bool upload(const uint8_t* inRgba8, size_t inSizeBytes);
 
+    // Phase 3: upload the immutable canvas substrate-height tile once per stroke/document context.
+    // Repeated uploads of byte-identical same-size tiles are hash-skipped; stamp dispatches only
+    // carry scalar profile parameters and per-dab contact/material state afterward.
+    bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height);
+
     // Uploads `dabs` and dispatches the compute shader to stamp them onto the layer image using
     // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness).
     // `buildUp` (default false) selects the compositing mode within THIS call's dab list, mirroring
@@ -162,7 +183,7 @@ public:
     // true composites sequentially in submission order instead, matching the historical/
     // Airbrush-style behavior. No-op (returns false) if the engine failed init() or `dabs` is empty.
     bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
-                    bool buildUp = false);
+                    bool buildUp = false, SubstrateStampParams substrate = {});
 
     // shaders/stamp_masked.comp counterpart to stampDabs(): each dab samples `maskAlpha8` (an
     // R8_UNORM alpha-only tip texture, `maskWidth`x`maskHeight`, white=full coverage) in its own
@@ -200,7 +221,7 @@ public:
                          float grainPhaseX = 0.0f, float grainPhaseY = 0.0f,
                          const std::vector<GpuSecondaryDab>& secondaryDabs = {},
                          const uint8_t* secondaryMaskAlpha8 = nullptr, int secondaryMaskWidth = 0,
-                         int secondaryMaskHeight = 0);
+                         int secondaryMaskHeight = 0, SubstrateStampParams substrate = {});
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
@@ -277,6 +298,9 @@ private:
     // (binding 3) and tracked independently so mask/grain re-uploads are decided separately.
     bool ensureGrainTexture(int width, int height);
     bool uploadGrainTexture(const uint8_t* alpha8, int width, int height);
+    // Phase 3 canvas substrate: independent R8 tile so brush grain and canvas tooth can coexist.
+    bool ensureSubstrateTexture(int width, int height);
+    bool uploadSubstrateTexture(const uint8_t* heightR8, int width, int height);
     // Item 15 masked/dual-brush follow-up. ensureSecondaryMaskTexture()/uploadSecondaryMaskTexture()
     // mirror ensureMaskTexture()/uploadMaskTexture() exactly (binding 4 instead of 2).
     // ensureSecondaryDabBuffer() mirrors ensureMaskedDabBuffer() (binding 5, GpuSecondaryDab
@@ -439,6 +463,20 @@ private:
     // Content hash of the last-uploaded mask, since two different tips can share maskWidth_/
     // maskHeight_ (see stampMaskedDabs()'s "maskIsNew" doc comment).
     uint64_t maskContentHash_ = 0;
+
+    // Phase 3 substrate-height tile. Shared by round and masked stamp pipelines, sampled with
+    // exact floor/wrap canvas coordinates in shader code. The Kotlin wrapper requires a fresh
+    // upload before enabling substrate on each wrapper lifetime, preventing pooled-engine leakage.
+    VkImage substrateImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory substrateImageMemory_ = VK_NULL_HANDLE;
+    VkImageView substrateImageView_ = VK_NULL_HANDLE;
+    VkSampler substrateSampler_ = VK_NULL_HANDLE;
+    VkBuffer substrateStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory substrateStagingBufferMemory_ = VK_NULL_HANDLE;
+    int substrateWidth_ = 0;
+    int substrateHeight_ = 0;
+    VkImageLayout substrateImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    uint64_t substrateContentHash_ = 0;
 
     // R8_UNORM grain tile texture (item 15 follow-up), independent from the mask texture above --
     // re-uploaded via uploadGrainTexture() whenever stampMaskedDabs() is called with a different
