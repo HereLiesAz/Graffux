@@ -47,5 +47,5 @@ jobs:
             --tests "*DrawingEngineSubstrateTest" \
             --stacktrace
 
-# Temporary branch-only validator. This rerun includes the command-buffer-before-texture-upload fix.
+# Temporary branch-only validator. Final run includes init-order hardening and live GPU contact-depth forwarding.
 # Remove before merge.
