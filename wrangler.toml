@@ -1,6 +1,5 @@
 name = "graffux"
 compatibility_date = "2026-08-26"
-main = "_worker.js"
 
 [assets]
 directory = "./docs"
