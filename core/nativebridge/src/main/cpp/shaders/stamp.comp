@@ -4,7 +4,7 @@
 #endif
 layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
 
-// Explicit 3×vec4 std430 layout: exactly 48 bytes per dab, matching GpuDab's twelve floats.
+// Explicit 4×vec4 std430 layout: exactly 64 bytes per dab, matching GpuDab's sixteen floats.
 // This avoids relying on compiler-specific intuition about the array stride of a scalar-only struct.
 // Legacy JNI leaves paint1.z (`resolved`) zero, so existing callers keep using push-constant paint.
 // paint1.w is unused by THIS shader's own tip (stamp_masked.comp repurposes the identical byte
@@ -16,10 +16,12 @@ struct Dab {
     vec4 geometry; // x, y, radius, alpha
     vec4 paint0;   // angleDeg, colorR, colorG, colorB
     vec4 paint1;   // colorA, flow, resolved, hardness (resolved dabs only)
+    vec4 material; // contactDepth, reservoirLoad, depositionRate, substrateResponse
 };
 
 layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
 layout(binding = 1, rgba8) uniform image2D layerImage;
+layout(binding = 2) uniform sampler2D substrateTex;
 
 layout(push_constant) uniform PushConstants {
     uint dabCount;
@@ -37,6 +39,12 @@ layout(push_constant) uniform PushConstants {
     // read as hardened well inside its own falloff band, matching
     // StampBrushRenderer.paintRoundDabsMaxCombined's fix for the identical CPU-side bug).
     float buildUp;
+    float hasSubstrate;
+    float substrateBaseHeight;
+    float substrateHeightScale;
+    float substrateTextureScale;
+    float substrateOffsetX;
+    float substrateOffsetY;
 } pc;
 
 float stampCoverage(float distFromCenter, float radius, float hardness) {
@@ -46,6 +54,25 @@ float stampCoverage(float distFromCenter, float radius, float hardness) {
     if (t >= 1.0) return 0.0;
     if (hardness >= 0.999) return 1.0 - (t - hardness) / 0.001;
     return 1.0 - (t - hardness) / (1.0 - hardness);
+}
+
+float substrateDeposition(Dab d, vec2 canvasPoint) {
+    if (pc.hasSubstrate <= 0.5) return 1.0;
+    ivec2 size = textureSize(substrateTex, 0);
+    if (size.x <= 0 || size.y <= 0) return 1.0;
+    float scale = max(pc.substrateTextureScale, 0.05);
+    ivec2 cell = ivec2(floor(canvasPoint / scale + vec2(pc.substrateOffsetX, pc.substrateOffsetY)));
+    cell.x = ((cell.x % size.x) + size.x) % size.x;
+    cell.y = ((cell.y % size.y) + size.y) % size.y;
+    float tooth = texelFetch(substrateTex, cell, 0).r;
+    float substrateHeight = clamp(
+        clamp(pc.substrateBaseHeight, 0.0, 1.0) + tooth * clamp(pc.substrateHeightScale, 0.0, 1.0),
+        0.0, 1.0);
+    float contactDepth = clamp(d.material.x, 0.0, 1.0);
+    float response = clamp(d.material.w, 0.0, 1.0);
+    float penetrates = contactDepth >= substrateHeight ? 1.0 : 0.0;
+    float gate = clamp((1.0 - response) + penetrates * response, 0.0, 1.0);
+    return clamp(d.material.y, 0.0, 1.0) * clamp(d.material.z, 0.0, 1.0) * gate;
 }
 
 void main() {
@@ -72,6 +99,8 @@ void main() {
         bool hasResolvedPaint = d.paint1.z >= 0.5;
         float dabHardness = hasResolvedPaint ? d.paint1.w : pc.hardness;
         float coverage = stampCoverage(distance(p, center), radius, dabHardness);
+        if (coverage <= 0.0) continue;
+        coverage *= substrateDeposition(d, p);
         if (coverage <= 0.0) continue;
 
         vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);

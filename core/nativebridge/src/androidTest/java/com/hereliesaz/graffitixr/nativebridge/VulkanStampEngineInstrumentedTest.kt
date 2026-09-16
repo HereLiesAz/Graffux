@@ -230,6 +230,82 @@ class VulkanStampEngineInstrumentedTest {
         )
     }
 
+
+    @Test
+    fun substrateHeightGatesResolvedAndMaskedDabsAndRefreshesSameSizeTileContent() {
+        val engine = initializedEngine()
+        val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
+        val substrate = VulkanSubstrateParams(heightScale = 1f, textureScale = 1f)
+        val shallow = ResolvedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
+            contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
+        )
+
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
+        assertTrue(engine.stampResolvedDabs(listOf(shallow), substrate = substrate))
+        val blocked = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(blocked))
+        assertEquals("full-height tooth should block shallow resolved contact", 0x00000000, blocked.getPixel(SIZE / 2, SIZE / 2))
+
+        assertTrue(engine.upload(blank))
+        val deep = shallow.copy(contactDepth = 1f)
+        assertTrue(engine.stampResolvedDabs(listOf(deep), substrate = substrate))
+        val penetrated = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(penetrated))
+        assertNotEquals("full contact should penetrate full-height tooth", 0x00000000, penetrated.getPixel(SIZE / 2, SIZE / 2))
+
+        // Same dimensions as the previous tile, different bytes: verifies content hashing prevents
+        // pooled/static texture staleness, not merely dimension-based reuse.
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.uploadSubstrateHeight(byteArrayOf(0), 1, 1))
+        assertTrue(engine.stampResolvedDabs(listOf(shallow), substrate = substrate))
+        val refreshed = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(refreshed))
+        assertNotEquals("same-size lower tooth tile was not refreshed", 0x00000000, refreshed.getPixel(SIZE / 2, SIZE / 2))
+
+        // The independent masked pipeline must consume the exact same substrate tile/contract.
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
+        val maskSize = 8
+        val opaqueMask = ByteArray(maskSize * maskSize) { 0xFF.toByte() }
+        val masked = MaskedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_GREEN, flow = 1f, tipRatio = 1f,
+            contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
+        )
+        assertTrue(
+            engine.stampMaskedDabs(
+                listOf(masked), hardness = 1f, maskAlpha8 = opaqueMask,
+                maskWidth = maskSize, maskHeight = maskSize, substrate = substrate,
+            ),
+        )
+        val maskedBlocked = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(maskedBlocked))
+        assertEquals("masked shader ignored substrate gate", 0x00000000, maskedBlocked.getPixel(SIZE / 2, SIZE / 2))
+    }
+
+    @Test
+    fun pooledWrapperRequiresFreshSubstrateUploadBeforeEnablingIt() {
+        VulkanStampEngine.trimPool()
+        val first = initializedEngine()
+        assertTrue(first.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
+        first.destroy()
+
+        val second = engine()
+        assertTrue(second.init(SIZE, SIZE))
+        val dab = ResolvedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
+            contactDepth = 1f, substrateResponse = 1f,
+        )
+        assertFalse(
+            "new wrapper silently reused the previous owner's substrate tile",
+            second.stampResolvedDabs(listOf(dab), substrate = VulkanSubstrateParams(heightScale = 1f)),
+        )
+    }
+
     companion object {
         private const val SIZE = 64
         private const val COLOR_RED = 0xFFFF0000.toInt()
