@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
 
+# Temporary guarded branch validator; self-deletes after a successful product commit.
 jobs:
   patch-and-validate:
     runs-on: ubuntu-latest
