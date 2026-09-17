@@ -1,8 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.azphalt.BrushPerformanceTier
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 class BrushPerformanceTierResolverTest {
     @Test
