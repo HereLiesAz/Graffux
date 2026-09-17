@@ -9,10 +9,12 @@ using graffux::GpuSecondaryDab;
 using graffux::SubstrateStampParams;
 using graffux::VulkanStampEngine;
 
-SubstrateStampParams substrateParams(jboolean enabled, jfloat baseHeight, jfloat heightScale,
+SubstrateStampParams substrateParams(jboolean enabled, jboolean hasPaintHeight,
+                                     jfloat baseHeight, jfloat heightScale,
                                      jfloat textureScale, jfloat offsetX, jfloat offsetY) {
     SubstrateStampParams out{};
     out.enabled = enabled == JNI_TRUE;
+    out.hasPaintHeight = out.enabled && hasPaintHeight == JNI_TRUE;
     out.baseHeight = std::clamp(baseHeight, 0.0f, 1.0f);
     out.heightScale = std::clamp(heightScale, 0.0f, 1.0f);
     out.textureScale = std::max(textureScale, 0.05f);
@@ -37,9 +39,23 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadSubstr
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadPaintHeight(
+        JNIEnv* env, jobject, jlong handle, jfloatArray heightMap, jint width, jint height) {
+    auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
+    if (!engine || !heightMap || width <= 0 || height <= 0) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(heightMap);
+    if (static_cast<jlong>(count) < static_cast<jlong>(width) * height) return JNI_FALSE;
+    jfloat* data = env->GetFloatArrayElements(heightMap, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->uploadPaintHeight(data, width, height);
+    env->ReleaseFloatArrayElements(heightMap, data, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolvedDabs(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jboolean buildUp,
-        jboolean hasSubstrate, jfloat substrateBaseHeight, jfloat substrateHeightScale,
+        jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight, jfloat substrateHeightScale,
         jfloat substrateTextureScale, jfloat substrateOffsetX, jfloat substrateOffsetY) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
@@ -78,7 +94,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
     // pc.hardness is unused by the shader for every dab in this call (all resolved=1, so each
     // reads its own d.tipRatio-as-hardness instead) -- the value passed here is a placeholder.
     const auto substrate = substrateParams(
-        hasSubstrate, substrateBaseHeight, substrateHeightScale, substrateTextureScale,
+        hasSubstrate, hasPaintHeight, substrateBaseHeight, substrateHeightScale, substrateTextureScale,
         substrateOffsetX, substrateOffsetY);
     return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f, buildUp == JNI_TRUE, substrate)
         ? JNI_TRUE : JNI_FALSE;
@@ -91,7 +107,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
         jbyteArray grainAlpha8, jint grainWidth, jint grainHeight, jboolean grainCanvasLocked,
         jfloat grainScale, jfloat grainPhaseX, jfloat grainPhaseY,
         jfloatArray secondaryDabData, jbyteArray secondaryMaskAlpha8, jint secondaryMaskWidth,
-        jint secondaryMaskHeight, jboolean hasSubstrate, jfloat substrateBaseHeight,
+        jint secondaryMaskHeight, jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight,
         jfloat substrateHeightScale, jfloat substrateTextureScale, jfloat substrateOffsetX,
         jfloat substrateOffsetY) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
@@ -203,7 +219,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
         secondaryDabs,
         hasSecondaryArrays ? reinterpret_cast<const uint8_t*>(secondaryMaskData) : nullptr,
         hasSecondaryArrays ? secondaryMaskWidth : 0, hasSecondaryArrays ? secondaryMaskHeight : 0,
-        substrateParams(hasSubstrate, substrateBaseHeight, substrateHeightScale,
+        substrateParams(hasSubstrate, hasPaintHeight, substrateBaseHeight, substrateHeightScale,
                         substrateTextureScale, substrateOffsetX, substrateOffsetY));
 
     if (secondaryMaskData) env->ReleaseByteArrayElements(secondaryMaskAlpha8, secondaryMaskData, JNI_ABORT);

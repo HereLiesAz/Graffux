@@ -287,6 +287,90 @@ class VulkanStampEngineInstrumentedTest {
     }
 
     @Test
+    fun existingPaintHeightLowersSubstrateBarrierForResolvedAndMaskedDabs() {
+        val engine = initializedEngine()
+        val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
+        val substrate = VulkanSubstrateParams(heightScale = 1f, textureScale = 1f)
+        val shallow = ResolvedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
+            contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
+        )
+        assertTrue(engine.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
+
+        val filledValley = FloatArray(SIZE * SIZE)
+        filledValley[(SIZE / 2) * SIZE + SIZE / 2] = 0.9f
+        assertTrue(engine.uploadPaintHeight(filledValley, SIZE, SIZE))
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.stampResolvedDabs(listOf(shallow), substrate = substrate))
+        val resolved = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(resolved))
+        assertNotEquals(
+            "existing paint height did not lower the full-tooth barrier for resolved dabs",
+            0x00000000, resolved.getPixel(SIZE / 2, SIZE / 2),
+        )
+
+        val maskSize = 8
+        val opaqueMask = ByteArray(maskSize * maskSize) { 0xFF.toByte() }
+        val masked = MaskedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_GREEN, flow = 1f, tipRatio = 1f,
+            contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
+        )
+        assertTrue(engine.upload(blank))
+        assertTrue(
+            engine.stampMaskedDabs(
+                listOf(masked), hardness = 1f, maskAlpha8 = opaqueMask,
+                maskWidth = maskSize, maskHeight = maskSize, substrate = substrate,
+            ),
+        )
+        val maskedResult = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(maskedResult))
+        assertNotEquals(
+            "masked shader did not consume the existing paint-height barrier reduction",
+            0x00000000, maskedResult.getPixel(SIZE / 2, SIZE / 2),
+        )
+
+        // Same canvas dimensions, changed FloatArray contents: the GPU mirror must refresh.
+        assertTrue(engine.uploadPaintHeight(FloatArray(SIZE * SIZE), SIZE, SIZE))
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.stampResolvedDabs(listOf(shallow), substrate = substrate))
+        val refreshed = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(refreshed))
+        assertEquals(
+            "same-size paint-height content refresh left stale valley fill on the GPU",
+            0x00000000, refreshed.getPixel(SIZE / 2, SIZE / 2),
+        )
+    }
+
+    @Test
+    fun pooledWrapperDoesNotReusePreviousOwnersPaintHeight() {
+        VulkanStampEngine.trimPool()
+        val first = initializedEngine()
+        val filled = FloatArray(SIZE * SIZE) { 1f }
+        assertTrue(first.uploadPaintHeight(filled, SIZE, SIZE))
+        first.destroy()
+
+        val second = engine()
+        assertTrue(second.init(SIZE, SIZE))
+        val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
+        assertTrue(second.upload(blank))
+        assertTrue(second.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
+        val shallow = ResolvedBrushDab(
+            x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
+            contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
+        )
+        assertTrue(second.stampResolvedDabs(listOf(shallow), substrate = VulkanSubstrateParams(heightScale = 1f)))
+        val result = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(second.readback(result))
+        assertEquals(
+            "new wrapper sampled the previous owner's paint-height mirror",
+            0x00000000, result.getPixel(SIZE / 2, SIZE / 2),
+        )
+    }
+
+    @Test
     fun pooledWrapperRequiresFreshSubstrateUploadBeforeEnablingIt() {
         VulkanStampEngine.trimPool()
         val first = initializedEngine()

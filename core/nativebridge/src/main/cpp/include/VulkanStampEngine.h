@@ -53,6 +53,7 @@ static_assert(sizeof(GpuDab) == 64, "GpuDab must match the shader's 4xvec4 std43
 
 struct SubstrateStampParams {
     bool enabled = false;
+    bool hasPaintHeight = false;
     float baseHeight = 0.0f;
     float heightScale = 0.0f;
     float textureScale = 1.0f;
@@ -173,6 +174,10 @@ public:
     // Repeated uploads of byte-identical same-size tiles are hash-skipped; stamp dispatches only
     // carry scalar profile parameters and per-dab contact/material state afterward.
     bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height);
+
+    // GPU mirror of Layer.heightMap / ImpastoEngine normalized thickness. Dimensions must match
+    // this engine's layer exactly; this resource is only sampled when hasPaintHeight is true.
+    bool uploadPaintHeight(const float* heightMap, int width, int height);
 
     // Uploads `dabs` and dispatches the compute shader to stamp them onto the layer image using
     // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness).
@@ -301,6 +306,8 @@ private:
     // Phase 3 canvas substrate: independent R8 tile so brush grain and canvas tooth can coexist.
     bool ensureSubstrateTexture(int width, int height);
     bool uploadSubstrateTexture(const uint8_t* heightR8, int width, int height);
+    bool ensurePaintHeightTexture(int width, int height);
+    bool uploadPaintHeightTexture(const float* heightMap, int width, int height);
     // Item 15 masked/dual-brush follow-up. ensureSecondaryMaskTexture()/uploadSecondaryMaskTexture()
     // mirror ensureMaskTexture()/uploadMaskTexture() exactly (binding 4 instead of 2).
     // ensureSecondaryDabBuffer() mirrors ensureMaskedDabBuffer() (binding 5, GpuSecondaryDab
@@ -477,6 +484,19 @@ private:
     int substrateHeight_ = 0;
     VkImageLayout substrateImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     uint64_t substrateContentHash_ = 0;
+
+    // Full-canvas R32_SFLOAT GPU mirror of the existing Layer.heightMap. It is deliberately a
+    // render resource only: the authoritative state remains the existing CPU FloatArray.
+    VkImage paintHeightImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory paintHeightImageMemory_ = VK_NULL_HANDLE;
+    VkImageView paintHeightImageView_ = VK_NULL_HANDLE;
+    VkSampler paintHeightSampler_ = VK_NULL_HANDLE;
+    VkBuffer paintHeightStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory paintHeightStagingBufferMemory_ = VK_NULL_HANDLE;
+    int paintHeightWidth_ = 0;
+    int paintHeightHeight_ = 0;
+    VkImageLayout paintHeightImageLayout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    uint64_t paintHeightContentHash_ = 0;
 
     // R8_UNORM grain tile texture (item 15 follow-up), independent from the mask texture above --
     // re-uploaded via uploadGrainTexture() whenever stampMaskedDabs() is called with a different

@@ -57,6 +57,7 @@ class VulkanStampEngine {
     private var healthy = true
     private var hardwareBufferExported = false
     private var substrateHeightUploaded = false
+    private var paintHeightUploaded = false
 
     val isInitialized: Boolean get() = nativeHandle != 0L
 
@@ -67,6 +68,7 @@ class VulkanStampEngine {
         if (width <= 0 || height <= 0) { destroy(); return false }
         destroy()
         substrateHeightUploaded = false
+        paintHeightUploaded = false
         val key = PoolKey(width, height, hardwareBufferBacked)
         val cached = takePooled(key)
         if (cached != 0L) {
@@ -110,6 +112,23 @@ class VulkanStampEngine {
         }
         val ok = nativeUploadSubstrateHeight(nativeHandle, heightR8, width, height)
         substrateHeightUploaded = ok
+        if (!ok) healthy = false
+        return ok
+    }
+
+    /**
+     * Uploads the existing normalized per-pixel paint height used by [ImpastoEngine].
+     * This is a GPU mirror of the caller-owned FloatArray, not a second height model. The native
+     * engine requires full canvas dimensions so shader texel coordinates remain identical to the
+     * CPU heightMap[y * width + x] contract.
+     */
+    fun uploadPaintHeight(heightMap: FloatArray, width: Int, height: Int): Boolean {
+        if (!isInitialized || width <= 0 || height <= 0) return false
+        require(heightMap.size >= width * height) {
+            "heightMap too small: need ${width * height}, got ${heightMap.size}"
+        }
+        val ok = nativeUploadPaintHeight(nativeHandle, heightMap, width, height)
+        paintHeightUploaded = ok
         if (!ok) healthy = false
         return ok
     }
@@ -165,7 +184,7 @@ class VulkanStampEngine {
         }
         val cfg = substrate?.sanitized()
         return nativeStampResolvedDabs(
-            nativeHandle, flat, buildUp, cfg != null,
+            nativeHandle, flat, buildUp, cfg != null, cfg != null && paintHeightUploaded,
             cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
             cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
         ).also { if (!it) healthy = false }
@@ -280,7 +299,8 @@ class VulkanStampEngine {
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
             secondaryFlat, secondaryMaskAlpha8, secondaryMaskWidth, secondaryMaskHeight,
-            cfg != null, cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
+            cfg != null, cfg != null && paintHeightUploaded,
+            cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
             cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
         ).also { if (!it) healthy = false }
     }
@@ -380,6 +400,8 @@ class VulkanStampEngine {
 
     fun destroy() {
         val handle = nativeHandle
+        substrateHeightUploaded = false
+        paintHeightUploaded = false
         if (handle == 0L) return
         val key = poolKey
         nativeHandle = 0L
@@ -399,9 +421,10 @@ class VulkanStampEngine {
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeUploadSubstrateHeight(handle: Long, heightR8: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadPaintHeight(handle: Long, heightMap: FloatArray, width: Int, height: Int): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(
-        handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean,
+        handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,
         substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float,
         substrateOffsetX: Float, substrateOffsetY: Float,
     ): Boolean
@@ -423,7 +446,7 @@ class VulkanStampEngine {
         secondaryMaskAlpha8: ByteArray?,
         secondaryMaskWidth: Int,
         secondaryMaskHeight: Int,
-        hasSubstrate: Boolean,
+        hasSubstrate: Boolean, hasPaintHeight: Boolean,
         substrateBaseHeight: Float,
         substrateHeightScale: Float,
         substrateTextureScale: Float,
