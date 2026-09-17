@@ -1,0 +1,56 @@
+name: Brush Performance Policy Patch
+
+on:
+  push:
+    branches: [ "feat/dynamic-tuft-performance-policy" ]
+    paths: [ ".github/workflows/brush-performance-policy-patch.yml" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/dynamic-tuft-performance-policy
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-read-only: true
+          dependency-graph: disabled
+
+      - name: Apply guarded product patch
+        run: python3 patch_brush_performance_policy.py
+
+      - name: Validate exact patch diff
+        run: |
+          test "$(git diff --name-only HEAD)" = "feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt"
+
+      - name: Run policy tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:engine:desktopTest --tests "*BrushPerformancePolicyTest" --stacktrace
+          ./gradlew :feature:editor:testDebugUnitTest --tests "*BrushPerformanceTierResolverTest" --stacktrace
+
+      - name: Compile editor
+        run: ./gradlew :feature:editor:compileDebugKotlin --stacktrace
+
+      - name: Commit product wiring and remove temporary machinery
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f patch_brush_performance_policy.py .github/workflows/brush-performance-policy-patch.yml
+          git add -A
+          git commit -m "feat: enforce deterministic tuft performance tiers"
+          git push origin HEAD:feat/dynamic-tuft-performance-policy
