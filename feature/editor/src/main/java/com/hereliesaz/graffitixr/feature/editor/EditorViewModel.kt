@@ -37,6 +37,7 @@ import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.cappedForPerformanceTier
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.TileGrid
@@ -489,6 +490,8 @@ class EditorViewModel @Inject constructor(
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
 ) : ViewModel(), EditorActions {
+
+    private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState = _uiState.asStateFlow()
@@ -3598,7 +3601,9 @@ class EditorViewModel @Inject constructor(
             return
         }
 
-        val stampBrush = activeStampBrush
+        // Freeze the capability-tier tuft cap into this stroke snapshot before either the live
+        // generator or canonical replay sees it. The selected preset itself remains untouched.
+        val stampBrush = activeStampBrush?.cappedForPerformanceTier(brushPerformanceTier)
         if (stampBrush != null && state.activeTool == Tool.BRUSH) {
             // Azphalt stamp brush: stamp dabs incrementally onto a working copy for a live preview.
             // Fix the jitter seed now so the preview, the commit, and history replay all match.
