@@ -93,6 +93,7 @@ import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -1011,11 +1012,38 @@ class EditorViewModel @Inject constructor(
                                 // decoding was in flight — the user's own concurrent work, gone
                                 // with no error. Instead, collect just the decoded bitmaps here...
                                 val decoded = mutableMapOf<String, Bitmap>()
+                                val decodedMaterial = mutableMapOf<String, MaterialStateSnapshot>()
                                 layersToLoad.forEach { layer ->
                                     val layerUri = layer.uri ?: return@forEach
                                     val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
                                     putLayerBase(layer.id, loadedBmp)
                                     layerStore.initStrokes(layer.id)
+
+                                    val material = layer.materialStateFile
+                                        ?.let { projectManager.readProjectArtifact(context, project.id, it) }
+                                        ?.let(MaterialStateCodec::decode)
+                                        ?.takeIf {
+                                            it.width == loadedBmp.width && it.height == loadedBmp.height
+                                        }
+                                    if (material != null) {
+                                        material.heightMap?.let {
+                                            layerStore.putHeightBase(layer.id, it.copyOf())
+                                        }
+                                        material.structure?.let {
+                                            layerStore.putStructureBase(layer.id, it.copyOf())
+                                        }
+                                        material.wetness?.let {
+                                            val restored = WetnessReplayState.fromSnapshot(
+                                                width = material.width,
+                                                height = material.height,
+                                                wetness = it,
+                                                lastUptimeMillis = material.lastWetnessUptimeMillis,
+                                            )
+                                            layerStore.putWetnessBase(layer.id, restored)
+                                            layerStore.putLiveWetness(layer.id, restored)
+                                        }
+                                        decodedMaterial[layer.id] = material
+                                    }
                                     decoded[layer.id] = loadedBmp
                                 }
                                 if (decoded.isEmpty()) return@launch
@@ -1026,7 +1054,14 @@ class EditorViewModel @Inject constructor(
                                     // read fresh here and preserved untouched.
                                     val current = _uiState.value.layers
                                     val merged = current.map { layer ->
-                                        decoded[layer.id]?.let { layer.copy(bitmap = it) } ?: layer
+                                        decoded[layer.id]?.let { bitmap ->
+                                            val material = decodedMaterial[layer.id]
+                                            layer.copy(
+                                                bitmap = bitmap,
+                                                heightMap = material?.heightMap?.copyOf(),
+                                                structureMap = material?.structure?.copyOf(),
+                                            )
+                                        } ?: layer
                                     }
                                     dispatch(EditorIntent.SetLayers(merged))
                                 }
@@ -2538,12 +2573,80 @@ class EditorViewModel @Inject constructor(
      * [saveProject] fires and forgets, which is right for autosave and wrong for a file the user is
      * waiting on.
      */
+    private fun materialStateFileName(layerId: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(layerId.toByteArray(Charsets.UTF_8))
+        val token = digest.take(10).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        return "material_$token.gxmat"
+    }
+
+    /**
+     * Saves only canonical material channels that differ from their neutral state. Dry/flat layers
+     * therefore keep no sidecar at all, and returning a layer to neutral deletes its old artifact.
+     */
+    private suspend fun persistLayerMaterialState(projectId: String, layer: Layer): Layer {
+        val bitmap = layer.bitmap ?: return layer
+        val size = bitmap.width * bitmap.height
+        val epsilon = 1f / 65535f
+
+        val height = layer.heightMap
+            ?.takeIf { it.size == size && it.any { value -> value > epsilon } }
+            ?.copyOf()
+        val structure = layer.structureMap
+            ?.takeIf { it.size == size && it.any { value -> abs(value - 1f) > epsilon } }
+            ?.copyOf()
+        val wetState = layerStore.wetnessStateCopyOrNull(layer.id)
+        val wetness = wetState?.snapshot()
+            ?.takeIf { it.size == size && it.any { value -> value > epsilon } }
+
+        val filename = materialStateFileName(layer.id)
+        if (height == null && wetness == null && structure == null) {
+            projectManager.deleteProjectArtifact(context, projectId, filename)
+            layer.materialStateFile
+                ?.takeIf { it != filename }
+                ?.let { projectManager.deleteProjectArtifact(context, projectId, it) }
+            return layer.copy(materialStateFile = null)
+        }
+
+        val bytes = MaterialStateCodec.encode(
+            MaterialStateSnapshot(
+                width = bitmap.width,
+                height = bitmap.height,
+                heightMap = height,
+                wetness = wetness,
+                structure = structure,
+                lastWetnessUptimeMillis = wetState?.lastUptimeMillis,
+            ),
+        )
+        projectRepository.saveArtifact(projectId, filename, bytes)
+        layer.materialStateFile
+            ?.takeIf { it != filename }
+            ?.let { projectManager.deleteProjectArtifact(context, projectId, it) }
+        return layer.copy(materialStateFile = filename)
+    }
+
     private suspend fun persistProject(name: String?): GraffitiProject? {
         val currentProject = projectRepository.currentProject.value
-        val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
 
-        // Paths derive from the (immutable) project id. Persist the SLAM world first so they're valid.
+        // Paths and material sidecars derive from the immutable project id.
         val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
+        val materializedLayers = _uiState.value.layers.map {
+            persistLayerMaterialState(projectId, it)
+        }
+        val updatedLayers = materializedLayers.map { it.toOverlayLayer() }
+        // Keep the in-session manifest reference aligned with what was just written without
+        // replacing bitmaps or canonical runtime material arrays.
+        val materialFiles = materializedLayers.associate { it.id to it.materialStateFile }
+        _uiState.update { state ->
+            state.copy(
+                layers = state.layers.map { layer ->
+                    layer.copy(materialStateFile = materialFiles[layer.id])
+                },
+            )
+        }
+
+        // Persist the SLAM world after material sidecars so the manifest never points at a
+        // not-yet-written canonical material artifact.
         val mapPath = projectManager.getMapPath(context, projectId)
         val cloudPointsPath = projectManager.getCloudPointsPath(context, projectId)
         slamManager.saveModel(mapPath)
