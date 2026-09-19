@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField
+import com.hereliesaz.graffitixr.common.azphalt.WetMaterialTransport
 
 /**
  * Mutable per-layer Phase-4 material state used by commit and deterministic replay.
@@ -12,19 +13,53 @@ internal class WetnessReplayState private constructor(
     val field: PersistentWetnessField,
     var lastUptimeMillis: Long? = null,
 ) {
-    fun advanceTo(uptimeMillis: Long?) {
+    /**
+     * Advances pigment mobility + wetness to an explicit recorded input time.
+     *
+     * Pigment transport runs before wetness diffusion/drying so the mobility for this interval is
+     * the material state that existed during the interval. Both solvers touch active tiles only.
+     */
+    fun advanceMaterialTo(pixels: IntArray, uptimeMillis: Long?) {
         val next = uptimeMillis ?: return
+        require(pixels.size >= field.width * field.height) {
+            "WetnessReplayState pixels must contain width*height entries"
+        }
         val previous = lastUptimeMillis
         if (previous != null && next > previous && !field.isIdle) {
-            field.advance(
-                deltaSeconds = (next - previous) / 1000f,
-                dryingRate = DEFAULT_DRYING_RATE,
-                transportRate = DEFAULT_TRANSPORT_RATE,
-            )
+            advanceMaterialBy(pixels, (next - previous) / 1000f)
         }
         // A backwards uptime jump can happen across a device reboot. Treat it as a new monotonic
         // epoch instead of inventing an enormous or negative elapsed time.
         lastUptimeMillis = next
+    }
+
+    /**
+     * One fixed deterministic post-contact tick. This gives freshly wet paint a visible bounded
+     * local settle immediately after the stroke without introducing a wall-clock render loop.
+     */
+    fun settleMaterial(pixels: IntArray, deltaSeconds: Float = DEFAULT_SETTLE_SECONDS) {
+        if (field.isIdle || deltaSeconds <= 0f) return
+        require(pixels.size >= field.width * field.height) {
+            "WetnessReplayState pixels must contain width*height entries"
+        }
+        advanceMaterialBy(pixels, deltaSeconds)
+    }
+
+    private fun advanceMaterialBy(pixels: IntArray, deltaSeconds: Float) {
+        WetMaterialTransport.advanceArgb(
+            pixels = pixels,
+            width = field.width,
+            height = field.height,
+            wetness = field,
+            deltaSeconds = deltaSeconds,
+            transportRate = DEFAULT_PIGMENT_TRANSPORT_RATE,
+            iterations = WetMaterialTransport.DEFAULT_ITERATIONS,
+        )
+        field.advance(
+            deltaSeconds = deltaSeconds,
+            dryingRate = DEFAULT_DRYING_RATE,
+            transportRate = DEFAULT_TRANSPORT_RATE,
+        )
     }
 
     fun markThrough(uptimeMillis: Long?) {
@@ -46,6 +81,8 @@ internal class WetnessReplayState private constructor(
         // values without changing replay architecture.
         const val DEFAULT_DRYING_RATE = 0.08f
         const val DEFAULT_TRANSPORT_RATE = 0.18f
+        const val DEFAULT_PIGMENT_TRANSPORT_RATE = 0.16f
+        const val DEFAULT_SETTLE_SECONDS = 1f / 30f
 
         fun empty(width: Int, height: Int, tileSize: Int = PersistentWetnessField.DEFAULT_TILE_SIZE) =
             WetnessReplayState(PersistentWetnessField(width, height, tileSize))
