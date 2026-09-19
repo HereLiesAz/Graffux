@@ -90,6 +90,39 @@ class ProjectManager @Inject constructor(
         return File(root, "cloud_points.bin").absolutePath
     }
 
+    /**
+     * Resolves one project-relative artifact without allowing an imported manifest to escape its
+     * project directory. Returns null for blank/absolute/traversal paths.
+     */
+    fun resolveProjectArtifact(context: Context, projectId: String, relativeName: String): File? {
+        if (relativeName.isBlank() || File(relativeName).isAbsolute) return null
+        return runCatching {
+            val root = File(context.filesDir, "projects/$projectId").canonicalFile
+            val candidate = File(root, relativeName).canonicalFile
+            val prefix = root.path + File.separator
+            candidate.takeIf { it.path.startsWith(prefix) && it != root }
+        }.getOrNull()
+    }
+
+    suspend fun readProjectArtifact(
+        context: Context,
+        projectId: String,
+        relativeName: String,
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        val file = resolveProjectArtifact(context, projectId, relativeName) ?: return@withContext null
+        if (!file.isFile) return@withContext null
+        runCatching { file.readBytes() }.getOrNull()
+    }
+
+    suspend fun deleteProjectArtifact(
+        context: Context,
+        projectId: String,
+        relativeName: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val file = resolveProjectArtifact(context, projectId, relativeName) ?: return@withContext false
+        !file.exists() || file.delete()
+    }
+
     suspend fun saveProject(context: Context, projectData: GraffitiProject, targetImages: List<Bitmap>? = null, thumbnail: Bitmap? = null) = withContext(Dispatchers.IO) {
         val root = File(context.filesDir, "projects/${projectData.id}")
         if (!root.exists()) root.mkdirs()
