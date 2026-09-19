@@ -45,6 +45,23 @@ class WetnessReplayStateTest {
     }
 
     @Test
+    fun `fresh wet contact visibly settles a colour boundary with fixed bounded work`() {
+        val state = WetnessReplayState.empty(4, 1, tileSize = 4)
+        repeat(4) { state.field.addWetness(it, 0, 1f) }
+        val pixels = intArrayOf(
+            0xFFFF0000.toInt(), 0xFFFF0000.toInt(),
+            0xFF0000FF.toInt(), 0xFF0000FF.toInt(),
+        )
+        val before = pixels.copyOf()
+
+        state.settleMaterial(pixels)
+
+        assertTrue(!pixels.contentEquals(before))
+        assertTrue((pixels[1] and 0xFF) > 0)
+        assertTrue((pixels[2] ushr 16 and 0xFF) > 0)
+    }
+
+    @Test
     fun `copyForWork is a defensive material snapshot`() {
         val original = WetnessReplayState.empty(2, 1, tileSize = 2)
         original.field.addWetness(0, 0, 0.5f)
