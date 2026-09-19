@@ -7,6 +7,8 @@ import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoV2Engine
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoV2Workspace
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -71,6 +73,8 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        structureMap: FloatArray? = null,
+        impastoWorkspace: ImpastoV2Workspace? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
@@ -79,6 +83,7 @@ internal class DrawingEngine(
             else applyTool(
                 current, stroke, replaceExisting = true, otherLayers = otherLayers,
                 heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                structureMap = structureMap, impastoWorkspace = impastoWorkspace,
             )
             if (next !== current && current !== base) current.recycle()
             current = next
@@ -93,11 +98,14 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        structureMap: FloatArray? = null,
+        impastoWorkspace: ImpastoV2Workspace? = null,
     ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
             heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+            structureMap = structureMap, impastoWorkspace = impastoWorkspace,
         )
 
     private suspend fun applyTool(
@@ -108,6 +116,8 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        structureMap: FloatArray? = null,
+        impastoWorkspace: ImpastoV2Workspace? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -168,6 +178,47 @@ internal class DrawingEngine(
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
+
+            val materialSize = target.width * target.height
+            val usesImpastoV2 = brush.usesImpastoV2() &&
+                heightMap != null && heightMap.size == materialSize
+            val v2Structure = if (usesImpastoV2) {
+                structureMap?.takeIf { it.size == materialSize } ?: FloatArray(materialSize) { 1f }
+            } else null
+            val v2Wetness = if (usesImpastoV2) {
+                wetnessState?.takeIf {
+                    it.field.width == target.width && it.field.height == target.height
+                } ?: WetnessReplayState.empty(target.width, target.height)
+            } else null
+            val v2Workspace = if (usesImpastoV2) {
+                impastoWorkspace?.takeIf {
+                    it.width == target.width && it.height == target.height
+                } ?: ImpastoV2Workspace(target.width, target.height)
+            } else null
+            val v2Config = if (usesImpastoV2) brush.impastoV2Config() else null
+
+            // Evolve material that was already wet up to this stroke's recorded touchdown before
+            // the new colour/contact lands. The callback shares Phase 4's single replay clock.
+            if (usesImpastoV2 && v2Wetness != null && !v2Wetness.field.isIdle &&
+                v2Structure != null && v2Workspace != null && v2Config != null
+            ) {
+                val materialPixels = IntArray(materialSize)
+                target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
+                v2Wetness.advanceMaterialTo(
+                    materialPixels,
+                    mappedSamples.firstOrNull()?.uptimeMillis,
+                ) { deltaSeconds ->
+                    ImpastoV2Engine.advanceWetHeight(
+                        heightMap!!, v2Structure, target.width, target.height,
+                        v2Wetness.field, v2Workspace, deltaSeconds, v2Config,
+                        substrateProfile = substrate?.materialProfile
+                            ?: com.hereliesaz.graffitixr.common.azphalt.SubstrateProfile.SMOOTH,
+                        substrateField = substrate?.field,
+                    )
+                }
+                target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
+            }
+
             val stampCanvas = android.graphics.Canvas(target)
             SelectionMask.clip(stampCanvas, paintClip)
 
@@ -236,46 +287,104 @@ internal class DrawingEngine(
                 // CatmullRom.densify + BrushStamps.dabs path) to paint, so this is redundant work
                 // only when a stamp brush has impastoThicknessRate > 0, never on the historical
                 // path every other stamp brush still takes.
-                paintedDabs = if (brush.impastoThicknessRate > 0f && heightMap != null) {
+                paintedDabs = if (
+                    heightMap != null && (brush.impastoThicknessRate > 0f || brush.usesImpastoV2())
+                ) {
                     BrushStamps.dabs(CatmullRom.densify(pts), stroke.brushSize * brushScale, brush, stroke.seed)
                 } else {
                     emptyList()
                 }
             }
 
-            // Impasto (roadmap item 12): raises the layer's persistent height map under this
-            // stroke's dabs, then re-shades the just-painted pixels against it. This is the
-            // commit/replay render, which is what actually persists the height-map contribution
-            // onto the layer; EditorViewModel's live preview has its own separate, regional-reshade
-            // integration (`stampLiveHeightMap`) so the shading is visible while dragging too.
-            if (brush.impastoThicknessRate > 0f && heightMap != null && heightMap.size == target.width * target.height) {
-                ImpastoEngine.depositStroke(
-                    heightMap, target.width, target.height, paintedDabs, brush.hardness, brush.impastoThicknessRate,
-                )
-                // Only the freshly deposited dab footprint and its one-pixel normal-gradient border
-                // can change relief lighting. Keep commit/replay allocation proportional to that
-                // dirty rectangle instead of width*height for every impasto stroke.
-                val touched = DirtyRegion.fromDabs(paintedDabs)
-                val region = touched?.let {
-                    DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
-                }?.clampTo(target.width, target.height)
-                if (region != null && !region.isEmpty) {
-                    val regionWidth = region.right - region.left
-                    val regionHeight = region.bottom - region.top
-                    val rawRegion = IntArray(regionWidth * regionHeight)
-                    target.getPixels(
-                        rawRegion, 0, regionWidth,
-                        region.left, region.top, regionWidth, regionHeight,
+            // Phase 5 keeps original Impasto byte-compatible unless one of the new material
+            // controls opts this recorded brush into v2.
+            if (heightMap != null && heightMap.size == materialSize &&
+                (brush.impastoThicknessRate > 0f || usesImpastoV2)
+            ) {
+                var contactDirty: DirtyRegion? = null
+
+                if (usesImpastoV2 && v2Structure != null && v2Wetness != null &&
+                    v2Workspace != null && v2Config != null
+                ) {
+                    val selectionRegion = SelectionMask.region(clipPath, target.width, target.height)
+                    val contact = ImpastoV2Engine.applyContactStroke(
+                        height = heightMap,
+                        structure = v2Structure,
+                        width = target.width,
+                        canvasHeight = target.height,
+                        dabs = paintedDabs,
+                        hardness = brush.hardness,
+                        thicknessRate = brush.impastoThicknessRate,
+                        config = v2Config,
+                        wetness = v2Wetness.field,
+                        substrateProfile = substrate?.materialProfile
+                            ?: com.hereliesaz.graffitixr.common.azphalt.SubstrateProfile.SMOOTH,
+                        substrateField = substrate?.field,
+                        clip = selectionRegion?.let { region -> { x: Int, y: Int -> region.contains(x, y) } },
                     )
+                    contactDirty = contact.dirtyRegion
+
+                    if (!v2Wetness.field.isIdle) {
+                        val materialPixels = IntArray(materialSize)
+                        target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
+                        v2Wetness.settleMaterial(materialPixels) { deltaSeconds ->
+                            ImpastoV2Engine.advanceWetHeight(
+                                heightMap, v2Structure, target.width, target.height,
+                                v2Wetness.field, v2Workspace, deltaSeconds, v2Config,
+                                substrateProfile = substrate?.materialProfile
+                                    ?: com.hereliesaz.graffitixr.common.azphalt.SubstrateProfile.SMOOTH,
+                                substrateField = substrate?.field,
+                            )
+                        }
+                        v2Wetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
+                        target.setPixels(
+                            materialPixels, 0, target.width, 0, 0, target.width, target.height,
+                        )
+                    }
+                } else {
+                    // Exact v1 compatibility path.
+                    ImpastoEngine.depositStroke(
+                        heightMap, target.width, target.height, paintedDabs,
+                        brush.hardness, brush.impastoThicknessRate,
+                    )
+                    contactDirty = DirtyRegion.fromDabs(paintedDabs)
+                }
+
+                fun shadeRegion(region0: DirtyRegion) {
+                    val region = DirtyRegion(
+                        region0.left - 1, region0.top - 1, region0.right + 1, region0.bottom + 1,
+                    ).clampTo(target.width, target.height)
+                    if (region.isEmpty) return
+                    val rw = region.right - region.left
+                    val rh = region.bottom - region.top
+                    val rawRegion = IntArray(rw * rh)
+                    target.getPixels(rawRegion, 0, rw, region.left, region.top, rw, rh)
                     val shadedRegion = ImpastoRegionShader.shade(
                         rawRegion, heightMap, target.width, target.height,
-                        region.left, region.top, regionWidth, regionHeight,
-                        IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+                        region.left, region.top, rw, rh,
+                        IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
+                        IMPASTO_LIGHT_STRENGTH,
+                        wetness = v2Wetness?.field,
+                        wetGlossStrength = if (usesImpastoV2) brush.impastoWetGloss else 0f,
                     )
-                    target.setPixels(
-                        shadedRegion, 0, regionWidth,
-                        region.left, region.top, regionWidth, regionHeight,
-                    )
+                    target.setPixels(shadedRegion, 0, rw, region.left, region.top, rw, rh)
+                }
+
+                contactDirty?.let(::shadeRegion)
+                // Leveling can alter any already-active wet tile. Shade those tiles separately
+                // rather than unioning them into one potentially full-canvas normal-map pass.
+                if (usesImpastoV2 && v2Wetness != null) {
+                    val tileSize = v2Wetness.field.tileSize
+                    for ((tx, ty) in v2Wetness.field.activeTileCoordinates()) {
+                        shadeRegion(
+                            DirtyRegion(
+                                tx * tileSize,
+                                ty * tileSize,
+                                minOf(target.width, (tx + 1) * tileSize),
+                                minOf(target.height, (ty + 1) * tileSize),
+                            ),
+                        )
+                    }
                 }
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
