@@ -13,6 +13,8 @@ import kotlin.math.sqrt
  * explicitly requests v2 behaviour.
  */
 data class ImpastoV2Config(
+    /** Normalized material volume currently carried by the brush, 0..1. */
+    val reservoirLoad: Float = 1f,
     /** Fraction of existing wet height removed by brush contact, 0..1. */
     val pickupRate: Float = 0f,
     /** Vehicle/wetness added under a height-producing contact, 0..1. */
@@ -27,6 +29,7 @@ data class ImpastoV2Config(
     val substrateInteraction: Float = 0f,
 ) {
     fun sanitized(): ImpastoV2Config = copy(
+        reservoirLoad = reservoirLoad.coerceIn(0f, 1f),
         pickupRate = pickupRate.coerceIn(0f, 1f),
         wetnessDeposit = wetnessDeposit.coerceIn(0f, 1f),
         levelingRate = levelingRate.coerceIn(0f, 1f),
@@ -152,6 +155,7 @@ object ImpastoV2Engine {
 
                     val increment = (
                         thicknessRate.coerceAtLeast(0f) *
+                            cfg.reservoirLoad *
                             coverage *
                             dab.alpha.coerceIn(0f, 1f) *
                             flow *
