@@ -21,10 +21,20 @@ data class PaintMedium(
     val heightResponse: Float = 0f,
     /** Strength of substrate/tooth influence on deposition. */
     val substrateResponse: Float = 0f,
+    // Appended after the original public constructor fields so old positional callers retain meaning.
+    /** Bounded post-contact height leveling rate while material is wet, normalized 0..1. */
+    val levelingRate: Float = 0f,
+    /** Dry-state surface roughness used by Impasto-v2 presentation, normalized 0..1. */
+    val baseRoughness: Float = 1f,
+    /** White/specular response contributed by wetness; 0 preserves historical relief shading. */
+    val wetSpecularStrength: Float = 0f,
 ) {
     fun sanitized(): PaintMedium = copy(
         viscosity = viscosity.coerceIn(0f, 1f),
         yieldLikeStrength = yieldLikeStrength.coerceIn(0f, 1f),
+        levelingRate = levelingRate.coerceIn(0f, 1f),
+        baseRoughness = baseRoughness.coerceIn(0f, 1f),
+        wetSpecularStrength = wetSpecularStrength.coerceIn(0f, 1f),
         dryingRate = dryingRate.coerceAtLeast(0f),
         pickupRate = pickupRate.coerceIn(0f, 1f),
         depositionRate = depositionRate.coerceIn(0f, 1f),
@@ -35,7 +45,8 @@ data class PaintMedium(
     /** True only when this medium needs behavior beyond the historical color-only paint path. */
     val usesMaterialPath: Boolean
         get() = mixingModel != MaterialMixingModel.LEGACY_RGB ||
-            viscosity != 0f || yieldLikeStrength != 0f || dryingRate != 0f || pickupRate != 0f ||
+            viscosity != 0f || yieldLikeStrength != 0f || levelingRate != 0f ||
+            baseRoughness != 1f || wetSpecularStrength != 0f || dryingRate != 0f || pickupRate != 0f ||
             depositionRate != 1f || heightResponse != 0f || substrateResponse != 0f
 }
 

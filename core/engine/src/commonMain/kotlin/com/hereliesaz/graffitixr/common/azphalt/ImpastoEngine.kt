@@ -1,14 +1,40 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 private const val IMPASTO_DEG_TO_RAD = 0.017453292f
+
+
+/** Stroke-local volume state for the opt-in Impasto-v2 material transfer path. */
+data class ImpastoMaterialStrokeState(
+    val reservoirLoad: Float = 1f,
+) {
+    fun sanitized(): ImpastoMaterialStrokeState = copy(reservoirLoad = reservoirLoad.coerceIn(0f, 1f))
+}
+
+/** Accounting returned by [ImpastoEngine.transferMaterialStroke]. */
+data class ImpastoMaterialTransferStats(
+    val state: ImpastoMaterialStrokeState,
+    val depositedHeight: Float,
+    val pickedUpHeight: Float,
+    val dirtyRegion: DirtyRegion?,
+)
+
+/** Accounting returned by [ImpastoEngine.levelWetHeight]. */
+data class ImpastoLevelStats(
+    val activeTilesProcessed: Int,
+    val pixelsVisited: Int,
+    val edgesMoved: Int,
+    val transferredHeight: Float,
+)
 
 /**
  * Krita-style paint-thickness (impasto) primitive: a height map that builds up alongside colour
@@ -184,6 +210,382 @@ object ImpastoEngine {
         }
     }
 
+
+    /**
+     * Impasto-v2 height transfer. Existing [deposit]/[depositStroke] remain the v1 compatibility
+     * contract; callers opt into this method explicitly.
+     *
+     * The brush reservoir is normalized rather than a literal millilitre volume. A dab deposits
+     * proportionally to current load, resolved contact depth and [PaintMedium.heightResponse].
+     * Pickup can only fill capacity already freed by deposition and removes real height from the
+     * contacted canvas before contaminating subsequent dabs. The load exchange is deliberately
+     * bounded per dab so a single broad stamp cannot consume an entire brush simply because it
+     * covers more pixels.
+     */
+    fun transferMaterialStroke(
+        height: FloatArray,
+        width: Int,
+        imgHeight: Int,
+        dabs: List<Dab>,
+        hardness: Float,
+        thicknessRate: Float,
+        medium: PaintMedium,
+        initialState: ImpastoMaterialStrokeState = ImpastoMaterialStrokeState(),
+        substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
+        substrateField: SubstrateField? = null,
+    ): ImpastoMaterialTransferStats {
+        if (width <= 0 || imgHeight <= 0 || height.size < width * imgHeight) {
+            return ImpastoMaterialTransferStats(initialState.sanitized(), 0f, 0f, null)
+        }
+        val material = medium.sanitized()
+        val rate = thicknessRate.coerceAtLeast(0f)
+        var load = initialState.sanitized().reservoirLoad
+        if (rate <= 0f || dabs.isEmpty() ||
+            (material.heightResponse <= 0f && material.pickupRate <= 0f)
+        ) {
+            return ImpastoMaterialTransferStats(ImpastoMaterialStrokeState(load), 0f, 0f, null)
+        }
+
+        val profile = substrateProfile.sanitized()
+        var depositedTotal = 0f
+        var pickedUpTotal = 0f
+        var dirty: DirtyRegion? = null
+
+        for (dab in dabs) {
+            val radius = dab.radius
+            if (radius <= 0f) continue
+            val cx = dab.x
+            val cy = dab.y
+            val minX = max(0, floor(cx - radius).toInt())
+            val maxX = min(width - 1, ceil(cx + radius).toInt())
+            val minY = max(0, floor(cy - radius).toInt())
+            val maxY = min(imgHeight - 1, ceil(cy + radius).toInt())
+            if (minX > maxX || minY > maxY) continue
+
+            val loadAtStart = load
+            val contactDepth = dab.contactDepth.coerceIn(0f, 1f)
+            val alphaFlow = dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f)
+            var depositedThisDab = 0f
+            var pickedThisDab = 0f
+            var coverageMass = 0f
+            var touched = false
+
+            // Pass 1 resolves the dab's gross deposition against the untouched surface. That gives
+            // us the reservoir load actually spent by this dab before pickup is allowed, matching
+            // BrushReservoirModel's deposit-then-pickup transaction instead of measuring pickup
+            // capacity from the pre-dab load.
+            for (y in minY..maxY) {
+                for (x in minX..maxX) {
+                    val dx = x + 0.5f - cx
+                    val dy = y + 0.5f - cy
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist >= radius) continue
+                    val coverage = BrushStamps.stampCoverage((dist / radius).coerceIn(0f, 1f), hardness)
+                    if (coverage <= 0f) continue
+                    val idx = y * width + x
+                    val before = height[idx].coerceIn(0f, 1f)
+                    val substrateHeight = substrateField?.sampleHeight(x + 0.5f, y + 0.5f, profile)
+                        ?: profile.baseHeight
+                    val gate = SubstrateDepositionModel.coverageMultiplier(
+                        contactDepth = contactDepth,
+                        localPaintHeightContribution = before,
+                        substrateResponse = material.substrateResponse,
+                        substrateHeight = substrateHeight,
+                    )
+                    val contact = (coverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
+                    if (contact <= 0f) continue
+                    coverageMass += coverage
+                    val increment = rate * material.heightResponse * material.depositionRate *
+                        loadAtStart * contact
+                    val afterDeposit = BrushStamps.buildUp(before, increment)
+                    depositedThisDab += (afterDeposit - before).coerceAtLeast(0f)
+                }
+            }
+
+            val denom = (coverageMass * rate.coerceAtLeast(MIN_TRANSFER_RATE))
+                .coerceAtLeast(MIN_TRANSFER_RATE)
+            val spent = if (coverageMass > 0f) {
+                ((depositedThisDab / denom) * CONTACT_LOAD_EXCHANGE).coerceIn(0f, loadAtStart)
+            } else {
+                0f
+            }
+            val loadAfterDeposit = (loadAtStart - spent).coerceIn(0f, 1f)
+            val capacityAfterDeposit = 1f - loadAfterDeposit
+            // Convert normalized reservoir capacity back into the height-mass scale used by this
+            // dab, so pickup cannot remove more canvas material than the brush can actually accept.
+            val maxPickupHeightMass = if (CONTACT_LOAD_EXCHANGE > 0f) {
+                capacityAfterDeposit * denom / CONTACT_LOAD_EXCHANGE
+            } else {
+                0f
+            }
+
+            // Pass 2 applies deposition, then pickup from that contacted surface using the capacity
+            // the same dab just freed. A full brush can therefore deposit and immediately pick up
+            // material on its first dab instead of incorrectly waiting until the next dab.
+            for (y in minY..maxY) {
+                for (x in minX..maxX) {
+                    val dx = x + 0.5f - cx
+                    val dy = y + 0.5f - cy
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist >= radius) continue
+                    val coverage = BrushStamps.stampCoverage((dist / radius).coerceIn(0f, 1f), hardness)
+                    if (coverage <= 0f) continue
+                    val idx = y * width + x
+                    val before = height[idx].coerceIn(0f, 1f)
+                    val substrateHeight = substrateField?.sampleHeight(x + 0.5f, y + 0.5f, profile)
+                        ?: profile.baseHeight
+                    val gate = SubstrateDepositionModel.coverageMultiplier(
+                        contactDepth = contactDepth,
+                        localPaintHeightContribution = before,
+                        substrateResponse = material.substrateResponse,
+                        substrateHeight = substrateHeight,
+                    )
+                    val contact = (coverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
+                    if (contact <= 0f) continue
+
+                    val increment = rate * material.heightResponse * material.depositionRate *
+                        loadAtStart * contact
+                    var local = BrushStamps.buildUp(before, increment).coerceIn(0f, 1f)
+
+                    val remainingPickupMass = (maxPickupHeightMass - pickedThisDab).coerceAtLeast(0f)
+                    val removalRequest = rate * material.pickupRate * capacityAfterDeposit * contact
+                    val removed = min(local, min(removalRequest, remainingPickupMass))
+                    local = (local - removed).coerceAtLeast(0f)
+                    pickedThisDab += removed
+
+                    if (local != before) {
+                        height[idx] = local
+                        touched = true
+                    }
+                }
+            }
+
+            val refill = if (coverageMass > 0f) {
+                ((pickedThisDab / denom) * CONTACT_LOAD_EXCHANGE).coerceIn(0f, capacityAfterDeposit)
+            } else {
+                0f
+            }
+            load = (loadAfterDeposit + refill).coerceIn(0f, 1f)
+
+            depositedTotal += depositedThisDab
+            pickedUpTotal += pickedThisDab
+            if (touched) {
+                val dabRegion = DirtyRegion(minX, minY, maxX + 1, maxY + 1)
+                dirty = dirty?.union(dabRegion) ?: dabRegion
+            }
+        }
+
+        return ImpastoMaterialTransferStats(
+            state = ImpastoMaterialStrokeState(load),
+            depositedHeight = depositedTotal,
+            pickedUpHeight = pickedUpTotal,
+            dirtyRegion = dirty,
+        )
+    }
+
+    /**
+     * Bounded wet-height leveling over Phase-4 active material tiles.
+     *
+     * Height exchange is pairwise and equal/opposite, so absent clamping it conserves paint height.
+     * Flow follows the combined paint+substrate surface, which naturally lets material settle into
+     * substrate valleys. Yield recovery is analytic: as wetness falls, the effective yield threshold
+     * rises toward [PaintMedium.yieldLikeStrength], freezing small gradients without another
+     * persistent structure image. High wetness represents recently sheared/weak structure.
+     */
+    fun levelWetHeight(
+        height: FloatArray,
+        width: Int,
+        imgHeight: Int,
+        wetness: PersistentWetnessField,
+        medium: PaintMedium,
+        deltaSeconds: Float,
+        region: DirtyRegion? = null,
+        substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
+        substrateField: SubstrateField? = null,
+        iterations: Int = DEFAULT_LEVELING_ITERATIONS,
+    ): ImpastoLevelStats {
+        require(width == wetness.width && imgHeight == wetness.height) {
+            "Impasto wetness dimensions must match height dimensions"
+        }
+        require(height.size >= width * imgHeight) {
+            "Impasto height must contain width*height values"
+        }
+        val material = medium.sanitized()
+        val dt = deltaSeconds.coerceAtLeast(0f)
+        val count = iterations.coerceIn(0, MAX_LEVELING_ITERATIONS)
+        val active = wetness.activeTileCoordinates()
+        if (active.isEmpty() || dt <= 0f || count == 0 || material.levelingRate <= 0f) {
+            return ImpastoLevelStats(active.size, 0, 0, 0f)
+        }
+
+        val bounds = (region ?: DirtyRegion(0, 0, width, imgHeight)).clampTo(width, imgHeight)
+        if (bounds.isEmpty) return ImpastoLevelStats(active.size, 0, 0, 0f)
+
+        val tileSize = wetness.tileSize
+        val columns = (width + tileSize - 1) / tileSize
+        val activeIds = HashSet<Int>(active.size * 2)
+        for ((tx, ty) in active) activeIds += ty * columns + tx
+        val profile = substrateProfile.sanitized()
+
+        fun tileActive(x: Int, y: Int): Boolean =
+            ((y / tileSize) * columns + (x / tileSize)) in activeIds
+
+        fun terrain(x: Int, y: Int): Float {
+            if (material.substrateResponse <= 0f) return 0f
+            val sampled = substrateField?.sampleHeight(x + 0.5f, y + 0.5f, profile)
+                ?: profile.baseHeight
+            return sampled * material.substrateResponse
+        }
+
+        var visited = 0
+        var movedEdges = 0
+        var transferred = 0f
+        val stepBase = (material.levelingRate * dt / count).coerceIn(0f, MAX_LEVEL_EDGE_STEP)
+
+        fun exchange(a: Int, ax: Int, ay: Int, b: Int, bx: Int, by: Int) {
+            val wet = ((wetness.wetnessAt(ax, ay) + wetness.wetnessAt(bx, by)) * 0.5f)
+                .coerceIn(0f, 1f)
+            if (wet <= 0f) return
+            val fluidity = wet * (1f - material.viscosity)
+            if (fluidity <= 0f) return
+
+            val surfaceA = height[a].coerceAtLeast(0f) + terrain(ax, ay)
+            val surfaceB = height[b].coerceAtLeast(0f) + terrain(bx, by)
+            val diff = surfaceB - surfaceA
+            val recoveredStructure = material.yieldLikeStrength * (1f - wet)
+            val threshold = recoveredStructure * YIELD_HEIGHT_THRESHOLD
+            val excess = abs(diff) - threshold
+            if (excess <= 0f) return
+
+            val amount = excess * stepBase * fluidity
+            if (amount <= 0f) return
+            if (diff > 0f) {
+                val moved = min(amount, min(height[b].coerceAtLeast(0f), (1f - height[a]).coerceAtLeast(0f)))
+                if (moved <= 0f) return
+                height[b] = (height[b] - moved).coerceAtLeast(0f)
+                height[a] = (height[a] + moved).coerceIn(0f, 1f)
+                transferred += moved
+            } else {
+                val moved = min(amount, min(height[a].coerceAtLeast(0f), (1f - height[b]).coerceAtLeast(0f)))
+                if (moved <= 0f) return
+                height[a] = (height[a] - moved).coerceAtLeast(0f)
+                height[b] = (height[b] + moved).coerceIn(0f, 1f)
+                transferred += moved
+            }
+            movedEdges++
+        }
+
+        repeat(count) {
+            for ((tx, ty) in active) {
+                val tileLeft = tx * tileSize
+                val tileTop = ty * tileSize
+                val left = max(bounds.left, tileLeft)
+                val top = max(bounds.top, tileTop)
+                val right = min(bounds.right, min(width, tileLeft + tileSize))
+                val bottom = min(bounds.bottom, min(imgHeight, tileTop + tileSize))
+                if (left >= right || top >= bottom) continue
+
+                for (y in top until bottom) {
+                    var idx = y * width + left
+                    for (x in left until right) {
+                        visited++
+                        if (x + 1 < bounds.right && tileActive(x + 1, y)) {
+                            exchange(idx, x, y, idx + 1, x + 1, y)
+                        }
+                        if (y + 1 < bounds.bottom && tileActive(x, y + 1)) {
+                            exchange(idx, x, y, idx + width, x, y + 1)
+                        }
+                        idx++
+                    }
+                }
+            }
+        }
+
+        return ImpastoLevelStats(
+            activeTilesProcessed = active.size,
+            pixelsVisited = visited,
+            edgesMoved = movedEdges,
+            transferredHeight = transferred,
+        )
+    }
+
+    /**
+     * V2 presentation: historical relief diffuse plus wetness-driven glossy/specular response.
+     * Canonical pigment/height/wetness inputs are never mutated; lighting remains presentation only.
+     */
+    fun shadeMaterialInto(
+        out: IntArray,
+        rawColorPixels: IntArray,
+        height: FloatArray,
+        wetness: PersistentWetnessField?,
+        width: Int,
+        imgHeight: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        lightAzimuthDeg: Float,
+        lightElevationDeg: Float,
+        reliefStrength: Float,
+        medium: PaintMedium,
+    ) {
+        val x0 = left.coerceIn(0, width)
+        val x1 = right.coerceIn(0, width)
+        val y0 = top.coerceIn(0, imgHeight)
+        val y1 = bottom.coerceIn(0, imgHeight)
+        if (x0 >= x1 || y0 >= y1 || width <= 0 || imgHeight <= 0) return
+        val material = medium.sanitized()
+        if (reliefStrength <= 0f && material.wetSpecularStrength <= 0f) {
+            for (y in y0 until y1) {
+                val row = y * width
+                for (x in x0 until x1) out[row + x] = rawColorPixels[row + x]
+            }
+            return
+        }
+
+        val azimuthRad = lightAzimuthDeg * IMPASTO_DEG_TO_RAD
+        val elevationRad = lightElevationDeg * IMPASTO_DEG_TO_RAD
+        val lx = cos(azimuthRad) * cos(elevationRad)
+        val ly = sin(azimuthRad) * cos(elevationRad)
+        val lz = sin(elevationRad)
+        val baselineDiffuse = lz
+        // Fixed view vector (0,0,1); Blinn half-vector is normalize(light + view).
+        val hx0 = lx
+        val hy0 = ly
+        val hz0 = lz + 1f
+        val hInv = 1f / sqrt(hx0 * hx0 + hy0 * hy0 + hz0 * hz0)
+        val hx = hx0 * hInv
+        val hy = hy0 * hInv
+        val hz = hz0 * hInv
+
+        for (y in y0 until y1) {
+            for (x in x0 until x1) {
+                val dHdx = (at(height, width, imgHeight, x + 1, y) - at(height, width, imgHeight, x - 1, y)) / 2f
+                val dHdy = (at(height, width, imgHeight, x, y + 1) - at(height, width, imgHeight, x, y - 1)) / 2f
+                val nx0 = -dHdx
+                val ny0 = -dHdy
+                val nz0 = 1f
+                val invLen = 1f / sqrt(nx0 * nx0 + ny0 * ny0 + nz0 * nz0)
+                val nx = nx0 * invLen
+                val ny = ny0 * invLen
+                val nz = nz0 * invLen
+                val diffuse = nx * lx + ny * ly + nz * lz
+                val multiplier = (1f + reliefStrength.coerceAtLeast(0f) * (diffuse - baselineDiffuse))
+                    .coerceIn(0f, 3f)
+
+                val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
+                val roughness = (
+                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    ).coerceIn(MIN_WET_ROUGHNESS, 1f)
+                val shininess = 4f + (1f - roughness) * 60f
+                val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
+                val specular = material.wetSpecularStrength * wet * nDotH.toDouble().pow(shininess.toDouble()).toFloat()
+                out[y * width + x] = shadeRgb(rawColorPixels[y * width + x], multiplier, specular)
+            }
+        }
+    }
+
+
     private fun at(height: FloatArray, width: Int, imgHeight: Int, x: Int, y: Int): Float {
         val cx = x.coerceIn(0, width - 1)
         val cy = y.coerceIn(0, imgHeight - 1)
@@ -191,6 +593,15 @@ object ImpastoEngine {
     }
 
     /** Scales only the RGB channels of a packed ARGB int; alpha is preserved exactly. */
+    private fun shadeRgb(argb: Int, factor: Float, specular: Float): Int {
+        val a = argb ushr 24 and 0xFF
+        val add = (255f * specular.coerceIn(0f, 1f))
+        val r = ((argb shr 16 and 0xFF) * factor + add).toInt().coerceIn(0, 255)
+        val g = ((argb shr 8 and 0xFF) * factor + add).toInt().coerceIn(0, 255)
+        val b = ((argb and 0xFF) * factor + add).toInt().coerceIn(0, 255)
+        return (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
     private fun scaleRgb(argb: Int, factor: Float): Int {
         val a = argb ushr 24 and 0xFF
         val r = ((argb shr 16 and 0xFF) * factor).let { it.toInt().coerceIn(0, 255) }
@@ -198,4 +609,12 @@ object ImpastoEngine {
         val b = ((argb and 0xFF) * factor).let { it.toInt().coerceIn(0, 255) }
         return (a shl 24) or (r shl 16) or (g shl 8) or b
     }
+    private const val CONTACT_LOAD_EXCHANGE = 0.12f
+    private const val MIN_TRANSFER_RATE = 1e-4f
+    private const val YIELD_HEIGHT_THRESHOLD = 0.08f
+    private const val MAX_LEVEL_EDGE_STEP = 0.25f
+    private const val MIN_WET_ROUGHNESS = 0.08f
+    const val DEFAULT_LEVELING_ITERATIONS = 2
+    const val MAX_LEVELING_ITERATIONS = 4
+
 }
