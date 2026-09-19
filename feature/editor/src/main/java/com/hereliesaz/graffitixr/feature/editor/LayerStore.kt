@@ -81,6 +81,8 @@ internal class LayerStore {
         structureBases[layerId] = structureMap
     }
 
+    fun hasStructureBase(layerId: String): Boolean = structureBases.containsKey(layerId)
+
     /** Reused full-canvas numerical scratch; live Phase-5 ticks only clear active pixels. */
     fun impastoWorkspace(layerId: String, width: Int, height: Int): ImpastoV2Workspace {
         val existing = impastoWorkspaces[layerId]
