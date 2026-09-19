@@ -104,6 +104,11 @@ internal class LayerStore {
         liveWetness[layerId] = state.copyForWork()
     }
 
+    /** Clears only the derived/live wetness cache; the baked base remains authoritative. */
+    fun clearLiveWetness(layerId: String) {
+        liveWetness.remove(layerId)
+    }
+
     /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
