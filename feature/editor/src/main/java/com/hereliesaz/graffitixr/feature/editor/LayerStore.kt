@@ -76,6 +76,10 @@ internal class LayerStore {
 
     fun hasWetnessBase(layerId: String): Boolean = wetnessBases.containsKey(layerId)
 
+    /** True once this layer has allocated canonical Phase-4 wetness in either baked or live form. */
+    fun hasWetnessState(layerId: String): Boolean =
+        wetnessBases.containsKey(layerId) || liveWetness.containsKey(layerId)
+
     /** Replaces the baked wetness base with a defensive snapshot. */
     fun putWetnessBase(layerId: String, state: WetnessReplayState) {
         wetnessBases[layerId] = state.copyForWork()
