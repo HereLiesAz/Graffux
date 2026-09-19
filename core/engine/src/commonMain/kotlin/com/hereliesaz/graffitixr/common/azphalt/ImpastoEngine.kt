@@ -433,10 +433,12 @@ object ImpastoEngine {
 
         repeat(count) {
             for ((tx, ty) in active) {
-                val left = max(bounds.left, tx * tileSize)
-                val top = max(bounds.top, ty * tileSize)
-                val right = min(bounds.right, min(width, left - (left % tileSize) + tileSize))
-                val bottom = min(bounds.bottom, min(imgHeight, top - (top % tileSize) + tileSize))
+                val tileLeft = tx * tileSize
+                val tileTop = ty * tileSize
+                val left = max(bounds.left, tileLeft)
+                val top = max(bounds.top, tileTop)
+                val right = min(bounds.right, min(width, tileLeft + tileSize))
+                val bottom = min(bounds.bottom, min(imgHeight, tileTop + tileSize))
                 if (left >= right || top >= bottom) continue
 
                 for (y in top until bottom) {
