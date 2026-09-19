@@ -96,6 +96,7 @@ object ImpastoV2Engine {
         wetness: PersistentWetnessField?,
         substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
         substrateField: SubstrateField? = null,
+        clip: ((x: Int, y: Int) -> Boolean)? = null,
     ): ImpastoContactStats {
         require(height.size >= width * canvasHeight)
         require(structure.size >= width * canvasHeight)
@@ -123,6 +124,7 @@ object ImpastoV2Engine {
             val contact = dab.contactDepth.coerceIn(0f, 1f)
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
+                    if (clip != null && !clip(x, y)) continue
                     val dx = x + 0.5f - dab.x
                     val dy = y + 0.5f - dab.y
                     val dist = sqrt(dx * dx + dy * dy)
