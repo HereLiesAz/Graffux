@@ -42,10 +42,27 @@ internal class WetnessReplayState private constructor(
         require(pixels.size >= field.width * field.height) {
             "WetnessReplayState pixels must contain width*height entries"
         }
-        advanceMaterialBy(pixels, deltaSeconds)
+        // Contact relaxation is a deterministic solver quantum, not elapsed wall/material time.
+        // Transport may settle immediately after contact, but drying is reserved for advanceTo()
+        // so the next recorded sample interval cannot count the same 125 ms twice.
+        transportMaterial(pixels, deltaSeconds)
+        field.advance(
+            deltaSeconds = deltaSeconds,
+            dryingRate = 0f,
+            transportRate = DEFAULT_TRANSPORT_RATE,
+        )
     }
 
     private fun advanceMaterialBy(pixels: IntArray, deltaSeconds: Float) {
+        transportMaterial(pixels, deltaSeconds)
+        field.advance(
+            deltaSeconds = deltaSeconds,
+            dryingRate = DEFAULT_DRYING_RATE,
+            transportRate = DEFAULT_TRANSPORT_RATE,
+        )
+    }
+
+    private fun transportMaterial(pixels: IntArray, deltaSeconds: Float) {
         WetMaterialTransport.advanceArgb(
             pixels = pixels,
             width = field.width,
@@ -54,11 +71,6 @@ internal class WetnessReplayState private constructor(
             deltaSeconds = deltaSeconds,
             transportRate = DEFAULT_PIGMENT_TRANSPORT_RATE,
             iterations = WetMaterialTransport.DEFAULT_ITERATIONS,
-        )
-        field.advance(
-            deltaSeconds = deltaSeconds,
-            dryingRate = DEFAULT_DRYING_RATE,
-            transportRate = DEFAULT_TRANSPORT_RATE,
         )
     }
 
