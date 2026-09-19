@@ -226,6 +226,14 @@ private const val MAX_IMPORT_DOCUMENT_BYTES = 512 * 1024 * 1024
  *  OOM the app the way an unbounded `ZipInputStream.readBytes()` would let it. */
 private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 
+/** Maximum encoded Phase-5 material sidecar accepted from disk.
+ *
+ * MaterialStateCodec caps a canvas at 4096² and persists at most two Float channels (height +
+ * wetness): ~128 MiB before gzip plus small tile/header overhead. 160 MiB therefore bounds hostile
+ * files without making a valid worst-case material layer impossible to reopen.
+ */
+private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
+
 /**
  * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
  * the CPU renderer (docs/Krita Brush Engine Adoption.md item 15). As of this pass, every azphalt
@@ -4890,10 +4898,11 @@ class EditorViewModel @Inject constructor(
                                         pixelAllowed = allowed,
                                     )
                                 }
+                                val transferDirty = transfer.dirtyRegion
                                 touched = when {
-                                    transfer.dirtyRegion == null -> wetDirty
-                                    wetDirty == null -> transfer.dirtyRegion
-                                    else -> transfer.dirtyRegion.union(wetDirty)
+                                    transferDirty == null -> wetDirty
+                                    wetDirty == null -> transferDirty
+                                    else -> transferDirty.union(wetDirty)
                                 }
                             } else {
                                 ImpastoEngine.depositStroke(
