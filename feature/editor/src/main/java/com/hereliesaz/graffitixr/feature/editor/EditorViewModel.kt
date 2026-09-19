@@ -562,6 +562,10 @@ class EditorViewModel @Inject constructor(
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
     private val drawingEngine = DrawingEngine(slamManager)
+
+    private fun strokeNeedsPersistentWetness(command: StrokeCommand): Boolean =
+        command.tool == Tool.SMUDGE &&
+            command.colorSmudgeSettings?.let(ColorSmudgeEngine::usesPersistentWetness) == true
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -1254,6 +1258,13 @@ class EditorViewModel @Inject constructor(
         // bitmap base, on a defensive copy so a failed/discarded bake never corrupts the pristine
         // base other in-flight rebuilds may still be reading.
         val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+        val wetnessWorking = if (
+            layerStore.hasWetnessBase(layerId) || stale.any(::strokeNeedsPersistentWetness)
+        ) {
+            layerStore.wetnessBaseCopy(layerId, base.width, base.height)
+        } else {
+            null
+        }
 
         viewModelScope.launch(dispatchers.default) {
             try {
@@ -1261,6 +1272,7 @@ class EditorViewModel @Inject constructor(
                     base, stale,
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
+                    wetnessState = wetnessWorking,
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1273,6 +1285,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.takeOldestStrokes(layerId, stale.size)
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
+                    wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -1319,6 +1332,13 @@ class EditorViewModel @Inject constructor(
         // itself is -- undo/redo should read the layer's persistent height as it stood *before*
         // this rebuild's strokes, not whatever the live layer.heightMap held a moment ago.
         val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+        val wetnessWorking = if (
+            layerStore.hasWetnessBase(layerId) || strokes.any(::strokeNeedsPersistentWetness)
+        ) {
+            layerStore.wetnessBaseCopy(layerId, base.width, base.height)
+        } else {
+            null
+        }
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -1330,6 +1350,7 @@ class EditorViewModel @Inject constructor(
                     base, strokes,
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
+                    wetnessState = wetnessWorking,
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -1341,6 +1362,11 @@ class EditorViewModel @Inject constructor(
                 }
 
                 withContext(dispatchers.main) {
+                    if (wetnessWorking != null) {
+                        layerStore.putLiveWetness(layerId, wetnessWorking)
+                    } else {
+                        layerStore.clearLiveWetness(layerId)
+                    }
                     _uiState.update { state ->
                         state.copy(
                             layers = state.layers.map {
@@ -4839,6 +4865,15 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
+            val wetnessWorking = if (
+                command.tool == Tool.SMUDGE &&
+                    (layerStore.hasWetnessState(layerId) || strokeNeedsPersistentWetness(command))
+            ) {
+                layerStore.liveWetnessCopy(layerId, base.width, base.height)
+            } else {
+                null
+            }
+
             // Tracked in rebuildJobs, same discipline as processNewStroke/commitStampStroke: a
             // glee audit found this launch (and CLONE's/LIQUIFY's below) was never registered,
             // so a fast Undo right after a BLUR/SHARPEN/SMUDGE commit could have its rebuild's
@@ -4858,8 +4893,11 @@ class EditorViewModel @Inject constructor(
                 // landing — the layer is left exactly as it was, which the next edit re-renders
                 // cleanly from.
                 try {
-                    val resampled = drawingEngine.applySingleStroke(base, command)
+                    val resampled = drawingEngine.applySingleStroke(
+                        base, command, wetnessState = wetnessWorking,
+                    )
                     withContext(dispatchers.main) {
+                        wetnessWorking?.let { layerStore.putLiveWetness(layerId, it) }
                         _uiState.update { s ->
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
