@@ -350,6 +350,13 @@ internal class DrawingEngine(
                     contactDirty = DirtyRegion.fromDabs(paintedDabs)
                 }
 
+                // V2 can shade the contact rectangle and several active tiles that overlap.
+                // Every rectangle must derive from the same raw pigment snapshot; reading a region
+                // back from an already-shaded target would apply relief/specular twice on overlaps.
+                // This copy is commit/replay-only. Live preview already owns a separate raw work
+                // bitmap and remains dirty-region-only with no full-canvas normal regeneration.
+                val rawShadeSource = if (usesImpastoV2) SafeBitmap.copy(target, mutable = false) else null
+
                 fun shadeRegion(region0: DirtyRegion) {
                     val region = DirtyRegion(
                         region0.left - 1, region0.top - 1, region0.right + 1, region0.bottom + 1,
@@ -358,7 +365,9 @@ internal class DrawingEngine(
                     val rw = region.right - region.left
                     val rh = region.bottom - region.top
                     val rawRegion = IntArray(rw * rh)
-                    target.getPixels(rawRegion, 0, rw, region.left, region.top, rw, rh)
+                    (rawShadeSource ?: target).getPixels(
+                        rawRegion, 0, rw, region.left, region.top, rw, rh,
+                    )
                     val shadedRegion = ImpastoRegionShader.shade(
                         rawRegion, heightMap, target.width, target.height,
                         region.left, region.top, rw, rh,
@@ -373,7 +382,9 @@ internal class DrawingEngine(
                 contactDirty?.let(::shadeRegion)
                 // Leveling can alter any already-active wet tile. Shade those tiles separately
                 // rather than unioning them into one potentially full-canvas normal-map pass.
-                if (usesImpastoV2 && v2Wetness != null) {
+                // If the defensive raw copy failed under memory pressure, keep the contact result
+                // correct and skip the overlapping secondary pass rather than double-shading it.
+                if (usesImpastoV2 && v2Wetness != null && rawShadeSource != null) {
                     val tileSize = v2Wetness.field.tileSize
                     for ((tx, ty) in v2Wetness.field.activeTileCoordinates()) {
                         shadeRegion(
@@ -386,6 +397,7 @@ internal class DrawingEngine(
                         )
                     }
                 }
+                rawShadeSource?.recycle()
             }
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
