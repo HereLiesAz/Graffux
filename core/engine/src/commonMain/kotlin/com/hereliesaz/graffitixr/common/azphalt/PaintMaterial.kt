@@ -11,12 +11,6 @@ data class PaintMedium(
     val viscosity: Float = 0f,
     /** Yield/thixotropy-like resistance to post-deposition movement, normalized 0..1. */
     val yieldLikeStrength: Float = 0f,
-    /** Bounded post-contact height leveling rate while material is wet, normalized 0..1. */
-    val levelingRate: Float = 0f,
-    /** Dry-state surface roughness used by Impasto-v2 presentation, normalized 0..1. */
-    val baseRoughness: Float = 1f,
-    /** White/specular response contributed by wetness; 0 preserves historical relief shading. */
-    val wetSpecularStrength: Float = 0f,
     /** Normalized material drying rate per simulation time unit. */
     val dryingRate: Float = 0f,
     /** Fractional pickup tendency during brush/canvas contact. */
@@ -27,6 +21,13 @@ data class PaintMedium(
     val heightResponse: Float = 0f,
     /** Strength of substrate/tooth influence on deposition. */
     val substrateResponse: Float = 0f,
+    // Appended after the original public constructor fields so old positional callers retain meaning.
+    /** Bounded post-contact height leveling rate while material is wet, normalized 0..1. */
+    val levelingRate: Float = 0f,
+    /** Dry-state surface roughness used by Impasto-v2 presentation, normalized 0..1. */
+    val baseRoughness: Float = 1f,
+    /** White/specular response contributed by wetness; 0 preserves historical relief shading. */
+    val wetSpecularStrength: Float = 0f,
 ) {
     fun sanitized(): PaintMedium = copy(
         viscosity = viscosity.coerceIn(0f, 1f),
