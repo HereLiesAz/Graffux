@@ -40,6 +40,7 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
+        materialStateFile = materialStateFile,
         shapes = shapes
     )
 }
@@ -79,6 +80,7 @@ fun OverlayLayer.toLayer(): Layer {
         textParams = textParams,
         isLinked = isLinked,
         isInverted = isInverted,
+        materialStateFile = materialStateFile,
         shapes = shapes
     )
 }
