@@ -311,8 +311,8 @@ internal class DrawingEngine(
                 mapped, width, height, settings, mappedSamples, stroke.seed,
             )
             val persistentWetness = wetnessState?.takeIf {
-                ColorSmudgeEngine.usesPersistentWetness(settings) &&
-                    it.field.width == width && it.field.height == height
+                it.field.width == width && it.field.height == height &&
+                    (ColorSmudgeEngine.usesPersistentWetness(settings) || !it.field.isIdle)
             }
             val wetnessRegion = persistentWetness?.let {
                 SelectionMask.region(clipPath, width, height)
