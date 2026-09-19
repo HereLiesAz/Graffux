@@ -74,6 +74,8 @@ internal class LayerStore {
         return fresh.copyForWork()
     }
 
+    fun hasWetnessBase(layerId: String): Boolean = wetnessBases.containsKey(layerId)
+
     /** Replaces the baked wetness base with a defensive snapshot. */
     fun putWetnessBase(layerId: String, state: WetnessReplayState) {
         wetnessBases[layerId] = state.copyForWork()
