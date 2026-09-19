@@ -54,7 +54,7 @@ This document defines the verification contract for the unconfirmed open items a
 
 ## 5. Material-Aware Paint Engine: Priority TODOs
 
-**Context:** The `docs/Material-Aware Paint Engine Implementation Status.md` identifies 9 prioritized steps remaining, primarily focused on hardware parity, telemetry, and advanced material phases (Substrate, Wetness, Impasto v2).
+**Context:** Phase 4 and the Phase-5 Impasto-v2 engine/persistence work are implemented. Remaining priorities are primarily physical-device parity/performance, telemetry/archetype tuning, Phase-3 product activation, and Phase-7 media-profile UX.
 
 ### 5.1 Parity & Performance Baselines (Steps 1, 2, 5)
 - **Invariant:** Execution of the CPU reference implementation and the Vulkan shader implementation for pigment mixing and reservoir pickup must yield bit-exact or perceptually indistinguishable results (within a defined floating-point epsilon).
@@ -66,15 +66,15 @@ This document defines the verification contract for the unconfirmed open items a
 - **Test:** Apply physical finger traces and basic pressure-only stylus traces to the physical brush models (Round, Flat, Filbert).
 - **Expected:** The engine behaves deterministically without crashing. Width/splay logic falls back to pressure-only or velocity-only heuristics as designed.
 
-### 5.3 Advanced Material Phases (Steps 6, 7, 8)
+### 5.3 Material Phase Regression / Remaining Product Validation
 - **Substrate Deposition (Phase 3):**
   - **Edge Case:** Light pressure on a highly textured substrate.
   - **Expected:** Deposition occurs only on the substrate crests.
-- **Persistent Wetness (Phase 4):**
-  - **Invariant:** The wetness field must be bounded; diffusion must not cost idle compute cycles for fully dry regions.
-- **Impasto v2 (Phase 5):**
-  - **Test:** Deposit material over existing thick Impasto strokes.
-  - **Expected:** Height transfer adheres to reservoir-volume constraints; wet strokes level appropriately according to the configured viscosity.
+- **Persistent Wetness (Phase 4, implemented):**
+  - **Regression invariant:** The wetness field stays bounded and active-tile-only; fully dry regions incur zero effective material simulation work.
+- **Impasto v2 (Phase 5, implemented):**
+  - **Regression test:** Deposit/pick up material over existing thick strokes, advance wet material time deterministically, and round-trip the layer material sidecar.
+  - **Expected:** Height transfer stays reservoir-bounded; wet strokes level according to viscosity/yield response; wetness changes optical response without pigment mutation; save/reload reconstructs height + wetness.
 
 ### 5.4 Semantic Media Profiles (Step 9)
 - **Contract:** The rule "colour is not medium" must remain strictly enforced.
