@@ -14,7 +14,7 @@ Status legend:
 - ⬜ **Pending** — not implemented in this session.
 - 🔬 **Research only** — deliberately not on the critical path unless a cheaper approximation visibly fails.
 
-## 2026-09-14 checkpoint
+## 2026-09-19 checkpoint
 
 Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation work plus Vulkan reservoir parity, translucent-pickup hardening, the versioned media-profile boundary, the consolidated material golden matrix, and minimal material controls.
 
@@ -65,8 +65,8 @@ Original fixture list retained for completion:
 - ✅ slow pressure-ramp coverage exists across brush/telemetry tests;
 - ✅ fast motion/flick-related stroke behavior has existing baseline coverage in the brush engine;
 - ✅ repeated crossings are pinned in the consolidated material golden fixture matrix;
-- 🟡 wet-over-wet behavior exists through Color Smudge/pickup semantics, but no persistent wetness field exists yet;
-- ⬜ low-load substrate dry drag fixture awaits Phase 3;
+- ✅ wet-over-wet behavior now has a persistent Phase-4 wetness field, bounded active-tile transport, deterministic drying, and Color Smudge integration;
+- ✅ low-load substrate dry-drag/scumble behavior is covered by the Phase-3 substrate reference/renderer tests;
 - ✅ existing Impasto has stab/height behavior, but Impasto-v2 material coupling is pending;
 - 🟡 long-stroke determinism/performance is covered in pieces, but the full material stress benchmark matrix remains pending.
 
@@ -116,7 +116,7 @@ Implemented:
 Still pending:
 
 - 🟡 Execute the existing CPU ↔ Vulkan pigment/reservoir parity suite on representative real Android Vulkan hardware and record the results.
-- ⬜ Persistent canvas wetness; current pickup does not fabricate a wetness field.
+- ✅ Persistent canvas wetness is now supplied by Phase 4; pickup samples real canvas wetness when canonical wet material exists instead of fabricating it from display colour.
 - ⬜ Per-sub-tuft reservoir load; current reservoir is stroke-level.
 
 Compatibility/backend gate:
@@ -125,36 +125,53 @@ Compatibility/backend gate:
 - ✅ Imported Krita presets keep pickup at the Graffux default of zero.
 - ✅ Positive pickup has native/Vulkan support; unsupported/failed GPU execution recomputes through the CPU reference instead of silently ignoring pickup.
 
-### Phase 3 — Substrate-aware deposition and dry-brush breakup — ⬜
+### Phase 3 — Substrate-aware deposition and dry-brush breakup — 🟡 backend implemented; product activation/hardware gate remain
 
-All original items remain pending:
+Implemented:
 
-- ⬜ Substrate height/tooth field.
-- ⬜ Absorbency scalar/texture.
-- ⬜ Optional anisotropy/fibre direction.
-- ⬜ Contact-depth-vs-substrate-height deposition rule.
-- ⬜ Crest-only scumble under light contact.
-- ⬜ Pressure-driven penetration/full coverage.
-- ⬜ Material-height filling of substrate valleys.
-- ⬜ GPU-local/static substrate sampling with no per-frame CPU texture work.
+- ✅ Static substrate height/tooth field with canvas-locked tiled sampling.
+- 🟡 Absorbency scalar/optional texture representation exists and is sampled; specialized absorbency-driven wet behavior is intentionally not fabricated into the dry-deposition solver.
+- ⬜ Optional anisotropy/fibre direction remains a later extension.
+- ✅ Contact-depth-vs-substrate-height deposition rule.
+- ✅ Crest/tooth scumble and dry breakup under light contact.
+- ✅ Pressure-driven substrate penetration/full coverage.
+- ✅ Existing paint height fills substrate valleys in the CPU renderer and Vulkan path.
+- ✅ CPU commit/replay integration uses the same substrate context.
+- ✅ Vulkan has a dedicated static R8 substrate texture rather than hijacking brush grain, plus the existing-height channel needed for CPU/Vulkan valley-filling parity.
+- ✅ Substrate response `0` preserves the historical renderer path.
+- ✅ Hosted native/shader/editor validation for the Phase-3 Vulkan tranches is landed.
 
-Important change since the original plan: coarse brush geometry now exists, so Phase 3 can eventually consume real stable tuft contacts instead of a single synthetic ellipse.
+Still open:
 
-### Phase 4 — Persistent wetness field and bounded local transport — ⬜
+- 🟡 The editor does not yet expose a selected substrate/media session state, so backend substrate profiles are not yet a normal product-facing canvas choice.
+- 🟡 Real Android Vulkan execution remains a hardware parity gate.
+- ⬜ Optional fibre-direction/anisotropy behavior.
 
-All original items remain pending:
+Coarse stable tuft contacts now feed the same contact-depth model rather than requiring a separate bristle-specific substrate backend.
 
-- ⬜ Optional wetness material channel.
-- ⬜ Wetness-controlled pickup eligibility and mobility.
-- ⬜ Short-range bounded diffusion/advection approximation.
-- ⬜ Conservation-aware local transfer where practical.
-- ⬜ Fixed small iteration budget.
-- ⬜ Drying transition.
-- ⬜ Active material tile set.
-- ⬜ Zero effective idle cost for dry documents.
-- ⬜ Explicit deterministic simulation-time advancement for tests/replay.
+### Phase 4 — Persistent wetness field and bounded local transport — ✅ code-side exit gate complete
 
-A full Navier-Stokes/FLIP solver is still **not** the starting point.
+Implemented and merged in PR #394:
+
+- ✅ Optional normalized per-layer wetness material channel, allocated lazily only after a wetness-producing stroke opts in.
+- ✅ Wetness-controlled Color Smudge mobility and pickup eligibility using actual canvas wetness; no wetness is fabricated from RGB.
+- ✅ Dilution/vehicle deposits wetness through the existing Color Smudge backend rather than creating a second wet-mix engine.
+- ✅ Short-range bounded four-neighbour wetness transport plus bounded local ARGB/pigment-display transport.
+- ✅ Pairwise conservation-aware transfer; zero-drying wetness transport and integer colour exchange conserve local material/channel mass within the bounded solver.
+- ✅ Fixed small iteration budget (`2` by default, hard-capped at `4` for colour transport).
+- ✅ Exponential drying transition driven only by explicit recorded sample-time deltas.
+- ✅ Deterministic post-contact settling is a fixed transport quantum and deliberately does **not** double-count elapsed drying time.
+- ✅ Active material tile set; inactive neighbouring tiles are not implicitly activated by transport.
+- ✅ Dry/never-wet documents allocate no wetness state and incur effectively zero material-simulation work.
+- ✅ Explicit deterministic simulation-time advancement for tests/replay; no wall-clock authority.
+- ✅ `LayerStore` carries baked/live wetness snapshots through commit, undo/redo rebuild, and old-stroke baking.
+- ✅ Undo back to a never-wet history clears stale live wetness state.
+- ✅ New wetness deposition respects the active selection while already-wet material may continue its global deterministic evolution.
+- ✅ Legacy/no-field Color Smudge remains byte-identical and stays eligible for the existing Vulkan path.
+- ✅ Persistent-wetness Color Smudge intentionally uses the CPU correctness path until native Color Smudge owns an equivalent canonical wetness image; this is a performance/backend optimization, not a missing Phase-4 behavior.
+- ✅ Hosted `testDebugUnitTest test` and `assembleDebug` passed on the Phase-4 merge head.
+
+Phase-4 roadmap exit conditions are therefore met. Project-file persistence for canonical material channels remains a later production/persistence gate called out under Phase 5, not a reason to run a second wetness engine.
 
 ### Phase 5 — Impasto v2 / material height / wet-dry optics — ⬜ v2; existing v1 baseline remains
 
@@ -370,7 +387,7 @@ Already true:
 Still required:
 
 - ⬜ Real-device Adreno/Mali performance matrix for the new physical population at representative brush sizes.
-- ⬜ Capability-tier policy that can reduce mechanical tuft count/solver complexity while preserving deterministic semantics.
+- ✅ Deterministic capability-tier policy is landed: constrained devices cap physical mechanical tufts at 16, balanced devices at 32, and full-tier devices retain the authored ceiling; the cap is frozen into the per-stroke brush snapshot so replay semantics do not depend on the current device.
 - ⬜ Explicit performance thresholds for the physical population based on measured hardware data.
 - ⬜ Real stylus/finger hardware validation of hover/contact presentation and parity.
 
@@ -445,7 +462,7 @@ Still useful/required:
 - ⬜ explicit end-to-end finger-contact-change tuft geometry parity fixture;
 - ⬜ larger visual golden suite for straight drag, 90° corner, 180° reversal, pressure ramp, tilt sweep, hover roll/lean, and each morphology;
 - ⬜ physical performance baselines on Adreno high/mid and Mali high/mid tiers;
-- ⬜ material-substrate/wetness/Impasto-v2 fixtures when those phases begin.
+- ✅ substrate and Phase-4 wetness/replay/active-tile fixtures are landed; ⬜ Impasto-v2-specific material fixtures remain for Phase 5.
 
 ---
 
@@ -453,15 +470,15 @@ Still useful/required:
 
 This is the recommended order from the current state, not the original dependency order.
 
-1. Run the existing **CPU ↔ Vulkan pigment + reservoir/pickup parity suite on real Android Vulkan hardware** and record the device/result matrix.
-2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines. The versioned media-profile boundary and consolidated current-material golden matrix are landed.
+1. Run the existing **CPU ↔ Vulkan pigment + reservoir/pickup/substrate parity suite on real Android Vulkan hardware** and record the device/result matrix.
+2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines.
 3. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
 4. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
-5. Add capability-tier/performance policy for physical tuft population and verify bounded cost on representative Adreno/Mali devices.
-6. Begin **Phase 3 substrate-aware deposition** using the now-stable physical contact topology.
-7. Then add **Phase 4 persistent wetness + bounded active-tile transport**.
-8. Then evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction and wet/dry optics.
-9. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary after the underlying material channels have stable behavior.
+5. Measure the landed deterministic tuft capability tiers on representative Adreno/Mali devices and set evidence-based performance thresholds.
+6. Finish Phase-3 product activation: choose/wire editor substrate/media session state and execute the real-device Vulkan parity gate.
+7. Evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction, wet leveling, pickup/removal, and wet/dry optics.
+8. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary and completed Phase-3/4 material channels.
+9. Add project save/load persistence or deterministic persisted reconstruction for every canonical material channel required by production artwork.
 10. Keep full spectral/Kubelka-Munk, full individual-bristle PBD/DER, FLIP/PIC/pressure-projected fluids, porous-paper capillary simulation, and Gaussian-splat material research behind explicit evidence that the cheaper model cannot produce the required marks.
 
 Do not start a second wet-mix/pickup backend beside Color Smudge, do not make renderers reinterpret raw telemetry, and do not trade bounded input latency for higher simulation fidelity.
@@ -499,9 +516,9 @@ Even though a large amount of this session's mechanics is now implemented, the f
 - real Android Vulkan parity for pigment mode;
 - real Android Vulkan execution/results for the landed pigment and reservoir/pickup parity suites;
 - representative physical-device telemetry validation;
-- physical tuft population performance/capability tiers;
+- physical tuft population **performance measurements/thresholds** on the already-landed deterministic capability tiers;
 - artist tuning/reference strokes for morphology and lifecycle behavior;
-- substrate/wetness/Impasto-v2 material phases if those features are advertised;
+- Phase-3 product activation/real-device substrate parity and Phase-5 Impasto-v2 if those features are advertised; Phase 4 wetness behavior itself is implemented;
 - project persistence/reconstruction for any new canonical material channels;
 - tuned semantic media-profile catalogue/product UX after engine behavior is stable (the versioned core profile boundary is already landed).
 
