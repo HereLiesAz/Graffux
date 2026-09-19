@@ -54,6 +54,11 @@ data class Layer(
      */
     @Transient
     val heightMap: FloatArray? = null,
+    /** Phase-5 rheology structure: 1 = recovered/stiff, 0 = fully sheared/mobile. */
+    @Transient
+    val structureMap: FloatArray? = null,
+    /** Portable project-relative versioned material-state artifact, null for legacy/dry layers. */
+    val materialStateFile: String? = null,
     val isVisible: Boolean = true,
     val opacity: Float = 1.0f,
     val brightness: Float = 0.0f,
