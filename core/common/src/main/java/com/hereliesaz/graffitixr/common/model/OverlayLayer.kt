@@ -77,6 +77,8 @@ data class OverlayLayer(
     val textParams: TextLayerParams? = null,
     val isLinked: Boolean = false,
     val isInverted: Boolean = false,
+    /** Project-relative versioned material-state artifact (height/wetness/structure). */
+    val materialStateFile: String? = null,
     // Vector content — non-empty for a vector layer (uri is Uri.EMPTY in that case). Defaulted for
     // back-compat with projects saved before vector layers existed.
     val shapes: List<VectorShape> = emptyList()
