@@ -11,6 +11,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
 import com.hereliesaz.graffitixr.common.azphalt.MaterialColor
 import com.hereliesaz.graffitixr.common.azphalt.MaterialColorMixer
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
+import com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField
 import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -191,6 +192,13 @@ object ColorSmudgeEngine {
         settings.pickupRate.coerceIn(0f, 1f) > 0f
 
     /**
+     * Phase 4 uses Dilution as the vehicle fraction: zero is the exact historical dry/legacy path;
+     * positive dilution opts the stroke into persistent canvas wetness and wetness-driven mobility.
+     */
+    internal fun usesPersistentWetness(settings: Settings): Boolean =
+        settings.dilution.coerceIn(0f, 1f) > 0f
+
+    /**
      * @param sampleSource Optional pre-composited "what the artist can see" buffer, same
      *   dimensions as [pixels], used for colour pickup instead of the active layer's own pixels
      *   when [Settings.sampleMerged] is set. Ignored (falls back to sampling [pixels] itself,
@@ -207,9 +215,16 @@ object ColorSmudgeEngine {
         samples: List<BrushSample> = emptyList(),
         strokeSeed: Long = 0L,
         sampleSource: IntArray? = null,
+        wetnessField: PersistentWetnessField? = null,
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
-        applyOne(pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource)
+        val persistentWetness = wetnessField?.takeIf {
+            usesPersistentWetness(settings) && it.width == width && it.height == height
+        }
+        applyOne(
+            pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource,
+            persistentWetness,
+        )
     }
 
     private fun applyOne(
@@ -221,6 +236,7 @@ object ColorSmudgeEngine {
         samples: List<BrushSample>,
         strokeSeed: Long,
         sampleSource: IntArray?,
+        wetnessField: PersistentWetnessField?,
     ) {
         val radius = settings.radiusPx.coerceAtLeast(1f)
         val step = (radius / 2f).coerceAtLeast(1f)
@@ -234,8 +250,14 @@ object ColorSmudgeEngine {
             pixels
         }
         when (settings.mode) {
-            Mode.SMEAR -> smear(pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed, step)
-            Mode.DULLING -> dull(pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed, step)
+            Mode.SMEAR -> smear(
+                pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
+                step, wetnessField,
+            )
+            Mode.DULLING -> dull(
+                pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
+                step, wetnessField,
+            )
         }
     }
 
@@ -300,6 +322,7 @@ object ColorSmudgeEngine {
         strokeStartUptimeMillis: Long,
         strokeSeed: Long,
         step: Float,
+        wetnessField: PersistentWetnessField?,
     ) {
         val carrier = IntArray(kernel.size)
         val start = path.first().position
@@ -337,6 +360,10 @@ object ColorSmudgeEngine {
             )
             val cx = dab.position.x.toInt()
             val cy = dab.position.y.toInt()
+            val sampledWetness = wetnessField?.let {
+                weightedWetness(it, cx, cy, kernel.r, settings.wrapAround)
+            }
+            val mobility = wetnessMobility(settings, sampledWetness)
             // Sample the material contact before this dab mutates pixels. The resulting pickup is
             // applied after rendering, so it only changes the brush's subsequent carried pigment.
             val reservoirSample = if (pickupEnabled) {
@@ -357,7 +384,8 @@ object ColorSmudgeEngine {
                 val pickedUp = readSource[idx]
                 val under = pixels[idx]
                 carrier[k] = mixArgb(
-                    pickedUp, carrier[k], resolved.smudgeRate, settings.smearAlpha, settings.mixingModel,
+                    pickedUp, carrier[k], resolved.smudgeRate * mobility,
+                    settings.smearAlpha, settings.mixingModel,
                 )
                 var out = mixArgb(
                     under,
@@ -377,10 +405,16 @@ object ColorSmudgeEngine {
                     )
                 }
                 pixels[idx] = out
+                depositWetness(
+                    wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
+                    settings.dilution * mask * resolved.opacity,
+                )
             }
 
             if (pickupEnabled) {
-                reservoir = pickupIntoReservoir(reservoir, reservoirSample, settings)
+                reservoir = pickupIntoReservoir(
+                    reservoir, reservoirSample, settings, sampledWetness,
+                )
             }
         }
     }
@@ -397,6 +431,7 @@ object ColorSmudgeEngine {
         strokeStartUptimeMillis: Long,
         strokeSeed: Long,
         step: Float,
+        wetnessField: PersistentWetnessField?,
     ) {
         val pickupEnabled = usesStatefulReservoir(settings)
         var reservoir = initialReservoir(settings)
@@ -430,6 +465,10 @@ object ColorSmudgeEngine {
             val sampled = weightedAverage(
                 readSource, width, height, cx, cy, sampleRadius, settings.wrapAround,
             )
+            val sampledWetness = wetnessField?.let {
+                weightedWetness(it, cx, cy, sampleRadius, settings.wrapAround)
+            }
+            val mobility = wetnessMobility(settings, sampledWetness)
             val carriedPaintColor = if (pickupEnabled) reservoir.carriedColor.toArgb() else settings.paintColor
 
             forEachKernel(kernel) { dx, dy, _, mask ->
@@ -440,7 +479,7 @@ object ColorSmudgeEngine {
                 var out = mixArgb(
                     under,
                     sampled,
-                    mask * resolved.opacity * resolved.smudgeRate,
+                    mask * resolved.opacity * resolved.smudgeRate * mobility,
                     settings.smearAlpha,
                     settings.mixingModel,
                 )
@@ -455,10 +494,14 @@ object ColorSmudgeEngine {
                     )
                 }
                 pixels[idx] = out
+                depositWetness(
+                    wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
+                    settings.dilution * mask * resolved.opacity,
+                )
             }
 
             if (pickupEnabled) {
-                reservoir = pickupIntoReservoir(reservoir, sampled, settings)
+                reservoir = pickupIntoReservoir(reservoir, sampled, settings, sampledWetness)
             }
         }
     }
@@ -473,6 +516,7 @@ object ColorSmudgeEngine {
         state: BrushReservoirState,
         sampledArgb: Int,
         settings: Settings,
+        sampledWetness: Float? = null,
     ): BrushReservoirState {
         val current = state.sanitized()
         val pickupRate = settings.pickupRate.coerceIn(0f, 1f)
@@ -482,16 +526,77 @@ object ColorSmudgeEngine {
         val sampled = MaterialColor.fromArgb(sampledArgb)
         val materialPresence = sampled.alpha.coerceIn(0f, 1f)
         if (materialPresence <= 0f) return current
+        val wetnessEligibility = wetnessMobility(settings, sampledWetness)
 
         return BrushReservoirModel.transfer(
             state = current,
             sampledColor = sampled,
-            // Canvas wetness is not a persistent channel yet. Keep wetness unchanged until Phase 4
-            // provides actual sampled wetness rather than fabricating it from display colour.
-            sampledWetness = current.wetness,
-            pickupRequest = capacity * pickupRate * materialPresence,
+            sampledWetness = sampledWetness ?: current.wetness,
+            pickupRequest = capacity * pickupRate * materialPresence * wetnessEligibility,
             mixingModel = settings.mixingModel,
         ).state
+    }
+
+    private fun wetnessMobility(settings: Settings, sampledWetness: Float?): Float {
+        if (sampledWetness == null) return 1f
+        val response = settings.dilution.coerceIn(0f, 1f)
+        return (1f + (sampledWetness.coerceIn(0f, 1f) - 1f) * response).coerceIn(0f, 1f)
+    }
+
+    private fun depositWetness(
+        field: PersistentWetnessField?,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        wrapAround: Boolean,
+        amount: Float,
+    ) {
+        if (field == null || amount <= 0f) return
+        val px: Int
+        val py: Int
+        if (wrapAround) {
+            px = ((x % width) + width) % width
+            py = ((y % height) + height) % height
+        } else {
+            if (x !in 0 until width || y !in 0 until height) return
+            px = x
+            py = y
+        }
+        field.addWetness(px, py, amount)
+    }
+
+    private fun weightedWetness(
+        field: PersistentWetnessField,
+        cx: Int,
+        cy: Int,
+        radius: Int,
+        wrapAround: Boolean,
+    ): Float {
+        val rr = radius.toFloat().coerceAtLeast(1f)
+        var sum = 0f
+        var sumWeight = 0f
+        for (dy in -radius..radius) {
+            for (dx in -radius..radius) {
+                val distance = hypot(dx.toFloat(), dy.toFloat())
+                if (distance > rr) continue
+                val weight = (1f - distance / rr).coerceIn(0f, 1f)
+                if (weight <= 0f) continue
+                val x: Int
+                val y: Int
+                if (wrapAround) {
+                    x = ((cx + dx) % field.width + field.width) % field.width
+                    y = ((cy + dy) % field.height + field.height) % field.height
+                } else {
+                    x = cx + dx
+                    y = cy + dy
+                    if (x !in 0 until field.width || y !in 0 until field.height) continue
+                }
+                sum += field.wetnessAt(x, y) * weight
+                sumWeight += weight
+            }
+        }
+        return if (sumWeight > 0f) (sum / sumWeight).coerceIn(0f, 1f) else 0f
     }
 
     /**
