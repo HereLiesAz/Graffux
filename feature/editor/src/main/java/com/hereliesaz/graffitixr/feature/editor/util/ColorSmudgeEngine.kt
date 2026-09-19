@@ -216,6 +216,7 @@ object ColorSmudgeEngine {
         strokeSeed: Long = 0L,
         sampleSource: IntArray? = null,
         wetnessField: PersistentWetnessField? = null,
+        wetnessClip: ((x: Int, y: Int) -> Boolean)? = null,
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
         val persistentWetness = wetnessField?.takeIf {
@@ -223,7 +224,7 @@ object ColorSmudgeEngine {
         }
         applyOne(
             pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource,
-            persistentWetness,
+            persistentWetness, wetnessClip,
         )
     }
 
@@ -237,6 +238,7 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         sampleSource: IntArray?,
         wetnessField: PersistentWetnessField?,
+        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
     ) {
         val radius = settings.radiusPx.coerceAtLeast(1f)
         val step = (radius / 2f).coerceAtLeast(1f)
@@ -252,11 +254,11 @@ object ColorSmudgeEngine {
         when (settings.mode) {
             Mode.SMEAR -> smear(
                 pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
-                step, wetnessField,
+                step, wetnessField, wetnessClip,
             )
             Mode.DULLING -> dull(
                 pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
-                step, wetnessField,
+                step, wetnessField, wetnessClip,
             )
         }
     }
@@ -323,6 +325,7 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         step: Float,
         wetnessField: PersistentWetnessField?,
+        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
     ) {
         val carrier = IntArray(kernel.size)
         val start = path.first().position
@@ -407,7 +410,7 @@ object ColorSmudgeEngine {
                 pixels[idx] = out
                 depositWetness(
                     wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
-                    settings.dilution * mask * resolved.opacity,
+                    settings.dilution * mask * resolved.opacity, wetnessClip,
                 )
             }
 
@@ -432,6 +435,7 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         step: Float,
         wetnessField: PersistentWetnessField?,
+        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
     ) {
         val pickupEnabled = usesStatefulReservoir(settings)
         var reservoir = initialReservoir(settings)
@@ -496,7 +500,7 @@ object ColorSmudgeEngine {
                 pixels[idx] = out
                 depositWetness(
                     wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
-                    settings.dilution * mask * resolved.opacity,
+                    settings.dilution * mask * resolved.opacity, wetnessClip,
                 )
             }
 
@@ -551,6 +555,7 @@ object ColorSmudgeEngine {
         height: Int,
         wrapAround: Boolean,
         amount: Float,
+        clip: ((x: Int, y: Int) -> Boolean)?,
     ) {
         if (field == null || amount <= 0f) return
         val px: Int
@@ -563,6 +568,7 @@ object ColorSmudgeEngine {
             px = x
             py = y
         }
+        if (clip != null && !clip(px, py)) return
         field.addWetness(px, py, amount)
     }
 
