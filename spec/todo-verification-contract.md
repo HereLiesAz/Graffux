@@ -40,7 +40,7 @@ This document serves as the formal verification contract for completing the rema
 - Brush mechanics are hardened on real hardware (premium stylus, basic stylus, and finger traces).
 - Initial archetypes (Round, Flat, Filbert, Rigger, Fan, Rake) are tuned using visual reference strokes rather than exposing raw solver coefficients.
 - Capability-tier/performance policies for physical tuft population are added and their bounded cost is verified on representative Adreno/Mali devices.
-- Phase 3 (substrate-aware deposition), Phase 4 (persistent wetness + bounded active-tile transport), and Phase 5 (Impasto v2) are sequentially integrated.
+- ✅ Phase 3 substrate backend behavior, Phase 4 persistent wetness/bounded transport, and Phase 5 Impasto v2 are integrated. The remaining Phase-3 item is product/session activation plus real-device parity; Phase 4/5 engine implementation is no longer a TODO.
 - Phase 7 (semantic media-profile catalogue/product controls) is built upon the landed versioned profile boundary.
 
 ### Behavioral & Contract Tests
