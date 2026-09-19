@@ -790,9 +790,9 @@ Do **not** begin with FLIP/PIC or thousands of PBD bristles. Those are possible 
 
 ---
 
-## 17. First concrete development tranche
+## 17. Historical first development tranches — completed
 
-The next code tranche should be intentionally small:
+The roadmap began with the two intentionally small tranches below. Both are now landed; this section is retained as design history and as the compatibility rationale for building persistent material state incrementally rather than starting with the expensive simulation phases.
 
 ### Tranche A — material colour kernel
 
@@ -804,11 +804,11 @@ The next code tranche should be intentionally small:
 6. Add CPU/Vulkan parity instrumentation.
 7. Add 5–10 artist-relevant golden mixing cases.
 
-**Nothing else changes yet.** No wetness field, no PBD, no project-format migration.
+**Historical scope rule:** at this tranche, nothing else changed yet — no wetness field, PBD, or project-format migration. Later phases have since implemented the bounded wetness and material-persistence work described above.
 
 ### Tranche B — reservoir prototype
 
-After Tranche A passes:
+After Tranche A, the roadmap proceeded with:
 
 1. add stroke-local reservoir state;
 2. add load/depletion only;
@@ -816,9 +816,7 @@ After Tranche A passes:
 4. then add pickup/contamination from Color Smudge samples;
 5. expose only Load/Pickup in experimental controls.
 
-These two tranches are enough to test the roadmap's core thesis: **does persistent material state make Graffux feel materially different from a conventional stamp engine?**
-
-If the answer is no, stop before building the expensive phases.
+These two tranches were the original test of the roadmap's core thesis: **does persistent material state make Graffux feel materially different from a conventional stamp engine?** They passed that architectural checkpoint and the implementation subsequently progressed through substrate, persistent wetness, and Impasto v2.
 
 ---
 
