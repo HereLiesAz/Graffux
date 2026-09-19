@@ -109,6 +109,36 @@ class ImpastoV2Test {
     }
 
     @Test
+    fun `full reservoir can pick up capacity freed by the same dab`() {
+        val w = 16
+        val h = 16
+        val height = FloatArray(w * h) { 0.5f }
+        val medium = PaintMedium(
+            pickupRate = 1f,
+            depositionRate = 1f,
+            heightResponse = 1f,
+        )
+
+        val result = ImpastoEngine.transferMaterialStroke(
+            height = height,
+            width = w,
+            imgHeight = h,
+            dabs = listOf(dab()),
+            hardness = 1f,
+            thicknessRate = 0.5f,
+            medium = medium,
+            initialState = ImpastoMaterialStrokeState(reservoirLoad = 1f),
+        )
+
+        assertTrue("the dab must spend some load first", result.depositedHeight > 0f)
+        assertTrue(
+            "pickup must be able to use capacity freed by deposition in this same dab",
+            result.pickedUpHeight > 0f,
+        )
+        assertTrue(result.state.reservoirLoad in 0f..1f)
+    }
+
+    @Test
     fun `substrate response blocks shallow height deposition on a raised tooth`() {
         val w = 16
         val h = 16
