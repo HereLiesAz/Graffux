@@ -416,13 +416,13 @@ object ImpastoEngine {
             val amount = excess * stepBase * fluidity
             if (amount <= 0f) return
             if (diff > 0f) {
-                val moved = min(amount, height[b].coerceAtLeast(0f))
+                val moved = min(amount, min(height[b].coerceAtLeast(0f), (1f - height[a]).coerceAtLeast(0f)))
                 if (moved <= 0f) return
                 height[b] = (height[b] - moved).coerceAtLeast(0f)
                 height[a] = (height[a] + moved).coerceIn(0f, 1f)
                 transferred += moved
             } else {
-                val moved = min(amount, height[a].coerceAtLeast(0f))
+                val moved = min(amount, min(height[a].coerceAtLeast(0f), (1f - height[b]).coerceAtLeast(0f)))
                 if (moved <= 0f) return
                 height[a] = (height[a] - moved).coerceAtLeast(0f)
                 height[b] = (height[b] + moved).coerceIn(0f, 1f)
