@@ -563,9 +563,13 @@ class EditorViewModel @Inject constructor(
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
     private val drawingEngine = DrawingEngine(slamManager)
 
+    private fun strokeNeedsImpastoV2(command: StrokeCommand): Boolean =
+        command.stampBrush?.usesImpastoV2() == true
+
     private fun strokeNeedsPersistentWetness(command: StrokeCommand): Boolean =
-        command.tool == Tool.SMUDGE &&
-            command.colorSmudgeSettings?.let(ColorSmudgeEngine::usesPersistentWetness) == true
+        (command.tool == Tool.SMUDGE &&
+            command.colorSmudgeSettings?.let(ColorSmudgeEngine::usesPersistentWetness) == true) ||
+            (command.stampBrush?.impastoWetness ?: 0f) > 0f
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -1094,7 +1098,9 @@ class EditorViewModel @Inject constructor(
     private fun pushHistory() {
         // heightMap stripped alongside bitmap for the same reason: a large runtime-only array with
         // no business sitting in every property-change undo entry (Impasto, item 12).
-        history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null, heightMap = null) })
+        history.pushProperty(_uiState.value.layers.map {
+            it.copy(bitmap = null, heightMap = null, structureMap = null)
+        })
         updateHistoryCounts()
         val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
         layerStore.retainOnly(liveIds)
@@ -1105,7 +1111,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The current layer set, stripped of bitmaps — what we record so an undo can be reverted. */
-    private fun currentLayerSnapshot(): List<Layer> = _uiState.value.layers.map { it.copy(bitmap = null) }
+    private fun currentLayerSnapshot(): List<Layer> = _uiState.value.layers.map {
+        it.copy(bitmap = null, heightMap = null, structureMap = null)
+    }
 
     // ── Transient HUD (Procreate's confirmations) ────────────────────────────────────────────
 
@@ -1257,7 +1265,16 @@ class EditorViewModel @Inject constructor(
         // Impasto (item 12): the height base needs the same fold-old-strokes-in treatment as the
         // bitmap base, on a defensive copy so a failed/discarded bake never corrupts the pristine
         // base other in-flight rebuilds may still be reading.
-        val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+        val materialSize = base.width * base.height
+        val heightWorking = layerStore.heightBase(layerId, materialSize).copyOf()
+        val structureWorking = if (
+            layerStore.hasStructureBase(layerId) || stale.any(::strokeNeedsImpastoV2)
+        ) {
+            layerStore.structureBase(layerId, materialSize).copyOf()
+        } else null
+        val impastoWorkspace = structureWorking?.let {
+            layerStore.impastoWorkspace(layerId, base.width, base.height)
+        }
         val wetnessWorking = if (
             layerStore.hasWetnessBase(layerId) || stale.any(::strokeNeedsPersistentWetness)
         ) {
@@ -1273,6 +1290,8 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    structureMap = structureWorking,
+                    impastoWorkspace = impastoWorkspace,
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1285,6 +1304,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.takeOldestStrokes(layerId, stale.size)
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
+                    structureWorking?.let { layerStore.putStructureBase(layerId, it) }
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
@@ -1331,7 +1351,16 @@ class EditorViewModel @Inject constructor(
         // Impasto (item 12): a fresh copy of the height base, replayed the same way the bitmap
         // itself is -- undo/redo should read the layer's persistent height as it stood *before*
         // this rebuild's strokes, not whatever the live layer.heightMap held a moment ago.
-        val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+        val materialSize = base.width * base.height
+        val heightWorking = layerStore.heightBase(layerId, materialSize).copyOf()
+        val structureWorking = if (
+            layerStore.hasStructureBase(layerId) || strokes.any(::strokeNeedsImpastoV2)
+        ) {
+            layerStore.structureBase(layerId, materialSize).copyOf()
+        } else null
+        val impastoWorkspace = structureWorking?.let {
+            layerStore.impastoWorkspace(layerId, base.width, base.height)
+        }
         val wetnessWorking = if (
             layerStore.hasWetnessBase(layerId) || strokes.any(::strokeNeedsPersistentWetness)
         ) {
@@ -1351,6 +1380,8 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    structureMap = structureWorking,
+                    impastoWorkspace = impastoWorkspace,
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -1370,7 +1401,13 @@ class EditorViewModel @Inject constructor(
                     _uiState.update { state ->
                         state.copy(
                             layers = state.layers.map {
-                                if (it.id == layerId) it.copy(bitmap = currentBitmap, heightMap = heightWorking) else it
+                                if (it.id == layerId) {
+                                    it.copy(
+                                        bitmap = currentBitmap,
+                                        heightMap = heightWorking,
+                                        structureMap = structureWorking,
+                                    )
+                                } else it
                             },
                         )
                     }
@@ -5364,7 +5401,24 @@ class EditorViewModel @Inject constructor(
         // dabs onto it fresh below, so this must be the layer's height map from before this stroke —
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
         // live-preview drag and would double-deposit if reused here.
-        val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, base.width * base.height)).copyOf()
+        val materialSize = base.width * base.height
+        val heightWorking = (
+            layer.heightMap ?: layerStore.heightBase(layerId, materialSize)
+            ).copyOf()
+        val usesImpastoV2 = brush.usesImpastoV2()
+        val structureWorking = if (usesImpastoV2) {
+            (layer.structureMap ?: layerStore.structureBase(layerId, materialSize)).copyOf()
+        } else {
+            layer.structureMap?.copyOf()
+        }
+        val wetnessWorking = if (
+            layerStore.hasWetnessState(layerId) || (usesImpastoV2 && brush.impastoWetness > 0f)
+        ) {
+            layerStore.liveWetnessCopy(layerId, base.width, base.height)
+        } else null
+        val impastoWorkspace = if (usesImpastoV2) {
+            layerStore.impastoWorkspace(layerId, base.width, base.height)
+        } else null
         // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
         // cancel each other's stale publishes: without this, a fast Undo landing right after this
         // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
@@ -5381,7 +5435,15 @@ class EditorViewModel @Inject constructor(
             // preview rendered all of that correctly, then it vanished on finger-up. `command` already
             // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            val target = drawingEngine.applySingleStroke(base, command, otherLayers, heightWorking)
+            val target = drawingEngine.applySingleStroke(
+                base = base,
+                command = command,
+                otherLayers = otherLayers,
+                heightMap = heightWorking,
+                wetnessState = wetnessWorking,
+                structureMap = structureWorking,
+                impastoWorkspace = impastoWorkspace,
+            )
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
             // it doesn't need a resolved dab list this call site doesn't otherwise construct, and
@@ -5407,10 +5469,17 @@ class EditorViewModel @Inject constructor(
                 _uiState.update { s ->
                     s.copy(
                         layers = s.layers.map {
-                            if (it.id == layerId) it.copy(bitmap = target, heightMap = heightWorking) else it
+                            if (it.id == layerId) {
+                                it.copy(
+                                    bitmap = target,
+                                    heightMap = heightWorking,
+                                    structureMap = structureWorking,
+                                )
+                            } else it
                         },
                     )
                 }
+                if (wetnessWorking != null) layerStore.putLiveWetness(layerId, wetnessWorking)
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
                 retainedGpuDisplay?.close()
                 scheduleDiskSave(layerId, target, layer.uri)
