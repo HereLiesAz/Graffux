@@ -197,4 +197,32 @@ class ImpastoV2EngineTest {
         )
     }
 
+
+    @Test
+    fun clippedContactReportsAndMutatesOnlyAcceptedPixels() {
+        val w = 20
+        val h = 20
+        val height = FloatArray(w * h)
+        val structure = FloatArray(w * h) { 1f }
+        val wetness = PersistentWetnessField(w, h)
+
+        val stats = ImpastoV2Engine.applyContactStroke(
+            height = height,
+            structure = structure,
+            width = w,
+            canvasHeight = h,
+            dabs = listOf(Dab(10f, 10f, 6f, 1f, contactDepth = 1f)),
+            hardness = 1f,
+            thicknessRate = 0.5f,
+            config = ImpastoV2Config(wetnessDeposit = 0.5f),
+            wetness = wetness,
+            clip = { x, _ -> x < 10 },
+        )
+
+        assertTrue(height.indices.filter { height[it] > 0f }.all { it % w < 10 })
+        assertTrue(wetness.snapshot().indices.filter { wetness.snapshot()[it] > 0f }.all { it % w < 10 })
+        assertTrue(stats.dirtyRegion != null)
+        assertTrue(stats.dirtyRegion!!.right <= 10)
+    }
+
 }
