@@ -70,6 +70,7 @@ internal class DrawingEngine(
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
+        wetnessState: WetnessReplayState? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
@@ -77,7 +78,7 @@ internal class DrawingEngine(
             val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
             else applyTool(
                 current, stroke, replaceExisting = true, otherLayers = otherLayers,
-                heightMap = heightMap, substrate = substrate,
+                heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
             )
             if (next !== current && current !== base) current.recycle()
             current = next
@@ -91,11 +92,12 @@ internal class DrawingEngine(
         otherLayers: List<Layer> = emptyList(),
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
+        wetnessState: WetnessReplayState? = null,
     ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
-            heightMap = heightMap, substrate = substrate,
+            heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
         )
 
     private suspend fun applyTool(
@@ -105,6 +107,7 @@ internal class DrawingEngine(
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
+        wetnessState: WetnessReplayState? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -307,6 +310,16 @@ internal class DrawingEngine(
             val plans = ColorSmudgeEngine.resolvePlans(
                 mapped, width, height, settings, mappedSamples, stroke.seed,
             )
+            val persistentWetness = wetnessState?.takeIf {
+                it.field.width == width && it.field.height == height &&
+                    (ColorSmudgeEngine.usesPersistentWetness(settings) || !it.field.isIdle)
+            }
+            val wetnessRegion = persistentWetness?.let {
+                SelectionMask.region(clipPath, width, height)
+            }
+            val wetnessClip: ((Int, Int) -> Boolean)? = wetnessRegion?.let { region ->
+                { x, y -> region.contains(x, y) }
+            }
 
             // Sample Merged: composite the other visible layers into this layer's own pixel space
             // (exact resolution match, required by both ColorSmudgeEngine.apply's sampleSource
@@ -335,7 +348,9 @@ internal class DrawingEngine(
             // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact RYB
             // material mixer. Stateful reservoir load/pickup now runs inside this same native
             // Color Smudge pipeline; a failed native stage still falls back to the CPU reference.
-            val gpuPainted = runCatching {
+            // Persistent wetness is still CPU-reference-only. Do not let Vulkan silently paint the
+            // colour while skipping canonical wetness state; legacy/dry Smudge remains GPU eligible.
+            val gpuPainted = if (persistentWetness != null) false else runCatching {
                 val engine = VulkanStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
@@ -369,12 +384,45 @@ internal class DrawingEngine(
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
                 bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+                // Material time is authoritative and comes from recorded sample uptime, never the
+                // wall clock. When a selection exists, keep an evolved pre-stroke base so elapsed
+                // wet-paint settling remains global while only this stroke is clipped by the lasso.
+                val evolvedSelectionBase = if (persistentWetness != null && clipPath != null) {
+                    SafeBitmap.copy(bitmap)
+                } else null
+                val canAdvanceMaterial = clipPath == null || evolvedSelectionBase != null
+                if (persistentWetness != null && canAdvanceMaterial) {
+                    persistentWetness.advanceMaterialTo(
+                        pixels, mappedSamples.firstOrNull()?.uptimeMillis,
+                    )
+                    evolvedSelectionBase?.setPixels(pixels, 0, width, 0, 0, width, height)
+                }
+
                 ColorSmudgeEngine.apply(
                     pixels, width, height, mapped, settings,
                     samples = mappedSamples, strokeSeed = stroke.seed,
                     sampleSource = sampleSource,
+                    wetnessField = persistentWetness?.field,
+                    wetnessClip = wetnessClip,
                 )
                 target.setPixels(pixels, 0, width, 0, 0, width, height)
+
+                val confined = SelectionMask.confine(
+                    evolvedSelectionBase ?: bitmap, target, clipPath, featherRadius,
+                )
+                if (evolvedSelectionBase != null && evolvedSelectionBase !== confined) {
+                    evolvedSelectionBase.recycle()
+                }
+
+                if (persistentWetness != null) {
+                    val settled = IntArray(width * height)
+                    confined.getPixels(settled, 0, width, 0, 0, width, height)
+                    persistentWetness.settleMaterial(settled)
+                    persistentWetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
+                    confined.setPixels(settled, 0, width, 0, 0, width, height)
+                }
+                return confined
             }
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
