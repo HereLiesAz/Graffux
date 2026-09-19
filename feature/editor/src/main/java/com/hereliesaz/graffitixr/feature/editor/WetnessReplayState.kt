@@ -19,14 +19,26 @@ internal class WetnessReplayState private constructor(
      * Pigment transport runs before wetness diffusion/drying so the mobility for this interval is
      * the material state that existed during the interval. Both solvers touch active tiles only.
      */
-    fun advanceMaterialTo(pixels: IntArray, uptimeMillis: Long?) {
+    fun advanceMaterialTo(
+        pixels: IntArray,
+        uptimeMillis: Long?,
+        dryingRate: Float = DEFAULT_DRYING_RATE,
+        wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE,
+        pigmentTransportRate: Float = DEFAULT_PIGMENT_TRANSPORT_RATE,
+    ) {
         val next = uptimeMillis ?: return
         require(pixels.size >= field.width * field.height) {
             "WetnessReplayState pixels must contain width*height entries"
         }
         val previous = lastUptimeMillis
         if (previous != null && next > previous && !field.isIdle) {
-            advanceMaterialBy(pixels, (next - previous) / 1000f)
+            advanceMaterialBy(
+                pixels = pixels,
+                deltaSeconds = (next - previous) / 1000f,
+                dryingRate = dryingRate,
+                wetnessTransportRate = wetnessTransportRate,
+                pigmentTransportRate = pigmentTransportRate,
+            )
         }
         // A backwards uptime jump can happen across a device reboot. Treat it as a new monotonic
         // epoch instead of inventing an enormous or negative elapsed time.
@@ -37,7 +49,12 @@ internal class WetnessReplayState private constructor(
      * One fixed deterministic post-contact tick. This gives freshly wet paint a visible bounded
      * local settle immediately after the stroke without introducing a wall-clock render loop.
      */
-    fun settleMaterial(pixels: IntArray, deltaSeconds: Float = DEFAULT_SETTLE_SECONDS) {
+    fun settleMaterial(
+        pixels: IntArray,
+        deltaSeconds: Float = DEFAULT_SETTLE_SECONDS,
+        wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE,
+        pigmentTransportRate: Float = DEFAULT_PIGMENT_TRANSPORT_RATE,
+    ) {
         if (field.isIdle || deltaSeconds <= 0f) return
         require(pixels.size >= field.width * field.height) {
             "WetnessReplayState pixels must contain width*height entries"
@@ -45,31 +62,41 @@ internal class WetnessReplayState private constructor(
         // Contact relaxation is a deterministic solver quantum, not elapsed wall/material time.
         // Transport may settle immediately after contact, but drying is reserved for advanceTo()
         // so the next recorded sample interval cannot count the same 125 ms twice.
-        transportMaterial(pixels, deltaSeconds)
+        transportMaterial(pixels, deltaSeconds, pigmentTransportRate)
         field.advance(
             deltaSeconds = deltaSeconds,
             dryingRate = 0f,
-            transportRate = DEFAULT_TRANSPORT_RATE,
+            transportRate = wetnessTransportRate.coerceIn(0f, 1f),
         )
     }
 
-    private fun advanceMaterialBy(pixels: IntArray, deltaSeconds: Float) {
-        transportMaterial(pixels, deltaSeconds)
+    private fun advanceMaterialBy(
+        pixels: IntArray,
+        deltaSeconds: Float,
+        dryingRate: Float,
+        wetnessTransportRate: Float,
+        pigmentTransportRate: Float,
+    ) {
+        transportMaterial(pixels, deltaSeconds, pigmentTransportRate)
         field.advance(
             deltaSeconds = deltaSeconds,
-            dryingRate = DEFAULT_DRYING_RATE,
-            transportRate = DEFAULT_TRANSPORT_RATE,
+            dryingRate = dryingRate.coerceAtLeast(0f),
+            transportRate = wetnessTransportRate.coerceIn(0f, 1f),
         )
     }
 
-    private fun transportMaterial(pixels: IntArray, deltaSeconds: Float) {
+    private fun transportMaterial(
+        pixels: IntArray,
+        deltaSeconds: Float,
+        pigmentTransportRate: Float,
+    ) {
         WetMaterialTransport.advanceArgb(
             pixels = pixels,
             width = field.width,
             height = field.height,
             wetness = field,
             deltaSeconds = deltaSeconds,
-            transportRate = DEFAULT_PIGMENT_TRANSPORT_RATE,
+            transportRate = pigmentTransportRate.coerceIn(0f, 1f),
             iterations = WetMaterialTransport.DEFAULT_ITERATIONS,
         )
     }

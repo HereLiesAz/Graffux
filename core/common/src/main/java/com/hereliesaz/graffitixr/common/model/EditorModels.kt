@@ -47,10 +47,11 @@ data class Layer(
     @Transient
     val bitmap: Bitmap? = null,
     /**
-     * Row-major paint-thickness map (roadmap item 12, `ImpastoEngine`), same dimensions as
-     * [bitmap]. Runtime-only like [bitmap] itself -- not yet persisted to disk or across app
-     * restarts, an explicit, documented limitation rather than a silent gap. `null` means no
-     * stamp-brush stroke with a positive `impastoThicknessRate` has painted on this layer yet.
+     * Row-major paint-thickness map (roadmap item 12 / Phase 5 `ImpastoEngine`), same dimensions
+     * as [bitmap]. The field stays transient so project.json never carries canvas-sized float
+     * arrays; canonical height is persisted separately in the versioned sparse material sidecar
+     * and restored into this runtime mirror when the layer bitmap loads. `null` means the layer
+     * currently has no material height channel.
      */
     @Transient
     val heightMap: FloatArray? = null,

@@ -155,4 +155,47 @@ class AzphaltBrushTest {
         assertEquals(0f, taper.minOpacity, 0f)
         assertFalse(taper.isActive())
     }
+    @Test
+    fun impastoV2IsExplicitlyVersionedAndDisabledByDefault() {
+        val brush = AzphaltBrush(name = "legacy")
+        assertFalse(brush.impastoMaterial.usesV2)
+
+        val enabled = brush.copy(
+            impastoMaterial = ImpastoMaterialConfig(
+                version = 2,
+                enabled = true,
+                initialLoad = 2f,
+                wetness = 2f,
+                pickupRate = -1f,
+                levelingRate = 3f,
+            ),
+        ).sanitized()
+        assertTrue(enabled.impastoMaterial.usesV2)
+        assertEquals(1f, enabled.impastoMaterial.initialLoad, 0f)
+        assertEquals(1f, enabled.impastoMaterial.wetness, 0f)
+        assertEquals(0f, enabled.impastoMaterial.pickupRate, 0f)
+        assertEquals(1f, enabled.impastoMaterial.levelingRate, 0f)
+    }
+
+    @Test
+    fun impastoV2ParsesFromNestedExtensionParams() {
+        val brush = AzphaltBrush.fromParams(
+            "Oil",
+            params(
+                """{"impastoMaterial":{"version":2,"enabled":true,"initialLoad":0.7,"wetness":0.8,"pickupRate":0.4,"levelingRate":0.3,"viscosity":0.6,"yieldLikeStrength":0.5,"substrateResponse":0.9,"baseRoughness":0.35,"wetSpecularStrength":0.75}}""",
+            ),
+        )
+
+        assertTrue(brush.impastoMaterial.usesV2)
+        assertEquals(0.7f, brush.impastoMaterial.initialLoad, 1e-6f)
+        assertEquals(0.8f, brush.impastoMaterial.wetness, 1e-6f)
+        assertEquals(0.4f, brush.impastoMaterial.pickupRate, 1e-6f)
+        assertEquals(0.3f, brush.impastoMaterial.levelingRate, 1e-6f)
+        assertEquals(0.6f, brush.impastoMaterial.viscosity, 1e-6f)
+        assertEquals(0.5f, brush.impastoMaterial.yieldLikeStrength, 1e-6f)
+        assertEquals(0.9f, brush.impastoMaterial.substrateResponse, 1e-6f)
+        assertEquals(0.35f, brush.impastoMaterial.baseRoughness, 1e-6f)
+        assertEquals(0.75f, brush.impastoMaterial.wetSpecularStrength, 1e-6f)
+    }
+
 }

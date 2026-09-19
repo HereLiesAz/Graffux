@@ -21,7 +21,7 @@ internal class SubstrateRenderContext(
     reservoirLoad: Float = 1f,
     val paintHeight: FloatArray? = null,
 ) {
-    private val resolvedProfile = profile.sanitized()
+    val profile: SubstrateProfile = profile.sanitized()
     private val resolvedMedium = medium.sanitized()
     private val resolvedLoad = reservoirLoad.coerceIn(0f, 1f)
 
@@ -33,8 +33,8 @@ internal class SubstrateRenderContext(
         canvasHeight: Int,
     ): Float {
         val localPaintHeight = paintHeightAt(canvasX, canvasY, canvasWidth, canvasHeight)
-        val substrateHeight = field?.sampleHeight(canvasX, canvasY, resolvedProfile)
-            ?: resolvedProfile.baseHeight
+        val substrateHeight = field?.sampleHeight(canvasX, canvasY, profile)
+            ?: profile.baseHeight
         return SubstrateDepositionModel.depositionMultiplier(
             contactDepth = dab.contactDepth,
             localPaintHeightContribution = localPaintHeight,

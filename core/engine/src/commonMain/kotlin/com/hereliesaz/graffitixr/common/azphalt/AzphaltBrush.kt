@@ -141,6 +141,65 @@ data class BrushBlot(
 }
 
 @Serializable
+data class ImpastoMaterialConfig(
+    /** 1 = historical Impasto behavior; 2 = Phase-5 material transfer/settling/optics. */
+    val version: Int = 1,
+    /** Explicit opt-in. A version-2 config that is not enabled remains on the v1 compatibility path. */
+    val enabled: Boolean = false,
+    /** Initial normalized stroke-local material load. */
+    val initialLoad: Float = 1f,
+    /** Vehicle deposited into the persistent wetness channel by height-bearing contact. */
+    val wetness: Float = 0f,
+    /** Height/material pickup tendency during brush contact. */
+    val pickupRate: Float = 0f,
+    /** Wet post-contact height leveling rate. */
+    val levelingRate: Float = 0f,
+    /** Explicit material drying rate per recorded second. */
+    val dryingRate: Float = 0.08f,
+    /** Resistance to wet height movement. */
+    val viscosity: Float = 0f,
+    /** Dry-state yield/structure recovery strength. */
+    val yieldLikeStrength: Float = 0f,
+    /** Strength of substrate height in contact and leveling. */
+    val substrateResponse: Float = 0f,
+    /** Dry-state presentation roughness. */
+    val baseRoughness: Float = 1f,
+    /** Wetness-driven presentation gloss/specular response. */
+    val wetSpecularStrength: Float = 0f,
+) {
+    val usesV2: Boolean get() = enabled && version >= 2
+
+    fun sanitized(): ImpastoMaterialConfig = copy(
+        version = version.coerceAtLeast(1),
+        initialLoad = initialLoad.coerceIn(0f, 1f),
+        wetness = wetness.coerceIn(0f, 1f),
+        pickupRate = pickupRate.coerceIn(0f, 1f),
+        levelingRate = levelingRate.coerceIn(0f, 1f),
+        dryingRate = dryingRate.coerceAtLeast(0f),
+        viscosity = viscosity.coerceIn(0f, 1f),
+        yieldLikeStrength = yieldLikeStrength.coerceIn(0f, 1f),
+        substrateResponse = substrateResponse.coerceIn(0f, 1f),
+        baseRoughness = baseRoughness.coerceIn(0f, 1f),
+        wetSpecularStrength = wetSpecularStrength.coerceIn(0f, 1f),
+    )
+
+    fun toMedium(): PaintMedium {
+        val c = sanitized()
+        return PaintMedium(
+            viscosity = c.viscosity,
+            yieldLikeStrength = c.yieldLikeStrength,
+            pickupRate = c.pickupRate,
+            dryingRate = c.dryingRate,
+            heightResponse = 1f,
+            substrateResponse = c.substrateResponse,
+            levelingRate = c.levelingRate,
+            baseRoughness = c.baseRoughness,
+            wetSpecularStrength = c.wetSpecularStrength,
+        )
+    }
+}
+
+@Serializable
 data class MaskedBrushConfig(
     val shapePath: String? = null,
     val sizeRatio: Float = 1f,
@@ -254,6 +313,11 @@ data class AzphaltBrush(
     /** Fraction of [count] that randomly varies per placement point (0 = always exactly [count]).
      *  Mirrors Procreate's "Count Jitter". */
     val countJitter: Float = 0f,
+    /**
+     * Versioned Phase-5 material behavior. Appended after the pre-Phase-5 constructor contract so
+     * existing positional callers and serialized brushes retain their exact meaning.
+     */
+    val impastoMaterial: ImpastoMaterialConfig = ImpastoMaterialConfig(),
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -278,6 +342,7 @@ data class AzphaltBrush(
         impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
         count = count.coerceIn(1, 16),
         countJitter = countJitter.coerceIn(0f, 1f),
+        impastoMaterial = impastoMaterial.sanitized(),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -299,6 +364,23 @@ data class AzphaltBrush(
             val grainBehavior = params?.get("grainBehavior")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<GrainBehavior>(element) }.getOrNull()
             } ?: GrainBehavior.MOVING
+            val impastoMaterial = (params?.get("impastoMaterial") as? JsonObject)?.let { element ->
+                runCatching { AzphaltJson.decodeFromJsonElement<ImpastoMaterialConfig>(element) }.getOrNull()
+            } ?: ImpastoMaterialConfig(
+                version = (f("impastoMaterialVersion") ?: 1f).toInt(),
+                enabled = b("impastoMaterialEnabled") ?: false,
+                initialLoad = f("impastoInitialLoad") ?: 1f,
+                wetness = f("impastoWetness") ?: 0f,
+                pickupRate = f("impastoPickupRate") ?: 0f,
+                levelingRate = f("impastoLevelingRate") ?: 0f,
+                dryingRate = f("impastoDryingRate") ?: 0.08f,
+                viscosity = f("impastoViscosity") ?: 0f,
+                yieldLikeStrength = f("impastoYieldLikeStrength") ?: 0f,
+                substrateResponse = f("impastoSubstrateResponse") ?: 0f,
+                baseRoughness = f("impastoBaseRoughness") ?: 1f,
+                wetSpecularStrength = f("impastoWetSpecularStrength") ?: 0f,
+            )
+
             val grainBlendMode = params?.get("grainBlendMode")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<GrainBlendMode>(element) }.getOrNull()
             } ?: GrainBlendMode.MULTIPLY
@@ -354,6 +436,7 @@ data class AzphaltBrush(
                 buildUp = b("buildUp") ?: false,
                 count = (f("count") ?: 1f).toInt().coerceIn(1, 16),
                 countJitter = (f("countJitter") ?: 0f).coerceIn(0f, 1f),
+                impastoMaterial = impastoMaterial,
             ).sanitized()
         }
     }

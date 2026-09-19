@@ -81,4 +81,25 @@ class WetnessReplayStateTest {
         assertEquals(1f, copy.field.wetnessAt(0, 0), 0f)
         assertEquals(456L, copy.lastUptimeMillis)
     }
+    @Test
+    fun `material drying override changes only explicit elapsed-time decay`() {
+        fun remaining(dryingRate: Float): Float {
+            val state = WetnessReplayState.empty(2, 1, tileSize = 2)
+            state.field.addWetness(0, 0, 1f)
+            val pixels = intArrayOf(0xFFFF0000.toInt(), 0xFF0000FF.toInt())
+            state.markThrough(1_000L)
+            state.advanceMaterialTo(
+                pixels,
+                2_000L,
+                dryingRate = dryingRate,
+                wetnessTransportRate = 0f,
+                pigmentTransportRate = 0f,
+            )
+            return state.snapshot().sum()
+        }
+
+        assertEquals(1f, remaining(0f), 1e-6f)
+        assertTrue(remaining(1f) < remaining(0.1f))
+    }
+
 }

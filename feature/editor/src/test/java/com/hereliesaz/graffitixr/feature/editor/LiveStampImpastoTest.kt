@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialConfig
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
@@ -57,6 +58,19 @@ class LiveStampImpastoTest {
         impastoThicknessRate = 0.9f,
     )
     private val noImpasto = impastoBrush.copy(impastoThicknessRate = 0f)
+    private val impastoV2 = impastoBrush.copy(
+        name = "Impasto v2",
+        impastoMaterial = ImpastoMaterialConfig(
+            version = 2,
+            enabled = true,
+            wetness = 1f,
+            pickupRate = 0.25f,
+            levelingRate = 0.5f,
+            dryingRate = 0.08f,
+            baseRoughness = 0.4f,
+            wetSpecularStrength = 1f,
+        ),
+    )
 
     @Before
     fun setUp() {
@@ -83,6 +97,7 @@ class LiveStampImpastoTest {
             every { this@mockk.brushes } returns MutableStateFlow(emptyList())
             every { load("impasto") } returns impastoBrush
             every { load("no-impasto") } returns noImpasto
+            every { load("impasto-v2") } returns impastoV2
         }
         val figma = mockk<FigmaRepository>(relaxed = true) {
             every { isAuthenticated } returns MutableStateFlow(false)
@@ -150,4 +165,15 @@ class LiveStampImpastoTest {
             !withImpasto.contentEquals(without),
         )
     }
+    @Test
+    fun `impasto v2 wet optics are visible during the same regional live preview`() {
+        val legacyImpasto = dragStrokeAndSnapshotLivePixels("impasto")
+        val wetV2 = dragStrokeAndSnapshotLivePixels("impasto-v2")
+
+        assertTrue(
+            "v2 wetness/specular presentation should visibly differ from dry v1 relief while dragging",
+            !legacyImpasto.contentEquals(wetV2),
+        )
+    }
+
 }
