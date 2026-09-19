@@ -53,12 +53,17 @@ class WetnessReplayStateTest {
             0xFF0000FF.toInt(), 0xFF0000FF.toInt(),
         )
         val before = pixels.copyOf()
+        val wetnessBefore = state.snapshot().sum()
 
         state.settleMaterial(pixels)
 
         assertTrue(!pixels.contentEquals(before))
         assertTrue((pixels[1] and 0xFF) > 0)
         assertTrue((pixels[2] ushr 16 and 0xFF) > 0)
+        assertEquals(
+            "contact settle transports wetness but must not apply elapsed-time drying",
+            wetnessBefore, state.snapshot().sum(), 1e-5f,
+        )
     }
 
     @Test
