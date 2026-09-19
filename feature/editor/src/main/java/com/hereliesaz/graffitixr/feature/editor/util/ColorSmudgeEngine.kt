@@ -220,7 +220,8 @@ object ColorSmudgeEngine {
     ) {
         if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
         val persistentWetness = wetnessField?.takeIf {
-            usesPersistentWetness(settings) && it.width == width && it.height == height
+            it.width == width && it.height == height &&
+                (usesPersistentWetness(settings) || !it.isIdle)
         }
         applyOne(
             pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource,
@@ -543,8 +544,13 @@ object ColorSmudgeEngine {
 
     private fun wetnessMobility(settings: Settings, sampledWetness: Float?): Float {
         if (sampledWetness == null) return 1f
-        val response = settings.dilution.coerceIn(0f, 1f)
-        return (1f + (sampledWetness.coerceIn(0f, 1f) - 1f) * response).coerceIn(0f, 1f)
+        // Canvas wetness is the material mobility source; the brush's own vehicle can re-wet a dry
+        // contact, so use whichever is wetter. A layer with no persistent field never reaches this
+        // path and therefore keeps the exact historical unconditional-smudge behavior.
+        return maxOf(
+            sampledWetness.coerceIn(0f, 1f),
+            settings.dilution.coerceIn(0f, 1f),
+        )
     }
 
     private fun depositWetness(
