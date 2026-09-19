@@ -525,15 +525,19 @@ Lighting remains presentation state and must not alter canonical material data.
 
 ### Persistence requirement
 
-Current height state is runtime-only. Before Impasto v2 is called complete for production artwork, material channels needed to reproduce the document must be included in project save/load or reconstructable deterministically from persisted stroke/material commands.
+Implemented Phase-5 persistence keeps `Layer.heightMap` as a transient runtime mirror while storing canonical height + wetness in a versioned sparse/tiled per-layer sidecar. Empty/color-only layers write no sidecar. The sidecar is restored with the layer, participates in normal save/flush behavior, and is included by project archive export/import. Yield/structure recovery is derived from persisted wetness, so no additional structure image is required.
 
 ### Exit gate
 
-- existing Impasto brushes retain their current visual contract or migrate through an explicit compatibility version;
-- height deposition/pickup is deterministic;
-- wetness visibly changes surface response without changing stored pigment colour;
-- save/reload preserves material appearance;
-- no full-canvas normal-map regeneration in the live hot path.
+Current implementation status (2026-09-19): **code-side exit gate met**.
+
+- ✅ Existing Impasto brushes retain their current visual contract; v2 is enabled only by an explicit versioned material configuration.
+- ✅ Height deposition/pickup is deterministic and reservoir-bounded.
+- ✅ Wetness changes surface roughness/specular presentation without changing stored pigment colour.
+- ✅ Save/reload preserves canonical height + wetness through the versioned material sidecar.
+- ✅ Live material presentation reshades only the touched region; time-based leveling runs in deterministic commit/replay rather than the display-batch hot path.
+
+Representative Adreno/Mali performance and artist-reference validation remain part of the cross-phase production validation matrix described below; they do not require another Impasto backend.
 
 ---
 
