@@ -110,7 +110,10 @@ object ImpastoV2Engine {
         var deposited = 0f
         var picked = 0f
         var touched = 0
-        var dirty: DirtyRegion? = null
+        var dirtyLeft = width
+        var dirtyTop = canvasHeight
+        var dirtyRight = 0
+        var dirtyBottom = 0
 
         for (dab in dabs) {
             val radius = dab.radius
@@ -120,8 +123,6 @@ object ImpastoV2Engine {
             val minY = max(0, floor(dab.y - radius).toInt())
             val maxY = min(canvasHeight - 1, ceil(dab.y + radius).toInt())
             if (minX > maxX || minY > maxY) continue
-            dirty = dirty?.union(DirtyRegion(minX, minY, maxX + 1, maxY + 1))
-                ?: DirtyRegion(minX, minY, maxX + 1, maxY + 1)
 
             val flow = dab.flowMultiplier.coerceAtLeast(0f)
             val contact = dab.contactDepth.coerceIn(0f, 1f)
@@ -173,11 +174,20 @@ object ImpastoV2Engine {
 
                     val wetDeposit = cfg.wetnessDeposit * coverage * dab.alpha.coerceIn(0f, 1f) * flow
                     if (wetDeposit > 0f) wetness?.addWetness(x, y, wetDeposit)
+                    dirtyLeft = min(dirtyLeft, x)
+                    dirtyTop = min(dirtyTop, y)
+                    dirtyRight = max(dirtyRight, x + 1)
+                    dirtyBottom = max(dirtyBottom, y + 1)
                     touched++
                 }
             }
         }
 
+        val dirty = if (touched > 0) {
+            DirtyRegion(dirtyLeft, dirtyTop, dirtyRight, dirtyBottom)
+        } else {
+            null
+        }
         return ImpastoContactStats(deposited, picked, touched, dirty)
     }
 
