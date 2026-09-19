@@ -239,6 +239,8 @@ data class AzphaltBrush(
      *  stroke commit/replay (`DrawingEngine.kt`), which persists the height-map contribution onto
      *  the layer. */
     val impastoThicknessRate: Float = 0f,
+    /** Phase-5 normalized brush reservoir volume. 1 preserves the historical deposition amount. */
+    val impastoLoad: Float = 1f,
     /** Phase-5 vehicle deposited alongside height. 0 preserves the historical dry Impasto path. */
     val impastoWetness: Float = 0f,
     /** Fraction of existing wet height a contacting brush may pick back up. */
@@ -288,6 +290,7 @@ data class AzphaltBrush(
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
         airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
         impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
+        impastoLoad = impastoLoad.coerceIn(0f, 1f),
         impastoWetness = impastoWetness.coerceIn(0f, 1f),
         impastoPickupRate = impastoPickupRate.coerceIn(0f, 1f),
         impastoLevelingRate = impastoLevelingRate.coerceIn(0f, 1f),
@@ -303,10 +306,12 @@ data class AzphaltBrush(
 
     /** Opts this brush into Phase-5 material-height evolution without changing legacy Impasto. */
     fun usesImpastoV2(): Boolean =
-        impastoWetness > 0f || impastoPickupRate > 0f || impastoLevelingRate > 0f ||
-            impastoWetGloss > 0f || impastoSubstrateInteraction > 0f
+        impastoLoad != 1f || impastoWetness > 0f || impastoPickupRate > 0f ||
+            impastoLevelingRate > 0f || impastoWetGloss > 0f ||
+            impastoSubstrateInteraction > 0f
 
     fun impastoV2Config(): ImpastoV2Config = ImpastoV2Config(
+        reservoirLoad = impastoLoad,
         pickupRate = impastoPickupRate,
         wetnessDeposit = impastoWetness,
         levelingRate = impastoLevelingRate,
@@ -383,6 +388,7 @@ data class AzphaltBrush(
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
                 airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
                 impastoThicknessRate = (f("impastoThicknessRate") ?: 0f).coerceAtLeast(0f),
+                impastoLoad = (f("impastoLoad") ?: 1f).coerceIn(0f, 1f),
                 impastoWetness = (f("impastoWetness") ?: 0f).coerceIn(0f, 1f),
                 impastoPickupRate = (f("impastoPickupRate") ?: 0f).coerceIn(0f, 1f),
                 impastoLevelingRate = (f("impastoLevelingRate") ?: 0f).coerceIn(0f, 1f),
