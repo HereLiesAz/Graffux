@@ -263,7 +263,6 @@ object ImpastoEngine {
             if (minX > maxX || minY > maxY) continue
 
             val loadAtStart = load
-            val capacityAtStart = (1f - loadAtStart).coerceIn(0f, 1f)
             val contactDepth = dab.contactDepth.coerceIn(0f, 1f)
             val alphaFlow = dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f)
             var depositedThisDab = 0f
@@ -271,6 +270,10 @@ object ImpastoEngine {
             var coverageMass = 0f
             var touched = false
 
+            // Pass 1 resolves the dab's gross deposition against the untouched surface. That gives
+            // us the reservoir load actually spent by this dab before pickup is allowed, matching
+            // BrushReservoirModel's deposit-then-pickup transaction instead of measuring pickup
+            // capacity from the pre-dab load.
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
                     val dx = x + 0.5f - cx
@@ -292,18 +295,63 @@ object ImpastoEngine {
                     val contact = (coverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
                     if (contact <= 0f) continue
                     coverageMass += coverage
+                    val increment = rate * material.heightResponse * material.depositionRate *
+                        loadAtStart * contact
+                    val afterDeposit = BrushStamps.buildUp(before, increment)
+                    depositedThisDab += (afterDeposit - before).coerceAtLeast(0f)
+                }
+            }
 
-                    // Pickup happens from the pre-deposition surface and only into free capacity.
-                    val removalRequest = rate * material.pickupRate * capacityAtStart * contact
-                    val removed = min(before, removalRequest)
-                    var local = (before - removed).coerceAtLeast(0f)
-                    pickedThisDab += removed
+            val denom = (coverageMass * rate.coerceAtLeast(MIN_TRANSFER_RATE))
+                .coerceAtLeast(MIN_TRANSFER_RATE)
+            val spent = if (coverageMass > 0f) {
+                ((depositedThisDab / denom) * CONTACT_LOAD_EXCHANGE).coerceIn(0f, loadAtStart)
+            } else {
+                0f
+            }
+            val loadAfterDeposit = (loadAtStart - spent).coerceIn(0f, 1f)
+            val capacityAfterDeposit = 1f - loadAfterDeposit
+            // Convert normalized reservoir capacity back into the height-mass scale used by this
+            // dab, so pickup cannot remove more canvas material than the brush can actually accept.
+            val maxPickupHeightMass = if (CONTACT_LOAD_EXCHANGE > 0f) {
+                capacityAfterDeposit * denom / CONTACT_LOAD_EXCHANGE
+            } else {
+                0f
+            }
+
+            // Pass 2 applies deposition, then pickup from that contacted surface using the capacity
+            // the same dab just freed. A full brush can therefore deposit and immediately pick up
+            // material on its first dab instead of incorrectly waiting until the next dab.
+            for (y in minY..maxY) {
+                for (x in minX..maxX) {
+                    val dx = x + 0.5f - cx
+                    val dy = y + 0.5f - cy
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist >= radius) continue
+                    val coverage = BrushStamps.stampCoverage((dist / radius).coerceIn(0f, 1f), hardness)
+                    if (coverage <= 0f) continue
+                    val idx = y * width + x
+                    val before = height[idx].coerceIn(0f, 1f)
+                    val substrateHeight = substrateField?.sampleHeight(x + 0.5f, y + 0.5f, profile)
+                        ?: profile.baseHeight
+                    val gate = SubstrateDepositionModel.coverageMultiplier(
+                        contactDepth = contactDepth,
+                        localPaintHeightContribution = before,
+                        substrateResponse = material.substrateResponse,
+                        substrateHeight = substrateHeight,
+                    )
+                    val contact = (coverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
+                    if (contact <= 0f) continue
 
                     val increment = rate * material.heightResponse * material.depositionRate *
                         loadAtStart * contact
-                    val after = BrushStamps.buildUp(local, increment)
-                    depositedThisDab += (after - local).coerceAtLeast(0f)
-                    local = after.coerceIn(0f, 1f)
+                    var local = BrushStamps.buildUp(before, increment).coerceIn(0f, 1f)
+
+                    val remainingPickupMass = (maxPickupHeightMass - pickedThisDab).coerceAtLeast(0f)
+                    val removalRequest = rate * material.pickupRate * capacityAfterDeposit * contact
+                    val removed = min(local, min(removalRequest, remainingPickupMass))
+                    local = (local - removed).coerceAtLeast(0f)
+                    pickedThisDab += removed
 
                     if (local != before) {
                         height[idx] = local
@@ -312,16 +360,12 @@ object ImpastoEngine {
                 }
             }
 
-            if (coverageMass > 0f) {
-                val denom = (coverageMass * rate.coerceAtLeast(MIN_TRANSFER_RATE)).coerceAtLeast(MIN_TRANSFER_RATE)
-                val spent = ((depositedThisDab / denom) * CONTACT_LOAD_EXCHANGE)
-                    .coerceIn(0f, loadAtStart)
-                val afterDeposit = (loadAtStart - spent).coerceIn(0f, 1f)
-                val capacityAfterDeposit = 1f - afterDeposit
-                val refill = ((pickedThisDab / denom) * CONTACT_LOAD_EXCHANGE)
-                    .coerceIn(0f, capacityAfterDeposit)
-                load = (afterDeposit + refill).coerceIn(0f, 1f)
+            val refill = if (coverageMass > 0f) {
+                ((pickedThisDab / denom) * CONTACT_LOAD_EXCHANGE).coerceIn(0f, capacityAfterDeposit)
+            } else {
+                0f
             }
+            load = (loadAfterDeposit + refill).coerceIn(0f, 1f)
 
             depositedTotal += depositedThisDab
             pickedUpTotal += pickedThisDab
