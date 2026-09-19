@@ -25,6 +25,9 @@ internal class SubstrateRenderContext(
     private val resolvedMedium = medium.sanitized()
     private val resolvedLoad = reservoirLoad.coerceIn(0f, 1f)
 
+    /** Phase-5 height solver reuses the exact same resolved substrate contract. */
+    internal val materialProfile: SubstrateProfile get() = resolvedProfile
+
     fun depositionAt(
         canvasX: Float,
         canvasY: Float,
