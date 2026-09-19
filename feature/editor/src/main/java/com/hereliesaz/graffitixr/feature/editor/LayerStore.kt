@@ -22,10 +22,19 @@ internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val layerStrokes = ConcurrentHashMap<String, MutableList<StrokeCommand>>()
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
+    private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
+    private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
         baseBitmaps[layerId] = bitmap
+        val wetBase = wetnessBases[layerId]
+        if (wetBase != null &&
+            (wetBase.field.width != bitmap.width || wetBase.field.height != bitmap.height)
+        ) {
+            wetnessBases.remove(layerId)
+            liveWetness.remove(layerId)
+        }
     }
 
     /**
@@ -50,9 +59,49 @@ internal class LayerStore {
         heightBases[layerId] = heightMap
     }
 
-    /** Resets [layerId]'s stroke list to empty. */
+    /**
+     * Returns a defensive working copy of the baked Phase-4 wetness base for [layerId].
+     * A dimension mismatch self-heals to a dry field, just like [heightBase].
+     */
+    fun wetnessBaseCopy(layerId: String, width: Int, height: Int): WetnessReplayState {
+        val existing = wetnessBases[layerId]
+        if (existing != null && existing.field.width == width && existing.field.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = WetnessReplayState.empty(width, height)
+        wetnessBases[layerId] = fresh
+        liveWetness.remove(layerId)
+        return fresh.copyForWork()
+    }
+
+    /** Replaces the baked wetness base with a defensive snapshot. */
+    fun putWetnessBase(layerId: String, state: WetnessReplayState) {
+        wetnessBases[layerId] = state.copyForWork()
+    }
+
+    /**
+     * Returns a defensive copy of the current live wetness state. On first access after load/rebuild
+     * it starts from the baked base rather than an unrelated empty field.
+     */
+    fun liveWetnessCopy(layerId: String, width: Int, height: Int): WetnessReplayState {
+        val existing = liveWetness[layerId]
+        if (existing != null && existing.field.width == width && existing.field.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = wetnessBaseCopy(layerId, width, height)
+        liveWetness[layerId] = fresh.copyForWork()
+        return fresh
+    }
+
+    /** Publishes the current post-stroke/rebuild wetness state. */
+    fun putLiveWetness(layerId: String, state: WetnessReplayState) {
+        liveWetness[layerId] = state.copyForWork()
+    }
+
+    /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
+        liveWetness.remove(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -125,13 +174,17 @@ internal class LayerStore {
         baseBitmaps.remove(layerId)
         layerStrokes.remove(layerId)
         heightBases.remove(layerId)
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
     }
 
-    /** Clears all cached bitmaps, strokes, and height bases (e.g. on project unload). */
+    /** Clears all cached bitmaps, strokes, height bases, and wetness state (e.g. on project unload). */
     fun clear() {
         baseBitmaps.clear()
         layerStrokes.clear()
         heightBases.clear()
+        wetnessBases.clear()
+        liveWetness.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
@@ -139,5 +192,7 @@ internal class LayerStore {
         baseBitmaps.keys.retainAll(liveIds)
         layerStrokes.keys.retainAll(liveIds)
         heightBases.keys.retainAll(liveIds)
+        wetnessBases.keys.retainAll(liveIds)
+        liveWetness.keys.retainAll(liveIds)
     }
 }
