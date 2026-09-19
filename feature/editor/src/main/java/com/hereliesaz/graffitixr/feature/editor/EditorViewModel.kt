@@ -44,6 +44,8 @@ import com.hereliesaz.graffitixr.common.azphalt.TileGrid
 import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoV2Engine
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoV2Workspace
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalStaticDabGenerator
 import com.hereliesaz.graffitixr.common.azphalt.IncrementalDynamicDabGenerator
@@ -759,6 +761,9 @@ class EditorViewModel @Inject constructor(
     // displayed colour and (since GPU readback/CPU paintDabs both write onto the same bitmap) the
     // stroke's actual accumulated pigment -- not just a cosmetic bug.
     private var stampLiveHeightMap: FloatArray? = null
+    private var stampLiveStructureMap: FloatArray? = null
+    private var stampLiveWetnessState: WetnessReplayState? = null
+    private var stampLiveImpastoWorkspace: ImpastoV2Workspace? = null
     private var stampLiveShadedBitmap: Bitmap? = null
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
@@ -3784,6 +3789,9 @@ class EditorViewModel @Inject constructor(
             stampLiveBitmap = null
             stampLiveCanvas = null
             stampLiveHeightMap = null
+            stampLiveStructureMap = null
+            stampLiveWetnessState = null
+            stampLiveImpastoWorkspace = null
             stampLiveShadedBitmap = null
             stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
@@ -3873,15 +3881,30 @@ class EditorViewModel @Inject constructor(
                     createSeededGpuEngine(work.width, work.height, work)
                 } else null
                 val gpuReady = gpuEngine != null
-                val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f
+                val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f &&
+                    !stampBrush.usesImpastoV2()
                 val gpuDisplay = if (zeroCopyEligible) AzphaltGpuDisplay.tryCreate(gpuEngine!!) else null
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
                 // discarded/failed live preview can never corrupt it) plus a second, display-only
                 // bitmap starting identical to `work` -- see stampLiveHeightMap's doc comment for
                 // why shading needs its own bitmap rather than mutating `work` in place.
-                val heightMapSeed = if (stampBrush.impastoThicknessRate > 0f) {
-                    layerStore.heightBase(layerId, work.width * work.height).copyOf()
+                val materialSize = work.width * work.height
+                val usesImpastoV2 = stampBrush.usesImpastoV2()
+                val heightMapSeed = if (stampBrush.impastoThicknessRate > 0f || usesImpastoV2) {
+                    (layer.heightMap ?: layerStore.heightBase(layerId, materialSize)).copyOf()
+                } else null
+                val structureMapSeed = if (usesImpastoV2) {
+                    (layer.structureMap ?: layerStore.structureBase(layerId, materialSize)).copyOf()
+                } else null
+                val wetnessSeed = if (
+                    usesImpastoV2 &&
+                    (layerStore.hasWetnessState(layerId) || stampBrush.impastoWetness > 0f)
+                ) {
+                    layerStore.liveWetnessCopy(layerId, work.width, work.height)
+                } else null
+                val impastoWorkspaceSeed = if (usesImpastoV2) {
+                    layerStore.impastoWorkspace(layerId, work.width, work.height)
                 } else null
                 val shadedBitmapSeed = heightMapSeed?.let { SafeBitmap.copy(work) }
                 // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
@@ -3904,6 +3927,9 @@ class EditorViewModel @Inject constructor(
                             )
                         }
                         stampLiveHeightMap = heightMapSeed
+                        stampLiveStructureMap = structureMapSeed
+                        stampLiveWetnessState = wetnessSeed
+                        stampLiveImpastoWorkspace = impastoWorkspaceSeed
                         stampLiveShadedBitmap = shadedBitmapSeed
                         stampLivePreStrokeBase = preStrokeBaseSeed
                         // Locked: a background onStrokePoint batch (see stampGpuJob) can read/swap
@@ -4482,6 +4508,9 @@ class EditorViewModel @Inject constructor(
                 stampPendingHeldDabs.append(newHeldDabs)
                 stampPendingLatencyIds.append(generatedLatencyIds)
                 val heightMap = stampLiveHeightMap
+                val structureMap = stampLiveStructureMap
+                val wetnessState = stampLiveWetnessState
+                val impastoWorkspace = stampLiveImpastoWorkspace
                 val shadedBitmap = stampLiveShadedBitmap
                 val strokeGen = strokeGeneration
                 val strokeLayerIdSnapshot = strokeLayerId
@@ -4814,14 +4843,44 @@ class EditorViewModel @Inject constructor(
                     // touched -- see stampLiveHeightMap's doc comment for why this can't run over
                     // the whole canvas every frame, and shadeInto's doc comment for why it must
                     // read from `work` (raw) rather than the shaded bitmap it writes into.
-                    if (brush.impastoThicknessRate > 0f && heightMap != null && shadedBitmap != null) {
+                    if (
+                        (brush.impastoThicknessRate > 0f || brush.usesImpastoV2()) &&
+                        heightMap != null && shadedBitmap != null
+                    ) {
                         val impastoDabs = newDabs + newHeldDabs
                         if (impastoDabs.isNotEmpty()) {
-                            ImpastoEngine.depositStroke(
-                                heightMap, work.width, work.height, impastoDabs,
-                                brush.hardness, brush.impastoThicknessRate,
-                            )
-                            val touched = DirtyRegion.fromDabs(impastoDabs)
+                            val touched = if (
+                                brush.usesImpastoV2() && structureMap != null &&
+                                wetnessState != null && impastoWorkspace != null
+                            ) {
+                                val selectionRegion = SelectionMask.region(
+                                    SelectionMask.bitmapPath(
+                                        strokeSelection, work.width, work.height,
+                                        strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ,
+                                    ),
+                                    work.width, work.height,
+                                )
+                                ImpastoV2Engine.applyContactStroke(
+                                    height = heightMap,
+                                    structure = structureMap,
+                                    width = work.width,
+                                    canvasHeight = work.height,
+                                    dabs = impastoDabs,
+                                    hardness = brush.hardness,
+                                    thicknessRate = brush.impastoThicknessRate,
+                                    config = brush.impastoV2Config(),
+                                    wetness = wetnessState.field,
+                                    clip = selectionRegion?.let { region ->
+                                        { x: Int, y: Int -> region.contains(x, y) }
+                                    },
+                                ).dirtyRegion
+                            } else {
+                                ImpastoEngine.depositStroke(
+                                    heightMap, work.width, work.height, impastoDabs,
+                                    brush.hardness, brush.impastoThicknessRate,
+                                )
+                                DirtyRegion.fromDabs(impastoDabs)
+                            }
                             val region = touched?.let {
                                 DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
                             }?.clampTo(work.width, work.height)
@@ -4838,6 +4897,10 @@ class EditorViewModel @Inject constructor(
                                     region.left, region.top, regionWidth, regionHeight,
                                     IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
                                     IMPASTO_LIGHT_STRENGTH,
+                                    wetness = wetnessState?.field,
+                                    wetGlossStrength = if (brush.usesImpastoV2()) {
+                                        brush.impastoWetGloss
+                                    } else 0f,
                                 )
                                 shadedBitmap.setPixels(
                                     shadedRegion, 0, regionWidth,
@@ -7161,6 +7224,9 @@ class EditorViewModel @Inject constructor(
         stampLiveBitmap = null
         stampLiveCanvas = null
         stampLiveHeightMap = null
+        stampLiveStructureMap = null
+        stampLiveWetnessState = null
+        stampLiveImpastoWorkspace = null
         stampLiveShadedBitmap = null
         stampLivePreStrokeBase = null
         stampStampedCount = 0
