@@ -573,6 +573,17 @@ class EditorViewModel @Inject constructor(
         (command.tool == Tool.SMUDGE &&
             command.colorSmudgeSettings?.let(ColorSmudgeEngine::usesPersistentWetness) == true) ||
             (command.stampBrush?.impastoWetness ?: 0f) > 0f
+
+    /**
+     * Pixel-only undo deltas cannot restore hidden material channels. Any command that mutates
+     * wetness, height, or structure must rebuild canonically so pixels and material state stay
+     * on the same history revision.
+     */
+    private fun strokeMutatesCanonicalMaterial(command: StrokeCommand): Boolean =
+        strokeNeedsPersistentWetness(command) ||
+            command.stampBrush?.let { brush ->
+                brush.impastoThicknessRate > 0f || brush.usesImpastoV2()
+            } == true
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -1207,7 +1218,8 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeMutatesCanonicalMaterial(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = false, emitOp = true,
                 )
@@ -1243,7 +1255,8 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeMutatesCanonicalMaterial(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = true, emitOp = true,
                 )
@@ -3897,11 +3910,14 @@ class EditorViewModel @Inject constructor(
                 val structureMapSeed = if (usesImpastoV2) {
                     (layer.structureMap ?: layerStore.structureBase(layerId, materialSize)).copyOf()
                 } else null
-                val wetnessSeed = if (
-                    usesImpastoV2 &&
-                    (layerStore.hasWetnessState(layerId) || stampBrush.impastoWetness > 0f)
-                ) {
-                    layerStore.liveWetnessCopy(layerId, work.width, work.height)
+                val wetnessSeed = if (usesImpastoV2) {
+                    if (layerStore.hasWetnessState(layerId) || stampBrush.impastoWetness > 0f) {
+                        layerStore.liveWetnessCopy(layerId, work.width, work.height)
+                    } else {
+                        // Explicit v2 brushes still need a canonical empty field for dry-contact
+                        // pickup/substrate/structure semantics; legacy brushes allocate nothing.
+                        WetnessReplayState.empty(work.width, work.height)
+                    }
                 } else null
                 val impastoWorkspaceSeed = if (usesImpastoV2) {
                     layerStore.impastoWorkspace(layerId, work.width, work.height)
