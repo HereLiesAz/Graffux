@@ -5,12 +5,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
@@ -131,4 +134,106 @@ class DrawingEngineImpastoTest {
 
         assertTrue(heightMap.any { it > 0f })
     }
+    @Test
+    fun `impasto v2 sequential commit and full replay match pixels height and wetness`() = runTest {
+        val brush = AzphaltBrush(
+            name = "v2 oil",
+            spacing = 0.2f,
+            hardness = 1f,
+            impastoThicknessRate = 0.7f,
+            impastoMaterial = ImpastoMaterialConfig(
+                version = 2,
+                enabled = true,
+                initialLoad = 1f,
+                wetness = 0.8f,
+                pickupRate = 0.35f,
+                levelingRate = 0.6f,
+                viscosity = 0.25f,
+                yieldLikeStrength = 0.4f,
+                baseRoughness = 0.5f,
+                wetSpecularStrength = 0.7f,
+            ),
+        )
+        fun timedStroke(y: Float, start: Long, seed: Long): StrokeCommand {
+            val points = List(12) { Offset(10f + it * 1.5f, y) }
+            val samples = points.mapIndexed { index, p ->
+                BrushSample(
+                    x = p.x,
+                    y = p.y,
+                    uptimeMillis = start + index * 20L,
+                    pressure = 1f,
+                )
+            }
+            return straightStroke(brush).copy(
+                path = points,
+                brushSamples = samples,
+                seed = seed,
+            )
+        }
+
+        val first = timedStroke(18f, 1_000L, 31L)
+        val second = timedStroke(21f, 1_500L, 32L)
+
+        val commitHeight = FloatArray(w * h)
+        val commitWetness = WetnessReplayState.empty(w, h)
+        val afterFirst = engine.applySingleStroke(
+            base(), first, heightMap = commitHeight, wetnessState = commitWetness,
+        )
+        val committed = engine.applySingleStroke(
+            afterFirst, second, heightMap = commitHeight, wetnessState = commitWetness,
+        )
+
+        val replayHeight = FloatArray(w * h)
+        val replayWetness = WetnessReplayState.empty(w, h)
+        val replayed = engine.composite(
+            base(), listOf(first, second),
+            heightMap = replayHeight,
+            wetnessState = replayWetness,
+        )
+
+        val committedPixels = IntArray(w * h)
+        val replayedPixels = IntArray(w * h)
+        committed.getPixels(committedPixels, 0, w, 0, 0, w, h)
+        replayed.getPixels(replayedPixels, 0, w, 0, 0, w, h)
+
+        assertArrayEquals(committedPixels, replayedPixels)
+        assertArrayEquals(commitHeight, replayHeight, 0f)
+        assertArrayEquals(commitWetness.snapshot(), replayWetness.snapshot(), 0f)
+        assertTrue(commitHeight.any { it > 0f })
+        assertTrue(commitWetness.field.activeTileCount > 0)
+    }
+
+    @Test
+    fun `impasto v2 disabled config stays on exact v1 height path`() = runTest {
+        val v1 = AzphaltBrush(
+            name = "v1",
+            spacing = 0.2f,
+            hardness = 1f,
+            impastoThicknessRate = 0.5f,
+        )
+        val explicitlyDisabledV2 = v1.copy(
+            impastoMaterial = ImpastoMaterialConfig(
+                version = 2,
+                enabled = false,
+                wetness = 1f,
+                pickupRate = 1f,
+                levelingRate = 1f,
+                wetSpecularStrength = 1f,
+            ),
+        )
+        val aHeight = FloatArray(w * h)
+        val bHeight = FloatArray(w * h)
+
+        val a = engine.applySingleStroke(base(), straightStroke(v1), heightMap = aHeight)
+        val b = engine.applySingleStroke(base(), straightStroke(explicitlyDisabledV2), heightMap = bHeight)
+
+        val ap = IntArray(w * h)
+        val bp = IntArray(w * h)
+        a.getPixels(ap, 0, w, 0, 0, w, h)
+        b.getPixels(bp, 0, w, 0, 0, w, h)
+
+        assertArrayEquals(ap, bp)
+        assertArrayEquals(aHeight, bHeight, 0f)
+    }
+
 }

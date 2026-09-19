@@ -233,6 +233,7 @@ object ImpastoEngine {
         initialState: ImpastoMaterialStrokeState = ImpastoMaterialStrokeState(),
         substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
         substrateField: SubstrateField? = null,
+        pixelAllowed: ((x: Int, y: Int) -> Boolean)? = null,
     ): ImpastoMaterialTransferStats {
         if (width <= 0 || imgHeight <= 0 || height.size < width * imgHeight) {
             return ImpastoMaterialTransferStats(initialState.sanitized(), 0f, 0f, null)
@@ -276,6 +277,7 @@ object ImpastoEngine {
             // capacity from the pre-dab load.
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
+                    if (pixelAllowed != null && !pixelAllowed(x, y)) continue
                     val dx = x + 0.5f - cx
                     val dy = y + 0.5f - cy
                     val dist = sqrt(dx * dx + dy * dy)
@@ -324,6 +326,7 @@ object ImpastoEngine {
             // material on its first dab instead of incorrectly waiting until the next dab.
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
+                    if (pixelAllowed != null && !pixelAllowed(x, y)) continue
                     val dx = x + 0.5f - cx
                     val dy = y + 0.5f - cy
                     val dist = sqrt(dx * dx + dy * dy)
@@ -381,6 +384,54 @@ object ImpastoEngine {
             pickedUpHeight = pickedUpTotal,
             dirtyRegion = dirty,
         )
+    }
+
+    /**
+     * Deposits vehicle/wetness under resolved Impasto contacts using the same footprint/contact
+     * semantics as height transfer. This mutates only Phase-4's canonical wetness field; no new
+     * wet backend or second material channel is introduced.
+     */
+    fun depositWetnessStroke(
+        wetness: PersistentWetnessField,
+        dabs: List<Dab>,
+        hardness: Float,
+        wetnessRate: Float,
+        pixelAllowed: ((x: Int, y: Int) -> Boolean)? = null,
+    ): DirtyRegion? {
+        val rate = wetnessRate.coerceIn(0f, 1f)
+        if (rate <= 0f || dabs.isEmpty()) return null
+        val width = wetness.width
+        val imgHeight = wetness.height
+        var dirty: DirtyRegion? = null
+        for (dab in dabs) {
+            val radius = dab.radius
+            if (radius <= 0f) continue
+            val minX = max(0, floor(dab.x - radius).toInt())
+            val maxX = min(width - 1, ceil(dab.x + radius).toInt())
+            val minY = max(0, floor(dab.y - radius).toInt())
+            val maxY = min(imgHeight - 1, ceil(dab.y + radius).toInt())
+            var touched = false
+            for (y in minY..maxY) {
+                for (x in minX..maxX) {
+                    if (pixelAllowed != null && !pixelAllowed(x, y)) continue
+                    val dx = x + 0.5f - dab.x
+                    val dy = y + 0.5f - dab.y
+                    val dist = sqrt(dx * dx + dy * dy)
+                    if (dist >= radius) continue
+                    val coverage = BrushStamps.stampCoverage((dist / radius).coerceIn(0f, 1f), hardness)
+                    val amount = rate * coverage * dab.contactDepth.coerceIn(0f, 1f) *
+                        dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f)
+                    if (amount <= 0f) continue
+                    wetness.addWetness(x, y, amount)
+                    touched = true
+                }
+            }
+            if (touched) {
+                val r = DirtyRegion(minX, minY, maxX + 1, maxY + 1)
+                dirty = dirty?.union(r) ?: r
+            }
+        }
+        return dirty
     }
 
     /**

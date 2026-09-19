@@ -59,6 +59,9 @@ internal class LayerStore {
         heightBases[layerId] = heightMap
     }
 
+    /** Defensive persistence snapshot without allocating a dry height channel. */
+    fun heightBaseCopyOrNull(layerId: String): FloatArray? = heightBases[layerId]?.copyOf()
+
     /**
      * Returns a defensive working copy of the baked Phase-4 wetness base for [layerId].
      * A dimension mismatch self-heals to a dry field, just like [heightBase].
@@ -103,6 +106,13 @@ internal class LayerStore {
     fun putLiveWetness(layerId: String, state: WetnessReplayState) {
         liveWetness[layerId] = state.copyForWork()
     }
+
+    /**
+     * Defensive persistence snapshot of the newest canonical wetness state, preferring live state
+     * over the baked base. Returns null for a layer that has never allocated wetness.
+     */
+    fun wetnessStateCopyOrNull(layerId: String): WetnessReplayState? =
+        (liveWetness[layerId] ?: wetnessBases[layerId])?.copyForWork()
 
     /** Clears only the derived/live wetness cache; the baked base remains authoritative. */
     fun clearLiveWetness(layerId: String) {

@@ -56,4 +56,28 @@ class LayerStoreWetnessTest {
 
         assertFalse(store.hasWetnessState("a"))
     }
+    @Test
+    fun `persistence accessors do not allocate dry state and return defensive copies`() {
+        val store = LayerStore()
+        assertEquals(null, store.heightBaseCopyOrNull("dry"))
+        assertEquals(null, store.wetnessStateCopyOrNull("dry"))
+
+        val height = store.heightBase("a", 4)
+        height[0] = 0.7f
+        val heightCopy = requireNotNull(store.heightBaseCopyOrNull("a"))
+        heightCopy[0] = 0f
+        assertEquals(0.7f, requireNotNull(store.heightBaseCopyOrNull("a"))[0], 0f)
+
+        val wet = WetnessReplayState.empty(2, 2)
+        wet.field.addWetness(1, 1, 0.6f)
+        store.putLiveWetness("a", wet)
+        val wetCopy = requireNotNull(store.wetnessStateCopyOrNull("a"))
+        wetCopy.field.addWetness(1, 1, 0.4f)
+        assertEquals(
+            0.6f,
+            requireNotNull(store.wetnessStateCopyOrNull("a")).field.wetnessAt(1, 1),
+            0f,
+        )
+    }
+
 }
