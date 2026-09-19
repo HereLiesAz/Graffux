@@ -19,14 +19,20 @@ internal class WetnessReplayState private constructor(
      * Pigment transport runs before wetness diffusion/drying so the mobility for this interval is
      * the material state that existed during the interval. Both solvers touch active tiles only.
      */
-    fun advanceMaterialTo(pixels: IntArray, uptimeMillis: Long?) {
+    fun advanceMaterialTo(
+        pixels: IntArray,
+        uptimeMillis: Long?,
+        beforeWetnessAdvance: ((deltaSeconds: Float) -> Unit)? = null,
+    ) {
         val next = uptimeMillis ?: return
         require(pixels.size >= field.width * field.height) {
             "WetnessReplayState pixels must contain width*height entries"
         }
         val previous = lastUptimeMillis
         if (previous != null && next > previous && !field.isIdle) {
-            advanceMaterialBy(pixels, (next - previous) / 1000f)
+            val deltaSeconds = (next - previous) / 1000f
+            beforeWetnessAdvance?.invoke(deltaSeconds)
+            advanceMaterialBy(pixels, deltaSeconds)
         }
         // A backwards uptime jump can happen across a device reboot. Treat it as a new monotonic
         // epoch instead of inventing an enormous or negative elapsed time.
@@ -37,14 +43,19 @@ internal class WetnessReplayState private constructor(
      * One fixed deterministic post-contact tick. This gives freshly wet paint a visible bounded
      * local settle immediately after the stroke without introducing a wall-clock render loop.
      */
-    fun settleMaterial(pixels: IntArray, deltaSeconds: Float = DEFAULT_SETTLE_SECONDS) {
+    fun settleMaterial(
+        pixels: IntArray,
+        deltaSeconds: Float = DEFAULT_SETTLE_SECONDS,
+        beforeWetnessAdvance: ((deltaSeconds: Float) -> Unit)? = null,
+    ) {
         if (field.isIdle || deltaSeconds <= 0f) return
         require(pixels.size >= field.width * field.height) {
             "WetnessReplayState pixels must contain width*height entries"
         }
         // Contact relaxation is a deterministic solver quantum, not elapsed wall/material time.
-        // Transport may settle immediately after contact, but drying is reserved for advanceTo()
-        // so the next recorded sample interval cannot count the same 125 ms twice.
+        // Phase-5 height uses the same quantum before wetness transport, so both channels see the
+        // same mobility state and replay ordering.
+        beforeWetnessAdvance?.invoke(deltaSeconds)
         transportMaterial(pixels, deltaSeconds)
         field.advance(
             deltaSeconds = deltaSeconds,
