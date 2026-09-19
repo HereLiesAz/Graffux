@@ -159,4 +159,42 @@ class ImpastoV2EngineTest {
         val rough = run(1f)
         assertTrue(smooth[1] < rough[1], "substrate resistance should retain more of the peak")
     }
+
+    @Test
+    fun reservoirLoadScalesHeightVolumeWithoutChangingContactGeometry() {
+        val w = 20
+        val h = 20
+        val dab = Dab(10f, 10f, 4f, 1f, contactDepth = 1f)
+
+        fun deposit(load: Float): FloatArray {
+            val height = FloatArray(w * h)
+            val structure = FloatArray(w * h) { 1f }
+            ImpastoV2Engine.applyContactStroke(
+                height = height,
+                structure = structure,
+                width = w,
+                canvasHeight = h,
+                dabs = listOf(dab),
+                hardness = 1f,
+                thicknessRate = 0.6f,
+                config = ImpastoV2Config(reservoirLoad = load),
+                wetness = null,
+            )
+            return height
+        }
+
+        val full = deposit(1f)
+        val quarter = deposit(0.25f)
+        val empty = deposit(0f)
+
+        assertTrue(full.sum() > quarter.sum())
+        assertTrue(quarter.sum() > 0f)
+        assertTrue(empty.all { it == 0f })
+        assertEquals(
+            full.count { it > 0f },
+            quarter.count { it > 0f },
+            "load must scale volume, not silently change the contact footprint",
+        )
+    }
+
 }
