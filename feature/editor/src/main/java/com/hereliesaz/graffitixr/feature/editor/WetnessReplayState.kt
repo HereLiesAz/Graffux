@@ -82,7 +82,7 @@ internal class WetnessReplayState private constructor(
         const val DEFAULT_DRYING_RATE = 0.08f
         const val DEFAULT_TRANSPORT_RATE = 0.18f
         const val DEFAULT_PIGMENT_TRANSPORT_RATE = 0.16f
-        const val DEFAULT_SETTLE_SECONDS = 1f / 30f
+        const val DEFAULT_SETTLE_SECONDS = 0.125f
 
         fun empty(width: Int, height: Int, tileSize: Int = PersistentWetnessField.DEFAULT_TILE_SIZE) =
             WetnessReplayState(PersistentWetnessField(width, height, tileSize))
