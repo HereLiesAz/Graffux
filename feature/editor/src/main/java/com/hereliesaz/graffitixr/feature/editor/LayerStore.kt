@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoV2Workspace
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -22,12 +23,20 @@ internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val layerStrokes = ConcurrentHashMap<String, MutableList<StrokeCommand>>()
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
+    private val structureBases = ConcurrentHashMap<String, FloatArray>()
+    private val impastoWorkspaces = ConcurrentHashMap<String, ImpastoV2Workspace>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
         baseBitmaps[layerId] = bitmap
+        val expected = bitmap.width * bitmap.height
+        heightBases[layerId]?.let { if (it.size != expected) heightBases.remove(layerId) }
+        structureBases[layerId]?.let { if (it.size != expected) structureBases.remove(layerId) }
+        impastoWorkspaces[layerId]?.let {
+            if (it.width != bitmap.width || it.height != bitmap.height) impastoWorkspaces.remove(layerId)
+        }
         val wetBase = wetnessBases[layerId]
         if (wetBase != null &&
             (wetBase.field.width != bitmap.width || wetBase.field.height != bitmap.height)
@@ -57,6 +66,28 @@ internal class LayerStore {
      *  into it the same way [takeOldestStrokes] bakes their pixels into the bitmap base. */
     fun putHeightBase(layerId: String, heightMap: FloatArray) {
         heightBases[layerId] = heightMap
+    }
+
+    /** Phase-5 structure base; recovered/stiff (1) is the neutral initial material state. */
+    fun structureBase(layerId: String, size: Int): FloatArray {
+        val existing = structureBases[layerId]
+        if (existing != null && existing.size == size) return existing
+        val fresh = FloatArray(size) { 1f }
+        structureBases[layerId] = fresh
+        return fresh
+    }
+
+    fun putStructureBase(layerId: String, structureMap: FloatArray) {
+        structureBases[layerId] = structureMap
+    }
+
+    /** Reused full-canvas numerical scratch; live Phase-5 ticks only clear active pixels. */
+    fun impastoWorkspace(layerId: String, width: Int, height: Int): ImpastoV2Workspace {
+        val existing = impastoWorkspaces[layerId]
+        if (existing != null && existing.width == width && existing.height == height) return existing
+        val fresh = ImpastoV2Workspace(width, height)
+        impastoWorkspaces[layerId] = fresh
+        return fresh
     }
 
     /**
@@ -103,6 +134,10 @@ internal class LayerStore {
     fun putLiveWetness(layerId: String, state: WetnessReplayState) {
         liveWetness[layerId] = state.copyForWork()
     }
+
+    /** Defensive current canonical wetness snapshot without allocating a dry field. */
+    fun wetnessStateCopyOrNull(layerId: String): WetnessReplayState? =
+        (liveWetness[layerId] ?: wetnessBases[layerId])?.copyForWork()
 
     /** Clears only the derived/live wetness cache; the baked base remains authoritative. */
     fun clearLiveWetness(layerId: String) {
@@ -185,6 +220,8 @@ internal class LayerStore {
         baseBitmaps.remove(layerId)
         layerStrokes.remove(layerId)
         heightBases.remove(layerId)
+        structureBases.remove(layerId)
+        impastoWorkspaces.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
     }
@@ -194,6 +231,8 @@ internal class LayerStore {
         baseBitmaps.clear()
         layerStrokes.clear()
         heightBases.clear()
+        structureBases.clear()
+        impastoWorkspaces.clear()
         wetnessBases.clear()
         liveWetness.clear()
     }
@@ -203,6 +242,8 @@ internal class LayerStore {
         baseBitmaps.keys.retainAll(liveIds)
         layerStrokes.keys.retainAll(liveIds)
         heightBases.keys.retainAll(liveIds)
+        structureBases.keys.retainAll(liveIds)
+        impastoWorkspaces.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)
     }
