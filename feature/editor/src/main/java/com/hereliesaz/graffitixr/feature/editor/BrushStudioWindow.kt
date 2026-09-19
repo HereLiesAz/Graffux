@@ -381,6 +381,9 @@ fun BrushStudioWindow(
                 ParamSlider("Thickness", draft.impastoThicknessRate, 0f..1f, asFraction = true) { v ->
                     onEdit { it.copy(impastoThicknessRate = v) }
                 }
+                ParamSlider("Load", draft.impastoLoad, 0f..1f) { v ->
+                    onEdit { it.copy(impastoLoad = v) }
+                }
                 ParamSlider("Wetness", draft.impastoWetness, 0f..1f) { v ->
                     onEdit { it.copy(impastoWetness = v) }
                 }
@@ -400,8 +403,9 @@ fun BrushStudioWindow(
                     onEdit { it.copy(impastoSubstrateInteraction = v) }
                 }
                 Text(
-                    "Thickness alone keeps the original dry Impasto behavior. Wetness opts into the " +
-                        "Phase-5 material channel; Pickup can remove wet height, Leveling lets fresh paint " +
+                    "Thickness alone at 100% Load keeps the original dry Impasto behavior. Load scales " +
+                        "available material volume; Wetness opts into the Phase-5 material channel; " +
+                        "Pickup can remove wet height, Leveling lets fresh paint " +
                         "settle locally, Body resists that movement, Wet gloss changes only derived surface " +
                         "response, and Texture interaction lets canvas tooth resist height flow.",
                     style = MaterialTheme.typography.labelSmall,
