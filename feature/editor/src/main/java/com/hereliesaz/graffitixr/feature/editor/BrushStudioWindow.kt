@@ -381,10 +381,29 @@ fun BrushStudioWindow(
                 ParamSlider("Thickness", draft.impastoThicknessRate, 0f..1f, asFraction = true) { v ->
                     onEdit { it.copy(impastoThicknessRate = v) }
                 }
+                ParamSlider("Wetness", draft.impastoWetness, 0f..1f) { v ->
+                    onEdit { it.copy(impastoWetness = v) }
+                }
+                ParamSlider("Pickup", draft.impastoPickupRate, 0f..1f) { v ->
+                    onEdit { it.copy(impastoPickupRate = v) }
+                }
+                ParamSlider("Leveling", draft.impastoLevelingRate, 0f..1f) { v ->
+                    onEdit { it.copy(impastoLevelingRate = v) }
+                }
+                ParamSlider("Body", draft.impastoBody, 0f..1f) { v ->
+                    onEdit { it.copy(impastoBody = v) }
+                }
+                ParamSlider("Wet gloss", draft.impastoWetGloss, 0f..1f) { v ->
+                    onEdit { it.copy(impastoWetGloss = v) }
+                }
+                ParamSlider("Texture interaction", draft.impastoSubstrateInteraction, 0f..1f) { v ->
+                    onEdit { it.copy(impastoSubstrateInteraction = v) }
+                }
                 Text(
-                    "0 disables Impasto. Above 0, each dab raises the layer's paint-thickness map, " +
-                        "shaded with a fixed light so ridges catch highlight and shadow -- visible live " +
-                        "while dragging, not just once the stroke is released.",
+                    "Thickness alone keeps the original dry Impasto behavior. Wetness opts into the " +
+                        "Phase-5 material channel; Pickup can remove wet height, Leveling lets fresh paint " +
+                        "settle locally, Body resists that movement, Wet gloss changes only derived surface " +
+                        "response, and Texture interaction lets canvas tooth resist height flow.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
