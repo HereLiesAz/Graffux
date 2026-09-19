@@ -36,22 +36,29 @@ This verification contract defines the acceptance test plans, behavioral tests, 
 *   **Edge Case:** High-speed flicks vs. slow liftoffs.
     *   **Behavior:** A fast flick causes tuft trailing/taper before lift, while a slow liftoff exhibits tuft convergence and recovery.
 
-## 3. Substrate, Wetness, and Impasto v2 (Phase 3, 4, 5) (TODO 6, 7, 8)
+## 3. Material Phase Validation after Phase 3/4/5 integration
 
-### Acceptance Test Plans
-*   **Substrate Deposition:** Run strokes with varying pressure and verify contact-depth-vs-substrate-height logic. Light strokes must scumble crests; heavy strokes must penetrate into valleys.
-*   **Wetness & Transport:** Assert that repeated strokes over a wet tile accumulate/displace material based on bounded local transport, stopping when wetness dries out or leaves the active tile set.
-*   **Impasto v2 Persistence:** Assert that material height, structure recovery, and wet/dry optics serialize correctly into the canonical material channels and reconstruct identically on reload.
+Phase 4 and the Phase-5 Impasto-v2 engine/persistence work are implemented. Phase 3's backend behavior is implemented, while its product/session activation and real-device parity gate remain open. The items below are therefore validation/hardening work, not missing material-engine implementations.
+
+### Remaining Acceptance Test Plans
+*   **Phase-3 Substrate Product/Device Gate:** Run strokes with varying pressure on an explicitly selected editor substrate and verify contact-depth-vs-substrate-height logic on representative Vulkan hardware. Light strokes must scumble crests; heavy pressure must penetrate/fill valleys.
+*   **Phase-4 Wetness Regression:** Keep bounded active-tile transport, deterministic explicit-time advancement, and zero effective idle cost pinned as permanent regressions.
+*   **Phase-5 Impasto Reference/Device Validation:** Run representative thick-over-thick, wet-over-dry, and wet-over-wet strokes on physical devices and compare against reference marks. Hosted tests already pin reservoir-bounded height transfer, pickup/removal, wet leveling, save/reload reconstruction, and wet/dry optics.
+*   **Phase-5 Persistence Regression:** Round-trip project save/reopen/archive with non-empty height + wetness sidecars and verify canonical channels reconstruct identically.
 
 ### Contract Tests & Invariants
-*   **Invariant:** Impasto and Wetness transport must have zero effective idle cost for dry documents or untouched canvas regions.
-*   **Invariant:** Deposition cannot overdraw the reservoir load; bounded transport must obey material conservation where practical.
+*   **Invariant:** Impasto and Wetness transport have zero effective idle simulation cost for dry documents or untouched regions.
+*   **Invariant:** Deposition cannot overdraw reservoir load; pickup cannot overfill it; bounded transport/leveling conserve material where practical.
+*   **Invariant:** `Layer.heightMap` may remain transient in project JSON only because canonical height + wetness are versioned in the material sidecar.
+*   **Invariant:** Lighting/wet gloss are presentation state and never mutate canonical pigment, height, or wetness.
 
 ### Edge Cases & Failure Scenarios
 *   **Edge Case:** The material transport model encounters highly saturated wet-over-wet boundaries.
     *   **Behavior:** Execution budget stays strictly bounded to small iteration limits; fidelity degrades gracefully before latency thresholds are breached.
 *   **Edge Case:** Brush picks up material from a deep Impasto valley.
-    *   **Behavior:** Reservoir volume transfer accurately represents the contact volume up to the tuft's bounded capacity.
+    *   **Behavior:** Reservoir volume transfer represents contact volume only up to bounded capacity, and same-dab pickup may use capacity just freed by deposition.
+*   **Edge Case:** A project contains a corrupt, mismatched, hostile-name, or oversized material sidecar.
+    *   **Behavior:** Material restoration fails closed without escaping the project directory or corrupting the color layer.
 
 ## 4. Semantic Media-Profile Controls (Phase 7) (TODO 9)
 
