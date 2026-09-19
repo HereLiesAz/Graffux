@@ -239,6 +239,18 @@ data class AzphaltBrush(
      *  stroke commit/replay (`DrawingEngine.kt`), which persists the height-map contribution onto
      *  the layer. */
     val impastoThicknessRate: Float = 0f,
+    /** Phase-5 vehicle deposited alongside height. 0 preserves the historical dry Impasto path. */
+    val impastoWetness: Float = 0f,
+    /** Fraction of existing wet height a contacting brush may pick back up. */
+    val impastoPickupRate: Float = 0f,
+    /** Bounded post-contact wet-height leveling rate. */
+    val impastoLevelingRate: Float = 0f,
+    /** Apparent body/yield resistance: 0 loose, 1 stiff. */
+    val impastoBody: Float = 0.65f,
+    /** Wet-surface highlight response. 0 preserves historical relief optics exactly. */
+    val impastoWetGloss: Float = 0f,
+    /** Strength of substrate/tooth resistance in the Phase-5 height solver. */
+    val impastoSubstrateInteraction: Float = 0f,
     /** When true, overlapping dabs within one stroke sequentially alpha-composite (build up
      *  towards full opacity the way Airbrush's held dabs always have) instead of the default
      *  "strongest single dab wins" combine described on [StampBrushRenderer.paintRoundDabsMaxCombined].
@@ -276,12 +288,32 @@ data class AzphaltBrush(
         airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
         airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
         impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
+        impastoWetness = impastoWetness.coerceIn(0f, 1f),
+        impastoPickupRate = impastoPickupRate.coerceIn(0f, 1f),
+        impastoLevelingRate = impastoLevelingRate.coerceIn(0f, 1f),
+        impastoBody = impastoBody.coerceIn(0f, 1f),
+        impastoWetGloss = impastoWetGloss.coerceIn(0f, 1f),
+        impastoSubstrateInteraction = impastoSubstrateInteraction.coerceIn(0f, 1f),
         count = count.coerceIn(1, 16),
         countJitter = countJitter.coerceIn(0f, 1f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
         if (isotropicSpacing) diameterPx else diameterPx * tipRatio.coerceIn(0.05f, 1f)
+
+    /** Opts this brush into Phase-5 material-height evolution without changing legacy Impasto. */
+    fun usesImpastoV2(): Boolean =
+        impastoWetness > 0f || impastoPickupRate > 0f || impastoLevelingRate > 0f ||
+            impastoWetGloss > 0f || impastoSubstrateInteraction > 0f
+
+    fun impastoV2Config(): ImpastoV2Config = ImpastoV2Config(
+        pickupRate = impastoPickupRate,
+        wetnessDeposit = impastoWetness,
+        levelingRate = impastoLevelingRate,
+        body = impastoBody,
+        viscosity = impastoBody * 0.55f,
+        substrateInteraction = impastoSubstrateInteraction,
+    ).sanitized()
 
     companion object {
         fun fromParams(name: String, params: JsonObject?): AzphaltBrush {
@@ -351,6 +383,12 @@ data class AzphaltBrush(
                 airbrushDabsPerSecond = (f("airbrushDabsPerSecond") ?: 0f).coerceAtLeast(0f),
                 airbrushStillnessRadiusPx = (f("airbrushStillnessRadiusPx") ?: 3f).coerceAtLeast(0f),
                 impastoThicknessRate = (f("impastoThicknessRate") ?: 0f).coerceAtLeast(0f),
+                impastoWetness = (f("impastoWetness") ?: 0f).coerceIn(0f, 1f),
+                impastoPickupRate = (f("impastoPickupRate") ?: 0f).coerceIn(0f, 1f),
+                impastoLevelingRate = (f("impastoLevelingRate") ?: 0f).coerceIn(0f, 1f),
+                impastoBody = (f("impastoBody") ?: 0.65f).coerceIn(0f, 1f),
+                impastoWetGloss = (f("impastoWetGloss") ?: 0f).coerceIn(0f, 1f),
+                impastoSubstrateInteraction = (f("impastoSubstrateInteraction") ?: 0f).coerceIn(0f, 1f),
                 buildUp = b("buildUp") ?: false,
                 count = (f("count") ?: 1f).toInt().coerceIn(1, 16),
                 countJitter = (f("countJitter") ?: 0f).coerceIn(0f, 1f),
