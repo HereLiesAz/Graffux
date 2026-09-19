@@ -86,4 +86,19 @@ class LayerMappersTest {
         assertNull(restored.instanceOf)
         assertNull(restored.parentId)
     }
+
+    @Test
+    fun materialStateArtifactReferenceSurvivesRoundTrip() {
+        val layer = Layer(
+            id = "mat",
+            name = "wet impasto",
+            uri = uri,
+            materialStateFile = "material_deadbeef.gxmat",
+        )
+
+        val restored = layer.toOverlayLayer().toLayer()
+
+        assertEquals("material_deadbeef.gxmat", restored.materialStateFile)
+    }
+
 }
