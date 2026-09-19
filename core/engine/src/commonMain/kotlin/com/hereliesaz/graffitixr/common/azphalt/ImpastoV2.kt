@@ -39,8 +39,8 @@ data class ImpastoV2Config(
     )
 
     val usesV2: Boolean
-        get() = pickupRate != 0f || wetnessDeposit != 0f || levelingRate != 0f ||
-            substrateInteraction != 0f
+        get() = reservoirLoad != 1f || pickupRate != 0f || wetnessDeposit != 0f ||
+            levelingRate != 0f || substrateInteraction != 0f
 }
 
 /** Scratch owned by a layer/session so live simulation never allocates a full-canvas delta per tick. */
