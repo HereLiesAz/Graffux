@@ -173,25 +173,25 @@ Implemented and merged in PR #394:
 
 Phase-4 roadmap exit conditions are therefore met. Project-file persistence for canonical material channels remains a later production/persistence gate called out under Phase 5, not a reason to run a second wetness engine.
 
-### Phase 5 — Impasto v2 / material height / wet-dry optics — ⬜ v2; existing v1 baseline remains
+### Phase 5 — Impasto v2 / material height / wet-dry optics — ✅ implementation complete
 
-Existing baseline already in Graffux:
+The existing Impasto v1 path remains the compatibility baseline, and Phase 5 extends it only behind an explicit versioned opt-in.
 
-- ✅ `ImpastoEngine` and per-layer height state.
-- ✅ Brush-controlled height deposition.
-- ✅ Relief shading.
-- ✅ Live-preview/commit integration and dirty-region shading improvements from earlier work.
+- ✅ `ImpastoMaterialConfig` is versioned; version 1 / disabled is the exact legacy path, while version 2 explicitly enables the material model.
+- ✅ Reservoir-load/contact-driven height transfer is deterministic and bounded by current load, contact depth, flow, and medium height response.
+- ✅ Brush pickup removes real canvas height and cannot overfill the reservoir; deposition can free capacity that the same dab may subsequently refill.
+- ✅ Wet height leveling is bounded to Phase-4 active material tiles/dirty regions and uses a fixed small iteration budget.
+- ✅ Viscosity and wetness control mobility; yield-like structure recovery is derived analytically from wetness, so no second persistent structure image is required.
+- ✅ Substrate height participates in deposition gating and wet leveling, allowing paint to collect in valleys and resist raised tooth according to medium response.
+- ✅ Wetness drives roughness/specular presentation while canonical pigment colour, height, and wetness remain unmodified by lighting.
+- ✅ Live v2 preview updates only newly touched dabs and regional material shading. Time-based settling is intentionally deferred to authoritative commit/replay so display batching cannot change canonical results.
+- ✅ Commit/replay advances material time from recorded sample uptime and has sequential-vs-full-replay equality coverage for pixels, height, and wetness.
+- ✅ Canonical per-layer height + wetness are persisted in a versioned sparse/tiled gzip sidecar. `Layer.heightMap` remains only the transient runtime mirror, keeping project JSON free of canvas-sized float arrays.
+- ✅ Material sidecars restore on project load, participate in debounced saves and explicit flushes, and travel with project archive export/import. Color-only layers create no sidecar; stale/empty material deletes the old sidecar.
+- ✅ Sidecar paths are hashed/contained and corrupt, mismatched, oversized, or invalid material data fails closed.
+- ✅ Hosted unit/build validation covers the v2 configuration, transfer/leveling/substrate/optics model, live wet optics, deterministic replay, persistence codec, and layer material-cache behavior.
 
-Impasto-v2 items remain pending:
-
-- ⬜ Reservoir-volume/contact-driven height transfer.
-- ⬜ Brush pickup/removal of height/material.
-- ⬜ Wet leveling.
-- ⬜ Yield-like freeze / structure recovery.
-- ⬜ Substrate interaction.
-- ⬜ Wetness-driven roughness/specular response.
-- ⬜ Versioned persistence for all new canonical material channels or deterministic reconstruction from persisted commands.
-- ⬜ No-full-canvas live normal/material update path for the expanded material model.
+The Phase-5 **code-side roadmap exit gate is met**. As with the other physical/material phases, representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.
 
 ### Phase 6 — Coarse deformable tuft — ✅ foundation implemented ahead of material Phases 3–5
 
@@ -471,14 +471,14 @@ Still useful/required:
 This is the recommended order from the current state, not the original dependency order.
 
 1. Run the existing **CPU ↔ Vulkan pigment + reservoir/pickup/substrate parity suite on real Android Vulkan hardware** and record the device/result matrix.
-2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines.
+2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines, including the landed Phase-5 material path.
 3. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
 4. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
 5. Measure the landed deterministic tuft capability tiers on representative Adreno/Mali devices and set evidence-based performance thresholds.
 6. Finish Phase-3 product activation: choose/wire editor substrate/media session state and execute the real-device Vulkan parity gate.
-7. Evolve the existing height engine into **Phase 5 Impasto v2**, including material persistence/reconstruction, wet leveling, pickup/removal, and wet/dry optics.
-8. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary and completed Phase-3/4 material channels.
-9. Add project save/load persistence or deterministic persisted reconstruction for every canonical material channel required by production artwork.
+7. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary and completed Phase-3/4/5 material channels.
+8. Expand the versioned material sidecar only if a future feature introduces another canonical per-layer material channel; Phase-5 height + wetness persistence is already landed.
+9. Add/record representative artist-reference and physical-device validation for Phase-5 height settling and wet/dry optical response.
 10. Keep full spectral/Kubelka-Munk, full individual-bristle PBD/DER, FLIP/PIC/pressure-projected fluids, porous-paper capillary simulation, and Gaussian-splat material research behind explicit evidence that the cheaper model cannot produce the required marks.
 
 Do not start a second wet-mix/pickup backend beside Color Smudge, do not make renderers reinterpret raw telemetry, and do not trade bounded input latency for higher simulation fidelity.
@@ -511,15 +511,16 @@ Experimental rendering/content-generation work only; no current critical-path de
 
 # Production-complete gates still open
 
-Even though a large amount of this session's mechanics is now implemented, the following must remain explicit before calling the overall system production-complete:
+Even though the Phase-5 implementation and its canonical height/wetness persistence are now landed, the following broader product gates remain explicit before calling the overall system production-complete:
 
 - real Android Vulkan parity for pigment mode;
-- real Android Vulkan execution/results for the landed pigment and reservoir/pickup parity suites;
+- real Android Vulkan execution/results for the landed pigment, reservoir/pickup, and substrate parity suites;
 - representative physical-device telemetry validation;
 - physical tuft population **performance measurements/thresholds** on the already-landed deterministic capability tiers;
 - artist tuning/reference strokes for morphology and lifecycle behavior;
-- Phase-3 product activation/real-device substrate parity and Phase-5 Impasto-v2 if those features are advertised; Phase 4 wetness behavior itself is implemented;
-- project persistence/reconstruction for any new canonical material channels;
-- tuned semantic media-profile catalogue/product UX after engine behavior is stable (the versioned core profile boundary is already landed).
+- Phase-3 product activation and real-device substrate parity;
+- representative-device performance/visual validation of the landed Phase-5 height settling and wet/dry optics;
+- tuned semantic media-profile catalogue/product UX after engine behavior is stable (the versioned core profile boundary is already landed);
+- persistence/version migration for any **future** canonical material channels beyond the currently persisted Phase-5 height + wetness state.
 
 The target remains a **responsive, deterministic, phone-first material-aware 2.5D paint engine**. Literal physics is optional; convincing marks, stable replay, renderer parity, and bounded latency are not.
