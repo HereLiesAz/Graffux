@@ -5664,6 +5664,15 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val materialWorking = if (
+            layerStore.hasImpastoMaterialState(layerId) || strokeNeedsImpastoMaterial(command)
+        ) {
+            layerStore.liveImpastoMaterialCopy(
+                layerId, base.width, base.height, bitmapPixels(base),
+            )
+        } else {
+            null
+        }
         // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
         // cancel each other's stale publishes: without this, a fast Undo landing right after this
         // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
@@ -5681,7 +5690,9 @@ class EditorViewModel @Inject constructor(
             // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             val target = drawingEngine.applySingleStroke(
-                base, command, otherLayers, heightWorking, wetnessState = wetnessWorking,
+                base, command, otherLayers, heightWorking,
+                wetnessState = wetnessWorking,
+                impastoMaterialState = materialWorking,
             )
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
@@ -5691,7 +5702,7 @@ class EditorViewModel @Inject constructor(
             // degrades to `null` -- no fast path attached, this stroke's future undo/redo just
             // falls back to the existing full-replay path, same as any stroke this pass doesn't
             // cover.
-            val tileDeltas = runCatching {
+            val tileDeltas = if (strokeChangesCanonicalMaterial(command)) null else runCatching {
                 val beforePixels = IntArray(base.width * base.height)
                 base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
                 val afterPixels = IntArray(target.width * target.height)
@@ -5709,6 +5720,11 @@ class EditorViewModel @Inject constructor(
                     layerStore.putLiveWetness(layerId, wetnessWorking)
                 } else {
                     layerStore.clearLiveWetness(layerId)
+                }
+                if (materialWorking != null) {
+                    layerStore.putLiveImpastoMaterial(layerId, materialWorking)
+                } else {
+                    layerStore.clearLiveImpastoMaterial(layerId)
                 }
                 _uiState.update { s ->
                     s.copy(
