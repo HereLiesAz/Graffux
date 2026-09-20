@@ -35,6 +35,9 @@ class MaterialStateCodecTest {
             baseRoughness = 0.45f,
             wetSpecularStrength = 0.75f,
         )
+        val owners = IntArray(size)
+        owners[1 * width + 2] = 1
+        owners[65 * width + 69] = 1
         val decoded = MaterialStateCodec.decode(
             MaterialStateCodec.encode(
                 MaterialStateCodec.Snapshot(
@@ -43,7 +46,8 @@ class MaterialStateCodecTest {
                     heightMap = heights,
                     wetness = wetness,
                     lastWetnessUptimeMillis = 12345L,
-                    medium = medium,
+                    mediumPalette = listOf(medium),
+                    mediumOwnerIds = owners,
                     tileSize = 64,
                 ),
             ),
@@ -54,7 +58,8 @@ class MaterialStateCodecTest {
         assertEquals(height, decoded.height)
         assertEquals(64, decoded.tileSize)
         assertNull("monotonic uptime must not survive save/load", decoded.lastWetnessUptimeMillis)
-        assertEquals(medium, decoded.medium)
+        assertEquals(listOf(medium.sanitized()), decoded.mediumPalette)
+        assertArrayEquals(owners, decoded.mediumOwnerIds)
         assertArrayEquals(heights, decoded.heightMap, 0f)
         assertArrayEquals(wetness, decoded.wetness, 0f)
     }
