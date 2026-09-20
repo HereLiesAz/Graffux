@@ -2013,6 +2013,20 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Writes the bitmap + matching material sidecar as one retryable pending unit. */
+    private suspend fun persistPendingLayerWrite(
+        layerId: String,
+        write: PendingLayerWrite,
+    ): Boolean {
+        val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+        if (!bitmapSaved) return false
+        return writeMaterialState(
+            layerId,
+            write.projectId,
+            captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
+        )
+    }
+
     /**
      * Writes every debounced layer save immediately instead of waiting out its delay.
      *
@@ -2032,13 +2046,7 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch(dispatchers.io) {
             outstanding.forEach { (layerId, write) ->
-                val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
-                val materialSaved = bitmapSaved && writeMaterialState(
-                    layerId,
-                    write.projectId,
-                    captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                )
-                if (bitmapSaved && materialSaved) {
+                if (persistPendingLayerWrite(layerId, write)) {
                     pendingWrites.remove(layerId, write)
                 }
             }
@@ -2611,12 +2619,9 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    if (!persistPendingLayerWrite(layerId, write)) {
+                        throw java.io.IOException("Could not flush pending layer $layerId")
+                    }
                     pendingWrites.remove(layerId, write)
                 }
                 val saved = persistProject(cleanName)
@@ -2648,12 +2653,9 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    if (!persistPendingLayerWrite(layerId, write)) {
+                        throw java.io.IOException("Could not flush pending layer $layerId")
+                    }
                     pendingWrites.remove(layerId, write)
                 }
                 persistProject(null)
@@ -3584,6 +3586,9 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.io) {
             val currentBitmap = layer.bitmap
+            val sourceMaterial = currentBitmap?.let { bmp ->
+                captureMaterialState(id, bmp.width, bmp.height)
+            }
             val newBitmap = currentBitmap?.copy(currentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
             val newUri = newBitmap?.let { bmp ->
                 val filename = "layer_dup_${UUID.randomUUID()}.png"
@@ -3595,17 +3600,40 @@ class EditorViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 name = "${layer.name} Copy",
                 bitmap = newBitmap,
-                uri = newUri
+                uri = newUri,
+                heightMap = sourceMaterial?.heightMap?.copyOf(),
             )
 
             newBitmap?.let { bmp ->
                 putLayerBase(duplicated.id, bmp)
                 layerStore.initStrokes(duplicated.id)
+                sourceMaterial?.heightMap?.let {
+                    layerStore.putHeightBase(duplicated.id, it.copyOf())
+                }
+                sourceMaterial?.wetness?.let { wet ->
+                    val wetState = WetnessReplayState.fromSnapshot(
+                        width = bmp.width,
+                        height = bmp.height,
+                        wetness = wet,
+                        // Duplication stays in the same monotonic session.
+                        lastUptimeMillis = sourceMaterial.lastWetnessUptimeMillis,
+                        tileSize = sourceMaterial.tileSize,
+                    )
+                    layerStore.putWetnessBase(duplicated.id, wetState)
+                    layerStore.putLiveWetness(duplicated.id, wetState)
+                }
+                sourceMaterial?.medium?.let { medium ->
+                    layerStore.putMaterialMediumBase(duplicated.id, medium)
+                    layerStore.putLiveMaterialMedium(duplicated.id, medium)
+                }
             }
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
                 opEmitter.emit(Op.LayerAdd(duplicated))
+                // Queue the duplicate's material sidecar through the same retryable persistence
+                // unit as ordinary painting; a duplicate must survive reopen with identical relief.
+                if (newBitmap != null) scheduleDiskSave(duplicated.id, newBitmap, newUri)
                 saveProject()
                 dispatch(EditorIntent.SetLoading(false))
             }
