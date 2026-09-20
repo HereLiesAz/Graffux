@@ -775,6 +775,7 @@ class EditorViewModel @Inject constructor(
     private var stampLiveHeightMap: FloatArray? = null
     private var stampLiveWetnessState: WetnessReplayState? = null
     private var stampLiveImpastoState: ImpastoMaterialStrokeState? = null
+    private var stampLiveMaterialMediumState: MaterialMediumReplayState? = null
     private var stampLiveMaterialSelection: android.graphics.Region? = null
     private var stampLiveShadedBitmap: Bitmap? = null
     private var stampSeed: Long = 0L
@@ -3867,6 +3868,7 @@ class EditorViewModel @Inject constructor(
             stampLiveHeightMap = null
             stampLiveWetnessState = null
             stampLiveImpastoState = null
+            stampLiveMaterialMediumState = null
             stampLiveMaterialSelection = null
             stampLiveShadedBitmap = null
             stampLivePreStrokeBase = null
@@ -3978,6 +3980,11 @@ class EditorViewModel @Inject constructor(
                 } else {
                     null
                 }
+                val materialMediumSeed = if (usesImpastoV2) {
+                    layerStore.materialMediumStateCopy(layerId, work.width, work.height)
+                } else {
+                    null
+                }
                 val materialSelectionSeed = if (usesImpastoV2) {
                     SelectionMask.region(
                         SelectionMask.bitmapPath(
@@ -4018,6 +4025,7 @@ class EditorViewModel @Inject constructor(
                         stampLiveHeightMap = heightMapSeed
                         stampLiveWetnessState = wetnessSeed
                         stampLiveImpastoState = impastoStateSeed
+                        stampLiveMaterialMediumState = materialMediumSeed
                         stampLiveMaterialSelection = materialSelectionSeed
                         stampLiveShadedBitmap = shadedBitmapSeed
                         stampLivePreStrokeBase = preStrokeBaseSeed
@@ -4598,6 +4606,7 @@ class EditorViewModel @Inject constructor(
                 stampPendingLatencyIds.append(generatedLatencyIds)
                 val heightMap = stampLiveHeightMap
                 val liveWetness = stampLiveWetnessState
+                val liveMediumState = stampLiveMaterialMediumState
                 val materialSelection = stampLiveMaterialSelection
                 val shadedBitmap = stampLiveShadedBitmap
                 val strokeGen = strokeGeneration
@@ -4941,6 +4950,7 @@ class EditorViewModel @Inject constructor(
                             }
                             val touched: DirtyRegion?
                             if (config.usesV2) {
+                                val incomingMedium = config.toMedium()
                                 val transfer = ImpastoEngine.transferMaterialStroke(
                                     height = heightMap,
                                     width = work.width,
@@ -4948,10 +4958,11 @@ class EditorViewModel @Inject constructor(
                                     dabs = impastoDabs,
                                     hardness = brush.hardness,
                                     thicknessRate = brush.impastoThicknessRate,
-                                    medium = config.toMedium(),
+                                    medium = incomingMedium,
                                     initialState = stampLiveImpastoState
                                         ?: ImpastoMaterialStrokeState(config.initialLoad),
                                     pixelAllowed = allowed,
+                                    onMaterialDeposited = { x, y -> liveMediumState?.assign(x, y, incomingMedium) },
                                 )
                                 if (
                                     strokeGeneration == strokeGen &&
@@ -4967,6 +4978,7 @@ class EditorViewModel @Inject constructor(
                                         hardness = brush.hardness,
                                         wetnessRate = config.wetness * brush.impastoThicknessRate,
                                         pixelAllowed = allowed,
+                                        onWetnessDeposited = { x, y -> liveMediumState?.assign(x, y, incomingMedium) },
                                     )
                                 }
                                 val transferDirty = transfer.dirtyRegion
@@ -5008,7 +5020,10 @@ class EditorViewModel @Inject constructor(
                                         lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
                                         lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
                                         reliefStrength = IMPASTO_LIGHT_STRENGTH,
-                                        medium = config.toMedium(),
+                                        medium = incomingMedium,
+                                        mediumAt = liveMediumState?.let { owners ->
+                                            { x, y -> owners.mediumAt(x, y) }
+                                        },
                                     )
                                 } else {
                                     ImpastoRegionShader.shade(
@@ -7327,6 +7342,7 @@ class EditorViewModel @Inject constructor(
         stampLiveHeightMap = null
         stampLiveWetnessState = null
         stampLiveImpastoState = null
+        stampLiveMaterialMediumState = null
         stampLiveMaterialSelection = null
         stampLiveShadedBitmap = null
         stampLivePreStrokeBase = null
