@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
+import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -24,6 +25,8 @@ internal class LayerStore {
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
+    private val materialMediumBases = ConcurrentHashMap<String, PaintMedium>()
+    private val liveMaterialMedia = ConcurrentHashMap<String, PaintMedium>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
@@ -119,10 +122,54 @@ internal class LayerStore {
         liveWetness.remove(layerId)
     }
 
+    /** Removes baked + live wetness when restoration fails closed or a layer returns to dry. */
+    fun clearWetnessState(layerId: String) {
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+    }
+
+    /** Removes only the canonical height channel for [layerId]. */
+    fun clearHeightBase(layerId: String) {
+        heightBases.remove(layerId)
+    }
+
+    /** Material response baked before queued strokes. Immutable [PaintMedium] needs no deep copy. */
+    fun materialMediumBase(layerId: String): PaintMedium? = materialMediumBases[layerId]
+
+    fun putMaterialMediumBase(layerId: String, medium: PaintMedium?) {
+        if (medium == null) materialMediumBases.remove(layerId)
+        else materialMediumBases[layerId] = medium.sanitized()
+    }
+
+    /** Current post-stroke material owner, falling back to the baked owner. */
+    fun materialMediumState(layerId: String): PaintMedium? =
+        liveMaterialMedia[layerId] ?: materialMediumBases[layerId]
+
+    fun putLiveMaterialMedium(layerId: String, medium: PaintMedium?) {
+        if (medium == null) liveMaterialMedia.remove(layerId)
+        else liveMaterialMedia[layerId] = medium.sanitized()
+    }
+
+    fun clearLiveMaterialMedium(layerId: String) {
+        liveMaterialMedia.remove(layerId)
+    }
+
+    /** Fail-closed reset for every canonical material channel associated with a layer id. */
+    fun clearMaterialState(layerId: String) {
+        heightBases.remove(layerId)
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+        materialMediumBases.remove(layerId)
+        liveMaterialMedia.remove(layerId)
+        materialMediumBases.remove(layerId)
+        liveMaterialMedia.remove(layerId)
+    }
+
     /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
         liveWetness.remove(layerId)
+        liveMaterialMedia.remove(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -206,6 +253,8 @@ internal class LayerStore {
         heightBases.clear()
         wetnessBases.clear()
         liveWetness.clear()
+        materialMediumBases.clear()
+        liveMaterialMedia.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
@@ -215,5 +264,7 @@ internal class LayerStore {
         heightBases.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)
+        materialMediumBases.keys.retainAll(liveIds)
+        liveMaterialMedia.keys.retainAll(liveIds)
     }
 }
