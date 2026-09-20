@@ -48,6 +48,43 @@ internal class WetnessReplayState private constructor(
     }
 
     /**
+     * Advances only the canonical wetness field. Impasto uses this path because its colour bitmap
+     * is presentation output, not a lossless pigment store; transporting that shaded RGB would
+     * bake lighting into pigment. Color Smudge continues to use [advanceMaterialTo].
+     */
+    fun advanceWetnessTo(
+        uptimeMillis: Long?,
+        dryingRate: Float = DEFAULT_DRYING_RATE,
+        wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE,
+        dryingRateAt: ((x: Int, y: Int) -> Float)? = null,
+    ) {
+        val next = uptimeMillis ?: return
+        val previous = lastUptimeMillis
+        if (previous != null && next > previous && !field.isIdle) {
+            field.advance(
+                deltaSeconds = (next - previous) / 1000f,
+                dryingRate = dryingRate.coerceAtLeast(0f),
+                transportRate = wetnessTransportRate.coerceIn(0f, 1f),
+                dryingRateAt = dryingRateAt,
+            )
+        }
+        lastUptimeMillis = next
+    }
+
+    /** Deterministic post-contact wetness settling with no display-RGB transport. */
+    fun settleWetness(
+        deltaSeconds: Float = DEFAULT_SETTLE_SECONDS,
+        wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE,
+    ) {
+        if (field.isIdle || deltaSeconds <= 0f) return
+        field.advance(
+            deltaSeconds = deltaSeconds,
+            dryingRate = 0f,
+            transportRate = wetnessTransportRate.coerceIn(0f, 1f),
+        )
+    }
+
+    /**
      * One fixed deterministic post-contact tick. This gives freshly wet paint a visible bounded
      * local settle immediately after the stroke without introducing a wall-clock render loop.
      */
