@@ -176,19 +176,24 @@ class DrawingEngineImpastoTest {
 
         val commitHeight = FloatArray(w * h)
         val commitWetness = WetnessReplayState.empty(w, h)
+        val commitMedium = MaterialMediumReplayState.empty(w, h)
         val afterFirst = engine.applySingleStroke(
             base(), first, heightMap = commitHeight, wetnessState = commitWetness,
+            materialMediumState = commitMedium,
         )
         val committed = engine.applySingleStroke(
             afterFirst, second, heightMap = commitHeight, wetnessState = commitWetness,
+            materialMediumState = commitMedium,
         )
 
         val replayHeight = FloatArray(w * h)
         val replayWetness = WetnessReplayState.empty(w, h)
+        val replayMedium = MaterialMediumReplayState.empty(w, h)
         val replayed = engine.composite(
             base(), listOf(first, second),
             heightMap = replayHeight,
             wetnessState = replayWetness,
+            materialMediumState = replayMedium,
         )
 
         val committedPixels = IntArray(w * h)
@@ -199,6 +204,9 @@ class DrawingEngineImpastoTest {
         assertArrayEquals(committedPixels, replayedPixels)
         assertArrayEquals(commitHeight, replayHeight, 0f)
         assertArrayEquals(commitWetness.snapshot(), replayWetness.snapshot(), 0f)
+        assertArrayEquals(commitMedium.ownerIdSnapshot(), replayMedium.ownerIdSnapshot())
+        assertEquals(commitMedium.paletteSnapshot(), replayMedium.paletteSnapshot())
+        assertTrue(commitMedium.hasOwners)
         assertTrue(commitHeight.any { it > 0f })
         assertTrue(commitWetness.field.activeTileCount > 0)
     }
@@ -234,6 +242,69 @@ class DrawingEngineImpastoTest {
 
         assertArrayEquals(ap, bp)
         assertArrayEquals(aHeight, bHeight, 0f)
+    }
+
+
+    @Test
+    fun `existing material keeps its owning medium when a later brush has different physics`() = runTest {
+        val firstBrush = AzphaltBrush(
+            name = "slow oil",
+            spacing = 0.2f,
+            hardness = 1f,
+            impastoThicknessRate = 0.6f,
+            impastoMaterial = ImpastoMaterialConfig(
+                version = 2,
+                enabled = true,
+                wetness = 0.8f,
+                viscosity = 0.85f,
+                dryingRate = 0.03f,
+                levelingRate = 0.2f,
+                baseRoughness = 0.65f,
+                wetSpecularStrength = 0.3f,
+            ),
+        )
+        val secondBrush = firstBrush.copy(
+            name = "fast acrylic",
+            impastoMaterial = firstBrush.impastoMaterial.copy(
+                viscosity = 0.1f,
+                dryingRate = 0.8f,
+                levelingRate = 0.9f,
+                baseRoughness = 0.2f,
+                wetSpecularStrength = 0.9f,
+            ),
+        )
+        val mediumState = MaterialMediumReplayState.empty(w, h)
+        val height = FloatArray(w * h)
+        val wetness = WetnessReplayState.empty(w, h)
+
+        val first = straightStroke(firstBrush).copy(
+            brushSamples = straightStroke(firstBrush).path.mapIndexed { index, p ->
+                BrushSample(p.x, p.y, uptimeMillis = 1_000L + index * 20L, pressure = 1f)
+            },
+        )
+        val afterFirst = engine.applySingleStroke(
+            base(), first, heightMap = height, wetnessState = wetness,
+            materialMediumState = mediumState,
+        )
+        val owner = requireNotNull(mediumState.mediumAt(15, 15))
+
+        val second = straightStroke(secondBrush).copy(
+            path = straightStroke(secondBrush).path.map { Offset(it.x, 22f) },
+            brushSamples = straightStroke(secondBrush).path.mapIndexed { index, p ->
+                BrushSample(p.x, 22f, uptimeMillis = 2_000L + index * 20L, pressure = 1f)
+            },
+        )
+        engine.applySingleStroke(
+            afterFirst, second, heightMap = height, wetnessState = wetness,
+            materialMediumState = mediumState,
+        )
+
+        assertEquals(firstBrush.impastoMaterial.toMedium(), owner)
+        assertEquals(
+            "later brushes must not retroactively replace the owning material response",
+            owner,
+            mediumState.mediumAt(15, 15),
+        )
     }
 
 }

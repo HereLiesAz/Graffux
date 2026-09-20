@@ -67,6 +67,19 @@ class WetnessReplayStateTest {
     }
 
     @Test
+    fun `Impasto wetness-only advancement never transports display RGB`() {
+        val state = WetnessReplayState.empty(2, 1, tileSize = 2)
+        state.field.addWetness(0, 0, 1f)
+        state.field.addWetness(1, 0, 1f)
+        state.markThrough(1_000L)
+
+        state.advanceWetnessTo(2_000L, dryingRate = 0.5f, wetnessTransportRate = 0f)
+
+        assertTrue(state.snapshot().sum() < 2f)
+        assertEquals(2_000L, state.lastUptimeMillis)
+    }
+
+    @Test
     fun `copyForWork is a defensive material snapshot`() {
         val original = WetnessReplayState.empty(2, 1, tileSize = 2)
         original.field.addWetness(0, 0, 0.5f)

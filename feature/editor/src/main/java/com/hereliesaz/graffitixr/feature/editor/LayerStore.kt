@@ -24,6 +24,8 @@ internal class LayerStore {
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
+    private val materialMediumBases = ConcurrentHashMap<String, MaterialMediumReplayState>()
+    private val liveMaterialMedia = ConcurrentHashMap<String, MaterialMediumReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
@@ -34,6 +36,13 @@ internal class LayerStore {
         ) {
             wetnessBases.remove(layerId)
             liveWetness.remove(layerId)
+        }
+        val mediumBase = materialMediumBases[layerId]
+        if (mediumBase != null &&
+            (mediumBase.width != bitmap.width || mediumBase.height != bitmap.height)
+        ) {
+            materialMediumBases.remove(layerId)
+            liveMaterialMedia.remove(layerId)
         }
     }
 
@@ -119,10 +128,86 @@ internal class LayerStore {
         liveWetness.remove(layerId)
     }
 
-    /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
+    /** Removes baked + live wetness when restoration fails closed or a layer returns to dry. */
+    fun clearWetnessState(layerId: String) {
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+    }
+
+    /** Removes only the canonical height channel for [layerId]. */
+    fun clearHeightBase(layerId: String) {
+        heightBases.remove(layerId)
+    }
+
+    /** Defensive working copy of baked spatial medium ownership. */
+    fun materialMediumBaseCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+    ): MaterialMediumReplayState {
+        val existing = materialMediumBases[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = MaterialMediumReplayState.empty(width, height)
+        materialMediumBases[layerId] = fresh
+        liveMaterialMedia.remove(layerId)
+        return fresh.copyForWork()
+    }
+
+    fun hasMaterialMediumBase(layerId: String): Boolean =
+        materialMediumBases[layerId]?.hasOwners == true
+
+    fun putMaterialMediumBase(layerId: String, state: MaterialMediumReplayState?) {
+        if (state == null || !state.hasOwners) materialMediumBases.remove(layerId)
+        else materialMediumBases[layerId] = state.copyForWork()
+    }
+
+    /** Defensive current post-stroke ownership, falling back to the baked ownership map. */
+    fun materialMediumStateCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+    ): MaterialMediumReplayState {
+        val existing = liveMaterialMedia[layerId] ?: materialMediumBases[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        return MaterialMediumReplayState.empty(width, height)
+    }
+
+    fun materialMediumStateCopyOrNull(layerId: String): MaterialMediumReplayState? =
+        (liveMaterialMedia[layerId] ?: materialMediumBases[layerId])?.copyForWork()
+
+    fun putLiveMaterialMedium(layerId: String, state: MaterialMediumReplayState?) {
+        if (state == null || !state.hasOwners) liveMaterialMedia.remove(layerId)
+        else liveMaterialMedia[layerId] = state.copyForWork()
+    }
+
+    fun clearLiveMaterialMedium(layerId: String) {
+        liveMaterialMedia.remove(layerId)
+    }
+
+    /** Fail-closed reset for every canonical material channel associated with a layer id. */
+    fun clearMaterialState(layerId: String) {
+        heightBases.remove(layerId)
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+        materialMediumBases.remove(layerId)
+        liveMaterialMedia.remove(layerId)
+    }
+
+    /**
+     * Resets [layerId] for new/replaced bitmap contents.
+     *
+     * Every current caller uses this after installing a fresh layer base (new/imported/duplicated/
+     * reloaded content). Canonical material belongs to the old bitmap, so keeping baked height,
+     * wetness, or medium ownership here can resurrect material onto unrelated same-sized pixels.
+     * Project reload/duplicate paths restore their sidecar/copy immediately after this reset.
+     */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
-        liveWetness.remove(layerId)
+        clearMaterialState(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -206,6 +291,8 @@ internal class LayerStore {
         heightBases.clear()
         wetnessBases.clear()
         liveWetness.clear()
+        materialMediumBases.clear()
+        liveMaterialMedia.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
@@ -215,5 +302,7 @@ internal class LayerStore {
         heightBases.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)
+        materialMediumBases.keys.retainAll(liveIds)
+        liveMaterialMedia.keys.retainAll(liveIds)
     }
 }

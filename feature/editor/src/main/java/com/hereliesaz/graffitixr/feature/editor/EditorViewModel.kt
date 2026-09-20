@@ -579,6 +579,12 @@ class EditorViewModel @Inject constructor(
                 command.stampBrush?.impastoMaterial?.sanitized()?.let {
                     it.usesV2 && it.wetness > 0f
                 } == true)
+
+    /** Pixel-only undo deltas cannot restore canonical height/wetness/material ownership. */
+    private fun strokeNeedsCanonicalMaterialReplay(command: StrokeCommand): Boolean =
+        strokeNeedsPersistentWetness(command) ||
+            (command.tool == Tool.BRUSH &&
+                (command.stampBrush?.impastoThicknessRate ?: 0f) > 0f)
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -769,6 +775,7 @@ class EditorViewModel @Inject constructor(
     private var stampLiveHeightMap: FloatArray? = null
     private var stampLiveWetnessState: WetnessReplayState? = null
     private var stampLiveImpastoState: ImpastoMaterialStrokeState? = null
+    private var stampLiveMaterialMediumState: MaterialMediumReplayState? = null
     private var stampLiveMaterialSelection: android.graphics.Region? = null
     private var stampLiveShadedBitmap: Bitmap? = null
     private var stampSeed: Long = 0L
@@ -1036,6 +1043,10 @@ class EditorViewModel @Inject constructor(
                                     val material = loadMaterialState(
                                         project.id, layer.id, loadedBmp.width, loadedBmp.height,
                                     )
+                                    // Fail closed. A reused layer id must never retain material from
+                                    // an earlier project/session when its sidecar is missing, corrupt,
+                                    // oversized, or dimension-mismatched.
+                                    layerStore.clearMaterialState(layer.id)
                                     val restoredHeight = material?.heightMap?.copyOf()
                                     if (restoredHeight != null) {
                                         layerStore.putHeightBase(layer.id, restoredHeight.copyOf())
@@ -1045,15 +1056,26 @@ class EditorViewModel @Inject constructor(
                                             width = loadedBmp.width,
                                             height = loadedBmp.height,
                                             wetness = wet,
-                                            lastUptimeMillis = material.lastWetnessUptimeMillis,
+                                            // Persisted Android uptime is intentionally nonportable.
+                                            lastUptimeMillis = null,
                                             tileSize = material.tileSize,
                                         )
                                     }
                                     if (restoredWetness != null) {
                                         layerStore.putWetnessBase(layer.id, restoredWetness)
                                         layerStore.putLiveWetness(layer.id, restoredWetness)
-                                    } else {
-                                        layerStore.clearLiveWetness(layer.id)
+                                    }
+                                    val restoredMedium = material?.mediumOwnerIds?.let { owners ->
+                                        MaterialMediumReplayState.fromSnapshot(
+                                            width = loadedBmp.width,
+                                            height = loadedBmp.height,
+                                            palette = material.mediumPalette,
+                                            ownerIds = owners,
+                                        )
+                                    }
+                                    if (restoredMedium != null) {
+                                        layerStore.putMaterialMediumBase(layer.id, restoredMedium)
+                                        layerStore.putLiveMaterialMedium(layer.id, restoredMedium)
                                     }
                                     decoded[layer.id] = LoadedLayerMaterial(loadedBmp, restoredHeight)
                                 }
@@ -1203,7 +1225,8 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeNeedsCanonicalMaterialReplay(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = false, emitOp = true,
                 )
@@ -1239,7 +1262,8 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeNeedsCanonicalMaterialReplay(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = true, emitOp = true,
                 )
@@ -1309,6 +1333,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = layerStore.materialMediumBaseCopy(layerId, base.width, base.height)
 
         viewModelScope.launch(dispatchers.default) {
             try {
@@ -1317,6 +1342,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    materialMediumState = mediumWorking,
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1330,6 +1356,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
+                    layerStore.putMaterialMediumBase(layerId, mediumWorking)
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -1383,6 +1410,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = layerStore.materialMediumBaseCopy(layerId, base.width, base.height)
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -1395,6 +1423,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    materialMediumState = mediumWorking,
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -1411,6 +1440,7 @@ class EditorViewModel @Inject constructor(
                     } else {
                         layerStore.clearLiveWetness(layerId)
                     }
+                    layerStore.putLiveMaterialMedium(layerId, mediumWorking)
                     _uiState.update { state ->
                         state.copy(
                             layers = state.layers.map {
@@ -1841,13 +1871,18 @@ class EditorViewModel @Inject constructor(
         val wetness = layerStore.wetnessStateCopyOrNull(layerId)?.takeIf {
             it.field.width == width && it.field.height == height
         }
-        if (layerHeight == null && wetness == null) return null
+        val mediumState = layerStore.materialMediumStateCopyOrNull(layerId)?.takeIf {
+            it.width == width && it.height == height && it.hasOwners
+        }
+        if (layerHeight == null && wetness == null && mediumState == null) return null
         return MaterialStateCodec.Snapshot(
             width = width,
             height = height,
             heightMap = layerHeight,
             wetness = wetness?.snapshot(),
             lastWetnessUptimeMillis = wetness?.lastUptimeMillis,
+            mediumPalette = mediumState?.paletteSnapshot() ?: emptyList(),
+            mediumOwnerIds = mediumState?.ownerIdSnapshot(),
             tileSize = wetness?.field?.tileSize
                 ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
         )
@@ -1857,10 +1892,10 @@ class EditorViewModel @Inject constructor(
         layerId: String,
         projectId: String?,
         snapshot: MaterialStateCodec.Snapshot?,
-    ) {
-        if (projectId == null) return
+    ): Boolean {
+        if (projectId == null) return true
         val filename = MaterialStateCodec.fileNameForLayer(layerId)
-        runCatching {
+        return try {
             if (snapshot == null || !snapshot.hasMaterial) {
                 // Undo/rebuild can return a layer to its never-material state. Delete any older
                 // sidecar so a subsequent reload cannot resurrect stale height/wetness.
@@ -1870,7 +1905,9 @@ class EditorViewModel @Inject constructor(
                 if (projectDir.path.startsWith(projectsRoot.path + File.separator) &&
                     target.path.startsWith(projectDir.path + File.separator)
                 ) {
-                    target.delete()
+                    if (target.exists() && !target.delete()) {
+                        throw java.io.IOException("Could not delete stale material sidecar")
+                    }
                 }
             } else {
                 projectRepository.saveArtifact(
@@ -1879,8 +1916,19 @@ class EditorViewModel @Inject constructor(
                     MaterialStateCodec.encode(snapshot),
                 )
             }
-        }.onFailure { error ->
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (error: Exception) {
             android.util.Log.e("EditorViewModel", "Failed to save material state for $layerId", error)
+            withContext(dispatchers.main) {
+                Toast.makeText(
+                    context,
+                    "Couldn't save material state — storage may be full",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            false
         }
     }
 
@@ -1913,13 +1961,15 @@ class EditorViewModel @Inject constructor(
         pendingSaveJobs.remove(layerId)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            writeLayerBitmap(layerId, path, bitmap)
-            writeMaterialState(
+            val bitmapSaved = writeLayerBitmap(layerId, path, bitmap)
+            val materialSaved = bitmapSaved && writeMaterialState(
                 layerId,
                 projectId,
                 captureMaterialState(layerId, bitmap.width, bitmap.height),
             )
-            pendingWrites.remove(layerId, pending)
+            if (bitmapSaved && materialSaved) {
+                pendingWrites.remove(layerId, pending)
+            }
             // Painting changes the project, so the manifest's modified time should move with it —
             // otherwise a session spent only painting leaves the project sorting as untouched in
             // the gallery, behind projects that were merely opened.
@@ -1937,13 +1987,15 @@ class EditorViewModel @Inject constructor(
      * so the naive write fails precisely when it matters. A truncated layer doesn't decode, which
      * loses the whole layer rather than the last stroke.
      */
-    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap) {
+    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean {
         try {
-            if (bitmap.isRecycled) return
+            if (bitmap.isRecycled) return false
             val file = java.io.File(path)
             val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
             java.io.FileOutputStream(tmp).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                    throw java.io.IOException("Bitmap encoder refused PNG output")
+                }
             }
             if (!tmp.renameTo(file)) {
                 file.delete()
@@ -1956,9 +2008,10 @@ class EditorViewModel @Inject constructor(
                     // the known-good tmp file behind instead of silently discarding it while file
                     // sits truncated.
                     tmp.copyTo(file, overwrite = true)
-                    tmp.delete()
+                    if (!tmp.delete()) tmp.deleteOnExit()
                 }
             }
+            return true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
             // stays in pendingWrites so a flush still catches it.
@@ -1969,7 +2022,22 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
             }
+            return false
         }
+    }
+
+    /** Writes the bitmap + matching material sidecar as one retryable pending unit. */
+    private suspend fun persistPendingLayerWrite(
+        layerId: String,
+        write: PendingLayerWrite,
+    ): Boolean {
+        val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+        if (!bitmapSaved) return false
+        return writeMaterialState(
+            layerId,
+            write.projectId,
+            captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
+        )
     }
 
     /**
@@ -1991,13 +2059,9 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch(dispatchers.io) {
             outstanding.forEach { (layerId, write) ->
-                writeLayerBitmap(layerId, write.path, write.bitmap)
-                writeMaterialState(
-                    layerId,
-                    write.projectId,
-                    captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                )
-                pendingWrites.remove(layerId, write)
+                if (persistPendingLayerWrite(layerId, write)) {
+                    pendingWrites.remove(layerId, write)
+                }
             }
             saveProject()
         }
@@ -2568,12 +2632,9 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    if (!persistPendingLayerWrite(layerId, write)) {
+                        throw java.io.IOException("Could not flush pending layer $layerId")
+                    }
                     pendingWrites.remove(layerId, write)
                 }
                 val saved = persistProject(cleanName)
@@ -2605,12 +2666,9 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    if (!persistPendingLayerWrite(layerId, write)) {
+                        throw java.io.IOException("Could not flush pending layer $layerId")
+                    }
                     pendingWrites.remove(layerId, write)
                 }
                 persistProject(null)
@@ -3541,6 +3599,9 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.io) {
             val currentBitmap = layer.bitmap
+            val sourceMaterial = currentBitmap?.let { bmp ->
+                captureMaterialState(id, bmp.width, bmp.height)
+            }
             val newBitmap = currentBitmap?.copy(currentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
             val newUri = newBitmap?.let { bmp ->
                 val filename = "layer_dup_${UUID.randomUUID()}.png"
@@ -3552,17 +3613,48 @@ class EditorViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 name = "${layer.name} Copy",
                 bitmap = newBitmap,
-                uri = newUri
+                uri = newUri,
+                heightMap = sourceMaterial?.heightMap?.copyOf(),
             )
 
             newBitmap?.let { bmp ->
                 putLayerBase(duplicated.id, bmp)
                 layerStore.initStrokes(duplicated.id)
+                sourceMaterial?.heightMap?.let {
+                    layerStore.putHeightBase(duplicated.id, it.copyOf())
+                }
+                sourceMaterial?.wetness?.let { wet ->
+                    val wetState = WetnessReplayState.fromSnapshot(
+                        width = bmp.width,
+                        height = bmp.height,
+                        wetness = wet,
+                        // Duplication stays in the same monotonic session.
+                        lastUptimeMillis = sourceMaterial.lastWetnessUptimeMillis,
+                        tileSize = sourceMaterial.tileSize,
+                    )
+                    layerStore.putWetnessBase(duplicated.id, wetState)
+                    layerStore.putLiveWetness(duplicated.id, wetState)
+                }
+                val duplicatedMedium = sourceMaterial?.mediumOwnerIds?.let { owners ->
+                    MaterialMediumReplayState.fromSnapshot(
+                        width = bmp.width,
+                        height = bmp.height,
+                        palette = sourceMaterial.mediumPalette,
+                        ownerIds = owners,
+                    )
+                }
+                if (duplicatedMedium != null) {
+                    layerStore.putMaterialMediumBase(duplicated.id, duplicatedMedium)
+                    layerStore.putLiveMaterialMedium(duplicated.id, duplicatedMedium)
+                }
             }
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
                 opEmitter.emit(Op.LayerAdd(duplicated))
+                // Queue the duplicate's material sidecar through the same retryable persistence
+                // unit as ordinary painting; a duplicate must survive reopen with identical relief.
+                if (newBitmap != null) scheduleDiskSave(duplicated.id, newBitmap, newUri)
                 saveProject()
                 dispatch(EditorIntent.SetLoading(false))
             }
@@ -3796,6 +3888,7 @@ class EditorViewModel @Inject constructor(
             stampLiveHeightMap = null
             stampLiveWetnessState = null
             stampLiveImpastoState = null
+            stampLiveMaterialMediumState = null
             stampLiveMaterialSelection = null
             stampLiveShadedBitmap = null
             stampLivePreStrokeBase = null
@@ -3907,6 +4000,11 @@ class EditorViewModel @Inject constructor(
                 } else {
                     null
                 }
+                val materialMediumSeed = if (usesImpastoV2) {
+                    layerStore.materialMediumStateCopy(layerId, work.width, work.height)
+                } else {
+                    null
+                }
                 val materialSelectionSeed = if (usesImpastoV2) {
                     SelectionMask.region(
                         SelectionMask.bitmapPath(
@@ -3947,6 +4045,7 @@ class EditorViewModel @Inject constructor(
                         stampLiveHeightMap = heightMapSeed
                         stampLiveWetnessState = wetnessSeed
                         stampLiveImpastoState = impastoStateSeed
+                        stampLiveMaterialMediumState = materialMediumSeed
                         stampLiveMaterialSelection = materialSelectionSeed
                         stampLiveShadedBitmap = shadedBitmapSeed
                         stampLivePreStrokeBase = preStrokeBaseSeed
@@ -4527,6 +4626,7 @@ class EditorViewModel @Inject constructor(
                 stampPendingLatencyIds.append(generatedLatencyIds)
                 val heightMap = stampLiveHeightMap
                 val liveWetness = stampLiveWetnessState
+                val liveMediumState = stampLiveMaterialMediumState
                 val materialSelection = stampLiveMaterialSelection
                 val shadedBitmap = stampLiveShadedBitmap
                 val strokeGen = strokeGeneration
@@ -4870,6 +4970,7 @@ class EditorViewModel @Inject constructor(
                             }
                             val touched: DirtyRegion?
                             if (config.usesV2) {
+                                val incomingMedium = config.toMedium()
                                 val transfer = ImpastoEngine.transferMaterialStroke(
                                     height = heightMap,
                                     width = work.width,
@@ -4877,10 +4978,11 @@ class EditorViewModel @Inject constructor(
                                     dabs = impastoDabs,
                                     hardness = brush.hardness,
                                     thicknessRate = brush.impastoThicknessRate,
-                                    medium = config.toMedium(),
+                                    medium = incomingMedium,
                                     initialState = stampLiveImpastoState
                                         ?: ImpastoMaterialStrokeState(config.initialLoad),
                                     pixelAllowed = allowed,
+                                    onMaterialDeposited = { x, y -> liveMediumState?.assign(x, y, incomingMedium) },
                                 )
                                 if (
                                     strokeGeneration == strokeGen &&
@@ -4896,6 +4998,7 @@ class EditorViewModel @Inject constructor(
                                         hardness = brush.hardness,
                                         wetnessRate = config.wetness * brush.impastoThicknessRate,
                                         pixelAllowed = allowed,
+                                        onWetnessDeposited = { x, y -> liveMediumState?.assign(x, y, incomingMedium) },
                                     )
                                 }
                                 val transferDirty = transfer.dirtyRegion
@@ -4937,7 +5040,10 @@ class EditorViewModel @Inject constructor(
                                         lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
                                         lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
                                         reliefStrength = IMPASTO_LIGHT_STRENGTH,
-                                        medium = config.toMedium(),
+                                        medium = incomingMedium,
+                                        mediumAt = liveMediumState?.let { owners ->
+                                            { x, y -> owners.mediumAt(x, y) }
+                                        },
                                     )
                                 } else {
                                     ImpastoRegionShader.shade(
@@ -5620,6 +5726,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = layerStore.materialMediumStateCopy(layerId, base.width, base.height)
         // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
         // cancel each other's stale publishes: without this, a fast Undo landing right after this
         // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
@@ -5638,6 +5745,7 @@ class EditorViewModel @Inject constructor(
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             val target = drawingEngine.applySingleStroke(
                 base, command, otherLayers, heightWorking, wetnessState = wetnessWorking,
+                materialMediumState = mediumWorking,
             )
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
@@ -5666,6 +5774,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     layerStore.clearLiveWetness(layerId)
                 }
+                layerStore.putLiveMaterialMedium(layerId, mediumWorking)
                 _uiState.update { s ->
                     s.copy(
                         layers = s.layers.map {
@@ -7253,6 +7362,7 @@ class EditorViewModel @Inject constructor(
         stampLiveHeightMap = null
         stampLiveWetnessState = null
         stampLiveImpastoState = null
+        stampLiveMaterialMediumState = null
         stampLiveMaterialSelection = null
         stampLiveShadedBitmap = null
         stampLivePreStrokeBase = null

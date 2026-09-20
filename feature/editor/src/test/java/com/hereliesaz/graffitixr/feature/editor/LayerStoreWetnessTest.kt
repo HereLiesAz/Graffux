@@ -1,5 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
+
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -78,6 +80,44 @@ class LayerStoreWetnessTest {
             requireNotNull(store.wetnessStateCopyOrNull("a")).field.wetnessAt(1, 1),
             0f,
         )
+    }
+
+
+    @Test
+    fun `initStrokes clears material belonging to replaced bitmap contents`() {
+        val store = LayerStore()
+        val medium = PaintMedium(viscosity = 0.7f, levelingRate = 0.4f)
+        store.heightBase("a", 4)[0] = 0.8f
+        val wet = WetnessReplayState.empty(2, 2)
+        wet.field.addWetness(0, 0, 0.5f)
+        store.putWetnessBase("a", wet)
+        store.putLiveWetness("a", wet)
+        val owners = MaterialMediumReplayState.empty(2, 2).also { it.assign(0, 0, medium) }
+        store.putMaterialMediumBase("a", owners)
+        store.putLiveMaterialMedium("a", owners)
+
+        store.initStrokes("a")
+
+        assertEquals(null, store.heightBaseCopyOrNull("a"))
+        assertEquals(null, store.wetnessStateCopyOrNull("a"))
+        assertEquals(null, store.materialMediumStateCopyOrNull("a"))
+        assertTrue(!store.hasWetnessState("a"))
+    }
+
+    @Test
+    fun `missing channel can be cleared without disturbing the others`() {
+        val store = LayerStore()
+        store.heightBase("a", 4)[0] = 0.4f
+        val wet = WetnessReplayState.empty(2, 2)
+        wet.field.addWetness(1, 1, 0.6f)
+        store.putWetnessBase("a", wet)
+
+        store.clearHeightBase("a")
+        assertEquals(null, store.heightBaseCopyOrNull("a"))
+        assertTrue(store.hasWetnessBase("a"))
+
+        store.clearWetnessState("a")
+        assertTrue(!store.hasWetnessState("a"))
     }
 
 }
