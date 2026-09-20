@@ -1319,6 +1319,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // drawn, playback still going) and nothing on screen saying so.
                 if (uiState.isAnimationMode) {
                     val playbackRange = vm.resolvedPlaybackRange()
+                    val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
                     AnimationWindow(
                         // vm.animationFrameCount(), not `layers.count { it.parentId == null }`.
                         // Every other part of Animation Assist counts frames through
@@ -1341,9 +1342,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         rawRangeEnd = uiState.animationRangeEnd,
                         currentFrameHoldCount = vm.currentFrameHoldCount(),
                         isTimeLapseRecording = uiState.isTimeLapseRecording,
+                        previewIsRendering = animationPreviewBuffer.isRendering,
+                        previewIsReady = vm.isAnimationPreviewReady(uiState),
+                        previewRenderedFrames = animationPreviewBuffer.renderedFrames,
+                        previewTotalFrames = animationPreviewBuffer.totalFrames,
+                        previewError = animationPreviewBuffer.error,
                         onTogglePlayback = { vm.onToggleAnimationPlayback() },
                         onPreviousFrame = { vm.onPreviousFrame() },
                         onNextFrame = { vm.onNextFrame() },
+                        onSeekFrame = { vm.onSelectFrame(it) },
                         onAddFrame = { vm.onAddFrame() },
                         onToggleOnionSkin = { vm.onToggleOnionSkin() },
                         onSetOnionSkinPastCount = { vm.onSetOnionSkinPastCount(it) },
@@ -1351,6 +1358,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetLoopMode = { vm.onSetAnimationLoopMode(it) },
                         onSetFrameDurationMs = { vm.onSetAnimationFrameDurationMs(it) },
                         onSetRange = { start, end -> vm.onSetAnimationRange(start, end) },
+                        onRenderPreview = { vm.renderAnimationPreview() },
                         onSetFrameHoldCount = { vm.onSetFrameHoldCount(it) },
                         onExport = { vm.exportAnimation() },
                         onToggleTimeLapse = { vm.onToggleTimeLapseRecording() },
