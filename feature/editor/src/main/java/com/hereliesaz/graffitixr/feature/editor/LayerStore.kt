@@ -24,6 +24,8 @@ internal class LayerStore {
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
+    private val impastoMaterialBases = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
+    private val liveImpastoMaterial = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
@@ -34,6 +36,13 @@ internal class LayerStore {
         ) {
             wetnessBases.remove(layerId)
             liveWetness.remove(layerId)
+        }
+        val materialBase = impastoMaterialBases[layerId]
+        if (materialBase != null &&
+            (materialBase.width != bitmap.width || materialBase.height != bitmap.height)
+        ) {
+            impastoMaterialBases.remove(layerId)
+            liveImpastoMaterial.remove(layerId)
         }
     }
 
@@ -119,10 +128,75 @@ internal class LayerStore {
         liveWetness.remove(layerId)
     }
 
-    /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
+    /**
+     * Returns a defensive Impasto-v2 base state. A first v2 stroke seeds canonical unlit pigment
+     * from [rawSeed]; color-only layers never allocate this state.
+     */
+    fun impastoMaterialBaseCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+        rawSeed: IntArray,
+    ): ImpastoMaterialReplayState {
+        val existing = impastoMaterialBases[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = ImpastoMaterialReplayState.fromRaw(width, height, rawSeed)
+        impastoMaterialBases[layerId] = fresh.copyForWork()
+        liveImpastoMaterial.remove(layerId)
+        return fresh
+    }
+
+    fun hasImpastoMaterialState(layerId: String): Boolean =
+        impastoMaterialBases.containsKey(layerId) || liveImpastoMaterial.containsKey(layerId)
+
+    fun putImpastoMaterialBase(layerId: String, state: ImpastoMaterialReplayState) {
+        impastoMaterialBases[layerId] = state.copyForWork()
+    }
+
+    fun liveImpastoMaterialCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+        rawSeed: IntArray,
+    ): ImpastoMaterialReplayState {
+        val existing = liveImpastoMaterial[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = impastoMaterialBaseCopy(layerId, width, height, rawSeed)
+        liveImpastoMaterial[layerId] = fresh.copyForWork()
+        return fresh
+    }
+
+    fun putLiveImpastoMaterial(layerId: String, state: ImpastoMaterialReplayState) {
+        liveImpastoMaterial[layerId] = state.copyForWork()
+    }
+
+    fun impastoMaterialStateCopyOrNull(layerId: String): ImpastoMaterialReplayState? =
+        (liveImpastoMaterial[layerId] ?: impastoMaterialBases[layerId])?.copyForWork()
+
+    fun clearLiveImpastoMaterial(layerId: String) {
+        liveImpastoMaterial.remove(layerId)
+    }
+
+    /** Drops every canonical derived-material cache for a failed/absent sidecar restore. */
+    fun clearCanonicalMaterial(layerId: String) {
+        heightBases.remove(layerId)
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+        impastoMaterialBases.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
+        impastoMaterialBases.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
+    }
+
+    /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
         liveWetness.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -206,6 +280,8 @@ internal class LayerStore {
         heightBases.clear()
         wetnessBases.clear()
         liveWetness.clear()
+        impastoMaterialBases.clear()
+        liveImpastoMaterial.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
@@ -215,5 +291,7 @@ internal class LayerStore {
         heightBases.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)
+        impastoMaterialBases.keys.retainAll(liveIds)
+        liveImpastoMaterial.keys.retainAll(liveIds)
     }
 }
