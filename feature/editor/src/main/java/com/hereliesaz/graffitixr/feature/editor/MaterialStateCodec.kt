@@ -39,7 +39,8 @@ internal object MaterialStateCodec {
     ) {
         val hasMaterial: Boolean
             get() = heightMap?.any { abs(it) > ZERO_EPSILON } == true ||
-                wetness?.any { abs(it) > ZERO_EPSILON } == true
+                wetness?.any { abs(it) > ZERO_EPSILON } == true ||
+                medium != null
     }
 
     private data class TileRecord(val tx: Int, val ty: Int, val flags: Int)
@@ -283,8 +284,6 @@ internal object MaterialStateCodec {
     private const val FLAG_HEIGHT = 1
     private const val FLAG_WETNESS = 2
     private const val VALID_FLAGS = FLAG_HEIGHT or FLAG_WETNESS
-    // v1 reserved Long.MIN_VALUE as "no time"; v2 no longer writes monotonic uptime.
-    private const val NO_TIME = Long.MIN_VALUE
     private const val DEFAULT_TILE_SIZE = 64
     private const val MAX_TILE_SIZE = 512
     private const val MAX_PIXELS = 16_777_216L // 4096²; above the editor's phone-first raster budget.
