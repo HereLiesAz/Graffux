@@ -1885,6 +1885,8 @@ class EditorViewModel @Inject constructor(
         val path: String,
         val bitmap: Bitmap,
         val projectId: String?,
+        /** Canonical material captured with this exact bitmap, never re-read at retry time. */
+        val material: MaterialStateCodec.Snapshot?,
     )
 
     private val pendingWrites = java.util.concurrent.ConcurrentHashMap<String, PendingLayerWrite>()
@@ -1902,15 +1904,22 @@ class EditorViewModel @Inject constructor(
         val wetness = layerStore.wetnessStateCopyOrNull(layerId)?.takeIf {
             it.field.width == width && it.field.height == height
         }
-        if (layerHeight == null && wetness == null) return null
+        val impasto = layerStore.impastoMaterialStateCopyOrNull(layerId)?.takeIf {
+            it.width == width && it.height == height
+        }
+        if (layerHeight == null && wetness == null && impasto == null) return null
         return MaterialStateCodec.Snapshot(
             width = width,
             height = height,
             heightMap = layerHeight,
             wetness = wetness?.snapshot(),
-            lastWetnessUptimeMillis = wetness?.lastUptimeMillis,
+            // Android uptime is session-local; MaterialStateCodec v2 intentionally resets it.
+            lastWetnessUptimeMillis = null,
             tileSize = wetness?.field?.tileSize
+                ?: impasto?.tileSize
                 ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
+            rawColor = impasto?.rawColor?.copyOf(),
+            mediumTiles = impasto?.tileSnapshots() ?: emptyList(),
         )
     }
 
@@ -1918,20 +1927,20 @@ class EditorViewModel @Inject constructor(
         layerId: String,
         projectId: String?,
         snapshot: MaterialStateCodec.Snapshot?,
-    ) {
-        if (projectId == null) return
+    ): Boolean {
+        if (projectId == null) return true
         val filename = MaterialStateCodec.fileNameForLayer(layerId)
-        runCatching {
+        return runCatching {
             if (snapshot == null || !snapshot.hasMaterial) {
                 // Undo/rebuild can return a layer to its never-material state. Delete any older
                 // sidecar so a subsequent reload cannot resurrect stale height/wetness.
                 val projectsRoot = File(context.filesDir, "projects").canonicalFile
                 val projectDir = File(projectsRoot, projectId).canonicalFile
                 val target = File(projectDir, filename).canonicalFile
-                if (projectDir.path.startsWith(projectsRoot.path + File.separator) &&
-                    target.path.startsWith(projectDir.path + File.separator)
-                ) {
-                    target.delete()
+                require(projectDir.path.startsWith(projectsRoot.path + File.separator))
+                require(target.path.startsWith(projectDir.path + File.separator))
+                if (target.exists() && !target.delete()) {
+                    error("Could not delete stale material sidecar")
                 }
             } else {
                 projectRepository.saveArtifact(
@@ -1940,8 +1949,10 @@ class EditorViewModel @Inject constructor(
                     MaterialStateCodec.encode(snapshot),
                 )
             }
-        }.onFailure { error ->
+            true
+        }.getOrElse { error ->
             android.util.Log.e("EditorViewModel", "Failed to save material state for $layerId", error)
+            false
         }
     }
 
@@ -1968,23 +1979,26 @@ class EditorViewModel @Inject constructor(
     private fun scheduleDiskSave(layerId: String, bitmap: Bitmap, uri: Uri?) {
         val path = uri?.path ?: return
         val projectId = _uiState.value.projectId
-        val pending = PendingLayerWrite(path, bitmap, projectId)
+        val pending = PendingLayerWrite(
+            path = path,
+            bitmap = bitmap,
+            projectId = projectId,
+            material = captureMaterialState(layerId, bitmap.width, bitmap.height),
+        )
         pendingWrites[layerId] = pending
         // Cancel only this layer's previous pending save, never another layer's.
         pendingSaveJobs.remove(layerId)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            writeLayerBitmap(layerId, path, bitmap)
-            writeMaterialState(
-                layerId,
-                projectId,
-                captureMaterialState(layerId, bitmap.width, bitmap.height),
-            )
-            pendingWrites.remove(layerId, pending)
+            val bitmapSaved = writeLayerBitmap(layerId, path, bitmap)
+            val materialSaved = bitmapSaved && writeMaterialState(layerId, projectId, pending.material)
+            if (bitmapSaved && materialSaved) {
+                pendingWrites.remove(layerId, pending)
+            }
             // Painting changes the project, so the manifest's modified time should move with it —
             // otherwise a session spent only painting leaves the project sorting as untouched in
             // the gallery, behind projects that were merely opened.
-            saveProject()
+            if (bitmapSaved && materialSaved) saveProject()
             // Don't leak completed jobs in the map.
             pendingSaveJobs.remove(layerId, coroutineContext[kotlinx.coroutines.Job])
         }
@@ -1998,13 +2012,15 @@ class EditorViewModel @Inject constructor(
      * so the naive write fails precisely when it matters. A truncated layer doesn't decode, which
      * loses the whole layer rather than the last stroke.
      */
-    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap) {
+    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean {
         try {
-            if (bitmap.isRecycled) return
+            if (bitmap.isRecycled) return false
             val file = java.io.File(path)
             val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
             java.io.FileOutputStream(tmp).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                    "Bitmap compression failed"
+                }
             }
             if (!tmp.renameTo(file)) {
                 file.delete()
@@ -2020,6 +2036,7 @@ class EditorViewModel @Inject constructor(
                     tmp.delete()
                 }
             }
+            return true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
             // stays in pendingWrites so a flush still catches it.
@@ -2030,6 +2047,7 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
             }
+            return false
         }
     }
 
@@ -2051,16 +2069,18 @@ class EditorViewModel @Inject constructor(
             return
         }
         viewModelScope.launch(dispatchers.io) {
+            var allSaved = true
             outstanding.forEach { (layerId, write) ->
-                writeLayerBitmap(layerId, write.path, write.bitmap)
-                writeMaterialState(
-                    layerId,
-                    write.projectId,
-                    captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                )
-                pendingWrites.remove(layerId, write)
+                val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+                val materialSaved = bitmapSaved &&
+                    writeMaterialState(layerId, write.projectId, write.material)
+                if (bitmapSaved && materialSaved) {
+                    pendingWrites.remove(layerId, write)
+                } else {
+                    allSaved = false
+                }
             }
-            saveProject()
+            if (allSaved) saveProject()
         }
     }
 
