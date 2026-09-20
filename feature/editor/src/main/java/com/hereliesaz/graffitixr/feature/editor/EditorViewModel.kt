@@ -6953,7 +6953,7 @@ class EditorViewModel @Inject constructor(
                 )
 
                 for (index in range) {
-                    kotlinx.coroutines.ensureActive()
+                    if (!isActive) throw kotlinx.coroutines.CancellationException("Preview rendering cancelled")
                     val ids = AnimationFrames.renderedLayerIdsForFrame(state.layers, index)
                     val full = exportManager.compositeToDocument(
                         layers = state.layers.filter { it.id in ids },
