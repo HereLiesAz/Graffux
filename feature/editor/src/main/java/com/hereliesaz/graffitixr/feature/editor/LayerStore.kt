@@ -197,11 +197,17 @@ internal class LayerStore {
         liveMaterialMedia.remove(layerId)
     }
 
-    /** Resets [layerId]'s stroke list to empty and makes live wetness re-derive from its base. */
+    /**
+     * Resets [layerId] for new/replaced bitmap contents.
+     *
+     * Every current caller uses this after installing a fresh layer base (new/imported/duplicated/
+     * reloaded content). Canonical material belongs to the old bitmap, so keeping baked height,
+     * wetness, or medium ownership here can resurrect material onto unrelated same-sized pixels.
+     * Project reload/duplicate paths restore their sidecar/copy immediately after this reset.
+     */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
-        liveWetness.remove(layerId)
-        liveMaterialMedia.remove(layerId)
+        clearMaterialState(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
