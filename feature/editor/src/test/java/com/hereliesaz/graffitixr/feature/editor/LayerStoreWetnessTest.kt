@@ -1,5 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
+import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -79,5 +81,24 @@ class LayerStoreWetnessTest {
             0f,
         )
     }
+    @Test
+    fun `canonical material clear removes height wetness and impasto state together`() {
+        val store = LayerStore()
+        store.heightBase("a", 4)[0] = 0.7f
+        val wet = WetnessReplayState.empty(2, 2)
+        wet.field.addWetness(0, 0, 0.5f)
+        store.putWetnessBase("a", wet)
+        val impasto = ImpastoMaterialReplayState.fromRaw(2, 2, IntArray(4), tileSize = 2)
+        impasto.recordMedium(DirtyRegion(0, 0, 2, 2), PaintMedium(viscosity = 0.4f))
+        store.putImpastoMaterialBase("a", impasto)
+        store.putLiveImpastoMaterial("a", impasto)
+
+        store.clearCanonicalMaterial("a")
+
+        assertEquals(null, store.heightBaseCopyOrNull("a"))
+        assertFalse(store.hasWetnessState("a"))
+        assertFalse(store.hasImpastoMaterialState("a"))
+    }
+
 
 }
