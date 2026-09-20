@@ -118,6 +118,7 @@ class PersistentWetnessField(
         dryingRate: Float,
         transportRate: Float,
         dryEpsilon: Float = DEFAULT_DRY_EPSILON,
+        dryingRateAt: ((x: Int, y: Int) -> Float)? = null,
     ): StepStats {
         val dt = deltaSeconds.coerceAtLeast(0f)
         val startingTiles = activeCount
@@ -150,11 +151,17 @@ class PersistentWetnessField(
         }
 
         val drying = dryingRate.coerceIn(0f, 1f)
-        val dryMultiplier = exp((-drying * dt).toDouble()).toFloat()
+        val uniformDryMultiplier = exp((-drying * dt).toDouble()).toFloat()
         var after = 0f
         val stillWetTiles = BooleanArray(activeTiles.size)
 
         forEachActivePixel { index, x, y ->
+            val dryMultiplier = if (dryingRateAt == null) {
+                uniformDryMultiplier
+            } else {
+                val localDrying = dryingRateAt(x, y).coerceIn(0f, 1f)
+                exp((-localDrying * dt).toDouble()).toFloat()
+            }
             val next = ((wetness[index] + deltaScratch[index]).coerceIn(0f, 1f) * dryMultiplier)
                 .coerceIn(0f, 1f)
             wetness[index] = if (next <= epsilon) 0f else next
