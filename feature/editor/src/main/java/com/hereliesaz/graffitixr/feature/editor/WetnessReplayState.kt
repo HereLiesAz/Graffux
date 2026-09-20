@@ -25,6 +25,7 @@ internal class WetnessReplayState private constructor(
         dryingRate: Float = DEFAULT_DRYING_RATE,
         wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE,
         pigmentTransportRate: Float = DEFAULT_PIGMENT_TRANSPORT_RATE,
+        dryingRateAt: ((x: Int, y: Int) -> Float)? = null,
     ) {
         val next = uptimeMillis ?: return
         require(pixels.size >= field.width * field.height) {
@@ -38,6 +39,7 @@ internal class WetnessReplayState private constructor(
                 dryingRate = dryingRate,
                 wetnessTransportRate = wetnessTransportRate,
                 pigmentTransportRate = pigmentTransportRate,
+                dryingRateAt = dryingRateAt,
             )
         }
         // A backwards uptime jump can happen across a device reboot. Treat it as a new monotonic
@@ -76,12 +78,14 @@ internal class WetnessReplayState private constructor(
         dryingRate: Float,
         wetnessTransportRate: Float,
         pigmentTransportRate: Float,
+        dryingRateAt: ((x: Int, y: Int) -> Float)?,
     ) {
         transportMaterial(pixels, deltaSeconds, pigmentTransportRate)
         field.advance(
             deltaSeconds = deltaSeconds,
             dryingRate = dryingRate.coerceAtLeast(0f),
             transportRate = wetnessTransportRate.coerceIn(0f, 1f),
+            dryingRateAt = dryingRateAt,
         )
     }
 
