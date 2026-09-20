@@ -196,11 +196,11 @@ internal class DrawingEngine(
                 heightMap != null &&
                 heightMap.size == target.width * target.height
             val incomingMaterialMedium = materialConfig.toMedium()
-            val materialMedium = if (usesImpastoV2) {
-                materialMediumState?.resolve(incomingMaterialMedium) ?: incomingMaterialMedium
-            } else {
-                incomingMaterialMedium
-            }
+            // New material uses the incoming brush response. Existing pixels keep their own
+            // spatially persisted response via materialMediumState.mediumAt(...).
+            val materialMedium = incomingMaterialMedium
+            val mediumAt: ((Int, Int) -> com.hereliesaz.graffitixr.common.azphalt.PaintMedium?)? =
+                materialMediumState?.let { owners -> { x, y -> owners.mediumAt(x, y) } }
             val materialWetness = wetnessState?.takeIf {
                 it.field.width == target.width && it.field.height == target.height
             }
@@ -222,7 +222,7 @@ internal class DrawingEngine(
             val materialWeight: ((Int, Int) -> Float)? = materialFeatherWeights?.let { weights ->
                 { x, y ->
                     if (x in 0 until target.width && y in 0 until target.height) {
-                        weights[y * target.width + x]
+                        ((weights[y * target.width + x].toInt() and 0xFF) / 255f)
                     } else {
                         0f
                     }
@@ -238,16 +238,8 @@ internal class DrawingEngine(
                 val previousTime = materialWetness.lastUptimeMillis
                 if (nextTime != null && previousTime != null && nextTime > previousTime) {
                     preContactMaterialRegion = activeWetnessBounds(materialWetness.field)
-                    // Existing material pixels are presentation-shaded in the layer bitmap. Restore
-                    // their lighting-neutral pigment before transport/leveling, then shade exactly
-                    // once from the updated canonical material state below.
-                    unshadeImpastoRegion(
-                        target = target,
-                        heightMap = requireNotNull(heightMap),
-                        touched = preContactMaterialRegion,
-                        wetness = materialWetness.field,
-                        medium = materialMedium,
-                    )
+                    // Height and wetness evolve canonically. Display RGB is presentation output and
+                    // is never inverted back into pigment; Impasto therefore advances wetness only.
                     ImpastoEngine.levelWetHeight(
                         height = requireNotNull(heightMap),
                         width = target.width,
@@ -258,16 +250,16 @@ internal class DrawingEngine(
                         region = preContactMaterialRegion,
                         substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                         substrateField = substrate?.field,
+                        mediumAt = mediumAt,
                     )
                 }
-                val materialPixels = IntArray(target.width * target.height)
-                target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                materialWetness.advanceMaterialTo(
-                    materialPixels,
+                materialWetness.advanceWetnessTo(
                     nextTime,
                     dryingRate = materialMedium.dryingRate,
+                    dryingRateAt = { x, y ->
+                        materialMediumState?.mediumAt(x, y)?.dryingRate ?: materialMedium.dryingRate
+                    },
                 )
-                target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
             }
 
             val paintedDabs: List<Dab>
@@ -349,6 +341,9 @@ internal class DrawingEngine(
                         substrateField = substrate?.field,
                         pixelAllowed = materialAllowed,
                         pixelWeight = materialWeight,
+                        onMaterialDeposited = { x, y ->
+                            materialMediumState?.assign(x, y, incomingMaterialMedium)
+                        },
                     )
                     val wetDirty = materialWetness?.let { wetState ->
                         ImpastoEngine.depositWetnessStroke(
@@ -358,16 +353,16 @@ internal class DrawingEngine(
                             wetnessRate = materialConfig.wetness * brush.impastoThicknessRate,
                             pixelAllowed = materialAllowed,
                             pixelWeight = materialWeight,
+                            onWetnessDeposited = { x, y ->
+                                materialMediumState?.assign(x, y, incomingMaterialMedium)
+                            },
                         )
                     }
 
                     // One deterministic post-contact quantum: Phase 4 settles pigment/wetness and
                     // Phase 5 levels height over the same bounded touched material region.
                     if (materialWetness != null && !materialWetness.field.isIdle) {
-                        val materialPixels = IntArray(target.width * target.height)
-                        target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                        materialWetness.settleMaterial(materialPixels)
-                        target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
+                        materialWetness.settleWetness()
                         val settleRegion = unionRegions(transfer.dirtyRegion, wetDirty)
                         ImpastoEngine.levelWetHeight(
                             height = heightMap,
@@ -379,6 +374,7 @@ internal class DrawingEngine(
                             region = settleRegion,
                             substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                             substrateField = substrate?.field,
+                            mediumAt = mediumAt,
                         )
                         materialWetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
                     }
@@ -393,6 +389,7 @@ internal class DrawingEngine(
                         touched = touched,
                         wetness = materialWetness?.field,
                         medium = materialMedium,
+                        mediumAt = mediumAt,
                     )
                 } else {
                     ImpastoEngine.depositStroke(
@@ -602,50 +599,6 @@ internal class DrawingEngine(
     }
 
     /**
-     * Converts a previously presented v2 region back to its lighting-neutral pigment basis before
-     * deterministic material advancement. Regional allocation keeps this off the full-canvas hot
-     * path and uses the same previous height/wetness/medium state that produced the presentation.
-     */
-    private fun unshadeImpastoRegion(
-        target: Bitmap,
-        heightMap: FloatArray,
-        touched: DirtyRegion?,
-        wetness: PersistentWetnessField?,
-        medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium,
-    ) {
-        val region = touched?.let {
-            DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
-        }?.clampTo(target.width, target.height) ?: return
-        if (region.isEmpty) return
-        val regionWidth = region.right - region.left
-        val regionHeight = region.bottom - region.top
-        val shadedRegion = IntArray(regionWidth * regionHeight)
-        target.getPixels(
-            shadedRegion, 0, regionWidth,
-            region.left, region.top, regionWidth, regionHeight,
-        )
-        val rawRegion = ImpastoRegionShader.unshadeMaterial(
-            shadedRegion = shadedRegion,
-            height = heightMap,
-            wetness = wetness,
-            canvasWidth = target.width,
-            canvasHeight = target.height,
-            left = region.left,
-            top = region.top,
-            regionWidth = regionWidth,
-            regionHeight = regionHeight,
-            lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
-            lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
-            reliefStrength = IMPASTO_LIGHT_STRENGTH,
-            medium = medium,
-        )
-        target.setPixels(
-            rawRegion, 0, regionWidth,
-            region.left, region.top, regionWidth, regionHeight,
-        )
-    }
-
-    /**
      * Re-shades only material pixels whose height/wetness could have changed plus the one-pixel
      * normal-gradient border. A null [medium] selects the historical v1 relief shader exactly.
      */
@@ -655,6 +608,7 @@ internal class DrawingEngine(
         touched: DirtyRegion?,
         wetness: PersistentWetnessField?,
         medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium?,
+        mediumAt: ((x: Int, y: Int) -> com.hereliesaz.graffitixr.common.azphalt.PaintMedium?)? = null,
     ) {
         val region = touched?.let {
             DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
@@ -688,6 +642,7 @@ internal class DrawingEngine(
                 lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
                 reliefStrength = IMPASTO_LIGHT_STRENGTH,
                 medium = medium,
+                mediumAt = mediumAt,
             )
         }
         target.setPixels(
