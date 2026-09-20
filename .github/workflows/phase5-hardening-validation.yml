@@ -1,0 +1,33 @@
+name: Phase 5 Hardening Validation
+
+on:
+  push:
+    branches:
+      - fix/phase5-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Phase 5 core and editor gates
+        run: |
+          ./gradlew \
+            :core:engine:test \
+            :feature:editor:compileDebugKotlin \
+            :feature:editor:testDebugUnitTest \
+            --tests "*Impasto*" \
+            --tests "*MaterialStateCodecTest" \
+            --tests "*LayerStoreWetnessTest" \
+            --tests "*WetnessReplayStateTest" \
+            --stacktrace
