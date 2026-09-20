@@ -288,7 +288,7 @@ class DrawingEngineImpastoTest {
         val owner = requireNotNull(mediumState.medium)
 
         val second = straightStroke(secondBrush).copy(
-            path = straightStroke(secondBrush).path.map { it.copy(y = 22f) },
+            path = straightStroke(secondBrush).path.map { Offset(it.x, 22f) },
             brushSamples = straightStroke(secondBrush).path.mapIndexed { index, p ->
                 BrushSample(p.x, 22f, uptimeMillis = 2_000L + index * 20L, pressure = 1f)
             },
