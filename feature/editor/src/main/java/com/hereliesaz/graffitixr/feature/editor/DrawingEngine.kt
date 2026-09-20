@@ -85,6 +85,9 @@ internal class DrawingEngine(
                 heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
                 impastoMaterialState = impastoMaterialState,
             )
+            if (impastoMaterialState != null && !strokeUsesImpastoV2(stroke)) {
+                impastoMaterialState.replaceRawColor(bitmapPixels(next))
+            }
             if (next !== current && current !== base) current.recycle()
             current = next
         }
@@ -99,13 +102,29 @@ internal class DrawingEngine(
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
-    ): Bitmap =
-        if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
+    ): Bitmap {
+        val result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
             heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
             impastoMaterialState = impastoMaterialState,
         )
+        if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
+            impastoMaterialState.replaceRawColor(bitmapPixels(result))
+        }
+        return result
+    }
+
+    private fun strokeUsesImpastoV2(stroke: StrokeCommand): Boolean =
+        stroke.tool == Tool.BRUSH &&
+            stroke.stampBrush?.let { brush ->
+                brush.impastoThicknessRate > 0f && brush.impastoMaterial.sanitized().usesV2
+            } == true
+
+    private fun bitmapPixels(bitmap: Bitmap): IntArray =
+        IntArray(bitmap.width * bitmap.height).also { pixels ->
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        }
 
     private suspend fun applyTool(
         bitmap: Bitmap,
