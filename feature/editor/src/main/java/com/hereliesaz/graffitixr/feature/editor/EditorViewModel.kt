@@ -1879,10 +1879,10 @@ class EditorViewModel @Inject constructor(
         layerId: String,
         projectId: String?,
         snapshot: MaterialStateCodec.Snapshot?,
-    ) {
-        if (projectId == null) return
+    ): Boolean {
+        if (projectId == null) return true
         val filename = MaterialStateCodec.fileNameForLayer(layerId)
-        runCatching {
+        return try {
             if (snapshot == null || !snapshot.hasMaterial) {
                 // Undo/rebuild can return a layer to its never-material state. Delete any older
                 // sidecar so a subsequent reload cannot resurrect stale height/wetness.
@@ -1892,7 +1892,9 @@ class EditorViewModel @Inject constructor(
                 if (projectDir.path.startsWith(projectsRoot.path + File.separator) &&
                     target.path.startsWith(projectDir.path + File.separator)
                 ) {
-                    target.delete()
+                    if (target.exists() && !target.delete()) {
+                        throw java.io.IOException("Could not delete stale material sidecar")
+                    }
                 }
             } else {
                 projectRepository.saveArtifact(
@@ -1901,8 +1903,19 @@ class EditorViewModel @Inject constructor(
                     MaterialStateCodec.encode(snapshot),
                 )
             }
-        }.onFailure { error ->
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (error: Exception) {
             android.util.Log.e("EditorViewModel", "Failed to save material state for $layerId", error)
+            withContext(dispatchers.main) {
+                Toast.makeText(
+                    context,
+                    "Couldn't save material state — storage may be full",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            false
         }
     }
 
@@ -1935,13 +1948,15 @@ class EditorViewModel @Inject constructor(
         pendingSaveJobs.remove(layerId)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            writeLayerBitmap(layerId, path, bitmap)
-            writeMaterialState(
+            val bitmapSaved = writeLayerBitmap(layerId, path, bitmap)
+            val materialSaved = bitmapSaved && writeMaterialState(
                 layerId,
                 projectId,
                 captureMaterialState(layerId, bitmap.width, bitmap.height),
             )
-            pendingWrites.remove(layerId, pending)
+            if (bitmapSaved && materialSaved) {
+                pendingWrites.remove(layerId, pending)
+            }
             // Painting changes the project, so the manifest's modified time should move with it —
             // otherwise a session spent only painting leaves the project sorting as untouched in
             // the gallery, behind projects that were merely opened.
@@ -1959,13 +1974,15 @@ class EditorViewModel @Inject constructor(
      * so the naive write fails precisely when it matters. A truncated layer doesn't decode, which
      * loses the whole layer rather than the last stroke.
      */
-    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap) {
+    private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean {
         try {
-            if (bitmap.isRecycled) return
+            if (bitmap.isRecycled) return false
             val file = java.io.File(path)
             val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
             java.io.FileOutputStream(tmp).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                    throw java.io.IOException("Bitmap encoder refused PNG output")
+                }
             }
             if (!tmp.renameTo(file)) {
                 file.delete()
@@ -1978,9 +1995,10 @@ class EditorViewModel @Inject constructor(
                     // the known-good tmp file behind instead of silently discarding it while file
                     // sits truncated.
                     tmp.copyTo(file, overwrite = true)
-                    tmp.delete()
+                    if (!tmp.delete()) tmp.deleteOnExit()
                 }
             }
+            return true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
             // stays in pendingWrites so a flush still catches it.
@@ -1991,6 +2009,7 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
             }
+            return false
         }
     }
 
@@ -2013,13 +2032,15 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch(dispatchers.io) {
             outstanding.forEach { (layerId, write) ->
-                writeLayerBitmap(layerId, write.path, write.bitmap)
-                writeMaterialState(
+                val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+                val materialSaved = bitmapSaved && writeMaterialState(
                     layerId,
                     write.projectId,
                     captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
                 )
-                pendingWrites.remove(layerId, write)
+                if (bitmapSaved && materialSaved) {
+                    pendingWrites.remove(layerId, write)
+                }
             }
             saveProject()
         }
