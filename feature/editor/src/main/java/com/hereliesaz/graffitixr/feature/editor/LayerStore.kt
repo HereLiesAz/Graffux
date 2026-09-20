@@ -188,8 +188,6 @@ internal class LayerStore {
         liveWetness.remove(layerId)
         impastoMaterialBases.remove(layerId)
         liveImpastoMaterial.remove(layerId)
-        impastoMaterialBases.remove(layerId)
-        liveImpastoMaterial.remove(layerId)
     }
 
     /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
@@ -271,6 +269,8 @@ internal class LayerStore {
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
+        impastoMaterialBases.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
     }
 
     /** Clears all cached bitmaps, strokes, height bases, and wetness state (e.g. on project unload). */
