@@ -201,4 +201,53 @@ class ImpastoEngineTest {
 
         assertArrayEquals(colors, out) // flat height -> unchanged, but exercises the full clamped range
     }
+
+    @Test
+    fun `material transfer respects soft per-pixel selection weight`() {
+        val w = 12
+        val h = 12
+        val dab = Dab(x = 6f, y = 6f, radius = 3f, alpha = 1f, angleDeg = 0f, contactDepth = 1f)
+        val medium = PaintMedium(heightResponse = 1f, depositionRate = 1f)
+        val full = FloatArray(w * h)
+        val half = FloatArray(w * h)
+
+        ImpastoEngine.transferMaterialStroke(
+            full, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
+            medium = medium, pixelWeight = { _, _ -> 1f },
+        )
+        ImpastoEngine.transferMaterialStroke(
+            half, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
+            medium = medium, pixelWeight = { _, _ -> 0.5f },
+        )
+
+        val center = 6 * w + 6
+        assertTrue(full[center] > 0f)
+        assertTrue("soft selection must reduce material deposition", half[center] in 0f..full[center])
+        assertTrue(half[center] < full[center])
+    }
+
+    @Test
+    fun `material wetness deposition respects soft per-pixel selection weight`() {
+        val w = 12
+        val h = 12
+        val dab = Dab(x = 6f, y = 6f, radius = 3f, alpha = 1f, angleDeg = 0f, contactDepth = 1f)
+        val full = PersistentWetnessField(w, h)
+        val quarter = PersistentWetnessField(w, h)
+
+        ImpastoEngine.depositWetnessStroke(
+            full, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
+            pixelWeight = { _, _ -> 1f },
+        )
+        ImpastoEngine.depositWetnessStroke(
+            quarter, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
+            pixelWeight = { _, _ -> 0.25f },
+        )
+
+        val fullCenter = full.wetnessAt(6, 6)
+        val quarterCenter = quarter.wetnessAt(6, 6)
+        assertTrue(fullCenter > 0f)
+        assertTrue(quarterCenter > 0f)
+        assertTrue(quarterCenter < fullCenter)
+    }
+
 }
