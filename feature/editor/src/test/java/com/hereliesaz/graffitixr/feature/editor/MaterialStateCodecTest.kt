@@ -1,5 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
+import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
+
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -8,7 +11,7 @@ import org.junit.Test
 
 class MaterialStateCodecTest {
     @Test
-    fun `round trip preserves sparse height wetness time and edge tiles`() {
+    fun `round trip preserves sparse channels and medium but resets session uptime`() {
         val width = 70
         val height = 66
         val size = width * height
@@ -19,6 +22,19 @@ class MaterialStateCodecTest {
         wetness[3 * width + 4] = 0.6f
         wetness[64 * width + 68] = 1f
 
+        val medium = PaintMedium(
+            mixingModel = MaterialMixingModel.PIGMENT_RYB,
+            viscosity = 0.7f,
+            yieldLikeStrength = 0.4f,
+            dryingRate = 0.12f,
+            pickupRate = 0.3f,
+            depositionRate = 0.8f,
+            heightResponse = 0.9f,
+            substrateResponse = 0.5f,
+            levelingRate = 0.6f,
+            baseRoughness = 0.45f,
+            wetSpecularStrength = 0.75f,
+        )
         val decoded = MaterialStateCodec.decode(
             MaterialStateCodec.encode(
                 MaterialStateCodec.Snapshot(
@@ -27,6 +43,7 @@ class MaterialStateCodecTest {
                     heightMap = heights,
                     wetness = wetness,
                     lastWetnessUptimeMillis = 12345L,
+                    medium = medium,
                     tileSize = 64,
                 ),
             ),
@@ -36,7 +53,8 @@ class MaterialStateCodecTest {
         assertEquals(width, decoded.width)
         assertEquals(height, decoded.height)
         assertEquals(64, decoded.tileSize)
-        assertEquals(12345L, decoded.lastWetnessUptimeMillis)
+        assertNull("monotonic uptime must not survive save/load", decoded.lastWetnessUptimeMillis)
+        assertEquals(medium, decoded.medium)
         assertArrayEquals(heights, decoded.heightMap, 0f)
         assertArrayEquals(wetness, decoded.wetness, 0f)
     }
