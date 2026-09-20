@@ -84,7 +84,7 @@ class LayerStoreWetnessTest {
 
 
     @Test
-    fun `material owner survives live reset and clearMaterialState removes every channel`() {
+    fun `initStrokes clears material belonging to replaced bitmap contents`() {
         val store = LayerStore()
         val medium = PaintMedium(viscosity = 0.7f, levelingRate = 0.4f)
         store.heightBase("a", 4)[0] = 0.8f
@@ -92,17 +92,15 @@ class LayerStoreWetnessTest {
         wet.field.addWetness(0, 0, 0.5f)
         store.putWetnessBase("a", wet)
         store.putLiveWetness("a", wet)
-        store.putMaterialMediumBase("a", medium)
-        store.putLiveMaterialMedium("a", medium)
+        val owners = MaterialMediumReplayState.empty(2, 2).also { it.assign(0, 0, medium) }
+        store.putMaterialMediumBase("a", owners)
+        store.putLiveMaterialMedium("a", owners)
 
         store.initStrokes("a")
-        assertEquals(medium.sanitized(), store.materialMediumState("a"))
-        assertEquals(0.5f, store.liveWetnessCopy("a", 2, 2).field.wetnessAt(0, 0), 0f)
 
-        store.clearMaterialState("a")
         assertEquals(null, store.heightBaseCopyOrNull("a"))
         assertEquals(null, store.wetnessStateCopyOrNull("a"))
-        assertEquals(null, store.materialMediumState("a"))
+        assertEquals(null, store.materialMediumStateCopyOrNull("a"))
         assertTrue(!store.hasWetnessState("a"))
     }
 
