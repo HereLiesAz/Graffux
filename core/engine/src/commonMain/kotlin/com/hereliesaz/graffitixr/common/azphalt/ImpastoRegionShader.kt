@@ -81,12 +81,13 @@ object ImpastoRegionShader {
         lightElevationDeg: Float,
         reliefStrength: Float,
         medium: PaintMedium,
+        mediumAt: ((x: Int, y: Int) -> PaintMedium)? = null,
     ): IntArray {
         require(rawRegion.size >= regionWidth * regionHeight)
         val out = rawRegion.copyOf()
         if (regionWidth <= 0 || regionHeight <= 0 || canvasWidth <= 0 || canvasHeight <= 0) return out
         val material = medium.sanitized()
-        if (reliefStrength <= 0f && material.wetSpecularStrength <= 0f) return out
+        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f) return out
 
         val azimuth = lightAzimuthDeg * DEG_TO_RAD
         val elevation = lightElevationDeg * DEG_TO_RAD
@@ -122,13 +123,14 @@ object ImpastoRegionShader {
                     1f + reliefStrength.coerceAtLeast(0f) * (diffuse - lz)
                     ).coerceIn(0f, 3f)
 
+                val localMaterial = mediumAt?.invoke(x, y)?.sanitized() ?: material
                 val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
                 val roughness = (
-                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    localMaterial.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = material.wetSpecularStrength * wet *
+                val specular = localMaterial.wetSpecularStrength * wet *
                     nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 val index = localY * regionWidth + localX
                 out[index] = shadeRgb(rawRegion[index], multiplier, specular)
