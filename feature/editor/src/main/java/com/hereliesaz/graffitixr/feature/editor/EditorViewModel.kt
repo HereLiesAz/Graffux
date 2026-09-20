@@ -1043,6 +1043,9 @@ class EditorViewModel @Inject constructor(
                                     val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
                                     putLayerBase(layer.id, loadedBmp)
                                     layerStore.initStrokes(layer.id)
+                                    // A reused layer id must never inherit canonical material from
+                                    // the previously open project when its sidecar is absent/corrupt.
+                                    layerStore.clearCanonicalMaterial(layer.id)
 
                                     val material = loadMaterialState(
                                         project.id, layer.id, loadedBmp.width, loadedBmp.height,
@@ -1056,15 +1059,27 @@ class EditorViewModel @Inject constructor(
                                             width = loadedBmp.width,
                                             height = loadedBmp.height,
                                             wetness = wet,
-                                            lastUptimeMillis = material.lastWetnessUptimeMillis,
+                                            // Monotonic uptime never crosses process/device epochs.
+                                            lastUptimeMillis = null,
                                             tileSize = material.tileSize,
                                         )
                                     }
                                     if (restoredWetness != null) {
                                         layerStore.putWetnessBase(layer.id, restoredWetness)
                                         layerStore.putLiveWetness(layer.id, restoredWetness)
-                                    } else {
-                                        layerStore.clearLiveWetness(layer.id)
+                                    }
+                                    if (material != null &&
+                                        (material.rawColor != null || material.mediumTiles.isNotEmpty())
+                                    ) {
+                                        val restoredImpasto = ImpastoMaterialReplayState.fromRaw(
+                                            width = loadedBmp.width,
+                                            height = loadedBmp.height,
+                                            rawColor = restoredRawColor(loadedBmp, material),
+                                            tileSize = material.tileSize,
+                                            tileMedia = material.mediumTiles,
+                                        )
+                                        layerStore.putImpastoMaterialBase(layer.id, restoredImpasto)
+                                        layerStore.putLiveImpastoMaterial(layer.id, restoredImpasto)
                                     }
                                     decoded[layer.id] = LoadedLayerMaterial(loadedBmp, restoredHeight)
                                 }
@@ -1890,6 +1905,29 @@ class EditorViewModel @Inject constructor(
     )
 
     private val pendingWrites = java.util.concurrent.ConcurrentHashMap<String, PendingLayerWrite>()
+
+    private fun restoredRawColor(
+        bitmap: Bitmap,
+        snapshot: MaterialStateCodec.Snapshot,
+    ): IntArray {
+        val full = bitmapPixels(bitmap)
+        val sparse = snapshot.rawColor ?: return full
+        if (sparse.size != full.size || snapshot.rawColorTiles.isEmpty()) return full
+        val columns = (snapshot.width + snapshot.tileSize - 1) / snapshot.tileSize
+        for (tileId in snapshot.rawColorTiles) {
+            val tx = tileId % columns
+            val ty = tileId / columns
+            val left = tx * snapshot.tileSize
+            val top = ty * snapshot.tileSize
+            val right = minOf(snapshot.width, left + snapshot.tileSize)
+            val bottom = minOf(snapshot.height, top + snapshot.tileSize)
+            for (y in top until bottom) {
+                val start = y * snapshot.width + left
+                sparse.copyInto(full, destinationOffset = start, startIndex = start, endIndex = y * snapshot.width + right)
+            }
+        }
+        return full
+    }
 
     private fun captureMaterialState(
         layerId: String,
