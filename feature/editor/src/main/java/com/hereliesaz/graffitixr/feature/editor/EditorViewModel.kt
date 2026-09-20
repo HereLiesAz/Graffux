@@ -1304,6 +1304,11 @@ class EditorViewModel @Inject constructor(
      * main thread, so a cancelled bake loses nothing: strokes are append-only, which keeps "the
      * oldest N" the same N it composited.
      */
+    private fun bitmapPixels(bitmap: Bitmap): IntArray =
+        IntArray(bitmap.width * bitmap.height).also { pixels ->
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        }
+
     private fun maybeBakeOldStrokes(layerId: String) {
         val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
         if (excess <= 0) return
@@ -1322,6 +1327,15 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val materialWorking = if (
+            layerStore.hasImpastoMaterialState(layerId) || stale.any(::strokeNeedsImpastoMaterial)
+        ) {
+            layerStore.impastoMaterialBaseCopy(
+                layerId, base.width, base.height, bitmapPixels(base),
+            )
+        } else {
+            null
+        }
 
         viewModelScope.launch(dispatchers.default) {
             try {
@@ -1330,6 +1344,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    impastoMaterialState = materialWorking,
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1343,6 +1358,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
+                    materialWorking?.let { layerStore.putImpastoMaterialBase(layerId, it) }
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -1396,6 +1412,15 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val materialWorking = if (
+            layerStore.hasImpastoMaterialState(layerId) || strokes.any(::strokeNeedsImpastoMaterial)
+        ) {
+            layerStore.impastoMaterialBaseCopy(
+                layerId, base.width, base.height, bitmapPixels(base),
+            )
+        } else {
+            null
+        }
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -1408,6 +1433,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    impastoMaterialState = materialWorking,
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -1423,6 +1449,11 @@ class EditorViewModel @Inject constructor(
                         layerStore.putLiveWetness(layerId, wetnessWorking)
                     } else {
                         layerStore.clearLiveWetness(layerId)
+                    }
+                    if (materialWorking != null) {
+                        layerStore.putLiveImpastoMaterial(layerId, materialWorking)
+                    } else {
+                        layerStore.clearLiveImpastoMaterial(layerId)
                     }
                     _uiState.update { state ->
                         state.copy(
