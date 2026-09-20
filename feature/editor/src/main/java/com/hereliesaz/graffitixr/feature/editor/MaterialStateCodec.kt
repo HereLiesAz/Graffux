@@ -29,6 +29,8 @@ internal object MaterialStateCodec {
         val lastWetnessUptimeMillis: Long? = null,
         val tileSize: Int = DEFAULT_TILE_SIZE,
         val rawColor: IntArray? = null,
+        /** Row-major material tile ids for which [rawColor] contains canonical values. */
+        val rawColorTiles: Set<Int> = emptySet(),
         val mediumTiles: List<ImpastoMaterialReplayState.TileMediumSnapshot> = emptyList(),
     ) {
         val hasMaterial: Boolean
@@ -154,6 +156,7 @@ internal object MaterialStateCodec {
             var heightMap: FloatArray? = null
             var wetness: FloatArray? = null
             var rawColor: IntArray? = null
+            val rawColorTiles = LinkedHashSet<Int>()
             val mediumTiles = ArrayList<ImpastoMaterialReplayState.TileMediumSnapshot>()
             val seen = HashSet<Int>(tileCount * 2)
             repeat(tileCount) {
@@ -182,6 +185,7 @@ internal object MaterialStateCodec {
                 if (version >= 2 && flags and FLAG_RAW_COLOR != 0) {
                     if (rawColor == null) rawColor = IntArray(width * height)
                     readIntTile(input, rawColor!!, width, left, top, right, bottom)
+                    rawColorTiles += tileId
                 }
                 if (version >= 2 && flags and FLAG_MEDIUM != 0) {
                     mediumTiles += readMedium(input, tx, ty)
@@ -196,6 +200,7 @@ internal object MaterialStateCodec {
                 lastWetnessUptimeMillis = null,
                 tileSize = tileSize,
                 rawColor = rawColor,
+                rawColorTiles = rawColorTiles,
                 mediumTiles = mediumTiles,
             )
         }
