@@ -3656,6 +3656,10 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.io) {
             val currentBitmap = layer.bitmap
+            val copiedHeight = layer.heightMap?.copyOf()
+                ?: layerStore.heightBaseCopyOrNull(id)
+            val copiedWetness = layerStore.wetnessStateCopyOrNull(id)
+            val copiedImpasto = layerStore.impastoMaterialStateCopyOrNull(id)
             val newBitmap = currentBitmap?.copy(currentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
             val newUri = newBitmap?.let { bmp ->
                 val filename = "layer_dup_${UUID.randomUUID()}.png"
@@ -3667,17 +3671,28 @@ class EditorViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 name = "${layer.name} Copy",
                 bitmap = newBitmap,
-                uri = newUri
+                uri = newUri,
+                heightMap = copiedHeight?.copyOf(),
             )
 
             newBitmap?.let { bmp ->
                 putLayerBase(duplicated.id, bmp)
                 layerStore.initStrokes(duplicated.id)
+                copiedHeight?.let { layerStore.putHeightBase(duplicated.id, it.copyOf()) }
+                copiedWetness?.let {
+                    layerStore.putWetnessBase(duplicated.id, it)
+                    layerStore.putLiveWetness(duplicated.id, it)
+                }
+                copiedImpasto?.let {
+                    layerStore.putImpastoMaterialBase(duplicated.id, it)
+                    layerStore.putLiveImpastoMaterial(duplicated.id, it)
+                }
             }
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
                 opEmitter.emit(Op.LayerAdd(duplicated))
+                newBitmap?.let { scheduleDiskSave(duplicated.id, it, newUri) }
                 saveProject()
                 dispatch(EditorIntent.SetLoading(false))
             }
