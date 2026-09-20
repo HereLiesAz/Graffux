@@ -1065,9 +1065,17 @@ class EditorViewModel @Inject constructor(
                                         layerStore.putWetnessBase(layer.id, restoredWetness)
                                         layerStore.putLiveWetness(layer.id, restoredWetness)
                                     }
-                                    material?.medium?.let { medium ->
-                                        layerStore.putMaterialMediumBase(layer.id, medium)
-                                        layerStore.putLiveMaterialMedium(layer.id, medium)
+                                    val restoredMedium = material?.mediumOwnerIds?.let { owners ->
+                                        MaterialMediumReplayState.fromSnapshot(
+                                            width = loadedBmp.width,
+                                            height = loadedBmp.height,
+                                            palette = material.mediumPalette,
+                                            ownerIds = owners,
+                                        )
+                                    }
+                                    if (restoredMedium != null) {
+                                        layerStore.putMaterialMediumBase(layer.id, restoredMedium)
+                                        layerStore.putLiveMaterialMedium(layer.id, restoredMedium)
                                     }
                                     decoded[layer.id] = LoadedLayerMaterial(loadedBmp, restoredHeight)
                                 }
@@ -1325,7 +1333,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
-        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumBase(layerId))
+        val mediumWorking = layerStore.materialMediumBaseCopy(layerId, base.width, base.height)
 
         viewModelScope.launch(dispatchers.default) {
             try {
@@ -1348,7 +1356,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
-                    layerStore.putMaterialMediumBase(layerId, mediumWorking.medium)
+                    layerStore.putMaterialMediumBase(layerId, mediumWorking)
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -1402,7 +1410,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
-        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumBase(layerId))
+        val mediumWorking = layerStore.materialMediumBaseCopy(layerId, base.width, base.height)
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -1432,7 +1440,7 @@ class EditorViewModel @Inject constructor(
                     } else {
                         layerStore.clearLiveWetness(layerId)
                     }
-                    layerStore.putLiveMaterialMedium(layerId, mediumWorking.medium)
+                    layerStore.putLiveMaterialMedium(layerId, mediumWorking)
                     _uiState.update { state ->
                         state.copy(
                             layers = state.layers.map {
@@ -1863,14 +1871,18 @@ class EditorViewModel @Inject constructor(
         val wetness = layerStore.wetnessStateCopyOrNull(layerId)?.takeIf {
             it.field.width == width && it.field.height == height
         }
-        if (layerHeight == null && wetness == null) return null
+        val mediumState = layerStore.materialMediumStateCopyOrNull(layerId)?.takeIf {
+            it.width == width && it.height == height && it.hasOwners
+        }
+        if (layerHeight == null && wetness == null && mediumState == null) return null
         return MaterialStateCodec.Snapshot(
             width = width,
             height = height,
             heightMap = layerHeight,
             wetness = wetness?.snapshot(),
             lastWetnessUptimeMillis = wetness?.lastUptimeMillis,
-            medium = layerStore.materialMediumState(layerId),
+            mediumPalette = mediumState?.paletteSnapshot() ?: emptyList(),
+            mediumOwnerIds = mediumState?.ownerIdSnapshot(),
             tileSize = wetness?.field?.tileSize
                 ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
         )
@@ -3623,9 +3635,17 @@ class EditorViewModel @Inject constructor(
                     layerStore.putWetnessBase(duplicated.id, wetState)
                     layerStore.putLiveWetness(duplicated.id, wetState)
                 }
-                sourceMaterial?.medium?.let { medium ->
-                    layerStore.putMaterialMediumBase(duplicated.id, medium)
-                    layerStore.putLiveMaterialMedium(duplicated.id, medium)
+                val duplicatedMedium = sourceMaterial?.mediumOwnerIds?.let { owners ->
+                    MaterialMediumReplayState.fromSnapshot(
+                        width = bmp.width,
+                        height = bmp.height,
+                        palette = sourceMaterial.mediumPalette,
+                        ownerIds = owners,
+                    )
+                }
+                if (duplicatedMedium != null) {
+                    layerStore.putMaterialMediumBase(duplicated.id, duplicatedMedium)
+                    layerStore.putLiveMaterialMedium(duplicated.id, duplicatedMedium)
                 }
             }
 
@@ -5706,7 +5726,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
-        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumState(layerId))
+        val mediumWorking = layerStore.materialMediumStateCopy(layerId, base.width, base.height)
         // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
         // cancel each other's stale publishes: without this, a fast Undo landing right after this
         // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
@@ -5754,7 +5774,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     layerStore.clearLiveWetness(layerId)
                 }
-                layerStore.putLiveMaterialMedium(layerId, mediumWorking.medium)
+                layerStore.putLiveMaterialMedium(layerId, mediumWorking)
                 _uiState.update { s ->
                     s.copy(
                         layers = s.layers.map {
