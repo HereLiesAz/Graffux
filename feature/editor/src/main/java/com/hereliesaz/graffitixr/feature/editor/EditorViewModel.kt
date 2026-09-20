@@ -579,6 +579,17 @@ class EditorViewModel @Inject constructor(
                 command.stampBrush?.impastoMaterial?.sanitized()?.let {
                     it.usesV2 && it.wetness > 0f
                 } == true)
+
+    private fun strokeNeedsImpastoMaterial(command: StrokeCommand): Boolean =
+        command.tool == Tool.BRUSH &&
+            command.stampBrush?.let { brush ->
+                brush.impastoThicknessRate > 0f &&
+                    brush.impastoMaterial.sanitized().usesV2
+            } == true
+
+    /** Pixel-only tile deltas are unsafe whenever the command mutates canonical material state. */
+    private fun strokeChangesCanonicalMaterial(command: StrokeCommand): Boolean =
+        strokeNeedsPersistentWetness(command) || strokeNeedsImpastoMaterial(command)
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -1203,10 +1214,11 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
-                    command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                    useAfter = false, emitOp = true,
-                )
+                val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
+                        command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                        useAfter = false, emitOp = true,
+                    )
                 if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
@@ -1239,10 +1251,11 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
-                    command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                    useAfter = true, emitOp = true,
-                )
+                val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
+                        command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                        useAfter = true, emitOp = true,
+                    )
                 if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
                 // Redo re-applies the move, so the marquee moves forward with it again.
                 val delta = command.command.moveDelta
