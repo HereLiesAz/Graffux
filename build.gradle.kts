@@ -19,7 +19,7 @@ buildscript {
         // bcutil did not (BC doesn't always cut matching patch releases for all three), so they
         // stay on the newest version that actually exists — 1.85. Bumping either without
         // checking the others exist breaks buildscript classpath resolution outright.
-        "org.bouncycastle:bcprov-jdk18on:1.85.2",
+        "org.bouncycastle:bcprov-jdk18on:1.86",
         "org.bouncycastle:bcpkix-jdk18on:1.85",
         "org.bouncycastle:bcutil-jdk18on:1.85",
         // Kotlin 2.4.0 emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
