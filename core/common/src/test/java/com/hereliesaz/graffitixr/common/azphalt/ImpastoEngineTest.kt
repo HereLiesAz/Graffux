@@ -250,4 +250,75 @@ class ImpastoEngineTest {
         assertTrue(quarterCenter < fullCenter)
     }
 
+
+    @Test
+    fun `material presentation can be removed before deterministic reshading`() {
+        val w = 10
+        val h = 10
+        val height = FloatArray(w * h)
+        height[5 * w + 5] = 0.9f
+        height[5 * w + 6] = 0.5f
+        val wetness = PersistentWetnessField(w, h)
+        wetness.addWetness(5, 5, 0.7f)
+        wetness.addWetness(6, 5, 0.6f)
+        val medium = PaintMedium(baseRoughness = 0.45f, wetSpecularStrength = 0.25f)
+        val raw = IntArray(w * h) { 0xFF6A7380.toInt() }
+
+        val shaded = ImpastoRegionShader.shadeMaterial(
+            rawRegion = raw,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+        val recovered = ImpastoRegionShader.unshadeMaterial(
+            shadedRegion = shaded,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+        val reshaded = ImpastoRegionShader.shadeMaterial(
+            rawRegion = recovered,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+
+        var maxChannelDelta = 0
+        for (i in shaded.indices) {
+            for (shift in intArrayOf(16, 8, 0)) {
+                val a = shaded[i] ushr shift and 0xFF
+                val b = reshaded[i] ushr shift and 0xFF
+                maxChannelDelta = maxOf(maxChannelDelta, kotlin.math.abs(a - b))
+            }
+        }
+        assertTrue("inverse + reshade should be stable within integer rounding", maxChannelDelta <= 2)
+    }
+
 }
