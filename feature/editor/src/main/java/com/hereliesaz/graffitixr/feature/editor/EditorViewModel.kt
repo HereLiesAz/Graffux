@@ -1540,6 +1540,13 @@ class EditorViewModel @Inject constructor(
         // first live paint since a rebuild/load. A defensive copy, same reasoning as heightWorking
         // elsewhere in this file: applySingleStroke mutates in place.
         val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()
+        val materialWorking = if (layerStore.hasImpastoMaterialState(layerId)) {
+            layerStore.liveImpastoMaterialCopy(
+                layerId, activeBitmap.width, activeBitmap.height, bitmapPixels(activeBitmap),
+            )
+        } else {
+            null
+        }
 
         // Tracked in rebuildJobs -- see commitStampStroke's identical comment for why: without
         // this, a fast Undo racing this stroke's own in-flight commit could have its rebuild's
@@ -1547,9 +1554,19 @@ class EditorViewModel @Inject constructor(
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            val newBitmap = drawingEngine.applySingleStroke(activeBitmap, command, otherLayers, heightWorking)
+            val newBitmap = drawingEngine.applySingleStroke(
+                activeBitmap, command, otherLayers, heightWorking,
+                impastoMaterialState = materialWorking,
+            )
+            if (materialWorking != null && !strokeNeedsImpastoMaterial(command)) {
+                // A non-material edit intentionally flattens the current appearance into pigment.
+                // This is preferable to retaining stale raw pigment that a later v2 stroke would
+                // otherwise resurrect underneath the user's intervening edit.
+                materialWorking.replaceRawColor(bitmapPixels(newBitmap))
+            }
 
             withContext(dispatchers.main) {
+                materialWorking?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
                 _uiState.update { state ->
                     state.copy(
                         layers = state.layers.map {
