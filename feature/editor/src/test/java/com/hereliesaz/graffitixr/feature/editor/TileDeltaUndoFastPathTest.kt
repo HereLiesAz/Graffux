@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialConfig
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
@@ -54,6 +55,16 @@ class TileDeltaUndoFastPathTest {
     private val canvasSize = IntSize(48, 48)
 
     private val brush = AzphaltBrush(name = "Solid", hardness = 1f, opacity = 1f)
+    private val impastoBrush = brush.copy(
+        name = "Impasto",
+        impastoThicknessRate = 0.65f,
+        impastoMaterial = ImpastoMaterialConfig(
+            version = 2,
+            enabled = true,
+            wetness = 0.7f,
+            levelingRate = 0.25f,
+        ),
+    )
 
     @Before
     fun setUp() {
@@ -79,6 +90,7 @@ class TileDeltaUndoFastPathTest {
         val brushes = mockk<CustomBrushRepository>(relaxed = true) {
             every { this@mockk.brushes } returns MutableStateFlow(emptyList())
             every { load("solid") } returns brush
+            every { load("impasto") } returns impastoBrush
         }
         val figma = mockk<FigmaRepository>(relaxed = true) {
             every { isAuthenticated } returns MutableStateFlow(false)
@@ -174,4 +186,31 @@ class TileDeltaUndoFastPathTest {
         vm.onRedoClicked()
         assertArrayEquals(afterSecondStroke, pixelsOf(currentLayerBitmap()))
     }
+
+    @Test
+    fun `material stamp undo bypasses pixel delta and restores canonical height`() = runTest {
+        val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        val layer = Layer(id = "L", name = "Layer", bitmap = original)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.putLayerBaseForTest("L", original)
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.selectCustomBrush("impasto")
+        vm.setActiveTool(Tool.BRUSH)
+
+        drawStroke(18f, 18f)
+        val painted = vm.uiState.value.layers.first { it.id == "L" }
+        assertTrue(requireNotNull(painted.heightMap).any { it > 0f })
+        assertTrue(
+            "the stroke may still carry a pixel delta, but undo must refuse it for material state",
+            (vm.topUndoTileDeltaCountForTest() ?: 0) > 0,
+        )
+
+        vm.onUndoClicked()
+
+        val undone = vm.uiState.value.layers.first { it.id == "L" }
+        assertTrue(requireNotNull(undone.heightMap).all { it == 0f })
+        assertArrayEquals(pixelsOf(original), pixelsOf(requireNotNull(undone.bitmap)))
+    }
+
 }
