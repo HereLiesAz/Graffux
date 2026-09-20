@@ -175,7 +175,7 @@ Phase-4 roadmap exit conditions are therefore met. Phase 5 now persists the shar
 
 ### Phase 5 — Impasto v2 / material height / wet-dry optics — ✅ implementation complete
 
-The existing Impasto v1 path remains the compatibility baseline, and Phase 5 extends it only behind an explicit versioned opt-in.
+The existing Impasto v1 path remains the compatibility baseline, and Phase 5 extends it only behind an explicit versioned opt-in. The September 20 hardening pass also closes the correctness findings raised after the initial Phase-5 merge rather than treating the earlier completion label as sufficient.
 
 - ✅ `ImpastoMaterialConfig` is versioned; version 1 / disabled is the exact legacy path, while version 2 explicitly enables the material model.
 - ✅ Reservoir-load/contact-driven height transfer is deterministic and bounded by current load, contact depth, flow, and medium height response.
@@ -184,14 +184,22 @@ The existing Impasto v1 path remains the compatibility baseline, and Phase 5 ext
 - ✅ Viscosity and wetness control mobility; yield-like structure recovery is derived analytically from wetness, so no second persistent structure image is required.
 - ✅ Substrate height participates in deposition gating and wet leveling, allowing paint to collect in valleys and resist raised tooth according to medium response.
 - ✅ Wetness drives roughness/specular presentation while canonical pigment colour, height, and wetness remain unmodified by lighting.
+- ✅ Canonical **unlit pigment** is now retained separately from lit presentation, so later wet-material advancement re-shades from pigment rather than recursively shading already-lit pixels.
+- ✅ Effective medium ownership is retained per material tile. Switching brushes no longer reinterprets older wet paint with the incoming brush's viscosity, drying, leveling, roughness, or specular coefficients.
+- ✅ Feathered selections use the same per-pixel coverage for visible pigment, height transfer, and wetness deposition rather than a binary hard-region material mask.
 - ✅ Live v2 preview updates only newly touched dabs and regional material shading. Time-based settling is intentionally deferred to authoritative commit/replay so display batching cannot change canonical results.
-- ✅ Commit/replay advances material time from recorded sample uptime and has sequential-vs-full-replay equality coverage for pixels, height, and wetness.
-- ✅ Canonical per-layer height + wetness are persisted in a versioned sparse/tiled gzip sidecar. `Layer.heightMap` remains only the transient runtime mirror, keeping project JSON free of canvas-sized float arrays.
-- ✅ Material sidecars restore on project load, participate in debounced saves and explicit flushes, and travel with project archive export/import. Color-only layers create no sidecar; stale/empty material deletes the old sidecar.
+- ✅ Commit/replay advances material time from recorded in-session sample uptime and has sequential-vs-full-replay equality coverage across pixels, height, wetness, raw pigment, and tile-medium ownership.
+- ✅ Persisted material state never treats Android monotonic uptime as portable time; loading/importing starts a new monotonic epoch rather than inventing cross-reboot/device drying.
+- ✅ Material-changing strokes bypass the pixel-only tile-delta undo fast path, forcing canonical replay so pixels, height, wetness, raw pigment, and medium ownership roll backward/forward together.
+- ✅ Canonical per-layer height + wetness + sparse unlit pigment + tile-medium ownership are persisted in the versioned gzip material sidecar. `Layer.heightMap` remains only the transient runtime mirror, keeping project JSON free of canvas-sized material arrays.
+- ✅ Material sidecars restore fail-closed: absent/corrupt/mismatched state clears all cached canonical channels for that layer instead of resurrecting state from a previously open document.
+- ✅ Bitmap + material autosaves are captured as one paired pending write and are removed from the retry queue only after both artifacts succeed.
+- ✅ Duplicating a raster layer clones height, wetness, raw pigment and medium ownership and schedules the duplicate's own material sidecar.
 - ✅ Sidecar paths are hashed/contained and corrupt, mismatched, oversized, or invalid material data fails closed.
-- ✅ Hosted unit/build validation covers the v2 configuration, transfer/leveling/substrate/optics model, live wet optics, deterministic replay, persistence codec, and layer material-cache behavior.
+- ✅ Legacy/non-v2 edits on a material-bearing layer explicitly flatten the current presentation into canonical pigment, preventing stale raw pigment from reappearing under later v2 work.
+- ✅ Regression coverage pins feather-weighted transfer, local-medium leveling/optics, v2 sidecar round-trip, monotonic-time reset, canonical cache clearing, raw/medium defensive copies, and full material replay parity.
 
-The Phase-5 **code-side roadmap exit gate is met**. As with the other physical/material phases, representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.
+The Phase-5 **code-side roadmap exit gate is met after hardening**. Representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.
 
 ### Phase 6 — Coarse deformable tuft — ✅ foundation implemented ahead of material Phases 3–5
 
