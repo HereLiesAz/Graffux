@@ -1324,6 +1324,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumBase(layerId))
 
         viewModelScope.launch(dispatchers.default) {
             try {
@@ -1332,6 +1333,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    materialMediumState = mediumWorking,
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1345,6 +1347,7 @@ class EditorViewModel @Inject constructor(
                     layerStore.putBase(layerId, baked)
                     layerStore.putHeightBase(layerId, heightWorking)
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
+                    layerStore.putMaterialMediumBase(layerId, mediumWorking.medium)
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
                     // this bake may still be compositing from it on another thread, and recycling
                     // it underneath would fail that rebuild. It is unreachable now, so the
@@ -1398,6 +1401,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumBase(layerId))
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
@@ -1410,6 +1414,7 @@ class EditorViewModel @Inject constructor(
                     otherLayers = { _uiState.value.layers.filterNot { it.id == layerId } },
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
+                    materialMediumState = mediumWorking,
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -1426,6 +1431,7 @@ class EditorViewModel @Inject constructor(
                     } else {
                         layerStore.clearLiveWetness(layerId)
                     }
+                    layerStore.putLiveMaterialMedium(layerId, mediumWorking.medium)
                     _uiState.update { state ->
                         state.copy(
                             layers = state.layers.map {
@@ -5636,6 +5642,7 @@ class EditorViewModel @Inject constructor(
         } else {
             null
         }
+        val mediumWorking = MaterialMediumReplayState(layerStore.materialMediumState(layerId))
         // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
         // cancel each other's stale publishes: without this, a fast Undo landing right after this
         // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
@@ -5654,6 +5661,7 @@ class EditorViewModel @Inject constructor(
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             val target = drawingEngine.applySingleStroke(
                 base, command, otherLayers, heightWorking, wetnessState = wetnessWorking,
+                materialMediumState = mediumWorking,
             )
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
@@ -5682,6 +5690,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     layerStore.clearLiveWetness(layerId)
                 }
+                layerStore.putLiveMaterialMedium(layerId, mediumWorking.medium)
                 _uiState.update { s ->
                     s.copy(
                         layers = s.layers.map {
