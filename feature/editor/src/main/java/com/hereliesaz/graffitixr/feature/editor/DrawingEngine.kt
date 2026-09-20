@@ -74,6 +74,7 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        impastoMaterialState: ImpastoMaterialReplayState? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
@@ -82,6 +83,7 @@ internal class DrawingEngine(
             else applyTool(
                 current, stroke, replaceExisting = true, otherLayers = otherLayers,
                 heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                impastoMaterialState = impastoMaterialState,
             )
             if (next !== current && current !== base) current.recycle()
             current = next
@@ -96,11 +98,13 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        impastoMaterialState: ImpastoMaterialReplayState? = null,
     ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
             heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+            impastoMaterialState = impastoMaterialState,
         )
 
     private suspend fun applyTool(
@@ -111,6 +115,7 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        impastoMaterialState: ImpastoMaterialReplayState? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -194,13 +199,48 @@ internal class DrawingEngine(
             val materialWetness = wetnessState?.takeIf {
                 it.field.width == target.width && it.field.height == target.height
             }
-            val materialSelection = if (usesImpastoV2) {
+            val materialState = if (usesImpastoV2) {
+                impastoMaterialState?.takeIf {
+                    it.width == target.width && it.height == target.height
+                } ?: run {
+                    val seed = IntArray(target.width * target.height)
+                    bitmap.getPixels(seed, 0, target.width, 0, 0, target.width, target.height)
+                    ImpastoMaterialReplayState.fromRaw(target.width, target.height, seed)
+                }
+            } else {
+                null
+            }
+
+            // A feathered lasso is a coverage field, not a binary Region. Resolve it once for this
+            // authoritative stroke and reuse the same alpha for pigment, height, and wetness.
+            val materialSelection = if (usesImpastoV2 && featherRadius <= 0f) {
                 SelectionMask.region(clipPath, target.width, target.height)
             } else {
                 null
             }
             val materialAllowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
                 { x, y -> region.contains(x, y) }
+            }
+            val materialFeatherPixels = if (usesImpastoV2 && clipPath != null && featherRadius > 0f) {
+                SelectionMask.featherMask(clipPath, target.width, target.height, featherRadius)?.let { mask ->
+                    val pixels = IntArray(target.width * target.height)
+                    mask.getPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
+                    mask.recycle()
+                    pixels
+                }
+            } else {
+                null
+            }
+            val materialCoverage: ((Int, Int) -> Float)? = materialFeatherPixels?.let { alpha ->
+                { x, y -> (alpha[y * target.width + x] ushr 24 and 0xFF) / 255f }
+            }
+
+            // V2 always evolves/paints canonical unlit pigment. Display lighting is reconstructed
+            // afterwards from raw pigment + height + wetness and never feeds back into paint.
+            if (usesImpastoV2 && materialState != null) {
+                target.setPixels(
+                    materialState.rawColor, 0, target.width, 0, 0, target.width, target.height,
+                )
             }
 
             // Advance already-wet material to this stroke's first recorded input time before new
@@ -222,6 +262,9 @@ internal class DrawingEngine(
                         region = preContactMaterialRegion,
                         substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                         substrateField = substrate?.field,
+                        mediumAt = materialState?.let { state ->
+                            { x, y -> state.mediumAt(x, y, materialMedium) }
+                        },
                     )
                 }
                 val materialPixels = IntArray(target.width * target.height)
@@ -230,8 +273,19 @@ internal class DrawingEngine(
                     materialPixels,
                     nextTime,
                     dryingRate = materialMedium.dryingRate,
+                    dryingRateAt = materialState?.let { state ->
+                        { x, y -> state.mediumAt(x, y, materialMedium).dryingRate }
+                    },
                 )
                 target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
+            }
+
+            val rawBeforeContact = if (usesImpastoV2 && materialState != null) {
+                val pixels = IntArray(target.width * target.height)
+                target.getPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
+                pixels
+            } else {
+                null
             }
 
             val paintedDabs: List<Dab>
@@ -300,6 +354,23 @@ internal class DrawingEngine(
             // channels rather than introducing parallel material state.
             if (brush.impastoThicknessRate > 0f && heightMap != null && heightMap.size == target.width * target.height) {
                 if (usesImpastoV2) {
+                    // Paint has just been rasterized into target's raw canonical pigment. For a
+                    // feathered selection, blend that raw result through the exact same soft mask
+                    // that scales height/wetness transfer.
+                    if (materialFeatherPixels != null && rawBeforeContact != null) {
+                        val paintedRaw = IntArray(target.width * target.height)
+                        target.getPixels(paintedRaw, 0, target.width, 0, 0, target.width, target.height)
+                        for (i in paintedRaw.indices) {
+                            val f = (materialFeatherPixels[i] ushr 24 and 0xFF) / 255f
+                            if (f <= 0f) {
+                                paintedRaw[i] = rawBeforeContact[i]
+                            } else if (f < 1f) {
+                                paintedRaw[i] = lerpArgb(rawBeforeContact[i], paintedRaw[i], f)
+                            }
+                        }
+                        target.setPixels(paintedRaw, 0, target.width, 0, 0, target.width, target.height)
+                    }
+
                     val transfer = ImpastoEngine.transferMaterialStroke(
                         height = heightMap,
                         width = target.width,
@@ -312,6 +383,7 @@ internal class DrawingEngine(
                         substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                         substrateField = substrate?.field,
                         pixelAllowed = materialAllowed,
+                        pixelCoverage = materialCoverage,
                     )
                     val wetDirty = materialWetness?.let { wetState ->
                         ImpastoEngine.depositWetnessStroke(
@@ -320,17 +392,20 @@ internal class DrawingEngine(
                             hardness = brush.hardness,
                             wetnessRate = materialConfig.wetness * brush.impastoThicknessRate,
                             pixelAllowed = materialAllowed,
+                            pixelCoverage = materialCoverage,
                         )
                     }
+                    val contactRegion = unionRegions(transfer.dirtyRegion, wetDirty)
+                    materialState?.recordMedium(contactRegion, materialMedium)
 
                     // One deterministic post-contact quantum: Phase 4 settles pigment/wetness and
-                    // Phase 5 levels height over the same bounded touched material region.
+                    // Phase 5 levels height over the same bounded touched material region, using
+                    // the medium owned by each material tile rather than the newly selected brush.
                     if (materialWetness != null && !materialWetness.field.isIdle) {
                         val materialPixels = IntArray(target.width * target.height)
                         target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
                         materialWetness.settleMaterial(materialPixels)
                         target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                        val settleRegion = unionRegions(transfer.dirtyRegion, wetDirty)
                         ImpastoEngine.levelWetHeight(
                             height = heightMap,
                             width = target.width,
@@ -338,24 +413,38 @@ internal class DrawingEngine(
                             wetness = materialWetness.field,
                             medium = materialMedium,
                             deltaSeconds = WetnessReplayState.DEFAULT_SETTLE_SECONDS,
-                            region = settleRegion,
+                            region = contactRegion,
                             substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                             substrateField = substrate?.field,
+                            mediumAt = materialState?.let { state ->
+                                { x, y -> state.mediumAt(x, y, materialMedium) }
+                            },
                         )
                         materialWetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
                     }
 
-                    val touched = unionRegions(
-                        preContactMaterialRegion,
-                        unionRegions(transfer.dirtyRegion, wetDirty),
-                    )
+                    val rawPixels = IntArray(target.width * target.height)
+                    target.getPixels(rawPixels, 0, target.width, 0, 0, target.width, target.height)
+                    materialState?.replaceRawColor(rawPixels)
+
+                    val touched = unionRegions(preContactMaterialRegion, contactRegion)
+                    // Restore the previous lit presentation everywhere, then reconstruct only the
+                    // material region whose canonical state changed from raw pigment.
+                    val displayPixels = IntArray(target.width * target.height)
+                    bitmap.getPixels(displayPixels, 0, target.width, 0, 0, target.width, target.height)
+                    target.setPixels(displayPixels, 0, target.width, 0, 0, target.width, target.height)
                     shadeImpastoRegion(
                         target = target,
                         heightMap = heightMap,
                         touched = touched,
                         wetness = materialWetness?.field,
                         medium = materialMedium,
+                        rawColorPixels = materialState?.rawColor ?: rawPixels,
+                        mediumAt = materialState?.let { state ->
+                            { x, y -> state.mediumAt(x, y, materialMedium) }
+                        },
                     )
+                    return target
                 } else {
                     ImpastoEngine.depositStroke(
                         heightMap, target.width, target.height, paintedDabs,
@@ -541,6 +630,17 @@ internal class DrawingEngine(
         )
     }
 
+    private fun lerpArgb(a: Int, b: Int, t: Float): Int {
+        val f = t.coerceIn(0f, 1f)
+        fun channel(shift: Int): Int {
+            val av = a ushr shift and 0xFF
+            val bv = b ushr shift and 0xFF
+            return (av + (bv - av) * f).toInt().coerceIn(0, 255)
+        }
+        return (channel(24) shl 24) or (channel(16) shl 16) or
+            (channel(8) shl 8) or channel(0)
+    }
+
     private fun unionRegions(a: DirtyRegion?, b: DirtyRegion?): DirtyRegion? = when {
         a == null -> b
         b == null -> a
@@ -573,6 +673,8 @@ internal class DrawingEngine(
         touched: DirtyRegion?,
         wetness: PersistentWetnessField?,
         medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium?,
+        rawColorPixels: IntArray? = null,
+        mediumAt: ((x: Int, y: Int) -> com.hereliesaz.graffitixr.common.azphalt.PaintMedium)? = null,
     ) {
         val region = touched?.let {
             DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
@@ -581,10 +683,22 @@ internal class DrawingEngine(
         val regionWidth = region.right - region.left
         val regionHeight = region.bottom - region.top
         val rawRegion = IntArray(regionWidth * regionHeight)
-        target.getPixels(
-            rawRegion, 0, regionWidth,
-            region.left, region.top, regionWidth, regionHeight,
-        )
+        if (rawColorPixels != null && rawColorPixels.size >= target.width * target.height) {
+            for (localY in 0 until regionHeight) {
+                val src = (region.top + localY) * target.width + region.left
+                rawColorPixels.copyInto(
+                    rawRegion,
+                    destinationOffset = localY * regionWidth,
+                    startIndex = src,
+                    endIndex = src + regionWidth,
+                )
+            }
+        } else {
+            target.getPixels(
+                rawRegion, 0, regionWidth,
+                region.left, region.top, regionWidth, regionHeight,
+            )
+        }
         val shadedRegion = if (medium == null) {
             ImpastoRegionShader.shade(
                 rawRegion, heightMap, target.width, target.height,
@@ -606,6 +720,7 @@ internal class DrawingEngine(
                 lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
                 reliefStrength = IMPASTO_LIGHT_STRENGTH,
                 medium = medium,
+                mediumAt = mediumAt,
             )
         }
         target.setPixels(
