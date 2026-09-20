@@ -6883,9 +6883,12 @@ class EditorViewModel @Inject constructor(
     fun onSetAnimationRange(start: Int, end: Int) = dispatch(EditorIntent.SetAnimationRange(start, end))
 
     /**
-     * Fingerprints every visual input the preview compositor consumes. [Layer.hashCode] catches
-     * immutable layer/property replacements; Bitmap generation ids also catch the rarer in-place
-     * pixel mutation without retaining the full source layer list in the cache.
+     * Cheap identity fingerprint for the visual inputs consumed by the preview compositor.
+     *
+     * Layers are immutable state values: any property edit replaces the Layer instance, while an
+     * in-place bitmap pixel edit advances Bitmap.generationId. Using identity here therefore catches
+     * both kinds of visual change without calling the data-class hashCode, which walks heavyweight
+     * payloads such as 4096² material FloatArrays on every playback tick.
      */
     private fun animationPreviewSourceFingerprint(state: EditorUiState): Int {
         var result = 17
@@ -6893,15 +6896,18 @@ class EditorViewModel @Inject constructor(
         result = 31 * result + state.documentHeight
         result = 31 * result + state.canvasSize.hashCode()
         result = 31 * result + state.canvasBackground.hashCode()
-        result = 31 * result + (state.backgroundBitmap?.generationId ?: 0)
         state.layers.forEach { layer ->
-            result = 31 * result + layer.hashCode()
+            result = 31 * result + System.identityHashCode(layer)
             result = 31 * result + (layer.bitmap?.generationId ?: 0)
         }
         return result
     }
 
     fun isAnimationPreviewReady(state: EditorUiState = _uiState.value): Boolean {
+        // Buffered frames intentionally contain one active frame plus pinned content. Onion skins
+        // are a live multi-frame presentation, so keep using the normal layer renderer while they
+        // are enabled rather than silently dropping the neighbours from playback.
+        if (state.onionSkinEnabled) return false
         val buffer = _animationPreviewBuffer.value
         return buffer.isReady &&
             buffer.range == resolvedPlaybackRange(state) &&
@@ -6961,7 +6967,10 @@ class EditorViewModel @Inject constructor(
                         canvasH = canvasHeight,
                         docW = state.documentWidth,
                         docH = state.documentHeight,
-                        backgroundBitmap = state.backgroundBitmap,
+                        // Graffux's editor canvas deliberately does not render the persisted
+                        // GraffitiXR camera/wall background. Preview playback must match that live
+                        // canvas rather than baking an export-only background into every frame.
+                        backgroundBitmap = null,
                         backgroundColor = state.canvasBackground.toArgb(),
                     )
                     val preview = if (full.width == previewWidth && full.height == previewHeight) {
@@ -7062,7 +7071,13 @@ class EditorViewModel @Inject constructor(
     fun onSelectFrame(index: Int) {
         val count = animationFrameCount()
         if (count == 0) return
+        val wasPlaying = _uiState.value.isAnimationPlaying
+        if (wasPlaying) stopPlayback()
         dispatch(EditorIntent.SetActiveFrameIndex(index.coerceIn(0, count - 1), followActiveLayer = true))
+        // startPlayback captures its local cursor from activeFrameIndex. Restarting here keeps a
+        // scrub during playback authoritative instead of letting the old coroutine snap back to its
+        // stale local index on the next tick.
+        if (wasPlaying) startPlayback()
     }
 
     fun onNextFrame() {
