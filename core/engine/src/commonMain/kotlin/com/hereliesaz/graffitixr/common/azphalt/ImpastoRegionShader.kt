@@ -81,6 +81,8 @@ object ImpastoRegionShader {
         lightElevationDeg: Float,
         reliefStrength: Float,
         medium: PaintMedium,
+        /** Spatial material response; null uses [medium] for every pixel. */
+        mediumAt: ((x: Int, y: Int) -> PaintMedium?)? = null,
     ): IntArray {
         require(rawRegion.size >= regionWidth * regionHeight)
         val out = rawRegion.copyOf()
@@ -122,13 +124,14 @@ object ImpastoRegionShader {
                     1f + reliefStrength.coerceAtLeast(0f) * (diffuse - lz)
                     ).coerceIn(0f, 3f)
 
+                val pixelMaterial = mediumAt?.invoke(x, y)?.sanitized() ?: material
                 val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
                 val roughness = (
-                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    pixelMaterial.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = material.wetSpecularStrength * wet *
+                val specular = pixelMaterial.wetSpecularStrength * wet *
                     nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 val index = localY * regionWidth + localX
                 out[index] = shadeRgb(rawRegion[index], multiplier, specular)
@@ -156,6 +159,8 @@ object ImpastoRegionShader {
         lightElevationDeg: Float,
         reliefStrength: Float,
         medium: PaintMedium,
+        /** Spatial material response; null uses [medium] for every pixel. */
+        mediumAt: ((x: Int, y: Int) -> PaintMedium?)? = null,
     ): IntArray {
         require(shadedRegion.size >= regionWidth * regionHeight)
         val out = shadedRegion.copyOf()
@@ -196,13 +201,14 @@ object ImpastoRegionShader {
                 val multiplier = (
                     1f + reliefStrength.coerceAtLeast(0f) * (diffuse - lz)
                     ).coerceIn(0f, 3f)
+                val pixelMaterial = mediumAt?.invoke(x, y)?.sanitized() ?: material
                 val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
                 val roughness = (
-                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    pixelMaterial.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = material.wetSpecularStrength * wet *
+                val specular = pixelMaterial.wetSpecularStrength * wet *
                     nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 val index = localY * regionWidth + localX
                 out[index] = unshadeRgb(shadedRegion[index], multiplier, specular)
