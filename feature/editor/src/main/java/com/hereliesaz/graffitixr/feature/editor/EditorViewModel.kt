@@ -5251,6 +5251,13 @@ class EditorViewModel @Inject constructor(
             } else {
                 null
             }
+            val materialWorking = if (layerStore.hasImpastoMaterialState(layerId)) {
+                layerStore.liveImpastoMaterialCopy(
+                    layerId, base.width, base.height, bitmapPixels(base),
+                )
+            } else {
+                null
+            }
 
             // Tracked in rebuildJobs, same discipline as processNewStroke/commitStampStroke: a
             // glee audit found this launch (and CLONE's/LIQUIFY's below) was never registered,
@@ -5272,10 +5279,13 @@ class EditorViewModel @Inject constructor(
                 // cleanly from.
                 try {
                     val resampled = drawingEngine.applySingleStroke(
-                        base, command, wetnessState = wetnessWorking,
+                        base, command,
+                        wetnessState = wetnessWorking,
+                        impastoMaterialState = materialWorking,
                     )
                     withContext(dispatchers.main) {
                         wetnessWorking?.let { layerStore.putLiveWetness(layerId, it) }
+                        materialWorking?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
                         _uiState.update { s ->
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
