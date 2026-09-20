@@ -176,7 +176,7 @@ class DrawingEngineImpastoTest {
 
         val commitHeight = FloatArray(w * h)
         val commitWetness = WetnessReplayState.empty(w, h)
-        val commitMedium = MaterialMediumReplayState()
+        val commitMedium = MaterialMediumReplayState.empty(w, h)
         val afterFirst = engine.applySingleStroke(
             base(), first, heightMap = commitHeight, wetnessState = commitWetness,
             materialMediumState = commitMedium,
@@ -188,7 +188,7 @@ class DrawingEngineImpastoTest {
 
         val replayHeight = FloatArray(w * h)
         val replayWetness = WetnessReplayState.empty(w, h)
-        val replayMedium = MaterialMediumReplayState()
+        val replayMedium = MaterialMediumReplayState.empty(w, h)
         val replayed = engine.composite(
             base(), listOf(first, second),
             heightMap = replayHeight,
@@ -204,8 +204,9 @@ class DrawingEngineImpastoTest {
         assertArrayEquals(committedPixels, replayedPixels)
         assertArrayEquals(commitHeight, replayHeight, 0f)
         assertArrayEquals(commitWetness.snapshot(), replayWetness.snapshot(), 0f)
-        assertEquals(commitMedium.medium, replayMedium.medium)
-        assertEquals(brush.impastoMaterial.toMedium(), commitMedium.medium)
+        assertArrayEquals(commitMedium.ownerIdSnapshot(), replayMedium.ownerIdSnapshot())
+        assertEquals(commitMedium.paletteSnapshot(), replayMedium.paletteSnapshot())
+        assertTrue(commitMedium.hasOwners)
         assertTrue(commitHeight.any { it > 0f })
         assertTrue(commitWetness.field.activeTileCount > 0)
     }
@@ -272,7 +273,7 @@ class DrawingEngineImpastoTest {
                 wetSpecularStrength = 0.9f,
             ),
         )
-        val mediumState = MaterialMediumReplayState()
+        val mediumState = MaterialMediumReplayState.empty(w, h)
         val height = FloatArray(w * h)
         val wetness = WetnessReplayState.empty(w, h)
 
@@ -285,7 +286,7 @@ class DrawingEngineImpastoTest {
             base(), first, heightMap = height, wetnessState = wetness,
             materialMediumState = mediumState,
         )
-        val owner = requireNotNull(mediumState.medium)
+        val owner = requireNotNull(mediumState.mediumAt(15, 15))
 
         val second = straightStroke(secondBrush).copy(
             path = straightStroke(secondBrush).path.map { Offset(it.x, 22f) },
@@ -302,7 +303,7 @@ class DrawingEngineImpastoTest {
         assertEquals(
             "later brushes must not retroactively replace the owning material response",
             owner,
-            mediumState.medium,
+            mediumState.mediumAt(15, 15),
         )
     }
 
