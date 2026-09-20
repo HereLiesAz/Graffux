@@ -215,6 +215,56 @@ internal const val UNDO_TILE_SIZE = 64
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
+/** Vegas-style cached animation preview: low enough to be cheap, large enough to judge motion. */
+private const val ANIMATION_PREVIEW_FRAME_MAX_DIM = 480
+
+/** Hard cap for all buffered preview pixels together; prevents a long range from becoming a heap bomb. */
+private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
+
+data class AnimationPreviewBufferState(
+    val frames: Map<Int, Bitmap> = emptyMap(),
+    val range: IntRange = IntRange.EMPTY,
+    val sourceFingerprint: Int = 0,
+    val renderedFrames: Int = 0,
+    val totalFrames: Int = 0,
+    val isRendering: Boolean = false,
+    val error: String? = null,
+) {
+    val isReady: Boolean
+        get() = !isRendering && error == null && totalFrames > 0 && frames.size == totalFrames
+}
+
+/**
+ * Chooses one preview-frame size for the selected range. The 480px longest-edge ceiling gives the
+ * requested deliberately low-quality playback, while the aggregate 64 MiB budget scales very long
+ * ranges down further instead of allocating one 480px bitmap per frame until Android kills us.
+ */
+internal fun animationPreviewDimensions(
+    documentWidth: Int,
+    documentHeight: Int,
+    frameCount: Int,
+    maxDimension: Int = ANIMATION_PREVIEW_FRAME_MAX_DIM,
+    budgetBytes: Long = ANIMATION_PREVIEW_BUFFER_MAX_BYTES,
+): Pair<Int, Int> {
+    val sourceWidth = documentWidth.coerceAtLeast(1)
+    val sourceHeight = documentHeight.coerceAtLeast(1)
+    val longest = max(sourceWidth, sourceHeight).toFloat()
+    var scale = (maxDimension.coerceAtLeast(1).toFloat() / longest).coerceAtMost(1f)
+    var width = (sourceWidth * scale).roundToInt().coerceAtLeast(1)
+    var height = (sourceHeight * scale).roundToInt().coerceAtLeast(1)
+
+    val count = frameCount.coerceAtLeast(1)
+    val required = width.toLong() * height.toLong() * 4L * count.toLong()
+    if (required > budgetBytes.coerceAtLeast(4L)) {
+        val budgetScale = kotlin.math.sqrt(
+            budgetBytes.coerceAtLeast(4L).toDouble() / required.toDouble()
+        ).toFloat().coerceIn(0f, 1f)
+        width = (width * budgetScale).roundToInt().coerceAtLeast(1)
+        height = (height * budgetScale).roundToInt().coerceAtLeast(1)
+    }
+    return width to height
+}
+
 /** Cap on a whole imported document (PSD/PDF/Procreate/etc) read fully into memory by
  *  [EditorViewModel.onImportDocument] — matches ProjectManager's own MAX_IMPORT_BYTES precedent
  *  for "how big a single user-picked file is allowed to be before we refuse it outright". */
@@ -513,6 +563,14 @@ class EditorViewModel @Inject constructor(
      */
     private val _liveStroke = MutableStateFlow(com.hereliesaz.graffitixr.common.model.LiveStroke())
     val liveStroke = _liveStroke.asStateFlow()
+
+    /**
+     * Transient, deliberately low-resolution animation composites for Vegas-style preview playback.
+     * Kept outside [EditorUiState]: these bitmaps are neither document state nor persistable editor
+     * state, and progress updates must not make the reducer carry megabytes of cache data.
+     */
+    private val _animationPreviewBuffer = MutableStateFlow(AnimationPreviewBufferState())
+    val animationPreviewBuffer = _animationPreviewBuffer.asStateFlow()
 
     private val _colorSmudgeSettings = MutableStateFlow(ColorSmudgeEngine.Settings())
     val colorSmudgeSettings = _colorSmudgeSettings.asStateFlow()
@@ -6804,6 +6862,7 @@ class EditorViewModel @Inject constructor(
     // ── Animation Assist ─────────────────────────────────────────────────────────────────────
 
     private var playbackJob: kotlinx.coroutines.Job? = null
+    private var animationPreviewJob: kotlinx.coroutines.Job? = null
 
     /**
      * Enters/exits Animation Assist. Entering syncs the frame cursor to whichever frame the active
@@ -6822,6 +6881,158 @@ class EditorViewModel @Inject constructor(
     fun onSetAnimationLoopMode(mode: com.hereliesaz.graffitixr.common.model.AnimationLoopMode) =
         dispatch(EditorIntent.SetAnimationLoopMode(mode))
     fun onSetAnimationRange(start: Int, end: Int) = dispatch(EditorIntent.SetAnimationRange(start, end))
+
+    /**
+     * Cheap identity fingerprint for the visual inputs consumed by the preview compositor.
+     *
+     * Layers are immutable state values: any property edit replaces the Layer instance, while an
+     * in-place bitmap pixel edit advances Bitmap.generationId. Using identity here therefore catches
+     * both kinds of visual change without calling the data-class hashCode, which walks heavyweight
+     * payloads such as 4096² material FloatArrays on every playback tick.
+     */
+    private fun animationPreviewSourceFingerprint(state: EditorUiState): Int {
+        var result = 17
+        result = 31 * result + state.documentWidth
+        result = 31 * result + state.documentHeight
+        result = 31 * result + state.canvasSize.hashCode()
+        result = 31 * result + state.canvasBackground.hashCode()
+        state.layers.forEach { layer ->
+            result = 31 * result + System.identityHashCode(layer)
+            result = 31 * result + (layer.bitmap?.generationId ?: 0)
+        }
+        return result
+    }
+
+    fun isAnimationPreviewReady(state: EditorUiState = _uiState.value): Boolean {
+        // Buffered frames intentionally contain one active frame plus pinned content. Onion skins
+        // are a live multi-frame presentation, so keep using the normal layer renderer while they
+        // are enabled rather than silently dropping the neighbours from playback.
+        if (state.onionSkinEnabled) return false
+        val buffer = _animationPreviewBuffer.value
+        return buffer.isReady &&
+            buffer.range == resolvedPlaybackRange(state) &&
+            buffer.sourceFingerprint == animationPreviewSourceFingerprint(state)
+    }
+
+    /** The cached frame the canvas may substitute during playback, or null when the cache is stale. */
+    fun animationPreviewFrame(state: EditorUiState = _uiState.value): Bitmap? {
+        if (!isAnimationPreviewReady(state)) return null
+        return _animationPreviewBuffer.value.frames[state.activeFrameIndex]
+    }
+
+    /**
+     * Flattens the selected playback range once, then keeps only bounded low-resolution copies.
+     * Ordinary playback remains available while no cache exists; once this finishes, EditorScreen
+     * substitutes these composites only while playback is running.
+     */
+    fun renderAnimationPreview() {
+        val state = _uiState.value
+        val frames = AnimationFrames.topLevelFrames(state.layers)
+        val range = resolvedPlaybackRange(state)
+        if (frames.isEmpty() || range.isEmpty()) {
+            _animationPreviewBuffer.value = AnimationPreviewBufferState(error = "No frames to render")
+            return
+        }
+
+        stopPlayback()
+        animationPreviewJob?.cancel()
+
+        val fingerprint = animationPreviewSourceFingerprint(state)
+        val totalFrames = range.last - range.first + 1
+        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+            range = range,
+            sourceFingerprint = fingerprint,
+            totalFrames = totalFrames,
+            isRendering = true,
+        )
+
+        animationPreviewJob = viewModelScope.launch(dispatchers.default) {
+            val rendered = linkedMapOf<Int, Bitmap>()
+            try {
+                val metrics = context.resources.displayMetrics
+                val canvasWidth = state.canvasSize.width.takeIf { it > 0 } ?: metrics.widthPixels.coerceAtLeast(1)
+                val canvasHeight = state.canvasSize.height.takeIf { it > 0 } ?: metrics.heightPixels.coerceAtLeast(1)
+                val (previewWidth, previewHeight) = animationPreviewDimensions(
+                    state.documentWidth,
+                    state.documentHeight,
+                    totalFrames,
+                )
+
+                for (index in range) {
+                    if (!isActive) throw kotlinx.coroutines.CancellationException("Preview rendering cancelled")
+                    val ids = AnimationFrames.renderedLayerIdsForFrame(state.layers, index)
+                    val full = exportManager.compositeToDocument(
+                        layers = state.layers.filter { it.id in ids },
+                        canvasW = canvasWidth,
+                        canvasH = canvasHeight,
+                        docW = state.documentWidth,
+                        docH = state.documentHeight,
+                        // Graffux's editor canvas deliberately does not render the persisted
+                        // GraffitiXR camera/wall background. Preview playback must match that live
+                        // canvas rather than baking an export-only background into every frame.
+                        backgroundBitmap = null,
+                        backgroundColor = state.canvasBackground.toArgb(),
+                    )
+                    val preview = if (full.width == previewWidth && full.height == previewHeight) {
+                        full
+                    } else {
+                        Bitmap.createScaledBitmap(full, previewWidth, previewHeight, true).also {
+                            if (it !== full) full.recycle()
+                        }
+                    }
+                    rendered[index] = preview
+
+                    withContext(dispatchers.main) {
+                        val current = _animationPreviewBuffer.value
+                        if (
+                            current.isRendering &&
+                            current.sourceFingerprint == fingerprint &&
+                            current.range == range
+                        ) {
+                            _animationPreviewBuffer.value = current.copy(renderedFrames = rendered.size)
+                        }
+                    }
+                }
+
+                withContext(dispatchers.main) {
+                    val stillCurrent =
+                        animationPreviewSourceFingerprint(_uiState.value) == fingerprint &&
+                            resolvedPlaybackRange(_uiState.value) == range
+                    if (stillCurrent) {
+                        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                            frames = rendered.toMap(),
+                            range = range,
+                            sourceFingerprint = fingerprint,
+                            renderedFrames = rendered.size,
+                            totalFrames = totalFrames,
+                        )
+                    } else {
+                        rendered.values.forEach { it.recycle() }
+                        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                            error = "Artwork or play range changed while rendering"
+                        )
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                rendered.values.forEach { it.recycle() }
+                throw cancelled
+            } catch (oom: OutOfMemoryError) {
+                rendered.values.forEach { it.recycle() }
+                withContext(dispatchers.main) {
+                    _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                        error = "Not enough memory for preview buffer"
+                    )
+                }
+            } catch (error: Exception) {
+                rendered.values.forEach { it.recycle() }
+                withContext(dispatchers.main) {
+                    _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                        error = error.message ?: error::class.java.simpleName
+                    )
+                }
+            }
+        }
+    }
 
     /** The current frame's hold count — see [com.hereliesaz.graffitixr.common.model.Layer.frameHoldCount]. */
     fun currentFrameHoldCount(): Int =
@@ -6860,7 +7071,13 @@ class EditorViewModel @Inject constructor(
     fun onSelectFrame(index: Int) {
         val count = animationFrameCount()
         if (count == 0) return
+        val wasPlaying = _uiState.value.isAnimationPlaying
+        if (wasPlaying) stopPlayback()
         dispatch(EditorIntent.SetActiveFrameIndex(index.coerceIn(0, count - 1), followActiveLayer = true))
+        // startPlayback captures its local cursor from activeFrameIndex. Restarting here keeps a
+        // scrub during playback authoritative instead of letting the old coroutine snap back to its
+        // stale local index on the next tick.
+        if (wasPlaying) startPlayback()
     }
 
     fun onNextFrame() {

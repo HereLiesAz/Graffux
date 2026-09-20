@@ -107,6 +107,8 @@ fun EditorScreen(
     // State object itself down lets each layer decide, via derivedStateOf, whether IT actually
     // changed.
     val liveStrokeState = vm.liveStroke.collectAsState()
+    // Separate from EditorUiState because these are transient cache bitmaps, not document state.
+    val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
     val strings = rememberAppStrings()
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
@@ -215,8 +217,29 @@ fun EditorScreen(
                                 uiState.onionSkinFutureCount,
                             )
                         }
-                        layerTree.forEach { node ->
-                            LayerStackNode(node, liveStrokeState, frameAlpha = frameAlphas[node.layer.id] ?: 1f)
+                        val bufferedAnimationFrame =
+                            if (uiState.isAnimationPlaying && animationPreviewBuffer.isReady) {
+                                vm.animationPreviewFrame(uiState)
+                            } else {
+                                null
+                            }
+                        if (bufferedAnimationFrame != null) {
+                            // The cached bitmap is already a flattened artboard. ContentScale.Fit
+                            // maps it onto the same centered document rectangle as ArtboardPage.
+                            Image(
+                                bitmap = bufferedAnimationFrame.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        } else {
+                            layerTree.forEach { node ->
+                                LayerStackNode(
+                                    node,
+                                    liveStrokeState,
+                                    frameAlpha = frameAlphas[node.layer.id] ?: 1f,
+                                )
+                            }
                         }
                     }
                 }
