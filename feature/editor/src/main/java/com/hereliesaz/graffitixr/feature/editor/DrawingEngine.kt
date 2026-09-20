@@ -74,6 +74,7 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        materialMediumState: MaterialMediumReplayState? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
@@ -82,6 +83,7 @@ internal class DrawingEngine(
             else applyTool(
                 current, stroke, replaceExisting = true, otherLayers = otherLayers,
                 heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                materialMediumState = materialMediumState,
             )
             if (next !== current && current !== base) current.recycle()
             current = next
@@ -96,11 +98,13 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        materialMediumState: MaterialMediumReplayState? = null,
     ): Bitmap =
         if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
             heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+            materialMediumState = materialMediumState,
         )
 
     private suspend fun applyTool(
@@ -111,6 +115,7 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
+        materialMediumState: MaterialMediumReplayState? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -190,17 +195,38 @@ internal class DrawingEngine(
                 brush.impastoThicknessRate > 0f &&
                 heightMap != null &&
                 heightMap.size == target.width * target.height
-            val materialMedium = materialConfig.toMedium()
+            val incomingMaterialMedium = materialConfig.toMedium()
+            val materialMedium = if (usesImpastoV2) {
+                materialMediumState?.resolve(incomingMaterialMedium) ?: incomingMaterialMedium
+            } else {
+                incomingMaterialMedium
+            }
             val materialWetness = wetnessState?.takeIf {
                 it.field.width == target.width && it.field.height == target.height
             }
-            val materialSelection = if (usesImpastoV2) {
+            val materialFeatherWeights = if (usesImpastoV2 && featherRadius > 0f) {
+                SelectionMask.featherWeights(
+                    clipPath, target.width, target.height, featherRadius,
+                )
+            } else {
+                null
+            }
+            val materialSelection = if (usesImpastoV2 && materialFeatherWeights == null) {
                 SelectionMask.region(clipPath, target.width, target.height)
             } else {
                 null
             }
             val materialAllowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
                 { x, y -> region.contains(x, y) }
+            }
+            val materialWeight: ((Int, Int) -> Float)? = materialFeatherWeights?.let { weights ->
+                { x, y ->
+                    if (x in 0 until target.width && y in 0 until target.height) {
+                        weights[y * target.width + x]
+                    } else {
+                        0f
+                    }
+                }
             }
 
             // Advance already-wet material to this stroke's first recorded input time before new
@@ -212,6 +238,16 @@ internal class DrawingEngine(
                 val previousTime = materialWetness.lastUptimeMillis
                 if (nextTime != null && previousTime != null && nextTime > previousTime) {
                     preContactMaterialRegion = activeWetnessBounds(materialWetness.field)
+                    // Existing material pixels are presentation-shaded in the layer bitmap. Restore
+                    // their lighting-neutral pigment before transport/leveling, then shade exactly
+                    // once from the updated canonical material state below.
+                    unshadeImpastoRegion(
+                        target = target,
+                        heightMap = requireNotNull(heightMap),
+                        touched = preContactMaterialRegion,
+                        wetness = materialWetness.field,
+                        medium = materialMedium,
+                    )
                     ImpastoEngine.levelWetHeight(
                         height = requireNotNull(heightMap),
                         width = target.width,
@@ -312,6 +348,7 @@ internal class DrawingEngine(
                         substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
                         substrateField = substrate?.field,
                         pixelAllowed = materialAllowed,
+                        pixelWeight = materialWeight,
                     )
                     val wetDirty = materialWetness?.let { wetState ->
                         ImpastoEngine.depositWetnessStroke(
@@ -320,6 +357,7 @@ internal class DrawingEngine(
                             hardness = brush.hardness,
                             wetnessRate = materialConfig.wetness * brush.impastoThicknessRate,
                             pixelAllowed = materialAllowed,
+                            pixelWeight = materialWeight,
                         )
                     }
 
@@ -561,6 +599,50 @@ internal class DrawingEngine(
             out = out?.union(tile) ?: tile
         }
         return out
+    }
+
+    /**
+     * Converts a previously presented v2 region back to its lighting-neutral pigment basis before
+     * deterministic material advancement. Regional allocation keeps this off the full-canvas hot
+     * path and uses the same previous height/wetness/medium state that produced the presentation.
+     */
+    private fun unshadeImpastoRegion(
+        target: Bitmap,
+        heightMap: FloatArray,
+        touched: DirtyRegion?,
+        wetness: PersistentWetnessField?,
+        medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium,
+    ) {
+        val region = touched?.let {
+            DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
+        }?.clampTo(target.width, target.height) ?: return
+        if (region.isEmpty) return
+        val regionWidth = region.right - region.left
+        val regionHeight = region.bottom - region.top
+        val shadedRegion = IntArray(regionWidth * regionHeight)
+        target.getPixels(
+            shadedRegion, 0, regionWidth,
+            region.left, region.top, regionWidth, regionHeight,
+        )
+        val rawRegion = ImpastoRegionShader.unshadeMaterial(
+            shadedRegion = shadedRegion,
+            height = heightMap,
+            wetness = wetness,
+            canvasWidth = target.width,
+            canvasHeight = target.height,
+            left = region.left,
+            top = region.top,
+            regionWidth = regionWidth,
+            regionHeight = regionHeight,
+            lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
+            lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
+            reliefStrength = IMPASTO_LIGHT_STRENGTH,
+            medium = medium,
+        )
+        target.setPixels(
+            rawRegion, 0, regionWidth,
+            region.left, region.top, regionWidth, regionHeight,
+        )
     }
 
     /**
