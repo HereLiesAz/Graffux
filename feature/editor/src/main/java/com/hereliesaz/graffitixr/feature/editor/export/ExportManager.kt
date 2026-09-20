@@ -107,7 +107,17 @@ class ExportManager @Inject constructor() {
                 alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                 blendMode = layer.blendMode.toNativeBlendMode()
             }
-            canvas.drawBitmap(groupBmp, 0f, 0f, paint)
+            // A GROUP is a full-canvas container in LayerStackNode. Its children are rendered into
+            // that container first, then the group's own translation/scale/Z rotation is applied
+            // around the canvas centre. Mirror that order here so buffered animation previews and
+            // exports do not make transformed group frames jump back to the origin.
+            val groupMatrix = Matrix().apply {
+                postTranslate(-w / 2f, -h / 2f)
+                postScale(layer.scale, layer.scale)
+                postRotate(layer.rotationZ)
+                postTranslate(w / 2f + layer.offset.x, h / 2f + layer.offset.y)
+            }
+            canvas.drawBitmap(groupBmp, groupMatrix, paint)
             groupBmp.recycle()
             return
         }
