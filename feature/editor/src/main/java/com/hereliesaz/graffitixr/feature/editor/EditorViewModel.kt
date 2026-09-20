@@ -2649,12 +2649,10 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+                    val materialSaved = bitmapSaved &&
+                        writeMaterialState(layerId, write.projectId, write.material)
+                    check(bitmapSaved && materialSaved) { "Pending layer save failed for $layerId" }
                     pendingWrites.remove(layerId, write)
                 }
                 val saved = persistProject(cleanName)
@@ -2686,12 +2684,10 @@ class EditorViewModel @Inject constructor(
                 pendingSaveJobs.values.forEach { it.cancel() }
                 pendingSaveJobs.clear()
                 pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    writeLayerBitmap(layerId, write.path, write.bitmap)
-                    writeMaterialState(
-                        layerId,
-                        write.projectId,
-                        captureMaterialState(layerId, write.bitmap.width, write.bitmap.height),
-                    )
+                    val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
+                    val materialSaved = bitmapSaved &&
+                        writeMaterialState(layerId, write.projectId, write.material)
+                    check(bitmapSaved && materialSaved) { "Pending layer save failed for $layerId" }
                     pendingWrites.remove(layerId, write)
                 }
                 persistProject(null)
@@ -7969,16 +7965,19 @@ class EditorViewModel @Inject constructor(
         val pending = PendingLayerWrite(
             path = path,
             bitmap = texture.bitmap,
-            // A model texture is not an editor layer and owns no canonical height/wetness sidecar.
+            // A model texture is not an editor layer and owns no canonical material sidecar.
             projectId = null,
+            material = null,
         )
         pendingWrites[MODEL_TEXTURE_KEY] = pending
         pendingSaveJobs.remove(MODEL_TEXTURE_KEY)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            writeLayerBitmap(MODEL_TEXTURE_KEY, path, texture.bitmap)
-            pendingWrites.remove(MODEL_TEXTURE_KEY, pending)
-            saveProject()
+            val saved = writeLayerBitmap(MODEL_TEXTURE_KEY, path, texture.bitmap)
+            if (saved) {
+                pendingWrites.remove(MODEL_TEXTURE_KEY, pending)
+                saveProject()
+            }
             pendingSaveJobs.remove(MODEL_TEXTURE_KEY, coroutineContext[kotlinx.coroutines.Job])
         }
         pendingSaveJobs[MODEL_TEXTURE_KEY] = job
