@@ -174,21 +174,33 @@ class DrawingEngineImpastoTest {
         val first = timedStroke(18f, 1_000L, 31L)
         val second = timedStroke(21f, 1_500L, 32L)
 
+        val blank = base()
+        val blankPixels = IntArray(w * h)
+        blank.getPixels(blankPixels, 0, w, 0, 0, w, h)
         val commitHeight = FloatArray(w * h)
         val commitWetness = WetnessReplayState.empty(w, h)
+        val commitMaterial = ImpastoMaterialReplayState.fromRaw(w, h, blankPixels, tileSize = 8)
         val afterFirst = engine.applySingleStroke(
-            base(), first, heightMap = commitHeight, wetnessState = commitWetness,
+            blank, first,
+            heightMap = commitHeight,
+            wetnessState = commitWetness,
+            impastoMaterialState = commitMaterial,
         )
         val committed = engine.applySingleStroke(
-            afterFirst, second, heightMap = commitHeight, wetnessState = commitWetness,
+            afterFirst, second,
+            heightMap = commitHeight,
+            wetnessState = commitWetness,
+            impastoMaterialState = commitMaterial,
         )
 
         val replayHeight = FloatArray(w * h)
         val replayWetness = WetnessReplayState.empty(w, h)
+        val replayMaterial = ImpastoMaterialReplayState.fromRaw(w, h, blankPixels, tileSize = 8)
         val replayed = engine.composite(
-            base(), listOf(first, second),
+            blank, listOf(first, second),
             heightMap = replayHeight,
             wetnessState = replayWetness,
+            impastoMaterialState = replayMaterial,
         )
 
         val committedPixels = IntArray(w * h)
@@ -199,6 +211,8 @@ class DrawingEngineImpastoTest {
         assertArrayEquals(committedPixels, replayedPixels)
         assertArrayEquals(commitHeight, replayHeight, 0f)
         assertArrayEquals(commitWetness.snapshot(), replayWetness.snapshot(), 0f)
+        assertArrayEquals(commitMaterial.rawColor, replayMaterial.rawColor)
+        assertEquals(commitMaterial.tileSnapshots(), replayMaterial.tileSnapshots())
         assertTrue(commitHeight.any { it > 0f })
         assertTrue(commitWetness.field.activeTileCount > 0)
     }
