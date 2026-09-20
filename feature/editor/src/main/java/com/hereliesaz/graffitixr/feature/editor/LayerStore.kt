@@ -1,7 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
-import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -25,8 +24,8 @@ internal class LayerStore {
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
-    private val materialMediumBases = ConcurrentHashMap<String, PaintMedium>()
-    private val liveMaterialMedia = ConcurrentHashMap<String, PaintMedium>()
+    private val materialMediumBases = ConcurrentHashMap<String, MaterialMediumReplayState>()
+    private val liveMaterialMedia = ConcurrentHashMap<String, MaterialMediumReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
@@ -37,6 +36,13 @@ internal class LayerStore {
         ) {
             wetnessBases.remove(layerId)
             liveWetness.remove(layerId)
+        }
+        val mediumBase = materialMediumBases[layerId]
+        if (mediumBase != null &&
+            (mediumBase.width != bitmap.width || mediumBase.height != bitmap.height)
+        ) {
+            materialMediumBases.remove(layerId)
+            liveMaterialMedia.remove(layerId)
         }
     }
 
@@ -133,21 +139,49 @@ internal class LayerStore {
         heightBases.remove(layerId)
     }
 
-    /** Material response baked before queued strokes. Immutable [PaintMedium] needs no deep copy. */
-    fun materialMediumBase(layerId: String): PaintMedium? = materialMediumBases[layerId]
-
-    fun putMaterialMediumBase(layerId: String, medium: PaintMedium?) {
-        if (medium == null) materialMediumBases.remove(layerId)
-        else materialMediumBases[layerId] = medium.sanitized()
+    /** Defensive working copy of baked spatial medium ownership. */
+    fun materialMediumBaseCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+    ): MaterialMediumReplayState {
+        val existing = materialMediumBases[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        val fresh = MaterialMediumReplayState.empty(width, height)
+        materialMediumBases[layerId] = fresh
+        liveMaterialMedia.remove(layerId)
+        return fresh.copyForWork()
     }
 
-    /** Current post-stroke material owner, falling back to the baked owner. */
-    fun materialMediumState(layerId: String): PaintMedium? =
-        liveMaterialMedia[layerId] ?: materialMediumBases[layerId]
+    fun hasMaterialMediumBase(layerId: String): Boolean =
+        materialMediumBases[layerId]?.hasOwners == true
 
-    fun putLiveMaterialMedium(layerId: String, medium: PaintMedium?) {
-        if (medium == null) liveMaterialMedia.remove(layerId)
-        else liveMaterialMedia[layerId] = medium.sanitized()
+    fun putMaterialMediumBase(layerId: String, state: MaterialMediumReplayState?) {
+        if (state == null || !state.hasOwners) materialMediumBases.remove(layerId)
+        else materialMediumBases[layerId] = state.copyForWork()
+    }
+
+    /** Defensive current post-stroke ownership, falling back to the baked ownership map. */
+    fun materialMediumStateCopy(
+        layerId: String,
+        width: Int,
+        height: Int,
+    ): MaterialMediumReplayState {
+        val existing = liveMaterialMedia[layerId] ?: materialMediumBases[layerId]
+        if (existing != null && existing.width == width && existing.height == height) {
+            return existing.copyForWork()
+        }
+        return MaterialMediumReplayState.empty(width, height)
+    }
+
+    fun materialMediumStateCopyOrNull(layerId: String): MaterialMediumReplayState? =
+        (liveMaterialMedia[layerId] ?: materialMediumBases[layerId])?.copyForWork()
+
+    fun putLiveMaterialMedium(layerId: String, state: MaterialMediumReplayState?) {
+        if (state == null || !state.hasOwners) liveMaterialMedia.remove(layerId)
+        else liveMaterialMedia[layerId] = state.copyForWork()
     }
 
     fun clearLiveMaterialMedium(layerId: String) {
@@ -159,8 +193,6 @@ internal class LayerStore {
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
-        materialMediumBases.remove(layerId)
-        liveMaterialMedia.remove(layerId)
         materialMediumBases.remove(layerId)
         liveMaterialMedia.remove(layerId)
     }
