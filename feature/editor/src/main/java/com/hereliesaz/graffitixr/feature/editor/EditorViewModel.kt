@@ -579,6 +579,12 @@ class EditorViewModel @Inject constructor(
                 command.stampBrush?.impastoMaterial?.sanitized()?.let {
                     it.usesV2 && it.wetness > 0f
                 } == true)
+
+    /** Pixel-only undo deltas cannot restore canonical height/wetness/material ownership. */
+    private fun strokeNeedsCanonicalMaterialReplay(command: StrokeCommand): Boolean =
+        strokeNeedsPersistentWetness(command) ||
+            (command.tool == Tool.BRUSH &&
+                (command.stampBrush?.impastoThicknessRate ?: 0f) > 0f)
     // Debounced disk saves, keyed by layer id. A single shared job would let a save
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
@@ -1036,6 +1042,10 @@ class EditorViewModel @Inject constructor(
                                     val material = loadMaterialState(
                                         project.id, layer.id, loadedBmp.width, loadedBmp.height,
                                     )
+                                    // Fail closed. A reused layer id must never retain material from
+                                    // an earlier project/session when its sidecar is missing, corrupt,
+                                    // oversized, or dimension-mismatched.
+                                    layerStore.clearMaterialState(layer.id)
                                     val restoredHeight = material?.heightMap?.copyOf()
                                     if (restoredHeight != null) {
                                         layerStore.putHeightBase(layer.id, restoredHeight.copyOf())
@@ -1045,15 +1055,18 @@ class EditorViewModel @Inject constructor(
                                             width = loadedBmp.width,
                                             height = loadedBmp.height,
                                             wetness = wet,
-                                            lastUptimeMillis = material.lastWetnessUptimeMillis,
+                                            // Persisted Android uptime is intentionally nonportable.
+                                            lastUptimeMillis = null,
                                             tileSize = material.tileSize,
                                         )
                                     }
                                     if (restoredWetness != null) {
                                         layerStore.putWetnessBase(layer.id, restoredWetness)
                                         layerStore.putLiveWetness(layer.id, restoredWetness)
-                                    } else {
-                                        layerStore.clearLiveWetness(layer.id)
+                                    }
+                                    material?.medium?.let { medium ->
+                                        layerStore.putMaterialMediumBase(layer.id, medium)
+                                        layerStore.putLiveMaterialMedium(layer.id, medium)
                                     }
                                     decoded[layer.id] = LoadedLayerMaterial(loadedBmp, restoredHeight)
                                 }
@@ -1203,7 +1216,8 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeNeedsCanonicalMaterialReplay(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = false, emitOp = true,
                 )
@@ -1239,7 +1253,8 @@ class EditorViewModel @Inject constructor(
             is EditCommand.Draw -> {
                 layerStore.addStroke(command.layerId, command.command)
                 val deltas = command.tileDeltas
-                val fastPathHandled = deltas != null && applyTileDeltaFastPath(
+                val fastPathHandled = !strokeNeedsCanonicalMaterialReplay(command.command) &&
+                    deltas != null && applyTileDeltaFastPath(
                     command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                     useAfter = true, emitOp = true,
                 )
@@ -1848,6 +1863,7 @@ class EditorViewModel @Inject constructor(
             heightMap = layerHeight,
             wetness = wetness?.snapshot(),
             lastWetnessUptimeMillis = wetness?.lastUptimeMillis,
+            medium = layerStore.materialMediumState(layerId),
             tileSize = wetness?.field?.tileSize
                 ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
         )
