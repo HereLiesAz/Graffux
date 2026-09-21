@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import android.graphics.Color
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
@@ -58,5 +60,33 @@ class BrushTipMaskCacheTest {
 
         assertTrue(Color.alpha(soft.getPixel(32, 32)) > 200)
         assertTrue(Color.alpha(hard.getPixel(32, 32)) > 200)
+    }
+
+    @Test
+    fun `png gray Azphalt tips convert luminance into alpha coverage`() {
+        val source = Bitmap.createBitmap(
+            intArrayOf(Color.rgb(0, 0, 0), Color.rgb(128, 128, 128), Color.rgb(255, 255, 255)),
+            3,
+            1,
+            Bitmap.Config.ARGB_8888,
+        )
+        val normalized = normalizeAzphaltBrushTip(source, "png-gray")
+
+        assertEquals(0, Color.alpha(normalized.getPixel(0, 0)))
+        assertTrue(Color.alpha(normalized.getPixel(1, 0)) in 126..129)
+        assertEquals(255, Color.alpha(normalized.getPixel(2, 0)))
+    }
+
+    @Test
+    fun `ordinary rgba tips retain their existing alpha`() {
+        val source = Bitmap.createBitmap(
+            intArrayOf(Color.argb(77, 12, 34, 56)),
+            1,
+            1,
+            Bitmap.Config.ARGB_8888,
+        )
+        val normalized = normalizeAzphaltBrushTip(source, null)
+        assertTrue(normalized === source)
+        assertEquals(77, Color.alpha(normalized.getPixel(0, 0)))
     }
 }
