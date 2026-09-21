@@ -318,6 +318,12 @@ data class AzphaltBrush(
      * existing positional callers and serialized brushes retain their exact meaning.
      */
     val impastoMaterial: ImpastoMaterialConfig = ImpastoMaterialConfig(),
+    /**
+     * Encoding hint for an installed asset-backed primary tip. Appended to preserve the positional
+     * constructor/serialization contract. Azphalt's ABR importer emits `png-gray`, whose luminance
+     * is coverage rather than ordinary opaque RGB and therefore needs conversion to alpha at load.
+     */
+    val tipFormat: String? = null,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -355,12 +361,48 @@ data class AzphaltBrush(
                 (params?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             fun b(key: String): Boolean? = (params?.get(key) as? JsonPrimitive)?.booleanOrNull
 
-            val dynamics = (params?.get("dynamics") as? JsonArray)
+            val explicitDynamics = (params?.get("dynamics") as? JsonArray)
                 ?.mapNotNull { element ->
                     runCatching { AzphaltJson.decodeFromJsonElement<BrushSensorBinding>(element) }.getOrNull()
                 }
                 .orEmpty()
                 .map(BrushSensorBinding::sanitized)
+            // The normalized Azphalt brush vocabulary predates Graffux's richer dynamics array.
+            // Preserve explicit routes, but honor the portable shorthand used by store/imported
+            // brushes instead of silently making a "pressure-driven" brush pressure-insensitive.
+            val dynamics = if (
+                b("flowByPressure") == true &&
+                explicitDynamics.none {
+                    it.sensor == BrushSensor.PRESSURE && it.parameter == BrushParameter.FLOW
+                }
+            ) {
+                explicitDynamics + BrushSensorBinding(
+                    sensor = BrushSensor.PRESSURE,
+                    parameter = BrushParameter.FLOW,
+                    outputMin = 0f,
+                    outputMax = 1f,
+                )
+            } else {
+                explicitDynamics
+            }
+
+            fun unitOrPercent(value: Float?, default: Float): Float {
+                val v = value ?: return default
+                return if (v > 1f && v <= 100f) v / 100f else v
+            }
+            // Photoshop stores ABR spacing as an integer percentage (25 == 25%). Azphalt's ABR
+            // importer intentionally preserves that normalized metadata. Only png-gray imports use
+            // this percentage convention; ordinary Azphalt brush manifests already use Graffux's
+            // fractional engine spacing (0.04, 0.12, ...).
+            val tipFormat = s("format")
+            fun normalizedSpacing(): Float {
+                val raw = f("spacing") ?: return 0.1f
+                return if (tipFormat.equals("png-gray", ignoreCase = true) && raw > 1f && raw <= 100f) {
+                    raw / 100f
+                } else {
+                    raw
+                }
+            }
             val grainBehavior = params?.get("grainBehavior")?.let { element ->
                 runCatching { AzphaltJson.decodeFromJsonElement<GrainBehavior>(element) }.getOrNull()
             } ?: GrainBehavior.MOVING
@@ -402,11 +444,17 @@ data class AzphaltBrush(
 
             return AzphaltBrush(
                 name = name,
-                spacing = (f("spacing") ?: 0.1f).coerceIn(0.01f, 4f),
+                spacing = normalizedSpacing().coerceIn(0.01f, 4f),
                 isotropicSpacing = b("isotropicSpacing") ?: true,
-                tipRatio = (f("ratio") ?: f("tipRatio") ?: 1f).coerceIn(0.05f, 1f),
-                opacity = (f("opacity") ?: 1f).coerceIn(0f, 1f),
-                hardness = (f("hardness") ?: 1f).coerceIn(0f, 1f),
+                // Azphalt's host-neutral name is roundness; Graffux historically called the same
+                // short/long tip-axis ratio ratio/tipRatio. ABR descriptors commonly express it
+                // as a percentage, while native Azphalt manifests use 0..1.
+                tipRatio = unitOrPercent(
+                    f("roundness") ?: f("ratio") ?: f("tipRatio"),
+                    1f,
+                ).coerceIn(0.05f, 1f),
+                opacity = unitOrPercent(f("opacity"), 1f).coerceIn(0f, 1f),
+                hardness = unitOrPercent(f("hardness"), 1f).coerceIn(0f, 1f),
                 sizeJitter = (f("sizeJitter") ?: 0f).coerceIn(0f, 1f),
                 opacityJitter = (f("opacityJitter") ?: 0f).coerceIn(0f, 1f),
                 scatter = (f("scatter") ?: 0f).coerceAtLeast(0f),
@@ -437,6 +485,7 @@ data class AzphaltBrush(
                 count = (f("count") ?: 1f).toInt().coerceIn(1, 16),
                 countJitter = (f("countJitter") ?: 0f).coerceIn(0f, 1f),
                 impastoMaterial = impastoMaterial,
+                tipFormat = tipFormat,
             ).sanitized()
         }
     }
