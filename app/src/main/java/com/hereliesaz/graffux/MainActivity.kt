@@ -180,24 +180,6 @@ private fun incomingImageUri(intent: Intent?): Uri? {
 }
 
 /**
- * The real [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush] behind [activeBrushName], for
- * a live [BrushPreview] strip -- null both when the plain (non-stamp) round brush is active
- * (`activeBrushName == null`) and, defensively, for an installed-extension brush name this device
- * has no full brush data for yet (only [installedBrushes]' id/name pairs, not a decoded
- * `AzphaltBrush` -- see [com.hereliesaz.graffitixr.feature.editor.EditorViewModel.
- * selectBrushExtension]'s own async decode path). Mirrors the same built-in-then-custom lookup
- * [rail item classifiers][ConfigureRailItems] already do, rather than a third independent one.
- */
-private fun resolvePreviewBrush(
-    activeBrushName: String?,
-    customBrushes: List<CustomBrush>,
-): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? {
-    if (activeBrushName == null) return null
-    return com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.firstOrNull { it.name == activeBrushName }
-        ?: customBrushes.firstOrNull { it.brush.name == activeBrushName }?.brush
-}
-
-/**
  * Extracts an azphalt package download URL from an `azphalt://install` deep link, or null if this
  * launch isn't one. The web storefront redirects here after a purchase; the URI's `url` query
  * parameter carries the HTTPS download URL for the `.azp` package.
@@ -460,6 +442,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
     val brushes by vm.installedBrushes.collectAsState()
+    val brushPreviews by vm.installedBrushPreviews.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
 
     // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
@@ -609,6 +592,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 uiState = uiState,
                 railExpansion = railExpansion,
                 brushes = brushes,
+                brushPreviews = brushPreviews,
                 customBrushes = customBrushes,
                 installedExtensionCount = allInstalledExtensions.size,
                 strings = strings,
@@ -1383,7 +1367,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetBrushFlow = { vm.setBrushFlow(it) },
                         brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
-                        previewBrush = resolvePreviewBrush(uiState.activeBrushName, customBrushes),
+                        previewBrush = vm.activeBrushForPreview(),
                         brushColor = uiState.activeColor,
                         secondaryColor = uiState.secondaryColor,
                         colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },
@@ -1572,7 +1556,7 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
             onSizeChange = { vm.setBrushSize(it) },
             onDismiss = { showSizePicker = false },
             strings = strings,
-            previewBrush = resolvePreviewBrush(state.activeBrushName, customBrushes),
+            previewBrush = vm.activeBrushForPreview(),
             brushColor = state.activeColor,
             secondaryColor = state.secondaryColor,
             brushFeathering = feather,
@@ -1680,6 +1664,7 @@ private const val TRANSFORM_ID = "grp.transform"
 internal fun activeRailClassifiers(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
+    brushPreviews: Map<String, android.graphics.Bitmap>,
     customBrushes: List<CustomBrush>,
     // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is
     // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other
@@ -2401,9 +2386,11 @@ private fun AzNavHostScope.ConfigureRailItems(
         brushes.forEach { (id, name) ->
             azRailSubItem(
                 id = "brushRail.ext.$id", hostId = "grp.brushRail", text = name,
-                content = GraffuxIcons.BrushImport,
+                content = brushPreviews[id]?.let { BitmapPainter(it.asImageBitmap()) }
+                    ?: GraffuxIcons.BrushImport,
                 classifiers = setOf("brush.$id"),
                 color = railColor("brush.$id"),
+                shape = AzButtonShape.SQUARE,
                 onClick = { vm.selectBrushExtension(id) },
             )
         }
