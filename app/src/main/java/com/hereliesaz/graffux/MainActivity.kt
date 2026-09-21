@@ -1550,7 +1550,6 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
         }
     }
     if (showSizePicker) {
-        val customBrushes by vm.customBrushes.collectAsState()
         SizePickerDialog(
             currentSize = state.brushSize,
             onSizeChange = { vm.setBrushSize(it) },
@@ -1664,7 +1663,6 @@ private const val TRANSFORM_ID = "grp.transform"
 internal fun activeRailClassifiers(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
-    brushPreviews: Map<String, android.graphics.Bitmap>,
     customBrushes: List<CustomBrush>,
     // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is
     // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other
@@ -1766,6 +1764,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
+    brushPreviews: Map<String, android.graphics.Bitmap>,
     customBrushes: List<CustomBrush>,
     // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't
     // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and
