@@ -453,8 +453,14 @@ data class AzphaltBrush(
                     f("roundness") ?: f("ratio") ?: f("tipRatio"),
                     1f,
                 ).coerceIn(0.05f, 1f),
-                opacity = unitOrPercent(f("opacity"), 1f).coerceIn(0f, 1f),
-                hardness = unitOrPercent(f("hardness"), 1f).coerceIn(0f, 1f),
+                opacity = (f("opacity") ?: 1f).coerceIn(0f, 1f),
+                hardness = (
+                    if (tipFormat.equals("png-gray", ignoreCase = true)) {
+                        unitOrPercent(f("hardness"), 1f)
+                    } else {
+                        f("hardness") ?: 1f
+                    }
+                    ).coerceIn(0f, 1f),
                 sizeJitter = (f("sizeJitter") ?: 0f).coerceIn(0f, 1f),
                 opacityJitter = (f("opacityJitter") ?: 0f).coerceIn(0f, 1f),
                 scatter = (f("scatter") ?: 0f).coerceAtLeast(0f),
