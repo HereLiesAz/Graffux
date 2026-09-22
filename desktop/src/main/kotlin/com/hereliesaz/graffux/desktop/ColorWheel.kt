@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,27 @@ fun ColorWheel(
     var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
     var value by remember { mutableFloatStateOf(initialHsv[2]) }
 
+    // `currentColor` can change out from under this composable -- e.g. a palette swatch click in
+    // Main.kt -- without the wheel itself being torn down/recreated, so hue/saturation/value must
+    // resync to it. `lastSyncedColor` is the color this composable last either seeded/resynced from
+    // *or itself emitted* via `onColorSelected`: every place below that calls `onColorSelected` also
+    // updates it first, so when that same value round-trips back in as the next `currentColor`, the
+    // equality check here sees no change and skips resetting -- otherwise a resync-on-every-change
+    // would fight the user's own drag (each drag-driven onColorSelected -> currentColor update would
+    // immediately reset hue/saturation/value from the recomputed RGB, which is lossy at the wheel's
+    // rim and would visibly snap the thumb).
+    var lastSyncedColor by remember { mutableStateOf(currentColor) }
+    LaunchedEffect(currentColor) {
+        if (currentColor != lastSyncedColor) {
+            val argb = currentColor.toArgb()
+            val hsv = ArgbColor.rgbToHsv((argb shr 16) and 0xFF, (argb shr 8) and 0xFF, argb and 0xFF)
+            hue = hsv[0]
+            saturation = hsv[1]
+            value = hsv[2]
+            lastSyncedColor = currentColor
+        }
+    }
+
     // The 200x200 raster below is a real per-pixel HSV fill (40,000 trig-and-multiply pixels), not
     // free -- and the brightness Slider fires `onValueChange` continuously while dragging, once per
     // pointer-move, not just on release. Regenerating that raster synchronously on the composition
@@ -87,18 +110,33 @@ fun ColorWheel(
         val angleDeg = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
         hue = ((angleDeg + 360f) % 360f)
         val (r, g, b) = ArgbColor.hsvToRgb(hue, saturation, value)
-        onColorSelected(Color(red = r, green = g, blue = b))
+        val picked = Color(red = r, green = g, blue = b)
+        lastSyncedColor = picked
+        onColorSelected(picked)
+    }
+
+    // The Box below is laid out at WHEEL_SIZE_PX *dp*, not px -- on any display with density != 1.0
+    // (e.g. Windows 150% scaling) it renders at more/fewer actual pixels than that literal, while
+    // `pointerInput`'s offsets are always reported in real on-screen pixels. `onSizeChanged` reports
+    // that real rendered size, so hit-testing stays correct at any density instead of assuming a
+    // fixed 1:1 dp-to-px mapping. Seeded to the density-correct px value up front (rather than 0) so
+    // the very first click, before the first `onSizeChanged` callback, is still accurate.
+    var wheelSizePx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    LaunchedEffect(density) {
+        wheelSizePx = with(density) { WHEEL_SIZE_PX.dp.toPx() }
     }
 
     Column(modifier = modifier) {
         Box(
             modifier = Modifier
                 .size(WHEEL_SIZE_PX.dp)
+                .onSizeChanged { wheelSizePx = it.width.toFloat() }
                 .pointerInput(Unit) {
-                    detectTapGestures { offset -> pickFromOffset(offset, WHEEL_SIZE_PX) }
+                    detectTapGestures { offset -> pickFromOffset(offset, wheelSizePx.toInt()) }
                 }
                 .pointerInput(Unit) {
-                    detectDragGestures { change, _ -> pickFromOffset(change.position, WHEEL_SIZE_PX) }
+                    detectDragGestures { change, _ -> pickFromOffset(change.position, wheelSizePx.toInt()) }
                 },
         ) {
             // Null only for the first ~30ms after this composable enters, before the debounced
@@ -115,7 +153,9 @@ fun ColorWheel(
                 onValueChange = { newValue ->
                     value = newValue
                     val (r, g, b) = ArgbColor.hsvToRgb(hue, saturation, value)
-                    onColorSelected(Color(red = r, green = g, blue = b))
+                    val picked = Color(red = r, green = g, blue = b)
+                    lastSyncedColor = picked
+                    onColorSelected(picked)
                 },
                 valueRange = 0f..1f,
                 modifier = Modifier.width(WHEEL_SIZE_PX.dp).height(32.dp),

@@ -23,8 +23,6 @@
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
-static std::string gLastDepthTrace;
-#define DEPTH_TRACE(fmt, ...) do {     char _buf[256];     snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__);     LOGD("DEPTH_PIPE: %s", _buf);     gLastDepthTrace += std::string(_buf) + "\n"; } while(0)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GraffitiJNI", __VA_ARGS__)
 
 MobileGS* gSlamEngine = nullptr;
@@ -35,17 +33,26 @@ ImageWarper* gImageWarper = nullptr;
 // Kotlin coroutines). nativeDestroy() used to delete+null these with no synchronization while
 // every other entry point below did an unsynchronized "if (ptr) ptr->method()" — a classic
 // use-after-free if destroy() raced a concurrent call. Readers take a shared_lock (many can run
-// concurrently, matching the original lock-free-read design); nativeInitialize/nativeDestroy/
-// nativeFeedStereoData's lazy StereoProcessor allocation take a unique_lock since they mutate the
-// pointers themselves. This does NOT replace MobileGS's own internal mutex (getMutex()), which
-// guards the engine's internal state, not its pointer's lifetime.
+// concurrently, matching the original lock-free-read design); nativeInitialize/nativeDestroy take
+// a unique_lock since they mutate the pointers themselves. This does NOT replace MobileGS's own
+// internal mutex (getMutex()), which guards the engine's internal state, not its pointer's lifetime.
 static std::shared_mutex gEngineMutex;
-cv::Mat gLastColorFrame; // MANDATE: Kept in Sensor-Native (Landscape) orientation
+
+// Guards the bare frame/camera/trace globals below (gLastColorFrame, gColorImageWidth/Height,
+// gLastViewMatrix/gLastProjMatrix/gLastMappingViewMatrix/gLastMappingProjMatrix,
+// gHasCameraMatrices). These are NOT part of MobileGS's internal state and are not covered by
+// gEngineMutex (which only guards gSlamEngine/gStereoProcessor/gImageWarper pointer lifetime) or
+// by MobileGS's own internal mutex. They are written from the camera-analysis thread
+// (nativeFeedYuvFrame/nativeFeedColorFrame/nativeUpdateCamera) and read from the GL/draw thread
+// and elsewhere, so every read and write of them takes this exclusive lock.
+static std::mutex gFrameStateMutex;
+
+cv::Mat gLastColorFrame; // MANDATE: Kept in Sensor-Native (Landscape) orientation -- guarded by gFrameStateMutex
 int gFrameCount = 0;
 JavaVM* gJvm = nullptr;
 
-static int gColorImageWidth  = 0;
-static int gColorImageHeight = 0;
+static int gColorImageWidth  = 0;  // guarded by gFrameStateMutex
+static int gColorImageHeight = 0;  // guarded by gFrameStateMutex
 
 // ── Native crash capture ─────────────────────────────────────────────────────
 // A SIGSEGV/SIGABRT in the AR/SLAM native code kills the process before the JVM
@@ -480,6 +487,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetMappingPaused(J
     if (gSlamEngine) gSlamEngine->setMappingPaused(paused);
 }
 
+// Guarded by gFrameStateMutex (see its declaration above), not gEngineMutex.
 float gLastViewMatrix[16];
 float gLastProjMatrix[16];
 float gLastMappingViewMatrix[16];
@@ -502,11 +510,14 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateCamera(
         gSlamEngine->updateCamera(view, proj);
         gSlamEngine->updateMappingCamera(mView, mProj);
 
-        memcpy(gLastViewMatrix, view, 16 * sizeof(float));
-        memcpy(gLastProjMatrix, proj, 16 * sizeof(float));
-        memcpy(gLastMappingViewMatrix, mView, 16 * sizeof(float));
-        memcpy(gLastMappingProjMatrix, mProj, 16 * sizeof(float));
-        gHasCameraMatrices = true;
+        {
+            std::lock_guard<std::mutex> frameStateLock(gFrameStateMutex);
+            memcpy(gLastViewMatrix, view, 16 * sizeof(float));
+            memcpy(gLastProjMatrix, proj, 16 * sizeof(float));
+            memcpy(gLastMappingViewMatrix, mView, 16 * sizeof(float));
+            memcpy(gLastMappingProjMatrix, mProj, 16 * sizeof(float));
+            gHasCameraMatrices = true;
+        }
 
         env->ReleaseFloatArrayElements(viewMatrix, view, JNI_ABORT);
         env->ReleaseFloatArrayElements(projMatrix, proj, JNI_ABORT);
@@ -545,65 +556,72 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedYuvFrame(
 
     if (!yData || !uData || !vData) return;
 
-    gColorImageWidth  = width;
-    gColorImageHeight = height;
+    cv::Mat relocFrame;
+    bool haveRelocFrame = false;
 
-    cv::Mat yMat(height, width, CV_8UC1, yData, yStride);
+    {
+        std::lock_guard<std::mutex> frameStateLock(gFrameStateMutex);
 
-    if (gLastColorFrame.empty() || gLastColorFrame.cols != width || gLastColorFrame.rows != height) {
-        gLastColorFrame = cv::Mat(height, width, CV_8UC3);
+        gColorImageWidth  = width;
+        gColorImageHeight = height;
+
+        cv::Mat yMat(height, width, CV_8UC1, yData, yStride);
+
+        if (gLastColorFrame.empty() || gLastColorFrame.cols != width || gLastColorFrame.rows != height) {
+            gLastColorFrame = cv::Mat(height, width, CV_8UC3);
+        }
+
+        cv::Mat yuv(height + height / 2, width, CV_8UC1);
+        yMat.copyTo(yuv(cv::Rect(0, 0, width, height)));
+
+        if (uvPixelStride == 1) {
+            // I420 planar (separate U and V planes) → NV21-style interleaved V,U so the reloc decode
+            // (COLOR_YUV2RGB_NV21 below) is correct. The old code copied each full height/2-row plane
+            // into a height/4-row ROI — a size mismatch that left half the chroma uninitialized and
+            // produced wrong colours. Build the VU block explicitly, bounded by the buffer capacities.
+            jlong uCap = env->GetDirectBufferCapacity(uBuffer);
+            jlong vCap = env->GetDirectBufferCapacity(vBuffer);
+            cv::Mat chroma = yuv(cv::Rect(0, height, width, height / 2));
+            for (int r = 0; r < height / 2; ++r) {
+                uint8_t* dst = chroma.ptr(r);
+                size_t rowOff = (size_t)r * uvStride;
+                for (int c = 0; c < width / 2; ++c) {
+                    size_t idx = rowOff + c;
+                    dst[2 * c]     = (vCap <= 0 || (jlong)idx < vCap) ? vData[idx] : 0; // V
+                    dst[2 * c + 1] = (uCap <= 0 || (jlong)idx < uCap) ? uData[idx] : 0; // U
+                }
+            }
+            // No conversion on GL thread; pass raw YUV to map thread
+            gLastColorFrame = yuv.clone();
+        } else if (uvPixelStride == 2) {
+            jlong vCap = env->GetDirectBufferCapacity(vBuffer);
+            cv::Mat uvInterleaved = cv::Mat::zeros(height / 2, width, CV_8UC1);
+            size_t limit = (vCap > 0) ? (size_t)vCap : (size_t)((height / 2 - 1) * uvStride + width);
+            for (int r = 0; r < height / 2; ++r) {
+                size_t rowStart = r * uvStride;
+                size_t rowLen = std::min((size_t)width, (size_t)(limit > rowStart ? limit - rowStart : 0));
+                if (rowLen > 0) {
+                    std::memcpy(uvInterleaved.ptr(r), vData + rowStart, rowLen);
+                }
+            }
+            uvInterleaved.copyTo(yuv(cv::Rect(0, height, width, height / 2)));
+            // No conversion on GL thread; pass raw YUV to map thread
+            gLastColorFrame = yuv.clone();
+        } else {
+            cv::cvtColor(yMat, gLastColorFrame, cv::COLOR_GRAY2RGB);
+        }
+
+        // Relocalization MATCHING still uses the Display-Aligned frame for best user feedback
+        if (!gLastColorFrame.empty() && gLastColorFrame.rows == height + height/2) {
+            cv::cvtColor(gLastColorFrame, relocFrame, cv::COLOR_YUV2RGB_NV21);
+            haveRelocFrame = true;
+        } else if (!gLastColorFrame.empty()) {
+            relocFrame = gLastColorFrame.clone();
+            haveRelocFrame = true;
+        }
     }
 
-    cv::Mat yuv(height + height / 2, width, CV_8UC1);
-    yMat.copyTo(yuv(cv::Rect(0, 0, width, height)));
-
-    if (uvPixelStride == 1) {
-        // I420 planar (separate U and V planes) → NV21-style interleaved V,U so the reloc decode
-        // (COLOR_YUV2RGB_NV21 below) is correct. The old code copied each full height/2-row plane
-        // into a height/4-row ROI — a size mismatch that left half the chroma uninitialized and
-        // produced wrong colours. Build the VU block explicitly, bounded by the buffer capacities.
-        jlong uCap = env->GetDirectBufferCapacity(uBuffer);
-        jlong vCap = env->GetDirectBufferCapacity(vBuffer);
-        cv::Mat chroma = yuv(cv::Rect(0, height, width, height / 2));
-        for (int r = 0; r < height / 2; ++r) {
-            uint8_t* dst = chroma.ptr(r);
-            size_t rowOff = (size_t)r * uvStride;
-            for (int c = 0; c < width / 2; ++c) {
-                size_t idx = rowOff + c;
-                dst[2 * c]     = (vCap <= 0 || (jlong)idx < vCap) ? vData[idx] : 0; // V
-                dst[2 * c + 1] = (uCap <= 0 || (jlong)idx < uCap) ? uData[idx] : 0; // U
-            }
-        }
-        // No conversion on GL thread; pass raw YUV to map thread
-        gLastColorFrame = yuv.clone();
-    } else if (uvPixelStride == 2) {
-        jlong vCap = env->GetDirectBufferCapacity(vBuffer);
-        cv::Mat uvInterleaved = cv::Mat::zeros(height / 2, width, CV_8UC1);
-        size_t limit = (vCap > 0) ? (size_t)vCap : (size_t)((height / 2 - 1) * uvStride + width);
-        for (int r = 0; r < height / 2; ++r) {
-            size_t rowStart = r * uvStride;
-            size_t rowLen = std::min((size_t)width, (size_t)(limit > rowStart ? limit - rowStart : 0));
-            if (rowLen > 0) {
-                std::memcpy(uvInterleaved.ptr(r), vData + rowStart, rowLen);
-            }
-        }
-        uvInterleaved.copyTo(yuv(cv::Rect(0, height, width, height / 2)));
-        // No conversion on GL thread; pass raw YUV to map thread
-        gLastColorFrame = yuv.clone();
-    } else {
-        cv::cvtColor(yMat, gLastColorFrame, cv::COLOR_GRAY2RGB);
-    }
-
-    // Relocalization MATCHING still uses the Display-Aligned frame for best user feedback
-    if (!gLastColorFrame.empty() && gLastColorFrame.rows == height + height/2) {
-        cv::Mat relocFrame;
-        cv::cvtColor(gLastColorFrame, relocFrame, cv::COLOR_YUV2RGB_NV21);
-        if (cvRotateCode >= 0) {
-            cv::rotate(relocFrame, relocFrame, cvRotateCode);
-        }
-        gSlamEngine->scheduleRelocCheck(relocFrame);
-    } else if (!gLastColorFrame.empty()) {
-        cv::Mat relocFrame = gLastColorFrame.clone();
+    if (haveRelocFrame) {
         if (cvRotateCode >= 0) {
             cv::rotate(relocFrame, relocFrame, cvRotateCode);
         }
@@ -685,13 +703,18 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedColorFrame(
     uint8_t* buffer = static_cast<uint8_t*>(env->GetDirectBufferAddress(colorBuffer));
     if (!buffer || !gSlamEngine) return;
 
-    gColorImageWidth  = width;
-    gColorImageHeight = height;
+    cv::Mat relocFrame;
+    {
+        std::lock_guard<std::mutex> frameStateLock(gFrameStateMutex);
 
-    cv::Mat frame(height, width, CV_8UC4, buffer);
-    cv::cvtColor(frame, gLastColorFrame, cv::COLOR_RGBA2RGB);
+        gColorImageWidth  = width;
+        gColorImageHeight = height;
 
-    cv::Mat relocFrame = gLastColorFrame.clone();
+        cv::Mat frame(height, width, CV_8UC4, buffer);
+        cv::cvtColor(frame, gLastColorFrame, cv::COLOR_RGBA2RGB);
+
+        relocFrame = gLastColorFrame.clone();
+    }
     if (cvRotateCode >= 0) {
         cv::rotate(relocFrame, relocFrame, cvRotateCode);
     }
@@ -713,55 +736,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedPointCloud(JNI
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedArCoreDepth(
         JNIEnv* env, jobject thiz, jobject depthBuffer, jint width, jint height, jint rowStride, jfloatArray intrArray, jint cpuW, jint cpuH, jint cvRotateCode, jfloat confidence) {
-    std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
-
-    gLastDepthTrace.clear();
-    if (!gSlamEngine) return;
-    if (gLastColorFrame.empty()) return;
-
-    auto* rawDepthBytes = static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer));
-    if (!rawDepthBytes) return;
-
-    // MANDATE: Keep depth map in sensor-native (Landscape) orientation to align with Physical pose.
-    cv::Mat depthMap(height, width, CV_32F, cv::Scalar(0.0f));
-
-    int validPixels = 0;
-    for (int r = 0; r < height; r++) {
-        auto* rowPtr = reinterpret_cast<const uint16_t*>(rawDepthBytes + (r * rowStride));
-        for (int c = 0; c < width; c++) {
-            uint16_t raw = rowPtr[c];
-            uint16_t depthMm = raw & 0x1FFFu;
-            uint8_t conf = (raw >> 13u) & 0x7u;
-            if (depthMm > 0 && conf > 0) {
-                depthMap.at<float>(r, c) = (float)depthMm / 1000.0f;
-                validPixels++;
-            }
-        }
-    }
-
-    if (validPixels == 0) return;
-
-    jfloat* intr = env->GetFloatArrayElements(intrArray, nullptr);
-    float fx = intr[0], fy = intr[1], cx = intr[2], cy = intr[3];
-    env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
-
-    // SCALE: Physical intrinsics are for the full CPU resolution (cpuW/cpuH).
-    // They must be scaled to match the sensor-native depth resolution (width/height).
-    if (cpuW > 0 && cpuH > 0) {
-        float scaleX = (float)width / (float)cpuW;
-        float scaleY = (float)height / (float)cpuH;
-        fx *= scaleX; fy *= scaleY;
-        cx *= scaleX; cy *= scaleY;
-    }
-
-    float finalIntrinsics[4] = {fx, fy, cx, cy};
-
-    if (!gHasCameraMatrices) return;
-
-    bool isYuv = (gLastColorFrame.rows == gColorImageHeight + gColorImageHeight / 2);
-
-    // MANDATE: Pass sensor-native depth map with Physical Pose (gLastMappingViewMatrix)
-    gSlamEngine->pushFrame(depthMap, gLastColorFrame, gLastMappingViewMatrix, gLastMappingProjMatrix, finalIntrinsics, isYuv, confidence);
+    // MobileGS::pushFrame is a no-op stub (the voxel/splat 3D reconstruction pipeline it fed was
+    // deliberately deleted — see MobileGS.cpp). Decoding the full ARCore depth map here to build a
+    // depthMap/intrinsics pair that would only be handed to that no-op would be pure wasted
+    // per-frame CPU work, so this function intentionally does nothing else.
+    (void) env; (void) thiz; (void) depthBuffer; (void) width; (void) height; (void) rowStride;
+    (void) intrArray; (void) cpuW; (void) cpuH; (void) cvRotateCode; (void) confidence;
 }
 
 JNIEXPORT void JNICALL
@@ -785,26 +765,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDrawCoverage(JNIEn
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedStereoData(
         JNIEnv* env, jobject thiz, jobject leftBuffer, jobject rightBuffer, jint width, jint height, jlong timestamp) {
-    std::unique_lock<std::shared_mutex> engineLock(gEngineMutex); // writes gSlamEngine/gStereoProcessor/gImageWarper: exclude all concurrent readers
-
-    if (!gSlamEngine) return;
-
-    if (!gStereoProcessor) gStereoProcessor = new StereoProcessor();
-
-    auto* leftData = static_cast<int8_t*>(env->GetDirectBufferAddress(leftBuffer));
-    auto* rightData = static_cast<int8_t*>(env->GetDirectBufferAddress(rightBuffer));
-    if (!leftData || !rightData) return;
-
-    gStereoProcessor->processStereo(leftData, rightData, width, height);
-    cv::Mat disparity = gStereoProcessor->getDisparityMap();
-
-    if (!disparity.empty() && !gLastColorFrame.empty() && gHasCameraMatrices) {
-        cv::Mat depthFromStereo;
-        disparity.convertTo(depthFromStereo, CV_32F, 1.0/16.0);
-        bool isYuv = (gLastColorFrame.rows == gColorImageHeight + gColorImageHeight / 2);
-        // Stereo depth gets higher confidence (0.9)
-        gSlamEngine->pushFrame(depthFromStereo, gLastColorFrame, gLastMappingViewMatrix, gLastMappingProjMatrix, nullptr, isYuv, 0.9f);
-    }
+    // MobileGS::pushFrame is a no-op stub (the voxel/splat 3D reconstruction pipeline it fed was
+    // deliberately deleted — see MobileGS.cpp), and nothing else reads gStereoProcessor's disparity
+    // map. Running StereoProcessor::processStereo per frame here to build a depth map that would
+    // only be handed to that no-op would be pure wasted CPU work, so this function intentionally
+    // does nothing else. gStereoProcessor itself is left unallocated; nativeDestroy's delete on it
+    // remains a harmless no-op.
+    (void) env; (void) thiz; (void) leftBuffer; (void) rightBuffer; (void) width; (void) height; (void) timestamp;
 }
 
 JNIEXPORT void JNICALL
@@ -1302,11 +1269,6 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetKeypoints(
     return result;
 }
 
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetLastDepthTrace(JNIEnv* env, jobject) {
-    return env->NewStringUTF(gLastDepthTrace.c_str());
-}
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetSplatsVisible(JNIEnv* env, jobject, jboolean visible) {

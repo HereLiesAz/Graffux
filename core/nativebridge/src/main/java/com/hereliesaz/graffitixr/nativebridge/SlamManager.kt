@@ -79,7 +79,6 @@ class SlamManager @Inject constructor(
     fun getVisibleConfidenceAvg(): Float = nativeGetVisibleConfidenceAvg()
     fun getGlobalConfidenceAvg(): Float = nativeGetGlobalConfidenceAvg()
     fun setSplatsVisible(visible: Boolean) = nativeSetSplatsVisible(visible)
-    fun getLastDepthTrace(): String = nativeGetLastDepthTrace()
 
     fun updateAnchorTransform(transform: FloatArray) = nativeUpdateAnchorTransform(transform)
 
@@ -536,7 +535,6 @@ class SlamManager @Inject constructor(
     private external fun nativeGetVisibleConfidenceAvg(): Float
     private external fun nativeGetGlobalConfidenceAvg(): Float
     private external fun nativeSetSplatsVisible(visible: Boolean)
-    private external fun nativeGetLastDepthTrace(): String
     private external fun nativeSetArCoreTrackingState(isTracking: Boolean)
     private external fun nativeClearMap()
     private external fun nativePruneByConfidence(threshold: Float)

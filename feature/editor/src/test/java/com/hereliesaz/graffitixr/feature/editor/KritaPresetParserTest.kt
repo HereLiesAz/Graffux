@@ -151,6 +151,37 @@ class KritaPresetParserTest {
     }
 
     @Test
+    fun `throws instead of inflating a zTXt chunk past the decompressed size cap`() {
+        // A zip-bomb-style zTXt chunk: a small compressed payload (highly repetitive input
+        // deflates tiny) that would inflate to well past KritaPresetParser's cap. A .kpp is just
+        // a PNG someone can hand you, so this must throw ParseException rather than let the
+        // inflate loop run unbounded and OOM the process.
+        val hugeRepetitive = ByteArray(40 * 1024 * 1024) // 40 MiB of zeros, > the 32 MiB cap
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+        out.writeChunk("IHDR", ByteArray(13))
+        val payload = ByteArrayOutputStream()
+        payload.write("preset".toByteArray(Charsets.ISO_8859_1))
+        payload.write(0)
+        payload.write(0) // compression method: deflate
+        val deflater = Deflater()
+        deflater.setInput(hugeRepetitive)
+        deflater.finish()
+        val buffer = ByteArray(4096)
+        while (!deflater.finished()) {
+            val count = deflater.deflate(buffer)
+            payload.write(buffer, 0, count)
+        }
+        deflater.end()
+        out.writeChunk("zTXt", payload.toByteArray())
+        out.writeChunk("IEND", ByteArray(0))
+
+        assertThrows(KritaPresetParser.ParseException::class.java) {
+            KritaPresetParser.parse(out.toByteArray())
+        }
+    }
+
+    @Test
     fun `throws when there is no preset text chunk`() {
         val bytes = pngWithTextChunk("version", "5.2.0")
 
