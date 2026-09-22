@@ -299,19 +299,36 @@ class ExtensionRepository @Inject constructor(
      * [assetIndex] selects among that extension's own usable brush assets in manifest order (an
      * extension bundling more than one -- a "brush pack" -- contributes more than one); 0 (the
      * default) is the first, preserving every existing single-brush-extension caller's behaviour
-     * unchanged. The brush's name is [brushAssetName]; its behaviour from the asset's `params` via
-     * [AzphaltBrush.fromParams].
+     * unchanged. The brush's name is [brushAssetName]; its behaviour comes from the asset's
+     * `params` via [AzphaltBrush.fromParams]. Critically, Azphalt defines the brush asset's own
+     * `path` as its primary tip image. Older Graffux code parsed params and then threw that path
+     * away, reducing every normal store brush to a generated round tip.
      */
     fun loadBrush(id: String, assetIndex: Int = 0): AzphaltBrush? {
         val ext = _installed.value.find { it.id == id } ?: return null
         val usable = ext.manifest.assets.filter(::isUsableBrush)
         val asset = usable.getOrNull(assetIndex) ?: return null
-        return AzphaltBrush.fromParams(brushAssetName(ext, asset, assetIndex, usable.size), asset.params)
+        val parsed = AzphaltBrush.fromParams(
+            brushAssetName(ext, asset, assetIndex, usable.size),
+            asset.params,
+        )
+        return if (parsed.shapePath == null && asset.path.isNotBlank()) {
+            parsed.copy(shapePath = asset.path)
+        } else {
+            parsed
+        }
     }
 
-    /** A brush asset this host can paint with: standalone (not code-dependent). Stamp path is optional. */
+    /**
+     * A brush asset this host can paint with: standalone (not code-dependent). A genuinely
+     * params-only brush may omit path. A remote-header brush is different: it has a tip, but this
+     * host does not lazily fetch remote asset payloads yet, so surfacing it as a round brush would
+     * lie about what was installed.
+     */
     private fun isUsableBrush(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
-        asset.type == AssetType.BRUSH && asset.standalone
+        asset.type == AssetType.BRUSH &&
+            asset.standalone &&
+            (asset.path.isNotBlank() || asset.remoteUrl == null)
 
     /**
      * A brush asset's display name: its own `params.name` if the manifest declares one (needed once
