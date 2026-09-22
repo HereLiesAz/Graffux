@@ -190,8 +190,18 @@ The existing Impasto v1 path remains the compatibility baseline, and Phase 5 ext
 - ✅ Material sidecars restore on project load, participate in debounced saves and explicit flushes, and travel with project archive export/import. Color-only layers create no sidecar; stale/empty material deletes the old sidecar.
 - ✅ Sidecar paths are hashed/contained and corrupt, mismatched, oversized, or invalid material data fails closed.
 - ✅ Hosted unit/build validation covers the v2 configuration, transfer/leveling/substrate/optics model, live wet optics, deterministic replay, persistence codec, and layer material-cache behavior.
+- ✅ Phase-5 hardening makes undo material-aware: any stroke that can mutate height/wetness/material ownership bypasses the pixel-only tile-delta shortcut and reconstructs canonical material state.
+- ✅ Sidecar restore is fail-closed and persistence is retryable: missing/corrupt/mismatched material cannot leak stale runtime channels, and failed bitmap/material writes remain pending instead of being silently acknowledged.
+- ✅ Layer duplication carries height, wetness, and the spatial material-response ownership map.
+- ✅ Material response ownership is spatial and persisted as a compact palette + per-pixel owner IDs; later brush settings do not retroactively reinterpret untouched existing paint.
+- ✅ Material ownership is claimed only where a stroke actually deposits height or vehicle/wetness; clipped/no-op contact does not change ownership.
+- ✅ Soft-selection feathering weights canonical height/wetness deposition with compact one-byte coverage rather than allocating full-canvas IntArray + FloatArray duplicates.
+- ✅ Impasto time advancement operates on canonical height/wetness only. Presentation lighting is never inverted from clamped 8-bit display RGB and fed back into pigment; Color Smudge remains the sole owner of Phase-4 pigment transport.
+- ✅ Live Impasto preview is seeded from the same spatial material-owner map used by commit/replay, preventing a medium-change snap on finger-up.
+- ✅ Replacing/reinitializing a layer base clears all old canonical material channels; reload/duplicate paths explicitly restore the matching sidecar/copy afterward.
+- ✅ Saved Android monotonic uptime is not treated as portable material time; restore begins a new deterministic timing epoch while retaining the canonical material fields.
 
-The Phase-5 **code-side roadmap exit gate is met**. As with the other physical/material phases, representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.
+The Phase-5 **code-side roadmap exit gate is met and hardened**. As with the other physical/material phases, representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.
 
 ### Phase 6 — Coarse deformable tuft — ✅ foundation implemented ahead of material Phases 3–5
 

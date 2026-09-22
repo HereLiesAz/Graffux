@@ -39,6 +39,11 @@ separately, keeping its name, opacity, and blend mode.</p>
   input.onchange = () => { if (input.files[0]) read(input.files[0]); };
 
   // Dragging a file onto the window would otherwise navigate the iframe away from the plugin.
+  // Bind on window so a drop anywhere in the plugin (not just the #drop box) is caught; #drop's own
+  // handlers below still run first for drops on the visible target and do the actual file handling.
+  window.ondragover = (e) => e.preventDefault();
+  window.ondrop = (e) => e.preventDefault();
+
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
   drop.ondragleave = () => drop.classList.remove('over');
   drop.ondrop = (e) => {

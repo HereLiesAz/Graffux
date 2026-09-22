@@ -50,6 +50,21 @@ object AnimationFrames {
     }
 
     /**
+     * Every layer that belongs in a flattened render of frame [index]: that frame's subtree plus
+     * every pinned-across-frames root and its descendants. This is the same visual membership the
+     * live renderer expresses through [effectiveOpacities], but as an id set for callers that need
+     * to precompose one frame (for example the low-quality playback preview buffer).
+     */
+    fun renderedLayerIdsForFrame(layers: List<Layer>, index: Int): Set<String> {
+        val tree = buildLayerTree(layers)
+        val frameNode = tree.filterNot { it.layer.isPinnedAcrossFrames }.getOrNull(index)
+        return buildSet {
+            tree.filter { it.layer.isPinnedAcrossFrames }.forEach { addAll(subtreeIds(it)) }
+            if (frameNode != null) addAll(subtreeIds(frameNode))
+        }
+    }
+
+    /**
      * Per-layer opacity multiplier for Animation Assist rendering: 1 for the active frame's own
      * subtree, a fading fraction for up to [onionSkinPastCount] neighbours behind the active frame
      * and up to [onionSkinFutureCount] ahead of it when [onionSkinEnabled] — Krita-style asymmetric

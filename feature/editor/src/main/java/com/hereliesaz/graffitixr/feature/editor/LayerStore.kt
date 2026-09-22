@@ -282,6 +282,8 @@ internal class LayerStore {
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
+        materialMediumBases.remove(layerId)
+        liveMaterialMedia.remove(layerId)
     }
 
     /** Clears all cached bitmaps, strokes, height bases, and wetness state (e.g. on project unload). */

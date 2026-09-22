@@ -37,6 +37,7 @@ import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
+import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.cappedForPerformanceTier
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
@@ -215,6 +216,56 @@ internal const val UNDO_TILE_SIZE = 64
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
+/** Vegas-style cached animation preview: low enough to be cheap, large enough to judge motion. */
+private const val ANIMATION_PREVIEW_FRAME_MAX_DIM = 480
+
+/** Hard cap for all buffered preview pixels together; prevents a long range from becoming a heap bomb. */
+private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
+
+data class AnimationPreviewBufferState(
+    val frames: Map<Int, Bitmap> = emptyMap(),
+    val range: IntRange = IntRange.EMPTY,
+    val sourceFingerprint: Int = 0,
+    val renderedFrames: Int = 0,
+    val totalFrames: Int = 0,
+    val isRendering: Boolean = false,
+    val error: String? = null,
+) {
+    val isReady: Boolean
+        get() = !isRendering && error == null && totalFrames > 0 && frames.size == totalFrames
+}
+
+/**
+ * Chooses one preview-frame size for the selected range. The 480px longest-edge ceiling gives the
+ * requested deliberately low-quality playback, while the aggregate 64 MiB budget scales very long
+ * ranges down further instead of allocating one 480px bitmap per frame until Android kills us.
+ */
+internal fun animationPreviewDimensions(
+    documentWidth: Int,
+    documentHeight: Int,
+    frameCount: Int,
+    maxDimension: Int = ANIMATION_PREVIEW_FRAME_MAX_DIM,
+    budgetBytes: Long = ANIMATION_PREVIEW_BUFFER_MAX_BYTES,
+): Pair<Int, Int> {
+    val sourceWidth = documentWidth.coerceAtLeast(1)
+    val sourceHeight = documentHeight.coerceAtLeast(1)
+    val longest = max(sourceWidth, sourceHeight).toFloat()
+    var scale = (maxDimension.coerceAtLeast(1).toFloat() / longest).coerceAtMost(1f)
+    var width = (sourceWidth * scale).roundToInt().coerceAtLeast(1)
+    var height = (sourceHeight * scale).roundToInt().coerceAtLeast(1)
+
+    val count = frameCount.coerceAtLeast(1)
+    val required = width.toLong() * height.toLong() * 4L * count.toLong()
+    if (required > budgetBytes.coerceAtLeast(4L)) {
+        val budgetScale = kotlin.math.sqrt(
+            budgetBytes.coerceAtLeast(4L).toDouble() / required.toDouble()
+        ).toFloat().coerceIn(0f, 1f)
+        width = (width * budgetScale).roundToInt().coerceAtLeast(1)
+        height = (height * budgetScale).roundToInt().coerceAtLeast(1)
+    }
+    return width to height
+}
+
 /** Cap on a whole imported document (PSD/PDF/Procreate/etc) read fully into memory by
  *  [EditorViewModel.onImportDocument] — matches ProjectManager's own MAX_IMPORT_BYTES precedent
  *  for "how big a single user-picked file is allowed to be before we refuse it outright". */
@@ -295,6 +346,33 @@ internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
     val out = ByteArray(pixels.size)
     for (i in pixels.indices) out[i] = ((pixels[i] ushr 24) and 0xFF).toByte()
     return out
+}
+
+/**
+ * Azphalt's `png-gray` brush-tip format stores coverage in luminance. Android decodes grayscale
+ * PNGs as fully-opaque RGB, while Graffux's tip renderer reads alpha as coverage; without this
+ * conversion every imported grayscale tip becomes one solid rectangle/ellipse and its actual shape
+ * vanishes. Other formats keep their original alpha unchanged.
+ */
+internal fun normalizeAzphaltBrushTip(bitmap: Bitmap, format: String?): Bitmap {
+    if (!format.equals("png-gray", ignoreCase = true)) return bitmap
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    for (i in pixels.indices) {
+        val p = pixels[i]
+        val sourceAlpha = (p ushr 24) and 0xFF
+        val r = (p ushr 16) and 0xFF
+        val g = (p ushr 8) and 0xFF
+        val b = p and 0xFF
+        val luminance = ((r * 54 + g * 183 + b * 19) shr 8)
+        val coverage = (luminance * sourceAlpha + 127) / 255
+        pixels[i] = (coverage shl 24) or 0x00FFFFFF
+    }
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+        it.setPixels(pixels, 0, width, 0, 0, width, height)
+    }
 }
 
 /**
@@ -513,6 +591,14 @@ class EditorViewModel @Inject constructor(
      */
     private val _liveStroke = MutableStateFlow(com.hereliesaz.graffitixr.common.model.LiveStroke())
     val liveStroke = _liveStroke.asStateFlow()
+
+    /**
+     * Transient, deliberately low-resolution animation composites for Vegas-style preview playback.
+     * Kept outside [EditorUiState]: these bitmaps are neither document state nor persistable editor
+     * state, and progress updates must not make the reducer carry megabytes of cache data.
+     */
+    private val _animationPreviewBuffer = MutableStateFlow(AnimationPreviewBufferState())
+    val animationPreviewBuffer = _animationPreviewBuffer.asStateFlow()
 
     private val _colorSmudgeSettings = MutableStateFlow(ColorSmudgeEngine.Settings())
     val colorSmudgeSettings = _colorSmudgeSettings.asStateFlow()
@@ -6804,6 +6890,7 @@ class EditorViewModel @Inject constructor(
     // ── Animation Assist ─────────────────────────────────────────────────────────────────────
 
     private var playbackJob: kotlinx.coroutines.Job? = null
+    private var animationPreviewJob: kotlinx.coroutines.Job? = null
 
     /**
      * Enters/exits Animation Assist. Entering syncs the frame cursor to whichever frame the active
@@ -6822,6 +6909,158 @@ class EditorViewModel @Inject constructor(
     fun onSetAnimationLoopMode(mode: com.hereliesaz.graffitixr.common.model.AnimationLoopMode) =
         dispatch(EditorIntent.SetAnimationLoopMode(mode))
     fun onSetAnimationRange(start: Int, end: Int) = dispatch(EditorIntent.SetAnimationRange(start, end))
+
+    /**
+     * Cheap identity fingerprint for the visual inputs consumed by the preview compositor.
+     *
+     * Layers are immutable state values: any property edit replaces the Layer instance, while an
+     * in-place bitmap pixel edit advances Bitmap.generationId. Using identity here therefore catches
+     * both kinds of visual change without calling the data-class hashCode, which walks heavyweight
+     * payloads such as 4096² material FloatArrays on every playback tick.
+     */
+    private fun animationPreviewSourceFingerprint(state: EditorUiState): Int {
+        var result = 17
+        result = 31 * result + state.documentWidth
+        result = 31 * result + state.documentHeight
+        result = 31 * result + state.canvasSize.hashCode()
+        result = 31 * result + state.canvasBackground.hashCode()
+        state.layers.forEach { layer ->
+            result = 31 * result + System.identityHashCode(layer)
+            result = 31 * result + (layer.bitmap?.generationId ?: 0)
+        }
+        return result
+    }
+
+    fun isAnimationPreviewReady(state: EditorUiState = _uiState.value): Boolean {
+        // Buffered frames intentionally contain one active frame plus pinned content. Onion skins
+        // are a live multi-frame presentation, so keep using the normal layer renderer while they
+        // are enabled rather than silently dropping the neighbours from playback.
+        if (state.onionSkinEnabled) return false
+        val buffer = _animationPreviewBuffer.value
+        return buffer.isReady &&
+            buffer.range == resolvedPlaybackRange(state) &&
+            buffer.sourceFingerprint == animationPreviewSourceFingerprint(state)
+    }
+
+    /** The cached frame the canvas may substitute during playback, or null when the cache is stale. */
+    fun animationPreviewFrame(state: EditorUiState = _uiState.value): Bitmap? {
+        if (!isAnimationPreviewReady(state)) return null
+        return _animationPreviewBuffer.value.frames[state.activeFrameIndex]
+    }
+
+    /**
+     * Flattens the selected playback range once, then keeps only bounded low-resolution copies.
+     * Ordinary playback remains available while no cache exists; once this finishes, EditorScreen
+     * substitutes these composites only while playback is running.
+     */
+    fun renderAnimationPreview() {
+        val state = _uiState.value
+        val frames = AnimationFrames.topLevelFrames(state.layers)
+        val range = resolvedPlaybackRange(state)
+        if (frames.isEmpty() || range.isEmpty()) {
+            _animationPreviewBuffer.value = AnimationPreviewBufferState(error = "No frames to render")
+            return
+        }
+
+        stopPlayback()
+        animationPreviewJob?.cancel()
+
+        val fingerprint = animationPreviewSourceFingerprint(state)
+        val totalFrames = range.last - range.first + 1
+        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+            range = range,
+            sourceFingerprint = fingerprint,
+            totalFrames = totalFrames,
+            isRendering = true,
+        )
+
+        animationPreviewJob = viewModelScope.launch(dispatchers.default) {
+            val rendered = linkedMapOf<Int, Bitmap>()
+            try {
+                val metrics = context.resources.displayMetrics
+                val canvasWidth = state.canvasSize.width.takeIf { it > 0 } ?: metrics.widthPixels.coerceAtLeast(1)
+                val canvasHeight = state.canvasSize.height.takeIf { it > 0 } ?: metrics.heightPixels.coerceAtLeast(1)
+                val (previewWidth, previewHeight) = animationPreviewDimensions(
+                    state.documentWidth,
+                    state.documentHeight,
+                    totalFrames,
+                )
+
+                for (index in range) {
+                    if (!isActive) throw kotlinx.coroutines.CancellationException("Preview rendering cancelled")
+                    val ids = AnimationFrames.renderedLayerIdsForFrame(state.layers, index)
+                    val full = exportManager.compositeToDocument(
+                        layers = state.layers.filter { it.id in ids },
+                        canvasW = canvasWidth,
+                        canvasH = canvasHeight,
+                        docW = state.documentWidth,
+                        docH = state.documentHeight,
+                        // Graffux's editor canvas deliberately does not render the persisted
+                        // GraffitiXR camera/wall background. Preview playback must match that live
+                        // canvas rather than baking an export-only background into every frame.
+                        backgroundBitmap = null,
+                        backgroundColor = state.canvasBackground.toArgb(),
+                    )
+                    val preview = if (full.width == previewWidth && full.height == previewHeight) {
+                        full
+                    } else {
+                        Bitmap.createScaledBitmap(full, previewWidth, previewHeight, true).also {
+                            if (it !== full) full.recycle()
+                        }
+                    }
+                    rendered[index] = preview
+
+                    withContext(dispatchers.main) {
+                        val current = _animationPreviewBuffer.value
+                        if (
+                            current.isRendering &&
+                            current.sourceFingerprint == fingerprint &&
+                            current.range == range
+                        ) {
+                            _animationPreviewBuffer.value = current.copy(renderedFrames = rendered.size)
+                        }
+                    }
+                }
+
+                withContext(dispatchers.main) {
+                    val stillCurrent =
+                        animationPreviewSourceFingerprint(_uiState.value) == fingerprint &&
+                            resolvedPlaybackRange(_uiState.value) == range
+                    if (stillCurrent) {
+                        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                            frames = rendered.toMap(),
+                            range = range,
+                            sourceFingerprint = fingerprint,
+                            renderedFrames = rendered.size,
+                            totalFrames = totalFrames,
+                        )
+                    } else {
+                        rendered.values.forEach { it.recycle() }
+                        _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                            error = "Artwork or play range changed while rendering"
+                        )
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                rendered.values.forEach { it.recycle() }
+                throw cancelled
+            } catch (oom: OutOfMemoryError) {
+                rendered.values.forEach { it.recycle() }
+                withContext(dispatchers.main) {
+                    _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                        error = "Not enough memory for preview buffer"
+                    )
+                }
+            } catch (error: Exception) {
+                rendered.values.forEach { it.recycle() }
+                withContext(dispatchers.main) {
+                    _animationPreviewBuffer.value = AnimationPreviewBufferState(
+                        error = error.message ?: error::class.java.simpleName
+                    )
+                }
+            }
+        }
+    }
 
     /** The current frame's hold count — see [com.hereliesaz.graffitixr.common.model.Layer.frameHoldCount]. */
     fun currentFrameHoldCount(): Int =
@@ -6860,7 +7099,13 @@ class EditorViewModel @Inject constructor(
     fun onSelectFrame(index: Int) {
         val count = animationFrameCount()
         if (count == 0) return
+        val wasPlaying = _uiState.value.isAnimationPlaying
+        if (wasPlaying) stopPlayback()
         dispatch(EditorIntent.SetActiveFrameIndex(index.coerceIn(0, count - 1), followActiveLayer = true))
+        // startPlayback captures its local cursor from activeFrameIndex. Restarting here keeps a
+        // scrub during playback authoritative instead of letting the old coroutine snap back to its
+        // stale local index on the next tick.
+        if (wasPlaying) startPlayback()
     }
 
     fun onNextFrame() {
@@ -7570,6 +7815,31 @@ class EditorViewModel @Inject constructor(
                 .map { "${it.extensionId}$BRUSH_ASSET_ID_SEPARATOR${it.assetIndex}" to it.name }
                 .filter { (id, _) -> id !in hidden }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Actual rendered thumbnails for installed Azphalt brushes, keyed by the same composite id as
+     * [installedBrushes]. These are generated from the real resolved brush plus its bundled tip,
+     * grain, and dual-tip assets — not a generic import icon and not a second fake preview engine.
+     */
+    val installedBrushPreviews: StateFlow<Map<String, Bitmap>> =
+        extensionRepository.installed
+            .map {
+                withContext(dispatchers.io) {
+                    extensionRepository.installedBrushAssets().mapNotNull { asset ->
+                        val runtime = loadInstalledBrushRuntime(asset.extensionId, asset.assetIndex)
+                            ?: return@mapNotNull null
+                        val id = "${asset.extensionId}$BRUSH_ASSET_ID_SEPARATOR${asset.assetIndex}"
+                        try {
+                            id to renderInstalledBrushPreview(runtime)
+                        } finally {
+                            runtime.shape?.recycle()
+                            runtime.grain?.recycle()
+                            runtime.maskShape?.recycle()
+                        }
+                    }.toMap()
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Every installed brush asset's composite id (hidden or not) + display name, for a management
      *  UI that needs to offer hiding/unhiding rather than just what's currently visible. */
@@ -8567,8 +8837,87 @@ class EditorViewModel @Inject constructor(
         customBrushRepository.brushes
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Current resolved Azphalt brush for topology-aware hover rendering; null = basic round brush. */
-    internal fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
+    /** Current resolved Azphalt brush for topology-aware hover/tool previews; null = basic round brush. */
+    fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
+
+    private data class InstalledBrushRuntime(
+        val brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+        val shape: Bitmap?,
+        val grain: Bitmap?,
+        val maskShape: Bitmap?,
+    )
+
+    /**
+     * Resolve one installed brush exactly as the paint path will use it. A declared asset that fails
+     * to decode makes the brush unavailable rather than silently substituting a generic round tip.
+     */
+    private fun loadInstalledBrushRuntime(extensionId: String, assetIndex: Int): InstalledBrushRuntime? {
+        val brush = extensionRepository.loadBrush(extensionId, assetIndex) ?: return null
+        fun decodeAsset(relativePath: String?): Bitmap? = relativePath
+            ?.let { extensionRepository.assetFilePath(extensionId, it) }
+            ?.let { path ->
+                runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull()
+            }
+
+        val rawShape = decodeAsset(brush.shapePath)
+        if (brush.shapePath != null && rawShape == null) return null
+        val shape = rawShape?.let { source ->
+            normalizeAzphaltBrushTip(source, brush.tipFormat).also { normalized ->
+                if (normalized !== source) source.recycle()
+            }
+        }
+        val grain = decodeAsset(brush.grainPath)
+        if (brush.grainPath != null && grain == null) {
+            shape?.recycle()
+            return null
+        }
+        val maskPath = brush.maskedBrush?.shapePath
+        val maskShape = decodeAsset(maskPath)
+        if (maskPath != null && maskShape == null) {
+            shape?.recycle()
+            grain?.recycle()
+            return null
+        }
+        return InstalledBrushRuntime(brush, shape, grain, maskShape)
+    }
+
+    /** A deterministic thumbnail rendered through the same stamp engine as a real stroke. */
+    private fun renderInstalledBrushPreview(runtime: InstalledBrushRuntime): Bitmap {
+        val width = 192
+        val height = 56
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val builder = BrushSampleBuilder()
+        val samples = (0..36).map { index ->
+            val t = index / 36f
+            val x = 12f + t * (width - 24f)
+            val y = height * 0.5f +
+                kotlin.math.sin(t * kotlin.math.PI.toFloat() * 2f) * height * 0.16f
+            builder.add(
+                x = x,
+                y = y,
+                uptimeMillis = index * 8L,
+                pressure = (
+                    0.25f + 0.75f *
+                        kotlin.math.sin(t * kotlin.math.PI.toFloat()).coerceAtLeast(0f)
+                    ),
+                pressureAvailable = true,
+            )
+        }
+        StampBrushRenderer.paintDynamicStroke(
+            canvas = Canvas(out),
+            samples = samples,
+            brush = runtime.brush,
+            colorArgb = android.graphics.Color.WHITE,
+            diameterPx = 22f,
+            flow = 1f,
+            seed = 0x415A5048414C54L,
+            stamp = runtime.shape,
+            grain = runtime.grain,
+            maskStamp = runtime.maskShape,
+            secondaryColorArgb = android.graphics.Color.LTGRAY,
+        )
+        return out
+    }
 
     /** Selects a saved custom brush. Custom brushes are param-only, so there's no tip image to load. */
     fun selectCustomBrush(id: String) {
@@ -8676,24 +9025,22 @@ class EditorViewModel @Inject constructor(
         } else {
             0
         }
-        // loadBrush + the tip-image decode both read from disk — do them off the main thread.
+        // Manifest parsing + asset decoding both read from disk — do them off the main thread.
         viewModelScope.launch(dispatchers.io) {
-            val brush = extensionRepository.loadBrush(id, assetIndex)
-            fun decodeAsset(relativePath: String?): Bitmap? = relativePath
-                ?.let { extensionRepository.assetFilePath(id, it) }
-                ?.let { path -> runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull() }
-            val shape = decodeAsset(brush?.shapePath)
-            val grain = decodeAsset(brush?.grainPath)
-            val maskShape = decodeAsset(brush?.maskedBrush?.shapePath)
+            val runtime = loadInstalledBrushRuntime(id, assetIndex)
             withContext(dispatchers.main) {
-                if (brush == null) {
-                    Toast.makeText(context, "Couldn't load that brush — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
+                if (runtime == null) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't load that brush — its tip or texture is missing/corrupt",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 } else {
-                    activeStampBrush = brush
-                    activeStampShape = shape
-                    activeStampGrain = grain
-                    activeStampMaskShape = maskShape
-                    dispatch(EditorIntent.SetActiveBrush(brush.name))
+                    activeStampBrush = runtime.brush
+                    activeStampShape = runtime.shape
+                    activeStampGrain = runtime.grain
+                    activeStampMaskShape = runtime.maskShape
+                    dispatch(EditorIntent.SetActiveBrush(runtime.brush.name))
                     setActiveTool(Tool.BRUSH)
                 }
             }

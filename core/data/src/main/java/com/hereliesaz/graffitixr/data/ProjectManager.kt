@@ -65,6 +65,7 @@ class ProjectManager @Inject constructor(
     }
 
     fun deleteProject(context: Context, projectName: String) {
+        require(isSafeProjectId(projectName)) { "Unsafe project id: $projectName" }
         val projectDir = File(context.filesDir, "projects/$projectName")
         if (projectDir.exists()) {
             projectDir.deleteRecursively()
@@ -72,6 +73,7 @@ class ProjectManager @Inject constructor(
     }
 
     fun getMapPath(context: Context, projectId: String): String {
+        require(isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
         val root = File(context.filesDir, "projects/$projectId")
         if (!root.exists()) root.mkdirs()
         return File(root, "map.bin").absolutePath
@@ -85,6 +87,7 @@ class ProjectManager @Inject constructor(
     }
 
     fun getCloudPointsPath(context: Context, projectId: String): String {
+        require(isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
         val root = File(context.filesDir, "projects/$projectId")
         if (!root.exists()) root.mkdirs()
         return File(root, "cloud_points.bin").absolutePath

@@ -146,6 +146,87 @@ class JsSandbox(
         }
     }
 
+    // --- QuickJS JSValue marshaling helpers -------------------------------------------------
+    //
+    // quickjs.wasm exports a small `qjs_*` C wrapper API around the real QuickJS C API
+    // (confirmed by inspecting the module's own export/type sections: qjs_new_number(f64)->i32,
+    // qjs_new_string(i32,i32)->i32, qjs_get_float64(i32)->f64, qjs_get_string(i32)->i32,
+    // qjs_get_bool(i32)->i32, qjs_free_cstring(i32)->(), qjs_get_true/false/null/undefined()->i32,
+    // qjs_is_string(i32)->i32, qjs_new_array()->i32, qjs_set_prop_uint32(i32,i32,i32)->i32). Every
+    // JSValue in this API is an opaque i32 handle ("JSValue*" per the host_call doc comment below),
+    // matching the one primitive already proven to work here (qjs_get_undefined()).
+    //
+    // `qjs_new_string`'s copy semantics mirror QuickJS's well-known `JS_NewStringLen` contract
+    // (always duplicates the input buffer), so the scratch buffer used to build one is safe to
+    // free right after the call. `qjs_new_uint8_array`'s buffer-ownership semantics (copy vs.
+    // take-ownership with a free callback) are NOT determinable from its exported signature alone
+    // — QuickJS-ng's underlying C API has both a copying and a zero-copy Uint8Array constructor,
+    // and only one is exposed here under an ambiguous name. Rather than guess and risk a
+    // free/ownership mismatch, byte buffers (assetRead/selectionRead) are marshaled as a plain JS
+    // array of numbers via qjs_new_array + qjs_set_prop_uint32 instead — slower, but built only
+    // from primitives whose semantics are unambiguous.
+
+    private fun jsGetUndefined(): Int = instance.export("qjs_get_undefined").apply()[0].toInt()
+
+    private fun jsGetNull(): Int = instance.export("qjs_get_null").apply()[0].toInt()
+
+    private fun jsNewNumber(value: Double): Int =
+        instance.export("qjs_new_number").apply(java.lang.Double.doubleToRawLongBits(value))[0].toInt()
+
+    private fun jsNewBool(value: Boolean): Int =
+        instance.export(if (value) "qjs_get_true" else "qjs_get_false").apply()[0].toInt()
+
+    private fun jsNewString(value: String): Int {
+        val bytes = value.toByteArray(StandardCharsets.UTF_8)
+        val wasmMalloc = instance.export("wasm_malloc")
+        val wasmFree = instance.export("wasm_free")
+        // eval() never calls wasm_malloc(0), so that case is unproven here; skip the allocation
+        // for an empty string entirely rather than rely on it.
+        val ptr = if (bytes.isEmpty()) 0 else wasmMalloc.apply(bytes.size.toLong())[0].toInt()
+        return try {
+            if (bytes.isNotEmpty()) instance.memory().write(ptr, bytes)
+            instance.export("qjs_new_string").apply(ptr.toLong(), bytes.size.toLong())[0].toInt()
+        } finally {
+            if (ptr != 0) wasmFree.apply(ptr.toLong())
+        }
+    }
+
+    /** Marshals a byte array as a plain JS array of numbers (0-255) — see the note above on why
+     *  this avoids qjs_new_uint8_array's unverifiable ownership semantics. */
+    private fun jsNewByteArray(data: ByteArray): Int {
+        val arr = instance.export("qjs_new_array").apply()[0].toInt()
+        val setProp = instance.export("qjs_set_prop_uint32")
+        for (i in data.indices) {
+            val elem = jsNewNumber((data[i].toInt() and 0xFF).toDouble())
+            setProp.apply(arr.toLong(), i.toLong(), elem.toLong())
+        }
+        return arr
+    }
+
+    /** Reads the i-th JSValue handle out of host_call's `argv_ptr` array (one i32 pointer per
+     *  argument, standard wasm32 pointer width), or null if the guest didn't pass that many args. */
+    private fun jsArgHandle(argvPtr: Int, argc: Int, index: Int): Int? {
+        if (index >= argc) return null
+        return instance.memory().readInt(argvPtr + index * 4)
+    }
+
+    private fun jsValueAsString(handle: Int): String? {
+        val isString = instance.export("qjs_is_string").apply(handle.toLong())[0].toInt() != 0
+        if (!isString) return null
+        val cstrPtr = instance.export("qjs_get_string").apply(handle.toLong())[0].toInt()
+        if (cstrPtr == 0) return null
+        return try {
+            instance.memory().readCString(cstrPtr, StandardCharsets.UTF_8)
+        } finally {
+            instance.export("qjs_free_cstring").apply(cstrPtr.toLong())
+        }
+    }
+
+    private fun jsValueAsDouble(handle: Int): Double {
+        val bits = instance.export("qjs_get_float64").apply(handle.toLong())[0]
+        return java.lang.Double.longBitsToDouble(bits)
+    }
+
     private fun bindHostCall(grantedCapabilities: Set<String>) {
         // QuickJS-wasi imports `env.host_call` to jump back to host functions
         // Signature: (name_ptr: i32, name_len: i32, this_ptr: i32, argc: i32, argv_ptr: i32) -> i32 (returns JSValue*)
@@ -156,28 +237,70 @@ class JsSandbox(
                 { _: Instance, args: LongArray ->
                     val namePtr = args[0].toInt()
                     val nameLen = args[1].toInt()
-                    val thisPtr = args[2].toInt()
+                    // args[2] is the JS `this` value passed to the call; no capability function
+                    // bridged below needs it.
                     val argc = args[3].toInt()
                     val argvPtr = args[4].toInt()
-                    
+
                     val name = instance.memory().readString(namePtr, nameLen)
-                    
-                    // We only have the capability router here. For this implementation, we will mock the return JSValue*
-                    // as undefined, because a full JSValue* serialization is complex. In reality, we'd want to parse JSValue* 
-                    // from WASM memory, pass to host, and write back. 
-                    // To keep this sandbox functional but simple for now, we will execute the host functions
-                    // but not return complex JS values.
-                    
-                    if ("canvas" in grantedCapabilities && name == "requestRedraw") {
-                        host.requestRedraw()
-                    } else if ("color" in grantedCapabilities && name == "colorActive") {
-                        // This requires returning a number in JSValue. 
-                        // The actual bridging requires calling qjs_new_number.
+
+                    val result: Int = when {
+                        "canvas" in grantedCapabilities && name == "requestRedraw" -> {
+                            host.requestRedraw()
+                            jsGetUndefined()
+                        }
+                        "canvas" in grantedCapabilities && name == "canvasWidth" ->
+                            jsNewNumber(host.canvasWidth().toDouble())
+                        "canvas" in grantedCapabilities && name == "canvasHeight" ->
+                            jsNewNumber(host.canvasHeight().toDouble())
+                        "canvas" in grantedCapabilities && name == "canvasDpi" ->
+                            jsNewNumber(host.canvasDpi().toDouble())
+
+                        "layers" in grantedCapabilities && name == "layerCount" ->
+                            jsNewNumber(host.layerCount().toDouble())
+
+                        "params" in grantedCapabilities && name == "paramNumber" -> {
+                            val key = jsArgHandle(argvPtr, argc, 0)?.let { jsValueAsString(it) }
+                            val value = key?.let { host.paramNumber(it) }
+                            if (value == null) jsGetUndefined() else jsNewNumber(value)
+                        }
+                        "params" in grantedCapabilities && name == "paramBool" -> {
+                            val key = jsArgHandle(argvPtr, argc, 0)?.let { jsValueAsString(it) }
+                            val value = key?.let { host.paramBool(it) }
+                            if (value == null) jsGetUndefined() else jsNewBool(value)
+                        }
+                        "params" in grantedCapabilities && name == "paramString" -> {
+                            val key = jsArgHandle(argvPtr, argc, 0)?.let { jsValueAsString(it) }
+                            val value = key?.let { host.paramString(it) }
+                            if (value == null) jsGetNull() else jsNewString(value)
+                        }
+
+                        "color" in grantedCapabilities && name == "colorActive" ->
+                            jsNewNumber((host.colorActive().toLong() and 0xFFFFFFFFL).toDouble())
+                        "color" in grantedCapabilities && name == "colorSetActive" -> {
+                            val rgba = jsArgHandle(argvPtr, argc, 0)?.let { jsValueAsDouble(it) }
+                            if (rgba != null) host.colorSetActive(rgba.toLong().toInt())
+                            jsGetUndefined()
+                        }
+
+                        "assets" in grantedCapabilities && name == "assetRead" -> {
+                            val path = jsArgHandle(argvPtr, argc, 0)?.let { jsValueAsString(it) }
+                            val data = path?.let { host.assetRead(it) }
+                            if (data == null) jsGetNull() else jsNewByteArray(data)
+                        }
+
+                        "selection" in grantedCapabilities && name == "selectionSize" ->
+                            jsNewNumber(host.selectionSize().toDouble())
+                        "selection" in grantedCapabilities && name == "selectionRead" ->
+                            jsNewByteArray(host.selectionRead())
+
+                        // Capability not granted, or a function name this bridge doesn't
+                        // recognize: deny by default, same as an unmapped WASM import for the
+                        // WASM-runtime sandbox — the guest gets `undefined`, not a host call.
+                        else -> jsGetUndefined()
                     }
-                    
-                    // Return undefined for now
-                    val qjsGetUndefined = instance.export("qjs_get_undefined")
-                    qjsGetUndefined.apply()
+
+                    longArrayOf(result.toLong())
                 }
             )
         )

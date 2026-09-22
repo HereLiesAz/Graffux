@@ -50,6 +50,7 @@ class ProjectRepositoryImpl @Inject constructor(
     }
 
     override suspend fun createProject(project: GraffitiProject) {
+        require(projectManager.isSafeProjectId(project.id)) { "Unsafe project id: ${project.id}" }
         projectManager.saveProject(context, project)
         _currentProject.value = project
         refreshProjects()

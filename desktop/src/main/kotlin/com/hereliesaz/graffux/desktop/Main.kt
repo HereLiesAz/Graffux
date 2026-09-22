@@ -82,6 +82,11 @@ fun main() = application {
     // reason `lastSavedPath` (Ctrl+S's own feedback label) lives here too.
     val canvasState = remember { CanvasState() }
     var lastSavedPath by remember { mutableStateOf<String?>(null) }
+    // exportPng() can throw (unwritable directory, full disk) -- IOException from ImageIO.write
+    // propagating out of this composable's key-event handler would crash the whole app, and the
+    // Save button's onClick below is just as unguarded, so both wrap the call and surface the
+    // failure here instead of letting it crash or silently vanish.
+    var saveError by remember { mutableStateOf<String?>(null) }
     // The same app icon Android's launcher uses (`branding/icon-512.png`) instead of the
     // unbranded default JVM coffee-cup icon — part of UI parity, not just the in-window theme.
     val windowIcon = remember {
@@ -99,7 +104,15 @@ fun main() = application {
                 event.key == Key.Z && !event.isShiftPressed -> { canvasState.undo(); true }
                 event.key == Key.Z && event.isShiftPressed -> { canvasState.redo(); true }
                 event.key == Key.Y -> { canvasState.redo(); true }
-                event.key == Key.S -> { lastSavedPath = canvasState.exportPng()?.absolutePath; true }
+                event.key == Key.S -> {
+                    try {
+                        lastSavedPath = canvasState.exportPng()?.absolutePath
+                        saveError = null
+                    } catch (e: Exception) {
+                        saveError = e.message ?: "Failed to save image"
+                    }
+                    true
+                }
                 else -> false
             }
         },
@@ -110,7 +123,13 @@ fun main() = application {
                 // is provided by hand (matches the pattern aznavrail's own CMP demo app uses).
                 LocalAzAppMeta provides AzAppMeta(name = "Graffux", packageId = "com.hereliesaz.graffux"),
             ) {
-                GraffuxDesktopApp(canvasState, lastSavedPath) { lastSavedPath = it }
+                GraffuxDesktopApp(
+                    canvasState = canvasState,
+                    lastSavedPath = lastSavedPath,
+                    saveError = saveError,
+                    onSaved = { lastSavedPath = it; saveError = null },
+                    onSaveError = { saveError = it },
+                )
             }
         }
     }
@@ -120,7 +139,9 @@ fun main() = application {
 private fun GraffuxDesktopApp(
     canvasState: CanvasState,
     lastSavedPath: String?,
+    saveError: String?,
     onSaved: (String?) -> Unit,
+    onSaveError: (String?) -> Unit,
 ) {
     val navController = rememberNavController()
     var brushRadius by remember { mutableFloatStateOf(24f) }
@@ -202,7 +223,13 @@ private fun GraffuxDesktopApp(
             text = "Save",
             content = saveIcon,
             disabled = canvasState.committed == null,
-            onClick = { onSaved(canvasState.exportPng()?.absolutePath) },
+            onClick = {
+                try {
+                    onSaved(canvasState.exportPng()?.absolutePath)
+                } catch (e: Exception) {
+                    onSaveError(e.message ?: "Failed to save image")
+                }
+            },
         )
         // A rail item to reopen the tool-options panel once its own close button has been used --
         // otherwise, once dismissed, brush size/flow/colour would have no way back onscreen.
@@ -308,6 +335,13 @@ private fun GraffuxDesktopApp(
                         text = "Saved to $path",
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = Color(0xFF43A047),
+                    )
+                }
+                saveError?.let { message ->
+                    Text(
+                        text = "Save failed: $message",
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = Color(0xFFE53935),
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
