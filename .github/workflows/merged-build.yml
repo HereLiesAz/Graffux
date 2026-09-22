@@ -57,6 +57,11 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest test --build-cache
 
+      # config/detekt/detekt.yml sets maxIssues: 0 (zero-tolerance); without this step detekt
+      # findings never fail CI despite that config implying they should.
+      - name: Run detekt
+        run: ./gradlew detekt --build-cache
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

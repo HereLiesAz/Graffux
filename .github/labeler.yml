@@ -23,8 +23,7 @@ core:
 native:
   - changed-files:
       - any-glob-to-any-file:
-          - 'app/src/main/cpp/**'
-          - 'core/native/**'
+          - 'core/nativebridge/src/main/cpp/**'
 
 # Label 'build' for gradle files
 build:

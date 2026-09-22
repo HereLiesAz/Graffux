@@ -206,8 +206,9 @@ fun SettingsScreen(
                 subtitle = "Runs the native Vulkan compute dab-stamping engine " +
                     "(docs/Native Rendering Engine Design.md §9 Phase 3) end to end on this " +
                     "device — init, stamp three overlapping dabs, read the result back — and " +
-                    "shows what it produced. Not yet used by any brush; this is the on-device " +
-                    "check that couldn't be done where the engine was written.",
+                    "shows what it produced. This is the same engine every live stroke already " +
+                    "runs on when GPU stamping is active, so a failure here points to a real " +
+                    "GPU/driver problem, not just a diagnostic no-op.",
                 onClick = {
                     if (!gpuTestRunning) {
                         gpuTestRunning = true

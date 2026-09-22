@@ -22,7 +22,9 @@ object GoogleFontCache {
         val key = "$fontName|$bold|$italic"
         cache.get(key)?.let { return@withContext it }
 
-        val query = "name=$fontName&weight=400&italic=0&besteffort=true"
+        val weight = if (bold) 700 else 400
+        val italicFlag = if (italic) 1 else 0
+        val query = "name=$fontName&weight=$weight&italic=$italicFlag&besteffort=true"
         val request = FontRequest(
             "com.google.android.gms.fonts",
             "com.google.android.gms",

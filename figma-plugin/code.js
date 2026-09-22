@@ -42,34 +42,44 @@ async function importBundle(bundle) {
   const height = Math.max(1, Math.round(bundle.documentHeight || 0));
 
   const frame = figma.createFrame();
-  frame.name = bundle.name || 'Graffux';
-  frame.resize(width, height);
-  // The artwork supplies its own background; a white frame fill would sit under every layer and
-  // turn a transparent export opaque.
-  frame.fills = [];
+  try {
+    frame.name = bundle.name || 'Graffux';
+    frame.resize(width, height);
+    // The artwork supplies its own background; a white frame fill would sit under every layer and
+    // turn a transparent export opaque.
+    frame.fills = [];
 
-  // Bottom-up, matching the app's own layer order (index 0 paints first). appendChild puts each new
-  // node on top of the previous, so iterating in order reproduces the stack.
-  for (const layer of bundle.layers) {
-    const bytes = base64ToBytes(layer.pngBase64);
-    const image = figma.createImage(bytes);
+    // Bottom-up, matching the app's own layer order (index 0 paints first). appendChild puts each new
+    // node on top of the previous, so iterating in order reproduces the stack.
+    for (const layer of bundle.layers) {
+      if (typeof layer !== 'object' || layer === null) {
+        throw new Error('That file contains a malformed layer entry.');
+      }
 
-    // Every layer was composited at full document size by the app, so it's a full-bleed fill at the
-    // origin — no per-layer geometry to reconstruct here.
-    const rect = figma.createRectangle();
-    rect.name = layer.name || 'Layer';
-    rect.resize(width, height);
-    rect.x = 0;
-    rect.y = 0;
-    rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+      const bytes = base64ToBytes(layer.pngBase64);
+      const image = figma.createImage(bytes);
 
-    // Opacity and blend arrive as live Figma properties rather than baked into the pixels, so they
-    // stay editable here.
-    if (typeof layer.opacity === 'number') rect.opacity = clamp01(layer.opacity);
-    if (layer.blendMode) rect.blendMode = layer.blendMode;
-    if (layer.visible === false) rect.visible = false;
+      // Every layer was composited at full document size by the app, so it's a full-bleed fill at the
+      // origin — no per-layer geometry to reconstruct here.
+      const rect = figma.createRectangle();
+      rect.name = layer.name || 'Layer';
+      rect.resize(width, height);
+      rect.x = 0;
+      rect.y = 0;
+      rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
 
-    frame.appendChild(rect);
+      // Opacity and blend arrive as live Figma properties rather than baked into the pixels, so they
+      // stay editable here.
+      if (typeof layer.opacity === 'number') rect.opacity = clamp01(layer.opacity);
+      if (layer.blendMode) rect.blendMode = layer.blendMode;
+      if (layer.visible === false) rect.visible = false;
+
+      frame.appendChild(rect);
+    }
+  } catch (e) {
+    // Don't leave a partially-built, orphaned frame behind on failure.
+    frame.remove();
+    throw e;
   }
 
   frame.x = figma.viewport.center.x - width / 2;

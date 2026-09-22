@@ -12,7 +12,7 @@ Read before proposing structural changes. Never recalled — opened.
   and auto-incremented on every `assembleDebug`/`bundleRelease` — do not hardcode a snapshot
   of it here, it drifts on the next local build. See `CLAUDE.md`'s "versionCode and Play
   publishing" section before touching that file or this one.
-- Kotlin `2.4.10`, AGP `9.3.1`.
+- Kotlin `2.4.20`, AGP `9.4.1`.
 - `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`) `11.18`+ required — `11.15`
   through `11.17` have the reloc-item-under-`azUnattachedHostItem` bug described below;
   `11.18` is the first version confirmed (via upstream's own `AzUnattachedRelocItemClickTest`)
