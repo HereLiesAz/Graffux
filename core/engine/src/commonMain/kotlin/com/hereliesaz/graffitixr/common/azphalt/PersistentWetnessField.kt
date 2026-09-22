@@ -160,8 +160,8 @@ class PersistentWetnessField(
             val dryMultiplier = if (dryingRateAt == null) {
                 uniformDryMultiplier
             } else {
-                val localRate = dryingRateAt(x, y).coerceIn(0f, 1f)
-                exp((-localRate * dt).toDouble()).toFloat()
+                val localDrying = dryingRateAt(x, y).coerceIn(0f, 1f)
+                exp((-localDrying * dt).toDouble()).toFloat()
             }
             val next = ((wetness[index] + deltaScratch[index]).coerceIn(0f, 1f) * dryMultiplier)
                 .coerceIn(0f, 1f)
