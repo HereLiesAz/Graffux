@@ -397,7 +397,9 @@ data class AzphaltBrush(
             val tipFormat = s("format")
             fun normalizedSpacing(): Float {
                 val raw = f("spacing") ?: return 0.1f
-                return if (tipFormat.equals("png-gray", ignoreCase = true) && raw > 1f && raw <= 100f) {
+                // ABR spacing is a percentage that can exceed 100% (Photoshop allows up to 1000%),
+                // so the conversion must cover the full supported range, not just 1..100.
+                return if (tipFormat.equals("png-gray", ignoreCase = true) && raw > 1f && raw <= 1000f) {
                     raw / 100f
                 } else {
                     raw
@@ -447,12 +449,16 @@ data class AzphaltBrush(
                 spacing = normalizedSpacing().coerceIn(0.01f, 4f),
                 isotropicSpacing = b("isotropicSpacing") ?: true,
                 // Azphalt's host-neutral name is roundness; Graffux historically called the same
-                // short/long tip-axis ratio ratio/tipRatio. ABR descriptors commonly express it
-                // as a percentage, while native Azphalt manifests use 0..1.
-                tipRatio = unitOrPercent(
-                    f("roundness") ?: f("ratio") ?: f("tipRatio"),
-                    1f,
-                ).coerceIn(0.05f, 1f),
+                // short/long tip-axis ratio ratio/tipRatio. ABR descriptors commonly express
+                // roundness as a percentage, while native Azphalt manifests use 0..1. The legacy
+                // ratio/tipRatio aliases predate the percentage convention, so they keep the
+                // original raw-value clamp semantics instead of being reinterpreted as a percent.
+                tipRatio = (
+                    f("roundness")?.let { unitOrPercent(it, 1f) }
+                        ?: f("ratio")
+                        ?: f("tipRatio")
+                        ?: 1f
+                    ).coerceIn(0.05f, 1f),
                 opacity = (f("opacity") ?: 1f).coerceIn(0f, 1f),
                 hardness = (
                     if (tipFormat.equals("png-gray", ignoreCase = true)) {

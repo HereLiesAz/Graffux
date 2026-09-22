@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.common.util
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import java.io.File
 
 /**
  * Two-pass byte-array decode with a size cap. Solves the pattern Play Console flagged on release
@@ -31,6 +32,34 @@ fun decodeBoundedBitmap(bytes: ByteArray, maxDimPx: Int): Bitmap? {
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decode)
+}
+
+/**
+ * Same bounded, power-of-two-sampled decode as [decodeBoundedBitmap], but decodes straight from a
+ * file path instead of an in-memory [ByteArray]. Installed-extension assets (brush tip/grain/mask
+ * PNGs) can be as large as the installer's 64MB decompressed cap, and every installed brush gets
+ * decoded whenever the brush rail collects -- reading the whole file into a byte array first would
+ * transiently allocate up to 64MB per brush before a single pixel is even decoded, on top of the
+ * decode itself. `BitmapFactory.decodeFile` streams straight off disk for both the bounds-only
+ * pass and the sampled decode, so nothing but the final (already-downsampled) bitmap is held.
+ *
+ * Returns null if [path] doesn't point at a valid image.
+ */
+fun decodeBoundedBitmap(path: String, maxDimPx: Int): Bitmap? {
+    if (path.isEmpty() || maxDimPx <= 0) return null
+    if (!File(path).isFile) return null
+
+    // Pass 1: metadata only.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    // Pass 2: real decode with a power-of-two sample size.
+    val decode = BitmapFactory.Options().apply {
+        inSampleSize = computeSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx)
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    return BitmapFactory.decodeFile(path, decode)
 }
 
 /**

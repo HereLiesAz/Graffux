@@ -1351,6 +1351,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
 
                 if (showToolOptions) {
+                    val previewAssets = vm.activeBrushPreviewAssets()
                     ToolOptionsWindow(
                         stabilizerLevel = uiState.stabilizerLevel,
                         onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
@@ -1368,6 +1369,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
                         previewBrush = vm.activeBrushForPreview(),
+                        previewStampShape = previewAssets.shape,
+                        previewStampGrain = previewAssets.grain,
+                        previewStampMaskShape = previewAssets.maskShape,
                         brushColor = uiState.activeColor,
                         secondaryColor = uiState.secondaryColor,
                         colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },

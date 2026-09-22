@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,6 +48,12 @@ fun ToolOptionsWindow(
     previewBrush: AzphaltBrush?,
     brushColor: Color,
     secondaryColor: Color = Color.Black,
+    // Decoded runtime assets for [previewBrush] when it's an installed brush with a custom tip/
+    // grain/masked secondary tip, so the preview matches what will actually paint instead of
+    // always falling back to a generated gradient oval. Null for built-in/generated brushes.
+    previewStampShape: Bitmap? = null,
+    previewStampGrain: Bitmap? = null,
+    previewStampMaskShape: Bitmap? = null,
     colorSmudgeSettings: ColorSmudgeEngine.Settings?,
     onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -> Unit,
     onSetColorSmudgeRate: (Float) -> Unit,
@@ -69,7 +76,15 @@ fun ToolOptionsWindow(
             // can't be previewed the same way) and only while Flow, the one dial here that changes
             // its look, is actually showing.
             if (previewBrush != null && brushFlow != null) {
-                BrushPreview(previewBrush, brushColor, secondaryColor, flow = brushFlow)
+                BrushPreview(
+                    previewBrush,
+                    brushColor,
+                    secondaryColor,
+                    flow = brushFlow,
+                    stampShape = previewStampShape,
+                    stampGrain = previewStampGrain,
+                    stampMaskShape = previewStampMaskShape,
+                )
             }
 
             if (brushOpacity != null) {
