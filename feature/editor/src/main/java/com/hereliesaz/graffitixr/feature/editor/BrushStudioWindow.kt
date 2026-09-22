@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/BrushStudioWindow.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
@@ -519,13 +526,13 @@ private fun ParamSlider(
  * A glee audit found this preview didn't reflect Hardness (flat-alpha ovals, no falloff) or Taper
  * unless Dynamics was also configured (see the dynamicDabs() comment below) -- both fixed here.
  *
- * Masked Tip and Texture (grain) remain unreflected: both need the brush's actual tip/grain
- * bitmaps decoded from disk (StampBrushRenderer.paintMaskedDabs's stamp/grain/maskStamp
- * parameters), which requires Context and async IO that this stateless, synchronously-composed
- * preview has neither of -- EditorViewModel.selectBrushExtension shows the real decode path, gated
- * on an installed extension id a draft-in-progress brush doesn't necessarily have yet. Wiring that
- * through is a real feature addition (plumbing an extension/asset resolver down through
- * BrushStudioWindow), not a one-line fix, so it's left as a known gap rather than guessed at here.
+ * Masked Tip and Texture (grain) are only reflected when a caller has already decoded those
+ * bitmaps and passes them in via [stampShape]/[stampGrain]/[stampMaskShape] -- this composable
+ * itself stays stateless and does no IO. A draft-in-progress brush in Brush Studio that has no
+ * installed extension id yet has nothing to pass, so it still falls back to the generated
+ * gradient-oval tip below. Callers previewing an *installed* brush (ToolOptionsWindow, via
+ * EditorViewModel.activeBrushPreviewAssets) do have the decoded runtime assets already and pass
+ * them through, so the Tool Options preview matches what will actually paint.
  */
 @Composable
 fun BrushPreview(
@@ -544,7 +551,21 @@ fun BrushPreview(
     // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here
     // instead, so the preview shows the brush at the size it's actually about to paint at.
     sizeOverridePx: Float? = null,
+    // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip.
+    // When present, each dab is stamped from the real tip bitmap (used as an alpha mask, tinted
+    // with the resolved dab color) with the grain composited on top, instead of a generated
+    // gradient oval.
+    stampShape: Bitmap? = null,
+    stampGrain: Bitmap? = null,
+    stampMaskShape: Bitmap? = null,
 ) {
+    val shapeImage = remember(stampShape) { stampShape?.asImageBitmap() }
+    val grainImage = remember(stampGrain) { stampGrain?.asImageBitmap() }
+    // The masked secondary tip ([stampMaskShape]) is deliberately not composited here:
+    // reproducing its keep-inside/keep-outside cutout (StampBrushRenderer.paintMaskedDabs) needs
+    // an offscreen scratch buffer this lightweight preview doesn't have. Drawing the primary
+    // custom tip -- the far more common case this bug report is about -- is still a large
+    // accuracy improvement over a generated oval.
     Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
         val canvasWidth = size.width
         val canvasHeight = size.height
@@ -588,15 +609,46 @@ fun BrushPreview(
                 BrushColorSource.UNIFORM_RANDOM -> mixPreviewColor(color, secondaryColor, dab.sourceRandom)
             }
             val core = sourced.copy(alpha = sourced.alpha * dab.alpha * baseFlow)
-            drawOval(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(0f to core, hardness to core, 1f to core.copy(alpha = 0f)),
-                    center = Offset(dab.x, dab.y),
-                    radius = dab.radius.coerceAtLeast(0.5f),
-                ),
-                topLeft = Offset(dab.x - width / 2f, dab.y - height / 2f),
-                size = Size(width, height),
-            )
+            if (shapeImage != null) {
+                val dstWidth = width.roundToInt().coerceAtLeast(1)
+                val dstHeight = height.roundToInt().coerceAtLeast(1)
+                val dstOffset = IntOffset(
+                    (dab.x - width / 2f).roundToInt(),
+                    (dab.y - height / 2f).roundToInt(),
+                )
+                val dstSize = IntSize(dstWidth, dstHeight)
+                rotate(degrees = dab.angleDeg, pivot = Offset(dab.x, dab.y)) {
+                    // The tip bitmap is used as an alpha mask -- mirrors
+                    // StampBrushRenderer.paintMaskedDabs / BrushTipMaskCache, which shape the real
+                    // stroke the same way -- tinted with this dab's resolved color.
+                    drawImage(
+                        image = shapeImage,
+                        dstOffset = dstOffset,
+                        dstSize = dstSize,
+                        alpha = core.alpha.coerceIn(0f, 1f),
+                        colorFilter = ColorFilter.tint(core.copy(alpha = 1f), BlendMode.SrcIn),
+                    )
+                    if (grainImage != null) {
+                        drawImage(
+                            image = grainImage,
+                            dstOffset = dstOffset,
+                            dstSize = dstSize,
+                            alpha = (core.alpha * 0.5f).coerceIn(0f, 1f),
+                            blendMode = BlendMode.Multiply,
+                        )
+                    }
+                }
+            } else {
+                drawOval(
+                    brush = Brush.radialGradient(
+                        colorStops = arrayOf(0f to core, hardness to core, 1f to core.copy(alpha = 0f)),
+                        center = Offset(dab.x, dab.y),
+                        radius = dab.radius.coerceAtLeast(0.5f),
+                    ),
+                    topLeft = Offset(dab.x - width / 2f, dab.y - height / 2f),
+                    size = Size(width, height),
+                )
+            }
         }
     }
 }

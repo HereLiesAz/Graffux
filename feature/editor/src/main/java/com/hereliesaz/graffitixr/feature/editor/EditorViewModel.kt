@@ -8952,6 +8952,21 @@ class EditorViewModel @Inject constructor(
     /** Current resolved Azphalt brush for topology-aware hover/tool previews; null = basic round brush. */
     fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
 
+    /** The decoded custom-tip assets (if any) the active installed brush will actually paint with. */
+    data class ActiveBrushPreviewAssets(
+        val shape: Bitmap?,
+        val grain: Bitmap?,
+        val maskShape: Bitmap?,
+    )
+
+    /**
+     * Runtime assets for [activeBrushForPreview], so Tool Options can preview the installed brush
+     * as it will actually paint -- BrushPreview otherwise has no access to a custom tip/grain/
+     * masked secondary tip and always falls back to generated gradient ovals.
+     */
+    fun activeBrushPreviewAssets(): ActiveBrushPreviewAssets =
+        ActiveBrushPreviewAssets(activeStampShape, activeStampGrain, activeStampMaskShape)
+
     private data class InstalledBrushRuntime(
         val brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
         val shape: Bitmap?,
@@ -8968,7 +8983,12 @@ class EditorViewModel @Inject constructor(
         fun decodeAsset(relativePath: String?): Bitmap? = relativePath
             ?.let { extensionRepository.assetFilePath(extensionId, it) }
             ?.let { path ->
-                runCatching { decodeBoundedBitmap(java.io.File(path).readBytes(), 1024) }.getOrNull()
+                // Decode straight from the file (bounded, sampled) instead of reading the whole
+                // asset into a byte array first -- the installer permits packages up to 64MB
+                // decompressed, and this runs for every installed brush when the brush rail
+                // collects, so materializing the full file up front could transiently allocate up
+                // to 64MB per brush.
+                runCatching { decodeBoundedBitmap(path, 1024) }.getOrNull()
             }
 
         val rawShape = decodeAsset(brush.shapePath)
@@ -9053,7 +9073,18 @@ class EditorViewModel @Inject constructor(
     fun onOpenBrushStudio(id: String? = null) {
         val existing = id?.let { customBrushRepository.load(it) }
         val seed = existing
-            ?: activeStampBrush?.copy(name = "${activeStampBrush?.name} copy")
+            // Brush Studio drafts are params-only (see applyBrushDraft, which never carries the
+            // previously selected extension's decoded tip/grain/masked-tip bitmaps into a draft).
+            // Copying `shapePath`/`grainPath`/`maskedBrush.shapePath` from an installed brush
+            // without also stripping them here would leave the draft claiming an asset it has no
+            // bitmap for, and that dangling, extension-relative path would then get written to
+            // the saved custom brush -- which selectCustomBrush never resolves back into pixels.
+            ?: activeStampBrush?.copy(
+                name = "${activeStampBrush?.name} copy",
+                shapePath = null,
+                grainPath = null,
+                maskedBrush = activeStampBrush?.maskedBrush?.copy(shapePath = null),
+            )
             ?: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush(name = "Custom Brush")
         dispatch(EditorIntent.SetBrushStudioDraft(seed, editingId = id))
         applyBrushDraft(seed)
