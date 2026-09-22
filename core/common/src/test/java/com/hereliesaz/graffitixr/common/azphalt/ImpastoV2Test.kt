@@ -178,6 +178,81 @@ class ImpastoV2Test {
     }
 
     @Test
+    fun `feather coverage scales height transfer instead of acting as a binary clip`() {
+        val w = 16
+        val h = 16
+        val full = FloatArray(w * h)
+        val feathered = FloatArray(w * h)
+        val medium = PaintMedium(depositionRate = 1f, heightResponse = 1f)
+
+        ImpastoEngine.transferMaterialStroke(
+            full, w, h, listOf(dab()), 1f, 0.5f, medium,
+            pixelCoverage = { _, _ -> 1f },
+        )
+        ImpastoEngine.transferMaterialStroke(
+            feathered, w, h, listOf(dab()), 1f, 0.5f, medium,
+            pixelCoverage = { _, _ -> 0.25f },
+        )
+
+        assertTrue(full.sum() > feathered.sum())
+        assertTrue(feathered.sum() > 0f)
+    }
+
+    @Test
+    fun `tile owned medium can freeze leveling even when incoming fallback is fluid`() {
+        val w = 4
+        val h = 1
+        val height = floatArrayOf(0f, 1f, 0f, 0f)
+        val before = height.copyOf()
+        val wet = PersistentWetnessField(w, h, tileSize = 4)
+        repeat(w) { wet.addWetness(it, 0, 1f) }
+        val fallback = PaintMedium(levelingRate = 1f, viscosity = 0f)
+
+        ImpastoEngine.levelWetHeight(
+            height, w, h, wet, fallback, deltaSeconds = 1f,
+            mediumAt = { _, _ -> PaintMedium(levelingRate = 1f, viscosity = 1f) },
+        )
+
+        assertArrayEquals(before, height, 0f)
+    }
+
+    @Test
+    fun `tile owned optical medium controls wet specular independently per pixel`() {
+        val w = 2
+        val h = 1
+        val height = FloatArray(2)
+        val raw = intArrayOf(0xFF202020.toInt(), 0xFF202020.toInt())
+        val wet = PersistentWetnessField(w, h, tileSize = 1)
+        wet.addWetness(0, 0, 1f)
+        wet.addWetness(1, 0, 1f)
+        val out = IntArray(2)
+
+        ImpastoEngine.shadeMaterialInto(
+            out = out,
+            rawColorPixels = raw,
+            height = height,
+            wetness = wet,
+            width = w,
+            imgHeight = h,
+            left = 0,
+            top = 0,
+            right = w,
+            bottom = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0f,
+            medium = PaintMedium(),
+            mediumAt = { x, _ ->
+                if (x == 0) PaintMedium(wetSpecularStrength = 0f)
+                else PaintMedium(baseRoughness = 0f, wetSpecularStrength = 1f)
+            },
+        )
+
+        assertEquals(raw[0], out[0])
+        assertTrue((out[1] and 0x00FFFFFF) > (raw[1] and 0x00FFFFFF))
+    }
+
+    @Test
     fun `wet leveling conserves height and reduces a sharp ridge`() {
         val w = 8
         val h = 1
