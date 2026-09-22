@@ -8,6 +8,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 private const val IMPASTO_DEG_TO_RAD = 0.017453292f
@@ -461,6 +462,7 @@ object ImpastoEngine {
         region: DirtyRegion? = null,
         substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
         substrateField: SubstrateField? = null,
+        /** Spatial material response. Null falls back to [medium] for legacy/single-medium callers. */
         mediumAt: ((x: Int, y: Int) -> PaintMedium)? = null,
         iterations: Int = DEFAULT_LEVELING_ITERATIONS,
     ): ImpastoLevelStats {
@@ -657,6 +659,90 @@ object ImpastoEngine {
         }
     }
 
+
+    /**
+     * Removes the current v2 presentation lighting before a region is shaded again.
+     * The inverse uses the exact previous material state, preventing repeated v2 strokes from
+     * recursively applying diffuse/specular lighting to already-lit RGB.
+     */
+    fun unshadeMaterialInto(
+        out: IntArray,
+        shadedPixels: IntArray,
+        height: FloatArray,
+        wetness: PersistentWetnessField?,
+        width: Int,
+        imgHeight: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        lightAzimuthDeg: Float,
+        lightElevationDeg: Float,
+        reliefStrength: Float,
+        medium: PaintMedium,
+    ) {
+        val x0 = left.coerceIn(0, width)
+        val x1 = right.coerceIn(0, width)
+        val y0 = top.coerceIn(0, imgHeight)
+        val y1 = bottom.coerceIn(0, imgHeight)
+        if (x0 >= x1 || y0 >= y1 || width <= 0 || imgHeight <= 0) return
+        val material = medium.sanitized()
+        val azimuthRad = lightAzimuthDeg * IMPASTO_DEG_TO_RAD
+        val elevationRad = lightElevationDeg * IMPASTO_DEG_TO_RAD
+        val lx = cos(azimuthRad) * cos(elevationRad)
+        val ly = sin(azimuthRad) * cos(elevationRad)
+        val lz = sin(elevationRad)
+        val baselineDiffuse = lz
+        val hx0 = lx
+        val hy0 = ly
+        val hz0 = lz + 1f
+        val hInv = 1f / sqrt(hx0 * hx0 + hy0 * hy0 + hz0 * hz0)
+        val hx = hx0 * hInv
+        val hy = hy0 * hInv
+        val hz = hz0 * hInv
+
+        for (y in y0 until y1) {
+            for (x in x0 until x1) {
+                val dHdx = (at(height, width, imgHeight, x + 1, y) -
+                    at(height, width, imgHeight, x - 1, y)) / 2f
+                val dHdy = (at(height, width, imgHeight, x, y + 1) -
+                    at(height, width, imgHeight, x, y - 1)) / 2f
+                val nx0 = -dHdx
+                val ny0 = -dHdy
+                val nz0 = 1f
+                val invLen = 1f / sqrt(nx0 * nx0 + ny0 * ny0 + nz0 * nz0)
+                val nx = nx0 * invLen
+                val ny = ny0 * invLen
+                val nz = nz0 * invLen
+                val diffuse = nx * lx + ny * ly + nz * lz
+                val multiplier = (
+                    1f + reliefStrength.coerceAtLeast(0f) * (diffuse - baselineDiffuse)
+                    ).coerceIn(0f, 3f)
+                val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
+                val roughness = (
+                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    ).coerceIn(MIN_WET_ROUGHNESS, 1f)
+                val shininess = 4f + (1f - roughness) * 60f
+                val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
+                val specular = material.wetSpecularStrength * wet *
+                    nDotH.toDouble().pow(shininess.toDouble()).toFloat()
+                out[y * width + x] = unshadeRgb(shadedPixels[y * width + x], multiplier, specular)
+            }
+        }
+    }
+
+    private fun unshadeRgb(argb: Int, factor: Float, specular: Float): Int {
+        val a = argb ushr 24 and 0xFF
+        val add = 255f * specular.coerceIn(0f, 1f)
+        fun channel(value: Int): Int {
+            if (factor <= 1e-6f) return 0
+            return ((value - add) / factor).roundToInt().coerceIn(0, 255)
+        }
+        val r = channel(argb shr 16 and 0xFF)
+        val g = channel(argb shr 8 and 0xFF)
+        val b = channel(argb and 0xFF)
+        return (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
 
     private fun at(height: FloatArray, width: Int, imgHeight: Int, x: Int, y: Int): Float {
         val cx = x.coerceIn(0, width - 1)

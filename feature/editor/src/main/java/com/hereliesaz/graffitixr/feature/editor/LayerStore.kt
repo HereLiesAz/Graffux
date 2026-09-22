@@ -128,6 +128,17 @@ internal class LayerStore {
         liveWetness.remove(layerId)
     }
 
+    /** Removes baked + live wetness when restoration fails closed or a layer returns to dry. */
+    fun clearWetnessState(layerId: String) {
+        wetnessBases.remove(layerId)
+        liveWetness.remove(layerId)
+    }
+
+    /** Removes only the canonical height channel for [layerId]. */
+    fun clearHeightBase(layerId: String) {
+        heightBases.remove(layerId)
+    }
+
     /**
      * Returns a defensive Impasto-v2 base state. A first v2 stroke seeds canonical unlit pigment
      * from [rawSeed]; color-only layers never allocate this state.
@@ -190,6 +201,20 @@ internal class LayerStore {
         liveImpastoMaterial.remove(layerId)
     }
 
+    // NOTE (merge of #410 into main, Phase 5 hardening): main independently added a fix (commit
+    // fc275af, "clear baked material when layer contents reset") that made this method call
+    // clearCanonicalMaterial(layerId) instead — i.e. also drop baked height/wetness/material, not
+    // just the derived live state — on the theory that content-replacement callers (import a new
+    // bitmap, apply a LUT/curves adjustment) leave stale baked material describing the old pixels.
+    // That directly contradicts this branch's own `initStrokes clears derived live wetness but
+    // preserves baked wetness` test in LayerStoreWetnessTest.kt, which main kept verbatim and
+    // unmodified even after the fix — so on main's own tree that older test contradicts the new
+    // behavior (it would fail against main's current LayerStore). Given that inconsistency, this
+    // merge keeps this branch's (#410's) original, deliberately-tested "preserve baked bases"
+    // semantics rather than porting main's uncertain change. If layer-content-replacement call
+    // sites (importSingleBitmap, applyInstalledLut, onCurvesApplied, etc.) do need their baked
+    // material cleared, that should be a separate, deliberate call to clearCanonicalMaterial at
+    // those specific sites, not a blanket change to initStrokes's contract.
     /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()

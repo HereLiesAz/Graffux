@@ -133,6 +133,54 @@ class AnimationFramesTest {
         assertEquals(0f, alphas["e"]!!, 0f)
     }
 
+    @Test
+    fun `buffered frame membership includes pinned roots and their descendants`() {
+        val layers = listOf(
+            layer("pinned", type = LayerType.GROUP).copy(isPinnedAcrossFrames = true),
+            layer("pinned-child", parentId = "pinned"),
+            layer("a"),
+            layer("b", type = LayerType.GROUP),
+            layer("b-child", parentId = "b"),
+        )
+
+        assertEquals(
+            setOf("pinned", "pinned-child", "b", "b-child"),
+            AnimationFrames.renderedLayerIdsForFrame(layers, 1),
+        )
+    }
+
+    @Test
+    fun `timeline maps its full hit area to the nearest frame`() {
+        assertEquals(0, frameAtTimelinePosition(-50f, 100f, 5))
+        assertEquals(0, frameAtTimelinePosition(0f, 100f, 5))
+        assertEquals(2, frameAtTimelinePosition(50f, 100f, 5))
+        assertEquals(4, frameAtTimelinePosition(100f, 100f, 5))
+        assertEquals(4, frameAtTimelinePosition(150f, 100f, 5))
+    }
+
+    @Test
+    fun `timeline range drag normalizes either direction`() {
+        assertEquals(2..7, normalizedPlaybackRange(2, 7))
+        assertEquals(2..7, normalizedPlaybackRange(7, 2))
+        assertEquals(4..4, normalizedPlaybackRange(4, 4))
+    }
+
+    @Test
+    fun `preview dimensions obey quality ceiling and aggregate memory budget`() {
+        assertEquals(480 to 240, animationPreviewDimensions(4000, 2000, frameCount = 1))
+
+        val budget = 1024L * 1024L
+        val (width, height) = animationPreviewDimensions(
+            documentWidth = 4000,
+            documentHeight = 2000,
+            frameCount = 100,
+            budgetBytes = budget,
+        )
+        assertTrue(width <= 480)
+        assertTrue(height <= 240)
+        assertTrue(width.toLong() * height.toLong() * 4L * 100L <= budget)
+    }
+
     // ── Reducer transitions ──────────────────────────────────────────────────────────────────
 
     @Test

@@ -85,10 +85,15 @@ class LayerStoreTest {
         store.putBase("a", bmp())
         store.addStroke("a", stroke())
         store.heightBase("a", 9)[0] = 1f
+        val material = ImpastoMaterialReplayState.fromRaw(3, 3, IntArray(9))
+        store.putImpastoMaterialBase("a", material)
+        store.putLiveImpastoMaterial("a", material)
         store.remove("a")
         assertNull(store.base("a"))
         assertTrue(store.strokes("a").isEmpty())
         assertEquals(0f, store.heightBase("a", 9)[0], 0f) // fresh zero array, not the mutated one
+        assertFalse(store.hasImpastoMaterialState("a"))
+        assertNull(store.impastoMaterialStateCopyOrNull("a"))
     }
 
     @Test

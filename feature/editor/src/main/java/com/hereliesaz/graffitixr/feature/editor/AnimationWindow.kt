@@ -1,21 +1,53 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+
+/**
+ * Maps a horizontal ruler coordinate to the nearest frame. The whole ruler is the hit target; the
+ * visible playhead line is intentionally not the only draggable pixel.
+ */
+internal fun frameAtTimelinePosition(x: Float, width: Float, frameCount: Int): Int {
+    if (frameCount <= 1 || width <= 0f) return 0
+    return ((x.coerceIn(0f, width) / width) * (frameCount - 1))
+        .roundToInt()
+        .coerceIn(0, frameCount - 1)
+}
+
+internal fun timelinePositionForFrame(frame: Int, width: Float, frameCount: Int): Float {
+    if (frameCount <= 1 || width <= 0f) return 0f
+    return frame.coerceIn(0, frameCount - 1).toFloat() / (frameCount - 1).toFloat() * width
+}
+
+internal fun normalizedPlaybackRange(anchor: Int, current: Int): IntRange =
+    min(anchor, current)..max(anchor, current)
 
 /**
  * Animation Assist, in one window.
@@ -29,9 +61,10 @@ import kotlin.math.roundToInt
  * studio already use — draggable, collapsible, never dimming the canvas, so the artwork stays
  * visible while the transport runs.
  *
- * The frame timeline itself is deliberately absent: every top-level layer *is* a frame (see
- * `AnimationFrames`), so the layer rail already is the timeline, and drawing a second one here
- * would be a second place to select a frame that could disagree with the first.
+ * The compact ruler here is deliberately a transport control, not a second frame model: every
+ * top-level layer still *is* a frame (see `AnimationFrames`) and the layer rail remains the
+ * authoritative frame list. The ruler only scrubs that same active-frame index and edits the same
+ * playback range the numeric controls use.
  *
  * Time-lapse sits at the bottom because it is the other thing in this app that produces a moving
  * image — but it records your process rather than assembling frames, which is why it is below a
@@ -59,9 +92,15 @@ fun AnimationWindow(
     rawRangeEnd: Int,
     currentFrameHoldCount: Int,
     isTimeLapseRecording: Boolean,
+    previewIsRendering: Boolean,
+    previewIsReady: Boolean,
+    previewRenderedFrames: Int,
+    previewTotalFrames: Int,
+    previewError: String?,
     onTogglePlayback: () -> Unit,
     onPreviousFrame: () -> Unit,
     onNextFrame: () -> Unit,
+    onSeekFrame: (Int) -> Unit,
     onAddFrame: () -> Unit,
     onToggleOnionSkin: () -> Unit,
     onSetOnionSkinPastCount: (Int) -> Unit,
@@ -69,6 +108,7 @@ fun AnimationWindow(
     onSetLoopMode: (AnimationLoopMode) -> Unit,
     onSetFrameDurationMs: (Int) -> Unit,
     onSetRange: (start: Int, end: Int) -> Unit,
+    onRenderPreview: () -> Unit,
     onSetFrameHoldCount: (Int) -> Unit,
     onExport: () -> Unit,
     onToggleTimeLapse: () -> Unit,
@@ -84,6 +124,15 @@ fun AnimationWindow(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Frame $shownFrame / $frameCount", style = MaterialTheme.typography.titleSmall)
+
+            PlaybackRuler(
+                frameCount = frameCount,
+                activeFrameIndex = activeFrameIndex,
+                rangeStart = rangeStart,
+                rangeEnd = rangeEnd,
+                onSeekFrame = onSeekFrame,
+                onSetRange = onSetRange,
+            )
 
             // Transport.
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -158,6 +207,27 @@ fun AnimationWindow(
                 }
             }
 
+            if (frameCount > 1) {
+                AzButton(
+                    text = when {
+                        previewIsRendering -> "Rendering preview  $previewRenderedFrames/$previewTotalFrames"
+                        previewIsReady -> "Re-render Low-quality Preview"
+                        else -> "Render Low-quality Preview"
+                    },
+                    onClick = onRenderPreview,
+                    shape = AzButtonShape.RECTANGLE,
+                )
+                Text(
+                    when {
+                        previewError != null -> "Preview failed: $previewError"
+                        previewIsRendering -> "Buffering the selected play range."
+                        previewIsReady -> "Preview buffer ready for this play range."
+                        else -> "Pre-render this range for lighter playback."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
             // Onion skin. Krita-style asymmetric: past and future neighbours fade in
             // independently, so e.g. history can show behind a clean line with nothing ahead of it.
             // The depth sliders are only shown while it's on — a ghost-frame count means nothing
@@ -203,5 +273,139 @@ fun AnimationWindow(
                 shape = AzButtonShape.RECTANGLE,
             )
         }
+    }
+}
+
+
+/**
+ * Vegas-style transport ruler:
+ * - tap anywhere to place the playhead;
+ * - drag from the playhead's deliberately wide invisible hit zone to scrub;
+ * - drag anywhere else to define the playback range, in either direction.
+ */
+@Composable
+private fun PlaybackRuler(
+    frameCount: Int,
+    activeFrameIndex: Int,
+    rangeStart: Int,
+    rangeEnd: Int,
+    onSeekFrame: (Int) -> Unit,
+    onSetRange: (start: Int, end: Int) -> Unit,
+) {
+    val activeFrameState = rememberUpdatedState(activeFrameIndex)
+    val seekState = rememberUpdatedState(onSeekFrame)
+    val rangeState = rememberUpdatedState(onSetRange)
+    val playheadHitRadiusPx = with(LocalDensity.current) { 18.dp.toPx() }
+    val trackColor = MaterialTheme.colorScheme.outlineVariant
+    val rangeColor = MaterialTheme.colorScheme.primary
+    val playheadColor = MaterialTheme.colorScheme.tertiary
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .pointerInput(frameCount) {
+                detectTapGestures { at ->
+                    if (frameCount > 0) {
+                        seekState.value(frameAtTimelinePosition(at.x, size.width.toFloat(), frameCount))
+                    }
+                }
+            }
+            .pointerInput(frameCount, playheadHitRadiusPx) {
+                var dragAnchor = 0
+                var lastFrame = -1
+                var scrubbingPlayhead = false
+                detectHorizontalDragGestures(
+                    onDragStart = { at ->
+                        if (frameCount > 0) {
+                            val playheadX = timelinePositionForFrame(
+                                activeFrameState.value,
+                                size.width.toFloat(),
+                                frameCount,
+                            )
+                            scrubbingPlayhead = abs(at.x - playheadX) <= playheadHitRadiusPx
+                            dragAnchor = frameAtTimelinePosition(at.x, size.width.toFloat(), frameCount)
+                            lastFrame = dragAnchor
+                            if (scrubbingPlayhead) {
+                                seekState.value(dragAnchor)
+                            } else {
+                                rangeState.value(dragAnchor, dragAnchor)
+                                seekState.value(dragAnchor)
+                            }
+                        }
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        if (frameCount > 0) {
+                            val frame = frameAtTimelinePosition(
+                                change.position.x,
+                                size.width.toFloat(),
+                                frameCount,
+                            )
+                            if (frame != lastFrame) {
+                                if (scrubbingPlayhead) {
+                                    seekState.value(frame)
+                                } else {
+                                    val selected = normalizedPlaybackRange(dragAnchor, frame)
+                                    rangeState.value(selected.first, selected.last)
+                                    seekState.value(frame)
+                                }
+                                lastFrame = frame
+                            }
+                        }
+                        change.consume()
+                    },
+                )
+            },
+    ) {
+        if (frameCount <= 0) return@Canvas
+
+        val centerY = size.height * 0.58f
+        drawLine(
+            color = trackColor,
+            start = Offset(0f, centerY),
+            end = Offset(size.width, centerY),
+            strokeWidth = 2f,
+            cap = StrokeCap.Round,
+        )
+
+        val interval = if (frameCount > 1) size.width / (frameCount - 1) else size.width
+        val startX = timelinePositionForFrame(rangeStart, size.width, frameCount)
+        val endX = timelinePositionForFrame(rangeEnd, size.width, frameCount)
+        val left = (min(startX, endX) - interval * 0.35f).coerceAtLeast(0f)
+        val right = (max(startX, endX) + interval * 0.35f).coerceAtMost(size.width)
+        drawRect(
+            color = rangeColor.copy(alpha = 0.22f),
+            topLeft = Offset(left, size.height * 0.18f),
+            size = Size((right - left).coerceAtLeast(2f), size.height * 0.68f),
+        )
+
+        val tickStep = if (frameCount <= 24) 1 else (frameCount / 12).coerceAtLeast(1)
+        for (frame in 0 until frameCount step tickStep) {
+            val x = timelinePositionForFrame(frame, size.width, frameCount)
+            drawLine(
+                color = trackColor,
+                start = Offset(x, centerY - 5f),
+                end = Offset(x, centerY + 5f),
+                strokeWidth = 1f,
+            )
+        }
+        if ((frameCount - 1) % tickStep != 0) {
+            val x = timelinePositionForFrame(frameCount - 1, size.width, frameCount)
+            drawLine(trackColor, Offset(x, centerY - 5f), Offset(x, centerY + 5f), 1f)
+        }
+
+        val playheadX = timelinePositionForFrame(activeFrameIndex, size.width, frameCount)
+        drawLine(
+            color = playheadColor,
+            start = Offset(playheadX, 2f),
+            end = Offset(playheadX, size.height - 2f),
+            strokeWidth = 3f,
+            cap = StrokeCap.Round,
+        )
+        drawCircle(
+            color = playheadColor,
+            radius = 5f,
+            center = Offset(playheadX, 7f),
+        )
     }
 }

@@ -90,6 +90,13 @@ object KritaPresetParser {
 
     private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 
+    /** Cap on total decompressed bytes from a single zTXt chunk, to guard against a crafted
+     * chunk that deflates to gigabytes (zip-bomb DoS) -- a .kpp is just a PNG someone can hand
+     * you, so its zTXt payload is untrusted the same way its declared chunk length is (see
+     * [readTextChunk]'s bounds-check comment above). 32 MB comfortably covers any real preset's
+     * XML while bounding worst-case memory use. */
+    private const val MAX_INFLATED_SIZE = 32 * 1024 * 1024
+
     /** Walks PNG chunks looking for a `tEXt`/`iTXt` chunk with the given keyword. Returns null if absent or the file isn't a PNG. */
     internal fun readTextChunk(bytes: ByteArray, keyword: String): String? {
         if (bytes.size < 8 || !bytes.copyOfRange(0, 8).contentEquals(PNG_SIGNATURE)) return null
@@ -157,7 +164,14 @@ object KritaPresetParser {
                     if (inflater.needsInput() || inflater.needsDictionary()) break
                 }
                 out.write(buffer, 0, count)
+                if (out.size() > MAX_INFLATED_SIZE) {
+                    throw ParseException(
+                        "zTXt \"$keyword\" chunk exceeds max decompressed size of $MAX_INFLATED_SIZE bytes"
+                    )
+                }
             }
+        } catch (e: ParseException) {
+            throw e
         } catch (e: Exception) {
             throw ParseException("Malformed zTXt \"$keyword\" chunk: ${e.message}")
         } finally {

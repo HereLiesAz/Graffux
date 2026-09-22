@@ -136,6 +136,39 @@ internal object SelectionMask {
     }
 
     /**
+     * Per-pixel selection coverage for material channels. This reads the same feather mask used by
+     * [feather], so height/wetness deposition fades with exactly the visible pigment edge instead
+     * of treating a feathered lasso as a hard binary region.
+     *
+     * Returns null when there is no soft selection; callers keep the cheap Region/null hard path.
+     */
+    fun featherWeights(
+        clipPath: Path?,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+        radiusPx: Float,
+    ): ByteArray? {
+        val mask = featherMask(clipPath, bitmapWidth, bitmapHeight, radiusPx) ?: return null
+        return try {
+            // One compact alpha byte per pixel. The old IntArray + FloatArray pair added 8 bytes
+            // per canvas pixel (~128 MiB at 4096²) on top of the mask bitmap. Reuse one scanline
+            // buffer while extracting alpha so the retained coverage costs exactly 1 byte/pixel.
+            val alpha = ByteArray(bitmapWidth * bitmapHeight)
+            val row = IntArray(bitmapWidth)
+            for (y in 0 until bitmapHeight) {
+                mask.getPixels(row, 0, bitmapWidth, 0, y, bitmapWidth, 1)
+                val offset = y * bitmapWidth
+                for (x in 0 until bitmapWidth) {
+                    alpha[offset + x] = ((row[x] ushr 24) and 0xFF).toByte()
+                }
+            }
+            alpha
+        } finally {
+            mask.recycle()
+        }
+    }
+
+    /**
      * Composites an unclipped [painted] back over [base] through a feathered mask of [clipPath],
      * which is what actually confines the paint when the selection has a soft edge.
      *

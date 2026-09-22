@@ -118,6 +118,7 @@ class PersistentWetnessField(
         dryingRate: Float,
         transportRate: Float,
         dryEpsilon: Float = DEFAULT_DRY_EPSILON,
+        /** Optional per-pixel drying rate for spatially owned media. */
         dryingRateAt: ((x: Int, y: Int) -> Float)? = null,
     ): StepStats {
         val dt = deltaSeconds.coerceAtLeast(0f)

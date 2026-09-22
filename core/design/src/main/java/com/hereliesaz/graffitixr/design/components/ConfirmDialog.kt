@@ -3,8 +3,10 @@ package com.hereliesaz.graffitixr.design.components
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.R
 
 /**
  * A modal yes/no gate for an action that can't be undone — real [AlertDialog] rather than a
@@ -31,7 +33,7 @@ fun ConfirmDialog(
             AzButton(text = confirmLabel, onClick = onConfirm, shape = AzButtonShape.RECTANGLE)
         },
         dismissButton = {
-            AzButton(text = "Cancel", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
+            AzButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
         },
     )
 }

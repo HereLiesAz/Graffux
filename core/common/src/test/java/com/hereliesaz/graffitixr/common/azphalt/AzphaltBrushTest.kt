@@ -73,6 +73,54 @@ class AzphaltBrushTest {
         assertEquals(0.1f, b.spacing, 0f)
     }
 
+    @Test
+    fun normalizedAzphaltRoundnessMapsToTipRatio() {
+        val fractional = AzphaltBrush.fromParams("Flat", params("""{"roundness":0.2}"""))
+        val percent = AzphaltBrush.fromParams("ABR Flat", params("""{"roundness":20}"""))
+        assertEquals(0.2f, fractional.tipRatio, 1e-6f)
+        assertEquals(0.2f, percent.tipRatio, 1e-6f)
+    }
+
+    @Test
+    fun pngGrayAbrSpacingAndHardnessUsePercentageSemantics() {
+        val b = AzphaltBrush.fromParams(
+            "ABR",
+            params("""{"format":"png-gray","spacing":25,"hardness":75}"""),
+        )
+        assertEquals("png-gray", b.tipFormat)
+        assertEquals(0.25f, b.spacing, 1e-6f)
+        assertEquals(0.75f, b.hardness, 1e-6f)
+    }
+
+    @Test
+    fun flowByPressureShorthandCreatesPressureFlowRoute() {
+        val b = AzphaltBrush.fromParams(
+            "Pressure",
+            params("""{"flowByPressure":true}"""),
+        )
+        val route = b.dynamics.single {
+            it.sensor == BrushSensor.PRESSURE && it.parameter == BrushParameter.FLOW
+        }
+        assertEquals(0f, route.outputMin, 0f)
+        assertEquals(1f, route.outputMax, 0f)
+    }
+
+    @Test
+    fun explicitPressureFlowRouteWinsOverShorthand() {
+        val b = AzphaltBrush.fromParams(
+            "Pressure",
+            params(
+                """{"flowByPressure":true,"dynamics":[{"sensor":"pressure","parameter":"flow","outputMin":0.4,"outputMax":0.8}]}"""
+            ),
+        )
+        val routes = b.dynamics.filter {
+            it.sensor == BrushSensor.PRESSURE && it.parameter == BrushParameter.FLOW
+        }
+        assertEquals(1, routes.size)
+        assertEquals(0.4f, routes.single().outputMin, 1e-6f)
+        assertEquals(0.8f, routes.single().outputMax, 1e-6f)
+    }
+
     // ── sanitized(): the Brush Studio construction path ──────────────────────────────────────
 
     @Test

@@ -101,4 +101,28 @@ class LayerStoreWetnessTest {
     }
 
 
+    // NOTE (merge of #410 into main, Phase 5 hardening): main independently added a test here,
+    // `initStrokes clears material belonging to replaced bitmap contents`, asserting that
+    // initStrokes clears baked height/wetness/medium state. That's the same behavior change
+    // flagged and rejected in LayerStore.initStrokes's doc comment (it contradicted the
+    // `initStrokes clears derived live wetness but preserves baked wetness` test directly above,
+    // even on main's own tree) and it exercised the now-retired MaterialMediumReplayState API, so
+    // it was dropped rather than ported. See LayerStore.kt's initStrokes for the full reasoning.
+
+    @Test
+    fun `missing channel can be cleared without disturbing the others`() {
+        val store = LayerStore()
+        store.heightBase("a", 4)[0] = 0.4f
+        val wet = WetnessReplayState.empty(2, 2)
+        wet.field.addWetness(1, 1, 0.6f)
+        store.putWetnessBase("a", wet)
+
+        store.clearHeightBase("a")
+        assertEquals(null, store.heightBaseCopyOrNull("a"))
+        assertTrue(store.hasWetnessBase("a"))
+
+        store.clearWetnessState("a")
+        assertTrue(!store.hasWetnessState("a"))
+    }
+
 }

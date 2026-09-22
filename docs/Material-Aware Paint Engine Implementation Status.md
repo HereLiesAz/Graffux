@@ -197,6 +197,10 @@ The existing Impasto v1 path remains the compatibility baseline, and Phase 5 ext
 - ✅ Duplicating a raster layer clones height, wetness, raw pigment and medium ownership and schedules the duplicate's own material sidecar.
 - ✅ Sidecar paths are hashed/contained and corrupt, mismatched, oversized, or invalid material data fails closed.
 - ✅ Legacy/non-v2 edits on a material-bearing layer explicitly flatten the current presentation into canonical pigment, preventing stale raw pigment from reappearing under later v2 work.
+- ✅ Material response ownership is spatial and persisted per material tile (deduplicated, weight-blended `PaintMedium`s keyed by tile, alongside canonical unlit pigment); later brush settings do not retroactively reinterpret untouched existing paint.
+- ✅ Material ownership is claimed only where a stroke actually deposits height or vehicle/wetness; clipped/no-op contact does not change ownership.
+- ✅ Phase-5 hardening makes undo material-aware: any stroke that can mutate height/wetness/material ownership bypasses the pixel-only tile-delta shortcut and reconstructs canonical material state.
+- ✅ Live Impasto preview is seeded from the same spatial material-owner map used by commit/replay, preventing a medium-change snap on finger-up.
 - ✅ Regression coverage pins feather-weighted transfer, local-medium leveling/optics, v2 sidecar round-trip, monotonic-time reset, canonical cache clearing, raw/medium defensive copies, and full material replay parity.
 
 The Phase-5 **code-side roadmap exit gate is met after hardening**. Representative-device performance/visual validation remains part of the broader production validation matrix; it is not a missing Impasto-v2 engine behavior.

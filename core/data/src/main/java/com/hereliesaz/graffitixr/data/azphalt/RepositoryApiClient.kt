@@ -171,8 +171,9 @@ class RepositoryApiClient @Inject constructor() {
         entitlementToken: String? = null,
         baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL,
     ): DownloadResult {
-        val url = URL("$baseUrl/packages/${encodePathSegment(id)}/versions/${encodePathSegment(version)}/download")
-        val connection = url.openConnection() as HttpURLConnection
+        val urlString = "$baseUrl/packages/${encodePathSegment(id)}/versions/${encodePathSegment(version)}/download"
+        if (!urlString.startsWith("https://")) throw IOException("Repository API requires https: $urlString")
+        val connection = URL(urlString).openConnection() as HttpURLConnection
         connection.connectTimeout = 15_000
         connection.readTimeout = 30_000
         connection.setRequestProperty("Accept", "${AzphaltStoreHandoff.MIME}, application/octet-stream")
@@ -199,6 +200,7 @@ class RepositoryApiClient @Inject constructor() {
     private fun encode(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     private fun <T> get(url: String, parse: (String) -> T): T {
+        if (!url.startsWith("https://")) throw IOException("Repository API requires https: $url")
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 15_000
@@ -213,6 +215,7 @@ class RepositoryApiClient @Inject constructor() {
     }
 
     private fun <T> post(url: String, body: String, parse: (String) -> T): T {
+        if (!url.startsWith("https://")) throw IOException("Repository API requires https: $url")
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 15_000

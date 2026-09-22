@@ -201,4 +201,124 @@ class ImpastoEngineTest {
 
         assertArrayEquals(colors, out) // flat height -> unchanged, but exercises the full clamped range
     }
+
+    @Test
+    fun `material transfer respects soft per-pixel selection weight`() {
+        val w = 12
+        val h = 12
+        val dab = Dab(x = 6f, y = 6f, radius = 3f, alpha = 1f, angleDeg = 0f, contactDepth = 1f)
+        val medium = PaintMedium(heightResponse = 1f, depositionRate = 1f)
+        val full = FloatArray(w * h)
+        val half = FloatArray(w * h)
+
+        ImpastoEngine.transferMaterialStroke(
+            full, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
+            medium = medium, pixelWeight = { _, _ -> 1f },
+        )
+        ImpastoEngine.transferMaterialStroke(
+            half, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
+            medium = medium, pixelWeight = { _, _ -> 0.5f },
+        )
+
+        val center = 6 * w + 6
+        assertTrue(full[center] > 0f)
+        assertTrue("soft selection must reduce material deposition", half[center] in 0f..full[center])
+        assertTrue(half[center] < full[center])
+    }
+
+    @Test
+    fun `material wetness deposition respects soft per-pixel selection weight`() {
+        val w = 12
+        val h = 12
+        val dab = Dab(x = 6f, y = 6f, radius = 3f, alpha = 1f, angleDeg = 0f, contactDepth = 1f)
+        val full = PersistentWetnessField(w, h)
+        val quarter = PersistentWetnessField(w, h)
+
+        ImpastoEngine.depositWetnessStroke(
+            full, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
+            pixelWeight = { _, _ -> 1f },
+        )
+        ImpastoEngine.depositWetnessStroke(
+            quarter, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
+            pixelWeight = { _, _ -> 0.25f },
+        )
+
+        val fullCenter = full.wetnessAt(6, 6)
+        val quarterCenter = quarter.wetnessAt(6, 6)
+        assertTrue(fullCenter > 0f)
+        assertTrue(quarterCenter > 0f)
+        assertTrue(quarterCenter < fullCenter)
+    }
+
+
+    @Test
+    fun `material presentation can be removed before deterministic reshading`() {
+        val w = 10
+        val h = 10
+        val height = FloatArray(w * h)
+        height[5 * w + 5] = 0.9f
+        height[5 * w + 6] = 0.5f
+        val wetness = PersistentWetnessField(w, h)
+        wetness.addWetness(5, 5, 0.7f)
+        wetness.addWetness(6, 5, 0.6f)
+        val medium = PaintMedium(baseRoughness = 0.45f, wetSpecularStrength = 0.25f)
+        val raw = IntArray(w * h) { 0xFF6A7380.toInt() }
+
+        val shaded = ImpastoRegionShader.shadeMaterial(
+            rawRegion = raw,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+        val recovered = ImpastoRegionShader.unshadeMaterial(
+            shadedRegion = shaded,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+        val reshaded = ImpastoRegionShader.shadeMaterial(
+            rawRegion = recovered,
+            height = height,
+            wetness = wetness,
+            canvasWidth = w,
+            canvasHeight = h,
+            left = 0,
+            top = 0,
+            regionWidth = w,
+            regionHeight = h,
+            lightAzimuthDeg = 315f,
+            lightElevationDeg = 45f,
+            reliefStrength = 0.6f,
+            medium = medium,
+        )
+
+        var maxChannelDelta = 0
+        for (i in shaded.indices) {
+            for (shift in intArrayOf(16, 8, 0)) {
+                val a = shaded[i] ushr shift and 0xFF
+                val b = reshaded[i] ushr shift and 0xFF
+                maxChannelDelta = maxOf(maxChannelDelta, kotlin.math.abs(a - b))
+            }
+        }
+        assertTrue("inverse + reshade should be stable within integer rounding", maxChannelDelta <= 2)
+    }
+
 }

@@ -536,6 +536,12 @@ Current implementation status (2026-09-19): **code-side exit gate met**.
 - ✅ Wetness changes surface roughness/specular presentation without changing stored pigment colour.
 - ✅ Save/reload preserves canonical height + wetness through the versioned material sidecar.
 - ✅ Live material presentation reshades only the touched region; time-based leveling runs in deterministic commit/replay rather than the display-batch hot path.
+- ✅ Canonical material undo/replay includes height, wetness, and spatial medium ownership rather than relying on pixel-only deltas.
+- ✅ Material-response ownership is spatial and versioned in the sidecar; ownership changes only on real deposition and is restored/duplicated with the layer.
+- ✅ Soft selection weights material deposition with compact alpha coverage, so feathered visible paint and canonical height/wetness agree without large duplicate full-canvas float buffers.
+- ✅ Impasto never reconstructs pigment by inverting relief/specular presentation. Recorded-time evolution advances height/wetness directly; Color Smudge remains the pigment-transport owner.
+- ✅ Layer-content replacement clears stale canonical material state, failed material writes remain retryable, and persisted monotonic uptime starts a fresh replay epoch after restore.
+- ✅ Live preview consumes the same spatial material-owner state as authoritative commit/replay.
 
 Representative Adreno/Mali performance and artist-reference validation remain part of the cross-phase production validation matrix described below; they do not require another Impasto backend.
 
