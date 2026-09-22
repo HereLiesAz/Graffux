@@ -15,11 +15,14 @@ buildscript {
         "com.google.android.gms:play-services-basement:18.11.0",
         // Bouncy Castle: 1.79 (transitive, via the build + app classpaths) is vulnerable to
         // a covert timing channel (HIGH), LDAP injection, and a risky-crypto-algo issue in
-        // bcpkix — all first patched in 1.84. bcprov got a 1.85.2 patch release; bcpkix and
-        // bcutil did not (BC doesn't always cut matching patch releases for all three), so they
-        // stay on the newest version that actually exists — 1.85. Bumping either without
-        // checking the others exist breaks buildscript classpath resolution outright.
-        "org.bouncycastle:bcprov-jdk18on:1.86.2",
+        // bcpkix — all first patched in 1.84. BC doesn't always cut matching patch releases for
+        // all three modules, so pin to the newest version that actually exists for EACH — 1.86
+        // for all three today. bcprov was previously forced to 1.86.2, a version that was never
+        // published (Maven Central 404s on it), which broke buildscript classpath resolution on
+        // every build — confirmed against Maven Central directly before fixing. Bumping any of
+        // these without checking the others (and the target version itself) exist on Maven
+        // Central breaks buildscript classpath resolution outright, exactly like this did.
+        "org.bouncycastle:bcprov-jdk18on:1.86",
         "org.bouncycastle:bcpkix-jdk18on:1.86",
         "org.bouncycastle:bcutil-jdk18on:1.86",
         // Kotlin 2.4.0 emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
