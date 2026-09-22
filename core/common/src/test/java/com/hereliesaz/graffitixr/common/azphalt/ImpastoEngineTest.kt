@@ -213,11 +213,11 @@ class ImpastoEngineTest {
 
         ImpastoEngine.transferMaterialStroke(
             full, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
-            medium = medium, pixelWeight = { _, _ -> 1f },
+            medium = medium, pixelCoverage = { _, _ -> 1f },
         )
         ImpastoEngine.transferMaterialStroke(
             half, w, h, listOf(dab), hardness = 1f, thicknessRate = 0.8f,
-            medium = medium, pixelWeight = { _, _ -> 0.5f },
+            medium = medium, pixelCoverage = { _, _ -> 0.5f },
         )
 
         val center = 6 * w + 6
@@ -236,11 +236,11 @@ class ImpastoEngineTest {
 
         ImpastoEngine.depositWetnessStroke(
             full, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
-            pixelWeight = { _, _ -> 1f },
+            pixelCoverage = { _, _ -> 1f },
         )
         ImpastoEngine.depositWetnessStroke(
             quarter, listOf(dab), hardness = 1f, wetnessRate = 0.8f,
-            pixelWeight = { _, _ -> 0.25f },
+            pixelCoverage = { _, _ -> 0.25f },
         )
 
         val fullCenter = full.wetnessAt(6, 6)
