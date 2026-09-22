@@ -1,7 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
-
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -81,28 +81,33 @@ class LayerStoreWetnessTest {
             0f,
         )
     }
-
-
     @Test
-    fun `initStrokes clears material belonging to replaced bitmap contents`() {
+    fun `canonical material clear removes height wetness and impasto state together`() {
         val store = LayerStore()
-        val medium = PaintMedium(viscosity = 0.7f, levelingRate = 0.4f)
-        store.heightBase("a", 4)[0] = 0.8f
+        store.heightBase("a", 4)[0] = 0.7f
         val wet = WetnessReplayState.empty(2, 2)
         wet.field.addWetness(0, 0, 0.5f)
         store.putWetnessBase("a", wet)
-        store.putLiveWetness("a", wet)
-        val owners = MaterialMediumReplayState.empty(2, 2).also { it.assign(0, 0, medium) }
-        store.putMaterialMediumBase("a", owners)
-        store.putLiveMaterialMedium("a", owners)
+        val impasto = ImpastoMaterialReplayState.fromRaw(2, 2, IntArray(4), tileSize = 2)
+        impasto.recordMedium(DirtyRegion(0, 0, 2, 2), PaintMedium(viscosity = 0.4f))
+        store.putImpastoMaterialBase("a", impasto)
+        store.putLiveImpastoMaterial("a", impasto)
 
-        store.initStrokes("a")
+        store.clearCanonicalMaterial("a")
 
         assertEquals(null, store.heightBaseCopyOrNull("a"))
-        assertEquals(null, store.wetnessStateCopyOrNull("a"))
-        assertEquals(null, store.materialMediumStateCopyOrNull("a"))
-        assertTrue(!store.hasWetnessState("a"))
+        assertFalse(store.hasWetnessState("a"))
+        assertFalse(store.hasImpastoMaterialState("a"))
     }
+
+
+    // NOTE (merge of #410 into main, Phase 5 hardening): main independently added a test here,
+    // `initStrokes clears material belonging to replaced bitmap contents`, asserting that
+    // initStrokes clears baked height/wetness/medium state. That's the same behavior change
+    // flagged and rejected in LayerStore.initStrokes's doc comment (it contradicted the
+    // `initStrokes clears derived live wetness but preserves baked wetness` test directly above,
+    // even on main's own tree) and it exercised the now-retired MaterialMediumReplayState API, so
+    // it was dropped rather than ported. See LayerStore.kt's initStrokes for the full reasoning.
 
     @Test
     fun `missing channel can be cleared without disturbing the others`() {

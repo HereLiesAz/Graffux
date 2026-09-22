@@ -2,7 +2,6 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
 import androidx.compose.ui.unit.IntSize
-import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
 import com.hereliesaz.graffitixr.common.model.Tool
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
@@ -86,15 +85,15 @@ class LayerStoreTest {
         store.putBase("a", bmp())
         store.addStroke("a", stroke())
         store.heightBase("a", 9)[0] = 1f
-        val medium = MaterialMediumReplayState.empty(3, 3).also { it.assign(0, 0, PaintMedium()) }
-        store.putMaterialMediumBase("a", medium)
-        store.putLiveMaterialMedium("a", medium)
+        val material = ImpastoMaterialReplayState.fromRaw(3, 3, IntArray(9))
+        store.putImpastoMaterialBase("a", material)
+        store.putLiveImpastoMaterial("a", material)
         store.remove("a")
         assertNull(store.base("a"))
         assertTrue(store.strokes("a").isEmpty())
         assertEquals(0f, store.heightBase("a", 9)[0], 0f) // fresh zero array, not the mutated one
-        assertFalse(store.hasMaterialMediumBase("a"))
-        assertNull(store.materialMediumStateCopyOrNull("a"))
+        assertFalse(store.hasImpastoMaterialState("a"))
+        assertNull(store.impastoMaterialStateCopyOrNull("a"))
     }
 
     @Test

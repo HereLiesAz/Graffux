@@ -24,8 +24,8 @@ internal class LayerStore {
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
-    private val materialMediumBases = ConcurrentHashMap<String, MaterialMediumReplayState>()
-    private val liveMaterialMedia = ConcurrentHashMap<String, MaterialMediumReplayState>()
+    private val impastoMaterialBases = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
+    private val liveImpastoMaterial = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
 
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
@@ -37,12 +37,12 @@ internal class LayerStore {
             wetnessBases.remove(layerId)
             liveWetness.remove(layerId)
         }
-        val mediumBase = materialMediumBases[layerId]
-        if (mediumBase != null &&
-            (mediumBase.width != bitmap.width || mediumBase.height != bitmap.height)
+        val materialBase = impastoMaterialBases[layerId]
+        if (materialBase != null &&
+            (materialBase.width != bitmap.width || materialBase.height != bitmap.height)
         ) {
-            materialMediumBases.remove(layerId)
-            liveMaterialMedia.remove(layerId)
+            impastoMaterialBases.remove(layerId)
+            liveImpastoMaterial.remove(layerId)
         }
     }
 
@@ -139,75 +139,87 @@ internal class LayerStore {
         heightBases.remove(layerId)
     }
 
-    /** Defensive working copy of baked spatial medium ownership. */
-    fun materialMediumBaseCopy(
+    /**
+     * Returns a defensive Impasto-v2 base state. A first v2 stroke seeds canonical unlit pigment
+     * from [rawSeed]; color-only layers never allocate this state.
+     */
+    fun impastoMaterialBaseCopy(
         layerId: String,
         width: Int,
         height: Int,
-    ): MaterialMediumReplayState {
-        val existing = materialMediumBases[layerId]
+        rawSeed: IntArray,
+    ): ImpastoMaterialReplayState {
+        val existing = impastoMaterialBases[layerId]
         if (existing != null && existing.width == width && existing.height == height) {
             return existing.copyForWork()
         }
-        val fresh = MaterialMediumReplayState.empty(width, height)
-        materialMediumBases[layerId] = fresh
-        liveMaterialMedia.remove(layerId)
-        return fresh.copyForWork()
+        val fresh = ImpastoMaterialReplayState.fromRaw(width, height, rawSeed)
+        impastoMaterialBases[layerId] = fresh.copyForWork()
+        liveImpastoMaterial.remove(layerId)
+        return fresh
     }
 
-    fun hasMaterialMediumBase(layerId: String): Boolean =
-        materialMediumBases[layerId]?.hasOwners == true
+    fun hasImpastoMaterialState(layerId: String): Boolean =
+        impastoMaterialBases.containsKey(layerId) || liveImpastoMaterial.containsKey(layerId)
 
-    fun putMaterialMediumBase(layerId: String, state: MaterialMediumReplayState?) {
-        if (state == null || !state.hasOwners) materialMediumBases.remove(layerId)
-        else materialMediumBases[layerId] = state.copyForWork()
+    fun putImpastoMaterialBase(layerId: String, state: ImpastoMaterialReplayState) {
+        impastoMaterialBases[layerId] = state.copyForWork()
     }
 
-    /** Defensive current post-stroke ownership, falling back to the baked ownership map. */
-    fun materialMediumStateCopy(
+    fun liveImpastoMaterialCopy(
         layerId: String,
         width: Int,
         height: Int,
-    ): MaterialMediumReplayState {
-        val existing = liveMaterialMedia[layerId] ?: materialMediumBases[layerId]
+        rawSeed: IntArray,
+    ): ImpastoMaterialReplayState {
+        val existing = liveImpastoMaterial[layerId]
         if (existing != null && existing.width == width && existing.height == height) {
             return existing.copyForWork()
         }
-        return MaterialMediumReplayState.empty(width, height)
+        val fresh = impastoMaterialBaseCopy(layerId, width, height, rawSeed)
+        liveImpastoMaterial[layerId] = fresh.copyForWork()
+        return fresh
     }
 
-    fun materialMediumStateCopyOrNull(layerId: String): MaterialMediumReplayState? =
-        (liveMaterialMedia[layerId] ?: materialMediumBases[layerId])?.copyForWork()
-
-    fun putLiveMaterialMedium(layerId: String, state: MaterialMediumReplayState?) {
-        if (state == null || !state.hasOwners) liveMaterialMedia.remove(layerId)
-        else liveMaterialMedia[layerId] = state.copyForWork()
+    fun putLiveImpastoMaterial(layerId: String, state: ImpastoMaterialReplayState) {
+        liveImpastoMaterial[layerId] = state.copyForWork()
     }
 
-    fun clearLiveMaterialMedium(layerId: String) {
-        liveMaterialMedia.remove(layerId)
+    fun impastoMaterialStateCopyOrNull(layerId: String): ImpastoMaterialReplayState? =
+        (liveImpastoMaterial[layerId] ?: impastoMaterialBases[layerId])?.copyForWork()
+
+    fun clearLiveImpastoMaterial(layerId: String) {
+        liveImpastoMaterial.remove(layerId)
     }
 
-    /** Fail-closed reset for every canonical material channel associated with a layer id. */
-    fun clearMaterialState(layerId: String) {
+    /** Drops every canonical derived-material cache for a failed/absent sidecar restore. */
+    fun clearCanonicalMaterial(layerId: String) {
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
-        materialMediumBases.remove(layerId)
-        liveMaterialMedia.remove(layerId)
+        impastoMaterialBases.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
     }
 
-    /**
-     * Resets [layerId] for new/replaced bitmap contents.
-     *
-     * Every current caller uses this after installing a fresh layer base (new/imported/duplicated/
-     * reloaded content). Canonical material belongs to the old bitmap, so keeping baked height,
-     * wetness, or medium ownership here can resurrect material onto unrelated same-sized pixels.
-     * Project reload/duplicate paths restore their sidecar/copy immediately after this reset.
-     */
+    // NOTE (merge of #410 into main, Phase 5 hardening): main independently added a fix (commit
+    // fc275af, "clear baked material when layer contents reset") that made this method call
+    // clearCanonicalMaterial(layerId) instead — i.e. also drop baked height/wetness/material, not
+    // just the derived live state — on the theory that content-replacement callers (import a new
+    // bitmap, apply a LUT/curves adjustment) leave stale baked material describing the old pixels.
+    // That directly contradicts this branch's own `initStrokes clears derived live wetness but
+    // preserves baked wetness` test in LayerStoreWetnessTest.kt, which main kept verbatim and
+    // unmodified even after the fix — so on main's own tree that older test contradicts the new
+    // behavior (it would fail against main's current LayerStore). Given that inconsistency, this
+    // merge keeps this branch's (#410's) original, deliberately-tested "preserve baked bases"
+    // semantics rather than porting main's uncertain change. If layer-content-replacement call
+    // sites (importSingleBitmap, applyInstalledLut, onCurvesApplied, etc.) do need their baked
+    // material cleared, that should be a separate, deliberate call to clearCanonicalMaterial at
+    // those specific sites, not a blanket change to initStrokes's contract.
+    /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
-        clearMaterialState(layerId)
+        liveWetness.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -282,8 +294,8 @@ internal class LayerStore {
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
-        materialMediumBases.remove(layerId)
-        liveMaterialMedia.remove(layerId)
+        impastoMaterialBases.remove(layerId)
+        liveImpastoMaterial.remove(layerId)
     }
 
     /** Clears all cached bitmaps, strokes, height bases, and wetness state (e.g. on project unload). */
@@ -293,8 +305,8 @@ internal class LayerStore {
         heightBases.clear()
         wetnessBases.clear()
         liveWetness.clear()
-        materialMediumBases.clear()
-        liveMaterialMedia.clear()
+        impastoMaterialBases.clear()
+        liveImpastoMaterial.clear()
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */
@@ -304,7 +316,7 @@ internal class LayerStore {
         heightBases.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)
-        materialMediumBases.keys.retainAll(liveIds)
-        liveMaterialMedia.keys.retainAll(liveIds)
+        impastoMaterialBases.keys.retainAll(liveIds)
+        liveImpastoMaterial.keys.retainAll(liveIds)
     }
 }

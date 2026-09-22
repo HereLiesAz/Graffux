@@ -2,7 +2,6 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
-
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -15,12 +14,10 @@ import kotlin.math.abs
 /**
  * Versioned sparse persistence for canonical material channels.
  *
- * A color-only layer writes no sidecar. When material exists, only tiles containing non-zero
- * height and/or wetness are serialized, and each tile stores only the channels it actually uses.
- * The gzip wrapper supplies integrity checking and makes smooth float fields compact in practice.
- *
- * This format intentionally stores canonical height/wetness, not lighting output. Lighting is
- * presentation state and can be reconstructed from these channels on reload.
+ * Version 2 keeps the original sparse height/wetness tiles and adds unlit pigment + effective
+ * medium ownership for tiles that actually contain material. Android uptime is intentionally not
+ * portable state: a monotonic clock epoch ends on reboot/device transfer, so persisted v1 uptime is
+ * consumed for stream compatibility and discarded on decode.
  */
 internal object MaterialStateCodec {
     data class Snapshot(
@@ -28,21 +25,18 @@ internal object MaterialStateCodec {
         val height: Int,
         val heightMap: FloatArray? = null,
         val wetness: FloatArray? = null,
-        /**
-         * Session-local monotonic time. Kept in the runtime snapshot API but deliberately not
-         * serialized: Android uptime is not portable across reboot/device/archive import.
-         */
+        /** Kept for source compatibility; v2 never serializes this monotonic-session value. */
         val lastWetnessUptimeMillis: Long? = null,
-        /** Deduplicated spatial material-response palette. Owner id N addresses palette[N - 1]. */
-        val mediumPalette: List<PaintMedium> = emptyList(),
-        /** 0 = no v2 owner; positive values index [mediumPalette] + 1. */
-        val mediumOwnerIds: IntArray? = null,
         val tileSize: Int = DEFAULT_TILE_SIZE,
+        val rawColor: IntArray? = null,
+        /** Row-major material tile ids for which [rawColor] contains canonical values. */
+        val rawColorTiles: Set<Int> = emptySet(),
+        val mediumTiles: List<ImpastoMaterialReplayState.TileMediumSnapshot> = emptyList(),
     ) {
         val hasMaterial: Boolean
             get() = heightMap?.any { abs(it) > ZERO_EPSILON } == true ||
                 wetness?.any { abs(it) > ZERO_EPSILON } == true ||
-                mediumOwnerIds?.any { it != 0 } == true
+                mediumTiles.isNotEmpty()
     }
 
     private data class TileRecord(val tx: Int, val ty: Int, val flags: Int)
@@ -64,16 +58,24 @@ internal object MaterialStateCodec {
         require(snapshot.wetness == null || snapshot.wetness.size == size) {
             "wetness must contain exactly width*height values"
         }
-        require(snapshot.mediumPalette.size <= MAX_MEDIA) { "Too many material media in one layer" }
-        require(snapshot.mediumOwnerIds == null || snapshot.mediumOwnerIds.size == size) {
-            "mediumOwnerIds must contain exactly width*height values"
-        }
-        require(snapshot.mediumOwnerIds?.all { it in 0..snapshot.mediumPalette.size } != false) {
-            "mediumOwnerIds contains an invalid palette id"
+        require(snapshot.rawColor == null || snapshot.rawColor.size == size) {
+            "rawColor must contain exactly width*height values"
         }
 
         val columns = (snapshot.width + snapshot.tileSize - 1) / snapshot.tileSize
         val rows = (snapshot.height + snapshot.tileSize - 1) / snapshot.tileSize
+        val mediumById = HashMap<Int, ImpastoMaterialReplayState.TileMediumSnapshot>(
+            snapshot.mediumTiles.size * 2,
+        )
+        for (entry in snapshot.mediumTiles) {
+            require(entry.tx in 0 until columns && entry.ty in 0 until rows) {
+                "Material medium tile coordinate out of range"
+            }
+            require(entry.weight.isFinite() && entry.weight > 0f) { "Invalid material medium weight" }
+            val id = entry.ty * columns + entry.tx
+            require(mediumById.put(id, entry) == null) { "Duplicate material medium tile" }
+        }
+
         val records = ArrayList<TileRecord>()
         for (ty in 0 until rows) {
             for (tx in 0 until columns) {
@@ -88,9 +90,8 @@ internal object MaterialStateCodec {
                 if (snapshot.wetness != null &&
                     tileHasValues(snapshot.wetness, snapshot.width, left, top, right, bottom)
                 ) flags = flags or FLAG_WETNESS
-                if (snapshot.mediumOwnerIds != null &&
-                    tileHasOwners(snapshot.mediumOwnerIds, snapshot.width, left, top, right, bottom)
-                ) flags = flags or FLAG_MEDIUM
+                if (mediumById.containsKey(ty * columns + tx)) flags = flags or FLAG_MEDIUM
+                if (flags != 0 && snapshot.rawColor != null) flags = flags or FLAG_RAW_COLOR
                 if (flags != 0) records += TileRecord(tx, ty, flags)
             }
         }
@@ -103,8 +104,8 @@ internal object MaterialStateCodec {
                 out.writeInt(snapshot.width)
                 out.writeInt(snapshot.height)
                 out.writeInt(snapshot.tileSize)
-                out.writeInt(snapshot.mediumPalette.size)
-                snapshot.mediumPalette.forEach { writeMedium(out, it.sanitized()) }
+                // Never persist Android uptime across process/device epochs.
+                out.writeLong(NO_TIME)
                 out.writeInt(records.size)
                 for (record in records) {
                     out.writeInt(record.tx)
@@ -115,16 +116,16 @@ internal object MaterialStateCodec {
                     val right = minOf(snapshot.width, left + snapshot.tileSize)
                     val bottom = minOf(snapshot.height, top + snapshot.tileSize)
                     if (record.flags and FLAG_HEIGHT != 0) {
-                        writeTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right, bottom)
+                        writeFloatTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right, bottom)
                     }
                     if (record.flags and FLAG_WETNESS != 0) {
-                        writeTile(out, requireNotNull(snapshot.wetness), snapshot.width, left, top, right, bottom)
+                        writeFloatTile(out, requireNotNull(snapshot.wetness), snapshot.width, left, top, right, bottom)
+                    }
+                    if (record.flags and FLAG_RAW_COLOR != 0) {
+                        writeIntTile(out, requireNotNull(snapshot.rawColor), snapshot.width, left, top, right, bottom)
                     }
                     if (record.flags and FLAG_MEDIUM != 0) {
-                        writeOwnerTile(
-                            out, requireNotNull(snapshot.mediumOwnerIds),
-                            snapshot.width, left, top, right, bottom,
-                        )
+                        writeMedium(out, requireNotNull(mediumById[record.ty * columns + record.tx]))
                     }
                 }
             }
@@ -143,16 +144,9 @@ internal object MaterialStateCodec {
             val height = input.readInt()
             val tileSize = input.readInt()
             validateDimensions(width, height, tileSize)
-            // v1 persisted Android uptime. Consume it for compatibility but intentionally discard
-            // it: uptime resets on reboot and is unrelated across devices/archive imports.
-            val mediumPalette = if (version == 1) {
-                input.readLong()
-                emptyList()
-            } else {
-                val count = input.readInt()
-                require(count in 0..MAX_MEDIA) { "Invalid material medium palette size" }
-                List(count) { readMedium(input) }
-            }
+            // v1 persisted Android uptime. Read it to keep the stream aligned, but never reuse it
+            // across a new process/device monotonic epoch.
+            input.readLong()
             val columns = (width + tileSize - 1) / tileSize
             val rows = (height + tileSize - 1) / tileSize
             val maxTiles = columns * rows
@@ -161,7 +155,9 @@ internal object MaterialStateCodec {
 
             var heightMap: FloatArray? = null
             var wetness: FloatArray? = null
-            var mediumOwnerIds: IntArray? = null
+            var rawColor: IntArray? = null
+            val rawColorTiles = LinkedHashSet<Int>()
+            val mediumTiles = ArrayList<ImpastoMaterialReplayState.TileMediumSnapshot>()
             val seen = HashSet<Int>(tileCount * 2)
             repeat(tileCount) {
                 val tx = input.readInt()
@@ -172,25 +168,27 @@ internal object MaterialStateCodec {
                 val tileId = ty * columns + tx
                 require(seen.add(tileId)) { "Duplicate material tile" }
                 val flags = input.readUnsignedByte()
-                require(flags != 0 && flags and VALID_FLAGS == flags) { "Invalid material tile flags" }
+                val validFlags = if (version >= 2) VALID_FLAGS_V2 else VALID_FLAGS_V1
+                require(flags != 0 && flags and validFlags == flags) { "Invalid material tile flags" }
                 val left = tx * tileSize
                 val top = ty * tileSize
                 val right = minOf(width, left + tileSize)
                 val bottom = minOf(height, top + tileSize)
                 if (flags and FLAG_HEIGHT != 0) {
                     if (heightMap == null) heightMap = FloatArray(width * height)
-                    readTile(input, heightMap!!, width, left, top, right, bottom)
+                    readFloatTile(input, heightMap!!, width, left, top, right, bottom)
                 }
                 if (flags and FLAG_WETNESS != 0) {
                     if (wetness == null) wetness = FloatArray(width * height)
-                    readTile(input, wetness!!, width, left, top, right, bottom)
+                    readFloatTile(input, wetness!!, width, left, top, right, bottom)
                 }
-                if (flags and FLAG_MEDIUM != 0) {
-                    if (mediumOwnerIds == null) mediumOwnerIds = IntArray(width * height)
-                    readOwnerTile(
-                        input, mediumOwnerIds!!, width, left, top, right, bottom,
-                        mediumPalette.size,
-                    )
+                if (version >= 2 && flags and FLAG_RAW_COLOR != 0) {
+                    if (rawColor == null) rawColor = IntArray(width * height)
+                    readIntTile(input, rawColor!!, width, left, top, right, bottom)
+                    rawColorTiles += tileId
+                }
+                if (version >= 2 && flags and FLAG_MEDIUM != 0) {
+                    mediumTiles += readMedium(input, tx, ty)
                 }
             }
 
@@ -200,48 +198,13 @@ internal object MaterialStateCodec {
                 heightMap = heightMap,
                 wetness = wetness,
                 lastWetnessUptimeMillis = null,
-                mediumPalette = mediumPalette,
-                mediumOwnerIds = mediumOwnerIds,
                 tileSize = tileSize,
+                rawColor = rawColor,
+                rawColorTiles = rawColorTiles,
+                mediumTiles = mediumTiles,
             )
         }
     }.getOrNull()
-
-    private fun writeMedium(out: DataOutputStream, medium: PaintMedium) {
-        out.writeInt(medium.mixingModel.ordinal)
-        out.writeFloat(medium.viscosity)
-        out.writeFloat(medium.yieldLikeStrength)
-        out.writeFloat(medium.dryingRate)
-        out.writeFloat(medium.pickupRate)
-        out.writeFloat(medium.depositionRate)
-        out.writeFloat(medium.heightResponse)
-        out.writeFloat(medium.substrateResponse)
-        out.writeFloat(medium.levelingRate)
-        out.writeFloat(medium.baseRoughness)
-        out.writeFloat(medium.wetSpecularStrength)
-    }
-
-    private fun readMedium(input: DataInputStream): PaintMedium {
-        val modelOrdinal = input.readInt()
-        val models = MaterialMixingModel.entries
-        require(modelOrdinal in models.indices) { "Invalid material mixing model" }
-        fun finiteFloat(): Float = input.readFloat().also {
-            require(it.isFinite()) { "Material medium contains a non-finite value" }
-        }
-        return PaintMedium(
-            mixingModel = models[modelOrdinal],
-            viscosity = finiteFloat(),
-            yieldLikeStrength = finiteFloat(),
-            dryingRate = finiteFloat(),
-            pickupRate = finiteFloat(),
-            depositionRate = finiteFloat(),
-            heightResponse = finiteFloat(),
-            substrateResponse = finiteFloat(),
-            levelingRate = finiteFloat(),
-            baseRoughness = finiteFloat(),
-            wetSpecularStrength = finiteFloat(),
-        ).sanitized()
-    }
 
     private fun tileHasValues(
         values: FloatArray,
@@ -261,64 +224,7 @@ internal object MaterialStateCodec {
         return false
     }
 
-    private fun tileHasOwners(
-        values: IntArray,
-        width: Int,
-        left: Int,
-        top: Int,
-        right: Int,
-        bottom: Int,
-    ): Boolean {
-        for (y in top until bottom) {
-            var index = y * width + left
-            for (x in left until right) {
-                if (values[index] != 0) return true
-                index++
-            }
-        }
-        return false
-    }
-
-    private fun writeOwnerTile(
-        out: DataOutputStream,
-        values: IntArray,
-        width: Int,
-        left: Int,
-        top: Int,
-        right: Int,
-        bottom: Int,
-    ) {
-        for (y in top until bottom) {
-            var index = y * width + left
-            for (x in left until right) {
-                out.writeInt(values[index])
-                index++
-            }
-        }
-    }
-
-    private fun readOwnerTile(
-        input: DataInputStream,
-        values: IntArray,
-        width: Int,
-        left: Int,
-        top: Int,
-        right: Int,
-        bottom: Int,
-        paletteSize: Int,
-    ) {
-        for (y in top until bottom) {
-            var index = y * width + left
-            for (x in left until right) {
-                val id = input.readInt()
-                require(id in 0..paletteSize) { "Invalid material medium owner id" }
-                values[index] = id
-                index++
-            }
-        }
-    }
-
-    private fun writeTile(
+    private fun writeFloatTile(
         out: DataOutputStream,
         values: FloatArray,
         width: Int,
@@ -336,7 +242,7 @@ internal object MaterialStateCodec {
         }
     }
 
-    private fun readTile(
+    private fun readFloatTile(
         input: DataInputStream,
         values: FloatArray,
         width: Int,
@@ -356,6 +262,90 @@ internal object MaterialStateCodec {
         }
     }
 
+    private fun writeIntTile(
+        out: DataOutputStream,
+        values: IntArray,
+        width: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ) {
+        for (y in top until bottom) {
+            var index = y * width + left
+            for (x in left until right) {
+                out.writeInt(values[index])
+                index++
+            }
+        }
+    }
+
+    private fun readIntTile(
+        input: DataInputStream,
+        values: IntArray,
+        width: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ) {
+        for (y in top until bottom) {
+            var index = y * width + left
+            for (x in left until right) {
+                values[index] = input.readInt()
+                index++
+            }
+        }
+    }
+
+    private fun writeMedium(
+        out: DataOutputStream,
+        entry: ImpastoMaterialReplayState.TileMediumSnapshot,
+    ) {
+        val m = entry.medium.sanitized()
+        out.writeFloat(entry.weight)
+        out.writeInt(m.mixingModel.ordinal)
+        out.writeFloat(m.viscosity)
+        out.writeFloat(m.yieldLikeStrength)
+        out.writeFloat(m.dryingRate)
+        out.writeFloat(m.pickupRate)
+        out.writeFloat(m.depositionRate)
+        out.writeFloat(m.heightResponse)
+        out.writeFloat(m.substrateResponse)
+        out.writeFloat(m.levelingRate)
+        out.writeFloat(m.baseRoughness)
+        out.writeFloat(m.wetSpecularStrength)
+    }
+
+    private fun readMedium(
+        input: DataInputStream,
+        tx: Int,
+        ty: Int,
+    ): ImpastoMaterialReplayState.TileMediumSnapshot {
+        val weight = input.readFloat()
+        require(weight.isFinite() && weight > 0f) { "Invalid material medium weight" }
+        val mixingOrdinal = input.readInt()
+        val mixing = MaterialMixingModel.entries.getOrNull(mixingOrdinal)
+            ?: error("Invalid material mixing model")
+        fun next(): Float = input.readFloat().also {
+            require(it.isFinite()) { "Material medium contains a non-finite value" }
+        }
+        val medium = PaintMedium(
+            mixingModel = mixing,
+            viscosity = next(),
+            yieldLikeStrength = next(),
+            dryingRate = next(),
+            pickupRate = next(),
+            depositionRate = next(),
+            heightResponse = next(),
+            substrateResponse = next(),
+            levelingRate = next(),
+            baseRoughness = next(),
+            wetSpecularStrength = next(),
+        ).sanitized()
+        return ImpastoMaterialReplayState.TileMediumSnapshot(tx, ty, weight, medium)
+    }
+
     private fun validateDimensions(width: Int, height: Int, tileSize: Int) {
         require(width > 0 && height > 0) { "Material dimensions must be positive" }
         require(tileSize in 1..MAX_TILE_SIZE) { "Invalid material tile size" }
@@ -364,15 +354,17 @@ internal object MaterialStateCodec {
     }
 
     private const val MAGIC = 0x47584D54 // "GXMT"
-    private const val VERSION = 2
     private const val MIN_SUPPORTED_VERSION = 1
+    private const val VERSION = 2
     private const val FLAG_HEIGHT = 1
     private const val FLAG_WETNESS = 2
-    private const val FLAG_MEDIUM = 4
-    private const val VALID_FLAGS = FLAG_HEIGHT or FLAG_WETNESS or FLAG_MEDIUM
+    private const val FLAG_RAW_COLOR = 4
+    private const val FLAG_MEDIUM = 8
+    private const val VALID_FLAGS_V1 = FLAG_HEIGHT or FLAG_WETNESS
+    private const val VALID_FLAGS_V2 = VALID_FLAGS_V1 or FLAG_RAW_COLOR or FLAG_MEDIUM
+    private const val NO_TIME = Long.MIN_VALUE
     private const val DEFAULT_TILE_SIZE = 64
     private const val MAX_TILE_SIZE = 512
     private const val MAX_PIXELS = 16_777_216L // 4096²; above the editor's phone-first raster budget.
-    private const val MAX_MEDIA = 4096
     private const val ZERO_EPSILON = 1e-6f
 }

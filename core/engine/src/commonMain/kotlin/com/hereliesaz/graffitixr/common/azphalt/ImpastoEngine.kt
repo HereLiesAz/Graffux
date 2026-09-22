@@ -8,6 +8,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 private const val IMPASTO_DEG_TO_RAD = 0.017453292f
@@ -234,10 +235,7 @@ object ImpastoEngine {
         substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
         substrateField: SubstrateField? = null,
         pixelAllowed: ((x: Int, y: Int) -> Boolean)? = null,
-        /** Optional soft-selection/material coverage multiplier, 0..1. */
-        pixelWeight: ((x: Int, y: Int) -> Float)? = null,
-        /** Called only where this stroke actually deposits positive height material. */
-        onMaterialDeposited: ((x: Int, y: Int) -> Unit)? = null,
+        pixelCoverage: ((x: Int, y: Int) -> Float)? = null,
     ): ImpastoMaterialTransferStats {
         if (width <= 0 || imgHeight <= 0 || height.size < width * imgHeight) {
             return ImpastoMaterialTransferStats(initialState.sanitized(), 0f, 0f, null)
@@ -282,8 +280,8 @@ object ImpastoEngine {
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
                     if (pixelAllowed != null && !pixelAllowed(x, y)) continue
-                    val materialWeight = (pixelWeight?.invoke(x, y) ?: 1f).coerceIn(0f, 1f)
-                    if (materialWeight <= 0f) continue
+                    val selectionCoverage = pixelCoverage?.invoke(x, y)?.coerceIn(0f, 1f) ?: 1f
+                    if (selectionCoverage <= 0f) continue
                     val dx = x + 0.5f - cx
                     val dy = y + 0.5f - cy
                     val dist = sqrt(dx * dx + dy * dy)
@@ -300,11 +298,9 @@ object ImpastoEngine {
                         substrateResponse = material.substrateResponse,
                         substrateHeight = substrateHeight,
                     )
-                    val contact = (
-                        coverage * contactDepth * alphaFlow * gate * materialWeight
-                        ).coerceIn(0f, 1f)
+                    val contact = (coverage * selectionCoverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
                     if (contact <= 0f) continue
-                    coverageMass += coverage * materialWeight
+                    coverageMass += coverage * selectionCoverage
                     val increment = rate * material.heightResponse * material.depositionRate *
                         loadAtStart * contact
                     val afterDeposit = BrushStamps.buildUp(before, increment)
@@ -335,8 +331,8 @@ object ImpastoEngine {
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
                     if (pixelAllowed != null && !pixelAllowed(x, y)) continue
-                    val materialWeight = (pixelWeight?.invoke(x, y) ?: 1f).coerceIn(0f, 1f)
-                    if (materialWeight <= 0f) continue
+                    val selectionCoverage = pixelCoverage?.invoke(x, y)?.coerceIn(0f, 1f) ?: 1f
+                    if (selectionCoverage <= 0f) continue
                     val dx = x + 0.5f - cx
                     val dy = y + 0.5f - cy
                     val dist = sqrt(dx * dx + dy * dy)
@@ -353,15 +349,12 @@ object ImpastoEngine {
                         substrateResponse = material.substrateResponse,
                         substrateHeight = substrateHeight,
                     )
-                    val contact = (
-                        coverage * contactDepth * alphaFlow * gate * materialWeight
-                        ).coerceIn(0f, 1f)
+                    val contact = (coverage * selectionCoverage * contactDepth * alphaFlow * gate).coerceIn(0f, 1f)
                     if (contact <= 0f) continue
 
                     val increment = rate * material.heightResponse * material.depositionRate *
                         loadAtStart * contact
                     var local = BrushStamps.buildUp(before, increment).coerceIn(0f, 1f)
-                    if (local > before) onMaterialDeposited?.invoke(x, y)
 
                     val remainingPickupMass = (maxPickupHeightMass - pickedThisDab).coerceAtLeast(0f)
                     val removalRequest = rate * material.pickupRate * capacityAfterDeposit * contact
@@ -410,10 +403,7 @@ object ImpastoEngine {
         hardness: Float,
         wetnessRate: Float,
         pixelAllowed: ((x: Int, y: Int) -> Boolean)? = null,
-        /** Optional soft-selection/material coverage multiplier, 0..1. */
-        pixelWeight: ((x: Int, y: Int) -> Float)? = null,
-        /** Called only where positive vehicle/wetness is deposited. */
-        onWetnessDeposited: ((x: Int, y: Int) -> Unit)? = null,
+        pixelCoverage: ((x: Int, y: Int) -> Float)? = null,
     ): DirtyRegion? {
         val rate = wetnessRate.coerceIn(0f, 1f)
         if (rate <= 0f || dabs.isEmpty()) return null
@@ -431,19 +421,17 @@ object ImpastoEngine {
             for (y in minY..maxY) {
                 for (x in minX..maxX) {
                     if (pixelAllowed != null && !pixelAllowed(x, y)) continue
-                    val materialWeight = (pixelWeight?.invoke(x, y) ?: 1f).coerceIn(0f, 1f)
-                    if (materialWeight <= 0f) continue
+                    val selectionCoverage = pixelCoverage?.invoke(x, y)?.coerceIn(0f, 1f) ?: 1f
+                    if (selectionCoverage <= 0f) continue
                     val dx = x + 0.5f - dab.x
                     val dy = y + 0.5f - dab.y
                     val dist = sqrt(dx * dx + dy * dy)
                     if (dist >= radius) continue
                     val coverage = BrushStamps.stampCoverage((dist / radius).coerceIn(0f, 1f), hardness)
-                    val amount = rate * coverage * dab.contactDepth.coerceIn(0f, 1f) *
-                        dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f) *
-                        materialWeight
+                    val amount = rate * coverage * selectionCoverage * dab.contactDepth.coerceIn(0f, 1f) *
+                        dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f)
                     if (amount <= 0f) continue
                     wetness.addWetness(x, y, amount)
-                    onWetnessDeposited?.invoke(x, y)
                     touched = true
                 }
             }
@@ -474,9 +462,9 @@ object ImpastoEngine {
         region: DirtyRegion? = null,
         substrateProfile: SubstrateProfile = SubstrateProfile.SMOOTH,
         substrateField: SubstrateField? = null,
-        iterations: Int = DEFAULT_LEVELING_ITERATIONS,
         /** Spatial material response. Null falls back to [medium] for legacy/single-medium callers. */
-        mediumAt: ((x: Int, y: Int) -> PaintMedium?)? = null,
+        mediumAt: ((x: Int, y: Int) -> PaintMedium)? = null,
+        iterations: Int = DEFAULT_LEVELING_ITERATIONS,
     ): ImpastoLevelStats {
         require(width == wetness.width && imgHeight == wetness.height) {
             "Impasto wetness dimensions must match height dimensions"
@@ -506,44 +494,41 @@ object ImpastoEngine {
         fun tileActive(x: Int, y: Int): Boolean =
             ((y / tileSize) * columns + (x / tileSize)) in activeIds
 
-        fun responseAt(x: Int, y: Int): PaintMedium =
+        fun resolvedMedium(x: Int, y: Int): PaintMedium =
             mediumAt?.invoke(x, y)?.sanitized() ?: material
 
-        fun terrain(x: Int, y: Int, response: PaintMedium): Float {
-            if (response.substrateResponse <= 0f) return 0f
+        fun terrain(x: Int, y: Int, localMedium: PaintMedium): Float {
+            if (localMedium.substrateResponse <= 0f) return 0f
             val sampled = substrateField?.sampleHeight(x + 0.5f, y + 0.5f, profile)
                 ?: profile.baseHeight
-            return sampled * response.substrateResponse
+            return sampled * localMedium.substrateResponse
         }
 
         var visited = 0
         var movedEdges = 0
         var transferred = 0f
-
         fun exchange(a: Int, ax: Int, ay: Int, b: Int, bx: Int, by: Int) {
-            val responseA = responseAt(ax, ay)
-            val responseB = responseAt(bx, by)
-            val levelingRate = (responseA.levelingRate + responseB.levelingRate) * 0.5f
-            val edgeStep = (levelingRate * dt / count).coerceIn(0f, MAX_LEVEL_EDGE_STEP)
-            if (edgeStep <= 0f) return
-
             val wet = ((wetness.wetnessAt(ax, ay) + wetness.wetnessAt(bx, by)) * 0.5f)
                 .coerceIn(0f, 1f)
             if (wet <= 0f) return
-            val viscosity = (responseA.viscosity + responseB.viscosity) * 0.5f
+            val mediumA = resolvedMedium(ax, ay)
+            val mediumB = resolvedMedium(bx, by)
+            val viscosity = (mediumA.viscosity + mediumB.viscosity) * 0.5f
+            val levelingRate = (mediumA.levelingRate + mediumB.levelingRate) * 0.5f
+            val yieldStrength = (mediumA.yieldLikeStrength + mediumB.yieldLikeStrength) * 0.5f
             val fluidity = wet * (1f - viscosity)
-            if (fluidity <= 0f) return
+            if (fluidity <= 0f || levelingRate <= 0f) return
 
-            val surfaceA = height[a].coerceAtLeast(0f) + terrain(ax, ay, responseA)
-            val surfaceB = height[b].coerceAtLeast(0f) + terrain(bx, by, responseB)
+            val surfaceA = height[a].coerceAtLeast(0f) + terrain(ax, ay, mediumA)
+            val surfaceB = height[b].coerceAtLeast(0f) + terrain(bx, by, mediumB)
             val diff = surfaceB - surfaceA
-            val yieldLike = (responseA.yieldLikeStrength + responseB.yieldLikeStrength) * 0.5f
-            val recoveredStructure = yieldLike * (1f - wet)
+            val recoveredStructure = yieldStrength * (1f - wet)
             val threshold = recoveredStructure * YIELD_HEIGHT_THRESHOLD
             val excess = abs(diff) - threshold
             if (excess <= 0f) return
 
-            val amount = excess * edgeStep * fluidity
+            val stepBase = (levelingRate * dt / count).coerceIn(0f, MAX_LEVEL_EDGE_STEP)
+            val amount = excess * stepBase * fluidity
             if (amount <= 0f) return
             if (diff > 0f) {
                 val moved = min(amount, min(height[b].coerceAtLeast(0f), (1f - height[a]).coerceAtLeast(0f)))
@@ -614,6 +599,7 @@ object ImpastoEngine {
         lightElevationDeg: Float,
         reliefStrength: Float,
         medium: PaintMedium,
+        mediumAt: ((x: Int, y: Int) -> PaintMedium)? = null,
     ) {
         val x0 = left.coerceIn(0, width)
         val x1 = right.coerceIn(0, width)
@@ -621,7 +607,7 @@ object ImpastoEngine {
         val y1 = bottom.coerceIn(0, imgHeight)
         if (x0 >= x1 || y0 >= y1 || width <= 0 || imgHeight <= 0) return
         val material = medium.sanitized()
-        if (reliefStrength <= 0f && material.wetSpecularStrength <= 0f) {
+        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f) {
             for (y in y0 until y1) {
                 val row = y * width
                 for (x in x0 until x1) out[row + x] = rawColorPixels[row + x]
@@ -659,13 +645,15 @@ object ImpastoEngine {
                 val multiplier = (1f + reliefStrength.coerceAtLeast(0f) * (diffuse - baselineDiffuse))
                     .coerceIn(0f, 3f)
 
+                val localMaterial = mediumAt?.invoke(x, y)?.sanitized() ?: material
                 val wet = wetness?.wetnessAt(x, y)?.coerceIn(0f, 1f) ?: 0f
                 val roughness = (
-                    material.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
+                    localMaterial.baseRoughness * (1f - wet) + MIN_WET_ROUGHNESS * wet
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = material.wetSpecularStrength * wet * nDotH.toDouble().pow(shininess.toDouble()).toFloat()
+                val specular = localMaterial.wetSpecularStrength * wet *
+                    nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 out[y * width + x] = shadeRgb(rawColorPixels[y * width + x], multiplier, specular)
             }
         }

@@ -1,17 +1,15 @@
 package com.hereliesaz.graffitixr.feature.editor
 
-import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
-import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
-
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.hereliesaz.graffitixr.common.azphalt.PaintMedium
 import org.junit.Test
 
 class MaterialStateCodecTest {
     @Test
-    fun `round trip preserves sparse channels and medium but resets session uptime`() {
+    fun `round trip preserves sparse height wetness and resets session uptime`() {
         val width = 70
         val height = 66
         val size = width * height
@@ -22,22 +20,6 @@ class MaterialStateCodecTest {
         wetness[3 * width + 4] = 0.6f
         wetness[64 * width + 68] = 1f
 
-        val medium = PaintMedium(
-            mixingModel = MaterialMixingModel.PIGMENT_RYB,
-            viscosity = 0.7f,
-            yieldLikeStrength = 0.4f,
-            dryingRate = 0.12f,
-            pickupRate = 0.3f,
-            depositionRate = 0.8f,
-            heightResponse = 0.9f,
-            substrateResponse = 0.5f,
-            levelingRate = 0.6f,
-            baseRoughness = 0.45f,
-            wetSpecularStrength = 0.75f,
-        )
-        val owners = IntArray(size)
-        owners[1 * width + 2] = 1
-        owners[65 * width + 69] = 1
         val decoded = MaterialStateCodec.decode(
             MaterialStateCodec.encode(
                 MaterialStateCodec.Snapshot(
@@ -46,8 +28,6 @@ class MaterialStateCodecTest {
                     heightMap = heights,
                     wetness = wetness,
                     lastWetnessUptimeMillis = 12345L,
-                    mediumPalette = listOf(medium),
-                    mediumOwnerIds = owners,
                     tileSize = 64,
                 ),
             ),
@@ -57,11 +37,49 @@ class MaterialStateCodecTest {
         assertEquals(width, decoded.width)
         assertEquals(height, decoded.height)
         assertEquals(64, decoded.tileSize)
-        assertNull("monotonic uptime must not survive save/load", decoded.lastWetnessUptimeMillis)
-        assertEquals(listOf(medium.sanitized()), decoded.mediumPalette)
-        assertArrayEquals(owners, decoded.mediumOwnerIds)
+        assertNull("Android monotonic uptime must not survive a persisted session", decoded.lastWetnessUptimeMillis)
         assertArrayEquals(heights, decoded.heightMap, 0f)
         assertArrayEquals(wetness, decoded.wetness, 0f)
+    }
+
+    @Test
+    fun `v2 round trip preserves sparse raw pigment and tile-owned media`() {
+        val width = 8
+        val height = 4
+        val raw = IntArray(width * height) { 0xFF102030.toInt() }
+        val heights = FloatArray(width * height)
+        heights[1 * width + 1] = 0.5f
+        val medium = PaintMedium(
+            viscosity = 0.7f,
+            yieldLikeStrength = 0.4f,
+            dryingRate = 0.3f,
+            levelingRate = 0.6f,
+            baseRoughness = 0.2f,
+            wetSpecularStrength = 0.8f,
+        )
+
+        val decoded = requireNotNull(
+            MaterialStateCodec.decode(
+                MaterialStateCodec.encode(
+                    MaterialStateCodec.Snapshot(
+                        width = width,
+                        height = height,
+                        heightMap = heights,
+                        tileSize = 4,
+                        rawColor = raw,
+                        mediumTiles = listOf(
+                            ImpastoMaterialReplayState.TileMediumSnapshot(0, 0, 2f, medium),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(decoded.rawColorTiles.contains(0))
+        assertEquals(raw[1 * width + 1], requireNotNull(decoded.rawColor)[1 * width + 1])
+        assertEquals(1, decoded.mediumTiles.size)
+        assertEquals(0.7f, decoded.mediumTiles.single().medium.viscosity, 0f)
+        assertEquals(0.8f, decoded.mediumTiles.single().medium.wetSpecularStrength, 0f)
     }
 
     @Test
