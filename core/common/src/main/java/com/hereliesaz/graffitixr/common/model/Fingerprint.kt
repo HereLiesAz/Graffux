@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.model
 
+import com.hereliesaz.graffitixr.common.serialization.KeyPointSerializer
 import kotlinx.serialization.Serializable
 import org.opencv.core.KeyPoint
 
@@ -9,7 +10,7 @@ import org.opencv.core.KeyPoint
  */
 @Serializable
 data class Fingerprint(
-    val keypoints: List<@Serializable(with = com.hereliesaz.graffitixr.common.serialization.KeyPointSerializer::class) org.opencv.core.KeyPoint>,
+    val keypoints: List<@Serializable(with = KeyPointSerializer::class) KeyPoint>,
     // 3D coordinates relative to the anchor at capture time.
     // Flattened list [x0, y0, z0, x1, y1, z1...] for serialization efficiency.
     val points3d: List<Float> = emptyList(),
