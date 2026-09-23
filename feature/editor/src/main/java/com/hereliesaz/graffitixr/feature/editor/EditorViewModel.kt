@@ -5946,7 +5946,17 @@ class EditorViewModel @Inject constructor(
             // degrades to `null` -- no fast path attached, this stroke's future undo/redo just
             // falls back to the existing full-replay path, same as any stroke this pass doesn't
             // cover.
-            val tileDeltas = if (strokeChangesCanonicalMaterial(command)) null else runCatching {
+            //
+            // This is always attempted, even for strokes that `strokeChangesCanonicalMaterial`
+            // will refuse to use on undo (e.g. impasto/material strokes): the delta still serves
+            // redo and any other fast-path consumer, and undo's own canonical-material check (see
+            // the `!strokeChangesCanonicalMaterial(...)` guards around `applyTileDeltaFastPath`)
+            // is what keeps material strokes on the full-replay path -- not withholding the delta
+            // here. Skipping capture here for material strokes previously left
+            // `command.tileDeltas` null for every impasto stroke, which is a distinct bug from
+            // (and must not be conflated with) undo correctly refusing to *use* the delta for
+            // material state.
+            val tileDeltas = runCatching {
                 val beforePixels = IntArray(base.width * base.height)
                 base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
                 val afterPixels = IntArray(target.width * target.height)
