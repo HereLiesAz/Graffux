@@ -6,6 +6,7 @@ import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.data.ProjectManager
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -67,6 +68,7 @@ class ProjectRepositoryImplTest {
         val mockManager = mockk<ProjectManager>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
         val repo = ProjectRepositoryImpl(context, mockManager)
+        every { mockManager.isSafeProjectId(any()) } returns true
         coEvery { mockManager.loadProjectMetadata(context, "p1") } returns
             GraffitiProject(id = "p1", name = "Stale", documentWidth = 111)
 
@@ -86,6 +88,7 @@ class ProjectRepositoryImplTest {
         val mockManager = mockk<ProjectManager>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
         val repo = ProjectRepositoryImpl(context, mockManager)
+        every { mockManager.isSafeProjectId(any()) } returns true
         val live = GraffitiProject(id = "p1", name = "Live")
         repo.createProject(live)
 

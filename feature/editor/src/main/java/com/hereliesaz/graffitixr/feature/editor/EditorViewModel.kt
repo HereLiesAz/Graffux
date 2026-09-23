@@ -5134,12 +5134,12 @@ class EditorViewModel @Inject constructor(
                         val impastoDabs = newDabs + newHeldDabs
                         if (impastoDabs.isNotEmpty()) {
                             val config = brush.impastoMaterial.sanitized()
+                            val incomingMedium = config.toMedium()
                             val allowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
                                 { x, y -> region.contains(x, y) }
                             }
                             val touched: DirtyRegion?
                             if (config.usesV2) {
-                                val incomingMedium = config.toMedium()
                                 val transfer = ImpastoEngine.transferMaterialStroke(
                                     height = heightMap,
                                     width = work.width,
