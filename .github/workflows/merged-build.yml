@@ -57,17 +57,44 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest test --build-cache
 
-      # config/detekt/detekt.yml sets maxIssues: 0 (zero-tolerance); without this step detekt
-      # findings never fail CI despite that config implying they should.
-      - name: Run detekt
-        run: ./gradlew detekt --build-cache
-
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unit-test-reports
           path: '**/build/reports/tests/'
+
+  # Split from `unit-tests` so a detekt backlog (a style/lint finding, not a correctness bug)
+  # can fail this check visibly without blocking `build-and-release`, which actually compiles
+  # and ships the APK — `needs:` below deliberately does not include this job. See the repo-wide
+  # MaxLineLength backlog surfaced when this check first started running (PR #409): hundreds of
+  # pre-existing violations, unrelated to any single change, that predate this check's existence.
+  detekt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-read-only: false
+          dependency-graph: disabled
+
+      # config/detekt/detekt.yml sets maxIssues: 0 (zero-tolerance); without this step detekt
+      # findings never fail CI despite that config implying they should.
+      - name: Run detekt
+        run: |
+          chmod +x gradlew
+          ./gradlew detekt --build-cache
 
   build-and-release:
     needs: unit-tests
