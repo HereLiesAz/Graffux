@@ -9,9 +9,9 @@ import kotlinx.serialization.Serializable
 /**
  * Shape of the lasso region being drawn — freehand finger trace or geometric figure.
  *
- * [FREEHAND] traces the finger, while [RECTANGLE] and [ELLIPSE] take the drag as two opposite corners of a box and fit a
- * figure inside it. [AUTOMATIC] is the odd one — a tap, and the only mode that reads the artwork
- * rather than the gesture.
+ * [FREEHAND] traces the finger, while [RECTANGLE] and [ELLIPSE] take the drag as two opposite
+ * corners of a box and fit a figure inside it. [AUTOMATIC] is the odd one — a tap, and the only
+ * mode that reads the artwork rather than the gesture.
  */
 enum class SelectionShape {
     /** The traced path itself. */
