@@ -26,7 +26,8 @@ object PathEditing {
         val outDx: Float = 0f,
         val outDy: Float = 0f,
     ) {
-        val isCorner: Boolean get() = abs(inDx) < EPSILON && abs(inDy) < EPSILON && abs(outDx) < EPSILON && abs(outDy) < EPSILON
+        val isCorner: Boolean
+            get() = abs(inDx) < EPSILON && abs(inDy) < EPSILON && abs(outDx) < EPSILON && abs(outDy) < EPSILON
 
         /**
          * True when the curve passes through this node without a kink — the two handles are
