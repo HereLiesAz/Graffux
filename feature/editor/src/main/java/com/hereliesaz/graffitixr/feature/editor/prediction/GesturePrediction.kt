@@ -304,9 +304,10 @@ class PredictionTournament(
         const val TAIL_FRAMES = 2
 
         const val GOOGLE_INK = "google-ink"
+        const val ANDROIDX = "androidx"
 
         /** Every predictor name, in the order Settings offers them for solo runs. */
-        val MODEL_NAMES = listOf(GOOGLE_INK, LINEAR)
+        val MODEL_NAMES = listOf(GOOGLE_INK, ANDROIDX, LINEAR)
 
         /** TEMPORARY: SharedPreferences file/key holding the solo model ("" = all). */
         const val SOLO_PREFS = "stroke_prediction"
