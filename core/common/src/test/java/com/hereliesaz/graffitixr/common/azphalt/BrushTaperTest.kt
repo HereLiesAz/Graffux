@@ -96,7 +96,6 @@ class BrushTaperTest {
             spacing = 0.25f,
             taper = BrushTaper(endLengthPx = 60f, minSize = 0f, minOpacity = 0f, liftOffSynthesizesPressure = true),
         )
-        val plainTaperBrush = liftOffBrush.copy(taper = liftOffBrush.taper.copy(liftOffSynthesizesPressure = false))
 
         val decelDabs = BrushStamps.dynamicDabs(decelerating, 20f, liftOffBrush, seed = 7L)
         val constDabs = BrushStamps.dynamicDabs(constantSpeed, 20f, liftOffBrush, seed = 7L)
@@ -104,11 +103,6 @@ class BrushTaperTest {
         val constTail = constDabs.last { it.x < 195f }
         assertTrue(decelTail.radius < constTail.radius)
 
-        // Without liftOffSynthesizesPressure the natural speed-adaptive zone still gives a
-        // decelerating stroke more taper than a constant-speed one (larger zone, lower floor).
-        val decelPlain = BrushStamps.dynamicDabs(decelerating, 20f, plainTaperBrush, seed = 7L)
-        val constPlain = BrushStamps.dynamicDabs(constantSpeed, 20f, plainTaperBrush, seed = 7L)
-        assertTrue(decelPlain.last { it.x < 195f }.radius < constPlain.last { it.x < 195f }.radius)
     }
 
     @Test
@@ -134,5 +128,28 @@ class BrushTaperTest {
         val a = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 11L)
         val b = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 11L)
         assertEquals(a.map { it.radius to it.alpha }, b.map { it.radius to it.alpha })
+    }
+
+    @Test
+    fun `no configured taper means no automatic start or end tail`() {
+        // A steady stroke used to grow feathered size/opacity tails at both ends on its own.
+        val samples = listOf(
+            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 5f),
+            BrushSample(150f, 0f, uptimeMillis = 30L, speedPxPerMs = 5f),
+            BrushSample(300f, 0f, uptimeMillis = 60L, speedPxPerMs = 5f),
+        )
+        val brush = AzphaltBrush(
+            name = "plain",
+            spacing = 0.25f,
+            dynamics = listOf(
+                BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.SIZE, outputMin = 1f, outputMax = 1f),
+            ),
+        )
+        val dabs = BrushStamps.dynamicDabs(samples, 20f, brush, seed = 3L)
+        val mid = dabs[dabs.size / 2]
+        assertEquals(mid.radius, dabs.first().radius, 1e-3f)
+        assertEquals(mid.radius, dabs.last().radius, 1e-3f)
+        assertEquals(mid.alpha, dabs.first().alpha, 1e-3f)
+        assertEquals(mid.alpha, dabs.last().alpha, 1e-3f)
     }
 }
