@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.feature.editor.strokedata.rememberStrokeDataRecorder
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -107,6 +108,8 @@ fun EditorScreen(
     // State object itself down lets each layer decide, via derivedStateOf, whether IT actually
     // changed.
     val liveStrokeState = vm.liveStroke.collectAsState()
+    // Stroke-model training capture (Settings → Record strokes for training).
+    val strokeRecorder = rememberStrokeDataRecorder(uiState)
     // Where each layer lands on screen, for the direct-display overlay (LiveStrokeOverlayHost).
     val overlayGeometry = remember { OverlayGeometry() }
     // Separate from EditorUiState because these are transient cache bitmaps, not document state.
@@ -447,6 +450,7 @@ fun EditorScreen(
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
                 strokePaintPresented = { vm.strokePaintPresented },
+                onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
             )
         }
 

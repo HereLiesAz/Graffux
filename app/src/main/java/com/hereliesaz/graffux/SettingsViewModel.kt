@@ -47,6 +47,17 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    /** Sends finished stroke-data files now instead of at the next launch. */
+    fun uploadStrokeData(context: android.content.Context) = viewModelScope.launch {
+        val reports = predictionReports ?: return@launch
+        _predictionReportsStatus.value = "Uploading stroke data..."
+        val sent = runCatching { StrokeDataUploader(context.applicationContext, reports).uploadPending() }
+        _predictionReportsStatus.value = sent.fold(
+            onSuccess = { "Uploaded $it stroke-data file(s)." },
+            onFailure = { "Stroke data upload failed: ${it.message}" },
+        )
+    }
+
     fun disconnectPredictionReports() {
         predictionReports?.disconnect()
         _predictionReportsStatus.value = null

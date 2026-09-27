@@ -127,6 +127,8 @@ fun DrawingCanvas(
      * of after the whole engine round trip.
      */
     strokePaintPresented: () -> Boolean = { false },
+    /** Every raw MotionEvent, before gesture handling (stroke-model training capture). */
+    onRawMotionEvent: (MotionEvent) -> Unit = {},
 ) {
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -256,6 +258,7 @@ fun DrawingCanvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
             .motionEventSpy { event ->
+                onRawMotionEvent(event)
                 if (event.pointerCount > 0) {
                     val pointerIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
                     val device = event.device
