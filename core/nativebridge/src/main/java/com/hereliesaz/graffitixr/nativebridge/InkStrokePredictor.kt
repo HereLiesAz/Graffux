@@ -7,6 +7,7 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
  * screen pixels and timestamps in Android uptime milliseconds; the native bridge normalizes pixels
  * before feeding the unit-agnostic model and converts its prediction back again.
  */
+@Suppress("TooManyFunctions") // Mostly JNI declarations.
 class InkStrokePredictor : AutoCloseable {
     init {
         NativeLibLoader.loadAll()
@@ -59,6 +60,24 @@ class InkStrokePredictor : AutoCloseable {
         )
     }
 
+    /**
+     * Every point of the model's predicted continuation, oldest first (the last one is what
+     * [predict] returns). Empty until the Kalman estimate is stable.
+     */
+    fun predictTrajectory(): List<Prediction> {
+        val values = if (nativeHandle != 0L && hasInput) nativePredictTrajectory(nativeHandle) else null
+        return List((values?.size ?: 0) / FIELDS_PER_POINT) { i ->
+            val o = i * FIELDS_PER_POINT
+            val v = requireNotNull(values)
+            Prediction(
+                x = v[o].toFloat(),
+                y = v[o + 1].toFloat(),
+                uptimeMillis = v[o + 2].toLong(),
+                pressure = v[o + 3].toFloat().takeIf { it.isFinite() && it >= 0f } ?: 1f,
+            )
+        }
+    }
+
     override fun close() {
         if (nativeHandle != 0L) {
             nativeDestroy(nativeHandle)
@@ -78,5 +97,8 @@ class InkStrokePredictor : AutoCloseable {
         isDown: Boolean,
     ): Boolean
     private external fun nativePredict(handle: Long): DoubleArray?
+    private external fun nativePredictTrajectory(handle: Long): DoubleArray?
     private external fun nativeDestroy(handle: Long)
 }
+
+private const val FIELDS_PER_POINT = 4 // x, y, timeMs, pressure -- nativePredictTrajectory's layout

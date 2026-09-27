@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -34,6 +35,23 @@ class InkStrokePredictorInstrumentedTest {
             // Google's Kalman predictor intentionally withholds predictions until enough real
             // samples make the estimate stable; one point must not invent a future.
             assertTrue(predictor.predict() == null)
+        }
+    }
+
+    @Test
+    fun trajectoryIsOrderedAndEndsAtPredict() {
+        InkStrokePredictor().use { predictor ->
+            var t = 1_000L
+            for (i in 0..7) {
+                assertTrue(predictor.record(i * 10f, 40f, t, 0.7f))
+                t += 10L
+            }
+            val curve = predictor.predictTrajectory()
+            assertTrue(curve.isNotEmpty())
+            assertTrue(curve.zipWithNext().all { (a, b) -> b.uptimeMillis >= a.uptimeMillis })
+            val end = predictor.predict()!!
+            assertEquals(end.x, curve.last().x, 0.01f)
+            assertEquals(end.uptimeMillis, curve.last().uptimeMillis)
         }
     }
 }

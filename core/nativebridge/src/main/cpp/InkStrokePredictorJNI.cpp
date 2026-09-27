@@ -136,6 +136,34 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredict(
     return output;
 }
 
+// Whole predicted trajectory, not just its endpoint: [x, y, timeMs, pressure] per Result, in order.
+// Lets the Kotlin side read the model's position at each of the next several frames. Same unit and
+// double-precision conventions as nativePredict above.
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredictTrajectory(
+        JNIEnv* env, jobject, jlong handle) {
+    auto* engine = FromHandle(handle);
+    if (!engine) return nullptr;
+
+    engine->scratch.clear();
+    if (!engine->modeler.Predict(engine->scratch).ok() || engine->scratch.empty()) {
+        return nullptr;
+    }
+    const jsize count = static_cast<jsize>(engine->scratch.size()) * 4;
+    std::vector<jdouble> values;
+    values.reserve(static_cast<size_t>(count));
+    for (const Result& result : engine->scratch) {
+        values.push_back(static_cast<jdouble>(result.position.x * kPixelsPerModelUnit));
+        values.push_back(static_cast<jdouble>(result.position.y * kPixelsPerModelUnit));
+        values.push_back(result.time.Value() * 1000.0);
+        values.push_back(static_cast<jdouble>(result.pressure));
+    }
+    jdoubleArray output = env->NewDoubleArray(count);
+    if (!output) return nullptr;
+    env->SetDoubleArrayRegion(output, 0, count, values.data());
+    return output;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeDestroy(
         JNIEnv*, jobject, jlong handle) {

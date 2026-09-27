@@ -201,6 +201,11 @@ fun DrawingCanvas(
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
                     predictionTail = null
+                    // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
+                    // `adb logcat -s StrokePrediction` to read it.
+                    if (activeTool == Tool.BRUSH) {
+                        android.util.Log.i("StrokePrediction", predictionTournament.rankingReport())
+                    }
                     if (latestInputTool == BrushInputTool.FINGER || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                         brushCursorPosition = null
                     }

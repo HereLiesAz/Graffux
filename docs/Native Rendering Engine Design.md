@@ -205,6 +205,17 @@ of the stroke, then on the next real sample, discard and overwrite with ground t
 never paints a predicted dab at all, real or provisional; prediction only shows the artist where
 the line is about to go.
 
+**Per-horizon ranking (frames 1-4).** Every prediction now asks all four models (linear,
+acceleration, AndroidX, Google Ink) for the next four frames, not one. Google Ink reads each frame
+off its full predicted curve (`InkStrokePredictor.predictTrajectory`). AndroidX, and any model
+that picks its own horizon, is rescaled along the line from the latest real sample through its
+prediction. Everyone is judged at the same instants against the true position, interpolated
+between the real samples on either side. Horizon 1 still drives the drawn tail (per-stroke
+exponential average). All horizons feed a session-long mean per model and horizon, which survives
+across strokes and is logged at every Brush stroke end: `adb logcat -s StrokePrediction`, one line
+per frame ahead, best first. That ranking is the data for choosing the best model per frame; the
+tail itself is unchanged.
+
 Adopting the companion doc's actual substitution model — painting provisional predicted dabs and
 overwriting them once ground truth arrives — remains unimplemented and is a real, separate item
 from what exists today: it would need `onStrokePoint`'s real-input-only invariant to grow a
