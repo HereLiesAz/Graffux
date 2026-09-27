@@ -145,6 +145,22 @@ Core objects, per layer:
 - Readback to a CPU `Bitmap` only where the rest of the app still needs one: thumbnails, PNG
   export, the co-op wire format. Not for painting itself.
 
+### Stroke-max mode and the main brush
+
+The main brush is the bundled GPU stamp **Round** (`BuiltInBrushes.round`): the default selection
+on Android and desktop, and the reference every other brush, bundled or imported, is felt against.
+The legacy Catmull-Rom Round is no longer selectable.
+
+Every stamp brush now goes GPU-first. Plain non-build-up rounds used to be pinned to the CPU's
+`IncrementalRoundStampCompositor`, because `stamp.comp`'s max-combine (strongest dab per pixel)
+only held within one dispatch: live strokes arrive in per-frame batches, so every frame boundary
+compounded and a soft round hardened into dots. `stampResolvedDabs(..., strokeMax = true)` fixes
+that on the GPU. Binding 4 holds per-pixel stroke state (`uvec2`: pre-stroke base, full-precision
+stroke-best alpha), zeroed on the first strokeMax dispatch after `upload()`/`clear()`. A dab that beats
+the stored best re-composites base-over-best, which is identical to one max-combined call over the
+whole stroke. Cost: width x height x 8 bytes, allocated on first use. Above
+`maxStorageBufferRange`, the call returns false and the stroke falls back to the CPU.
+
 ## 3. Front-buffer / low-latency presentation
 
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is

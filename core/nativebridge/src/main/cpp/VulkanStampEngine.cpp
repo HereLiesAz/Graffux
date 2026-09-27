@@ -59,6 +59,9 @@ struct PushConstants {
     float substrateTextureScale;
     float substrateOffsetX;
     float substrateOffsetY;
+    // >0.5 = max-combine across calls since the last upload()/clear() via the binding-4 stroke
+    // state -- see stamp.comp's own doc comment and stampDabs()'s `strokeMax`.
+    float strokeMax;
 };
 
 // Push constants for stamp_masked.comp -- same first 8 fields as PushConstants above (kept
@@ -520,7 +523,7 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding bindings[4]{};
+    VkDescriptorSetLayoutBinding bindings[5]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -537,10 +540,14 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 4;
+    layoutInfo.bindingCount = 5;
     layoutInfo.pBindings = bindings;
     if (!checkResult(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &descriptorSetLayout_),
                       "vkCreateDescriptorSetLayout")) {
@@ -581,7 +588,7 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
 
     VkDescriptorPoolSize poolSizes[3]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[0].descriptorCount = 1;
+    poolSizes[0].descriptorCount = 2;  // dab buffer + stroke state
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     poolSizes[1].descriptorCount = 1;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -641,8 +648,82 @@ bool VulkanStampEngine::createDescriptorAndPipeline() {
     const uint8_t dummySubstrate = 0;
     if (!uploadSubstrateTexture(&dummySubstrate, 1, 1)) return false;
     substrateContentHash_ = fnv1a(&dummySubstrate, 1);
+    // Binding 4 is statically used by stamp.comp, so it needs a valid buffer from the start; the
+    // full-size stroke state is only allocated on the first strokeMax call.
+    if (!ensureStrokeStateBuffer(sizeof(uint32_t) * 2)) return false;
 
     return true;
+}
+
+bool VulkanStampEngine::ensureStrokeStateBuffer(VkDeviceSize bytes) {
+    if (strokeStateBuffer_ != VK_NULL_HANDLE && strokeStateSize_ == bytes) return true;
+    // A binding wider than maxStorageBufferRange is undefined behaviour, not an error the driver
+    // reports -- refuse instead, so the caller falls back to the CPU for this stroke.
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physicalDevice_, &props);
+    if (bytes > props.limits.maxStorageBufferRange) {
+        LOGE("stroke state %llu bytes exceeds maxStorageBufferRange %u",
+             static_cast<unsigned long long>(bytes), props.limits.maxStorageBufferRange);
+        return false;
+    }
+    destroyStrokeStateBuffer();
+
+    VkBufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size = bytes;
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!checkResult(vkCreateBuffer(device_, &info, nullptr, &strokeStateBuffer_),
+                      "vkCreateBuffer(strokeState)")) {
+        strokeStateBuffer_ = VK_NULL_HANDLE;
+        return false;
+    }
+    VkMemoryRequirements memReq;
+    vkGetBufferMemoryRequirements(device_, strokeStateBuffer_, &memReq);
+    int32_t memType = findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memType < 0) {
+        LOGE("No device-local memory type for stroke state buffer");
+        destroyStrokeStateBuffer();
+        return false;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = static_cast<uint32_t>(memType);
+    if (!checkResult(vkAllocateMemory(device_, &allocInfo, nullptr, &strokeStateMemory_),
+                      "vkAllocateMemory(strokeState)")) {
+        strokeStateMemory_ = VK_NULL_HANDLE;
+        destroyStrokeStateBuffer();
+        return false;
+    }
+    if (!checkResult(vkBindBufferMemory(device_, strokeStateBuffer_, strokeStateMemory_, 0),
+                      "vkBindBufferMemory(strokeState)")) {
+        destroyStrokeStateBuffer();
+        return false;
+    }
+    strokeStateSize_ = bytes;
+    strokeStateDirty_ = true;
+
+    VkDescriptorBufferInfo bufInfo{};
+    bufInfo.buffer = strokeStateBuffer_;
+    bufInfo.offset = 0;
+    bufInfo.range = VK_WHOLE_SIZE;
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptorSet_;
+    write.dstBinding = 4;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.pBufferInfo = &bufInfo;
+    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    return true;
+}
+
+void VulkanStampEngine::destroyStrokeStateBuffer() {
+    if (strokeStateBuffer_ != VK_NULL_HANDLE) { vkDestroyBuffer(device_, strokeStateBuffer_, nullptr); strokeStateBuffer_ = VK_NULL_HANDLE; }
+    if (strokeStateMemory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, strokeStateMemory_, nullptr); strokeStateMemory_ = VK_NULL_HANDLE; }
+    strokeStateSize_ = 0;
+    strokeStateDirty_ = true;
 }
 
 bool VulkanStampEngine::createDabBuffer(size_t dabCount) {
@@ -943,13 +1024,20 @@ bool VulkanStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     // upload() replaces every pixel, so the next readback() must copy the whole layer regardless
     // of whatever narrower region a prior stampDabs()/stampMaskedDabs() call had left dirty.
     markLayerFullyDirty();
+    // A new seed starts a new stroke: the previous stroke's max state no longer applies.
+    strokeStateDirty_ = true;
     return true;
 }
 
 bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
-                                   bool buildUp, SubstrateStampParams substrate) {
+                                   bool buildUp, SubstrateStampParams substrate, bool strokeMax) {
     if (!isInitialized() || dabs.empty()) return false;
     if (!createDabBuffer(dabs.size())) return false;
+    const bool useStrokeMax = strokeMax && !buildUp;
+    if (useStrokeMax &&
+        !ensureStrokeStateBuffer(static_cast<VkDeviceSize>(width_) * height_ * sizeof(uint32_t) * 2)) {
+        return false;
+    }
 
     void* mapped = nullptr;
     VkDeviceSize uploadSize = dabs.size() * sizeof(GpuDab);
@@ -985,6 +1073,24 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
     vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufBarrier, 0,
                           nullptr);
+
+    const bool clearStrokeState = useStrokeMax && strokeStateDirty_;
+    if (clearStrokeState) {
+        // Zero = "untouched this stroke" in stamp.comp; the next write captures the pre-stroke base.
+        vkCmdFillBuffer(commandBuffer_, strokeStateBuffer_, 0, VK_WHOLE_SIZE, 0u);
+        VkBufferMemoryBarrier fillBarrier{};
+        fillBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        fillBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        fillBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        fillBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        fillBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        fillBarrier.buffer = strokeStateBuffer_;
+        fillBarrier.offset = 0;
+        fillBarrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &fillBarrier,
+                              0, nullptr);
+    }
 
     // The layer image starts VK_IMAGE_LAYOUT_UNDEFINED after init() and must transition to
     // GENERAL (what the descriptor was written with) before imageLoad/imageStore is legal — a
@@ -1046,6 +1152,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
         pc.substrateTextureScale = std::max(substrate.textureScale, 0.05f);
         pc.substrateOffsetX = substrate.textureOffsetX;
         pc.substrateOffsetY = substrate.textureOffsetY;
+        pc.strokeMax = useStrokeMax ? 1.0f : 0.0f;
         vkCmdPushConstants(commandBuffer_, pipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                             sizeof(pc), &pc);
 
@@ -1067,6 +1174,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
                       "vkWaitForFences(stampDabs)")) {
         return false;
     }
+    if (clearStrokeState) strokeStateDirty_ = false;
     expandDirtyRect(originX, originY, regionW, regionH);
     return true;
 }
@@ -3055,6 +3163,7 @@ void VulkanStampEngine::destroy() {
         vkDeviceWaitIdle(device_);
         destroyColorSmudgeResources();
         destroyMaskedResources();
+        destroyStrokeStateBuffer();
     }
 
     if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }

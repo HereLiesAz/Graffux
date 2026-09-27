@@ -1721,8 +1721,9 @@ internal fun activeRailClassifiers(
     // Animation window now, and a window draws its own selected state — a classifier for an item
     // that no longer exists lights nothing and only survives to confuse the next reader.)
 
-    // The current brush. `null` is the built-in round brush, which is why the host itself lights up
-    // rather than a member of its list.
+    // The current brush. `null` is the legacy built-in round brush (no longer selectable; the default
+    // is now the bundled "Round" preset), which is why the host itself lights up rather than a member
+    // of its list.
     if (uiState.activeBrushName == null) add("grp.brushes")
     com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
         .firstOrNull { it.name == uiState.activeBrushName }
@@ -2355,13 +2356,8 @@ private fun AzNavHostScope.ConfigureRailItems(
             initiallyExpanded = railExpansion["grp.brushRail"] ?: false,
             onExpandedChange = { vm.onRailHostExpansionChanged("grp.brushRail", it) },
         )
-        azRailSubItem(
-            id = "brushRail.round", hostId = "grp.brushRail", text = "Round",
-            content = GraffuxIcons.BrushCursor,
-            classifiers = setOf("brush.round"),
-            color = railColor("grp.brushes"),
-            onClick = { vm.selectBrushExtension(null) },
-        )
+        // "Round" is the first bundled preset (BuiltInBrushes.round) -- the GPU stamp Round, which
+        // replaced the legacy Catmull-Rom round that used to have its own entry here.
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.forEach { preset ->
             azRailSubItem(
                 id = "brushRail.builtin.${preset.name}", hostId = "grp.brushRail", text = preset.name,

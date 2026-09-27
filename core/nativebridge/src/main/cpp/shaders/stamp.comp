@@ -23,6 +23,12 @@ layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
 layout(binding = 1, rgba8) uniform image2D layerImage;
 layout(binding = 2) uniform sampler2D substrateTex;
 layout(binding = 3) uniform sampler2D paintHeightTex;
+// Stroke-max state, one uvec2 per layer pixel (row-major, layer width): x = this pixel's
+// pre-stroke base (packUnorm4x8), y = floatBitsToUint of the strongest dab alpha it has received
+// so far THIS stroke (0 = untouched). Only read/written when pc.strokeMax > 0.5 -- the
+// engine binds a one-element placeholder otherwise. Cleared by VulkanStampEngine::upload()/clear(),
+// i.e. once per stroke seed. See the strokeMax push constant for why it exists.
+layout(std430, binding = 4) buffer StrokeState { uvec2 strokeState[]; };
 
 layout(push_constant) uniform PushConstants {
     uint dabCount;
@@ -47,6 +53,14 @@ layout(push_constant) uniform PushConstants {
     float substrateTextureScale;
     float substrateOffsetX;
     float substrateOffsetY;
+    // >0.5 = max-combine across EVERY call since the last upload()/clear(), not just this one.
+    // Plain max mode only keeps the strongest dab within one dispatch, so a live stroke fed in
+    // per-frame batches compounds at every frame boundary and a soft round hardens into dots --
+    // the reason plain round brushes used to be pinned to the CPU's IncrementalRoundStampCompositor.
+    // This mode keeps the per-pixel stroke best + pre-stroke base in `strokeState` and re-composites
+    // base over best whenever a new dab beats it: identical to one max-combined call over the whole
+    // stroke. Ignored when buildUp > 0.5.
+    float strokeMax;
 } pc;
 
 float stampCoverage(float distFromCenter, float radius, float hardness) {
@@ -128,6 +142,23 @@ void main() {
             bestA = srcA;
             bestRgb = srcRgb;
         }
+    }
+    if (!sequential && pc.strokeMax > 0.5) {
+        if (bestA <= 0.0) return;
+        uint idx = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+        uvec2 state = strokeState[idx];
+        vec4 base = state.y == 0u ? dst : unpackUnorm4x8(state.x);
+        float prevA = uintBitsToFloat(state.y);
+        if (bestA <= prevA) return;
+        vec4 outPx;
+        outPx.rgb = bestRgb * bestA + base.rgb * (1.0 - bestA);
+        outPx.a = bestA + base.a * (1.0 - bestA);
+        outPx = round(outPx * 255.0) / 255.0;
+        // Full-precision alpha so batched comparisons match a single call exactly; bestA > 0 here,
+        // so its bits are never 0 and a touched pixel stays distinguishable from an untouched one.
+        strokeState[idx] = uvec2(packUnorm4x8(base), floatBitsToUint(bestA));
+        imageStore(layerImage, pixel, outPx);
+        return;
     }
     if (!sequential && bestA > 0.0) {
         dst.rgb = bestRgb * bestA + dst.rgb * (1.0 - bestA);

@@ -154,11 +154,18 @@ class VulkanStampEngine {
      * single strongest dab in this call rather than compounding every overlap (matching
      * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
      * live-paint path either); true composites sequentially in submission order instead.
+     *
+     * [strokeMax] (ignored when [buildUp]) extends that max-combine across every call since the
+     * last [upload]/[clear] instead of just this one, so a live stroke fed in per-frame batches
+     * renders exactly like the single max-combined commit call. Without it each frame boundary
+     * compounds and a soft round hardens into dots. Costs width*height*8 bytes of GPU memory,
+     * allocated on first use; returns false (caller falls back to CPU) if that can't be had.
      */
     fun stampResolvedDabs(
         dabs: List<ResolvedBrushDab>,
         buildUp: Boolean = false,
         substrate: VulkanSubstrateParams? = null,
+        strokeMax: Boolean = false,
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         if (substrate != null && !substrateHeightUploaded) return false
@@ -186,7 +193,7 @@ class VulkanStampEngine {
         return nativeStampResolvedDabs(
             nativeHandle, flat, buildUp, cfg != null, cfg != null && paintHeightUploaded,
             cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
-            cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
+            cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f, strokeMax,
         ).also { if (!it) healthy = false }
     }
 
@@ -426,7 +433,7 @@ class VulkanStampEngine {
     private external fun nativeStampResolvedDabs(
         handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,
         substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float,
-        substrateOffsetX: Float, substrateOffsetY: Float,
+        substrateOffsetX: Float, substrateOffsetY: Float, strokeMax: Boolean,
     ): Boolean
     private external fun nativeStampMaskedDabs(
         handle: Long,

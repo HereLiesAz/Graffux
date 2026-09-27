@@ -187,8 +187,13 @@ public:
     // matching paintRoundDabsMaxCombined and avoiding a dragged soft brush reading as hardened;
     // true composites sequentially in submission order instead, matching the historical/
     // Airbrush-style behavior. No-op (returns false) if the engine failed init() or `dabs` is empty.
+    // `strokeMax` (ignored when buildUp) extends max-combine across every call since the last
+    // upload()/clear() -- a live stroke fed in per-frame batches then renders exactly like one
+    // max-combined call over the whole stroke. Lazily allocates width*height*8 bytes of stroke
+    // state on first use; returns false if that allocation fails.
     bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
-                    bool buildUp = false, SubstrateStampParams substrate = {});
+                    bool buildUp = false, SubstrateStampParams substrate = {},
+                    bool strokeMax = false);
 
     // shaders/stamp_masked.comp counterpart to stampDabs(): each dab samples `maskAlpha8` (an
     // R8_UNORM alpha-only tip texture, `maskWidth`x`maskHeight`, white=full coverage) in its own
@@ -316,6 +321,10 @@ private:
     bool uploadSecondaryMaskTexture(const uint8_t* alpha8, int width, int height);
     bool ensureSecondaryDabBuffer(size_t dabCount);
     void destroyMaskedResources();
+    // (Re)creates strokeStateBuffer_ at `bytes` (no-op if already that size) and rewrites
+    // descriptor binding 4. Marks it dirty so the next strokeMax dispatch zeroes it.
+    bool ensureStrokeStateBuffer(VkDeviceSize bytes);
+    void destroyStrokeStateBuffer();
 
     bool ensureColorSmudgePipelines();
     bool ensureColorSmudgeCarrier(size_t pixelCount);
@@ -398,6 +407,15 @@ private:
     // implementations, so this indirection is required, not an optimization.
     VkBuffer dabStagingBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory dabStagingBufferMemory_ = VK_NULL_HANDLE;
+
+    // stamp.comp binding 4: per-pixel stroke-max state (see stampDabs()'s `strokeMax`). A
+    // one-element placeholder until the first strokeMax call grows it to width_*height_ entries.
+    // strokeStateDirty_ = contents belong to a previous stroke and must be zeroed before use; set
+    // by upload()/clear(), the two calls that seed a stroke.
+    VkBuffer strokeStateBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory strokeStateMemory_ = VK_NULL_HANDLE;
+    VkDeviceSize strokeStateSize_ = 0;
+    bool strokeStateDirty_ = true;
 
     // Lazily-created Color Smudge resources. They live on the same persistent layer image as the
     // stamp compositor and survive Kotlin wrapper release while the native handle sits in the pool.

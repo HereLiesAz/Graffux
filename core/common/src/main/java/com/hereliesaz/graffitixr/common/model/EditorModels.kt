@@ -288,9 +288,10 @@ data class EditorUiState(
     // itself doesn't paint darker where it crosses. Ignored by every other tool and by stamp brushes,
     // which use flow instead.
     val brushOpacity: Float = 1f,
-    // Selected azphalt stamp-brush name, or null for the built-in round brush. When set, the brush
-    // control's second axis is flow (below) rather than hardness.
-    val activeBrushName: String? = null,
+    // Selected azphalt stamp-brush name, or null for the legacy built-in round brush. When set, the
+    // brush control's second axis is flow (below) rather than hardness. Defaults to the bundled GPU
+    // "Round" (BuiltInBrushes.DEFAULT_NAME; kept in sync by BuiltInBrushesTest).
+    val activeBrushName: String? = "Round",
     // Flow [0..1] for an azphalt stamp brush: per-dab paint build-up. Ignored by the built-in brush.
     val brushFlow: Float = 1f,
     val stabilizerLevel: Int = 0,

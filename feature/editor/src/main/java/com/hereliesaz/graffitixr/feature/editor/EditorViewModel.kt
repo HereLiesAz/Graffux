@@ -833,9 +833,12 @@ class EditorViewModel @Inject constructor(
     // same "live preview is presentation-only" gap every other tool here already has.
     private var resampleSeed: Long = 0L
 
-    // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
-    // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
-    private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
+    // The selected azphalt stamp brush's parsed definition (null = legacy built-in round brush, no
+    // longer selectable from the UI). Starts on the bundled GPU Round so every brush, default
+    // included, shares one stamp pipeline. Set by selectBrushExtension/selectBuiltInBrush; read at
+    // stroke-commit to route through StampBrushRenderer.
+    private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
     // Decoded primary, grain, and secondary-mask assets for the active brush.
     private var activeStampShape: Bitmap? = null
     private var activeStampGrain: Bitmap? = null
@@ -4139,10 +4142,12 @@ class EditorViewModel @Inject constructor(
                         ),
                     )
                 } else null
-                val plainRoundMaxCpu = !stampBrush.buildUp &&
-                    stampShapeForStroke == null && stampGrainForStroke == null &&
-                    stampBrush.maskedBrush == null && stampBrush.tipRatio == 1f
-                val gpuEngine = if (gpuCompatibleBrush && !plainRoundMaxCpu) {
+                // Every stamp brush, plain rounds included, goes GPU-first so bundled, custom and
+                // imported brushes share one pipeline and one feel. Plain non-build-up rounds used
+                // to be pinned to the CPU because GPU max-combine reset at every frame batch; the
+                // strokeMax stamp mode (see VulkanStampEngine.stampResolvedDabs) now holds the max
+                // across the whole stroke.
+                val gpuEngine = if (gpuCompatibleBrush) {
                     createSeededGpuEngine(work.width, work.height, work)
                 } else null
                 val gpuReady = gpuEngine != null
@@ -4965,7 +4970,7 @@ class EditorViewModel @Inject constructor(
                                 contactDepth = dab.contactDepth,
                             )
                             val gpuDabs = newDabs.map(::resolve)
-                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
+                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp, strokeMax = true) &&
                                 (usesZeroCopyDisplay || engine.readback(work))
                         }
                     }
@@ -9154,8 +9159,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
-     * round brush. The active-brush name drives the UI and switches the size control's second axis to flow.
+     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the bundled
+     * GPU Round ([com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round]). The active-brush name drives the UI and switches the size control's second axis to flow.
      */
     /** [compositeId] is `"<extensionId>::<assetIndex>"` (see [BRUSH_ASSET_ID_SEPARATOR]) as produced
      *  by [installedBrushes]/[allInstalledBrushAssets] -- not a bare extension id, since one
@@ -9164,11 +9169,11 @@ class EditorViewModel @Inject constructor(
      *  uninstalled since the picker was drawn. */
     fun selectBrushExtension(compositeId: String?) {
         if (compositeId == null) {
-            activeStampBrush = null
+            activeStampBrush = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
             activeStampShape = null
             activeStampGrain = null
             activeStampMaskShape = null
-            dispatch(EditorIntent.SetActiveBrush(null))
+            dispatch(EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME))
             return
         }
         val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)

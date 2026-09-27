@@ -14,7 +14,30 @@ package com.hereliesaz.graffitixr.common.azphalt
  * hardness falloff, sensor dynamics, Airbrush build-up -- without needing bundled bitmap assets.
  */
 object BuiltInBrushes {
+    /** Name of [round]; also `EditorUiState.activeBrushName`'s default (core/common can't see this
+     *  module, so the literal is duplicated there -- BuiltInBrushesTest pins the two together). */
+    const val DEFAULT_NAME = "Round"
+
+    /**
+     * The main brush: the plainest possible GPU stamp round -- near-hard edge, full opacity,
+     * pressure -> size only, no build-up, no airbrush, no blot, no tip or grain asset. It is the
+     * default selection on every platform and the reference every other brush, bundled or
+     * imported, is felt against, so it deliberately carries no character of its own. Renders
+     * through the same Vulkan stamp pipeline as every other stamp brush (stroke-max mode; see
+     * VulkanStampEngine.stampResolvedDabs), not the legacy Catmull-Rom Round.
+     */
+    val round: AzphaltBrush = AzphaltBrush(
+        name = DEFAULT_NAME,
+        hardness = 0.85f,
+        opacity = 1f,
+        spacing = 0.05f,
+        dynamics = listOf(
+            BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.SIZE, outputMin = 0.25f, outputMax = 1f),
+        ),
+    )
+
     val presets: List<AzphaltBrush> = listOf(
+        round,
         // A soft, pressure-responsive round -- the brush most painting apps default to. Tapers in
         // size and opacity as pressure eases off, the same "Pressure -> Size"/"Pressure -> Opacity"
         // combination Brush Studio's own quick-start presets offer. A mild hold-to-build-up (see

@@ -56,7 +56,8 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolvedDabs(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jboolean buildUp,
         jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight, jfloat substrateHeightScale,
-        jfloat substrateTextureScale, jfloat substrateOffsetX, jfloat substrateOffsetY) {
+        jfloat substrateTextureScale, jfloat substrateOffsetX, jfloat substrateOffsetY,
+        jboolean strokeMax) {
     auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabData);
@@ -96,7 +97,8 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
     const auto substrate = substrateParams(
         hasSubstrate, hasPaintHeight, substrateBaseHeight, substrateHeightScale, substrateTextureScale,
         substrateOffsetX, substrateOffsetY);
-    return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f, buildUp == JNI_TRUE, substrate)
+    return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f, buildUp == JNI_TRUE, substrate,
+                             strokeMax == JNI_TRUE)
         ? JNI_TRUE : JNI_FALSE;
 }
 
