@@ -31,21 +31,26 @@ using ink::stroke_model::Vec2;
 // become one model-space unit. Typical drawing motion of ~1000 px/s therefore arrives as ~10 u/s.
 constexpr float kPixelsPerModelUnit = 100.0f;
 
-KalmanPredictorParams MakeKalmanParams() {
+KalmanPredictorParams MakeKalmanParams(float accelerationWeight, float jerkWeight,
+                                       double measurementNoise) {
     KalmanPredictorParams kalman;
     kalman.process_noise = 0.00026458;
-    kalman.measurement_noise = 0.026458;
+    // Higher = trust each sample less: smoother, but slower to follow a change of direction.
+    kalman.measurement_noise = measurementNoise;
     kalman.min_stable_iteration = 4;
     kalman.max_time_samples = 20;
     kalman.min_catchup_velocity = 0.01f;
-    // Ink's own damping toward linear motion, applied inside GetEstimatedState().
-    kalman.acceleration_weight = 0.5f;
-    kalman.jerk_weight = 0.1f;
+    // Ink's own damping toward linear motion, applied inside GetEstimatedState(). The Kotlin side
+    // picks these per tuning profile (GoogleInkGesturePredictor.Profile) so they can be ranked.
+    kalman.acceleration_weight = accelerationWeight;
+    kalman.jerk_weight = jerkWeight;
     return kalman;
 }
 
 struct Engine {
-    KalmanPredictor predictor{MakeKalmanParams(), SamplingParams{}};
+    Engine(float accelerationWeight, float jerkWeight, double measurementNoise)
+        : predictor(MakeKalmanParams(accelerationWeight, jerkWeight, measurementNoise), SamplingParams{}) {}
+    KalmanPredictor predictor;
     double lastTimeSeconds = 0.0;
     float lastPressure = 1.0f;
 };
@@ -57,8 +62,9 @@ Engine* FromHandle(jlong handle) {
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(JNIEnv*, jobject) {
-    auto engine = std::make_unique<Engine>();
+Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(
+        JNIEnv*, jobject, jfloat accelerationWeight, jfloat jerkWeight, jdouble measurementNoise) {
+    auto engine = std::make_unique<Engine>(accelerationWeight, jerkWeight, measurementNoise);
     return reinterpret_cast<jlong>(engine.release());
 }
 
