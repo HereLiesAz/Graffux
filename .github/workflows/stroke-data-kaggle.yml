@@ -1,0 +1,63 @@
+# Mirrors the stroke-model training data (the `stroke-data` branch, written by the app's
+# StrokeDataUploader; schema: tools/stroke-model/SCHEMA.md) to a PRIVATE Kaggle dataset.
+#
+# Secret:   KAGGLE_TOKEN — either a Kaggle API token string (KGAT_…) or the contents of
+#           kaggle.json ({"username": …, "key": …}).
+# Variable: KAGGLE_DATASET (optional) — "<owner>/<slug>". Defaults to
+#           "<KAGGLE_USERNAME or the kaggle.json username>/graffux-stroke-data".
+#
+# Runs every 6 hours and on demand. A run whose stroke-data commit was already uploaded does nothing.
+name: Stroke data → Kaggle
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stroke-data-kaggle
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out stroke data
+        uses: actions/checkout@v4
+        with:
+          ref: stroke-data
+          path: data
+          persist-credentials: false
+
+      - name: Check out schema
+        uses: actions/checkout@v4
+        with:
+          path: main
+          sparse-checkout: tools/stroke-model
+          persist-credentials: false
+
+      - name: Skip if this commit was already uploaded
+        id: seen
+        uses: actions/cache@v4
+        with:
+          path: .kaggle-uploaded
+          key: stroke-data-kaggle-${{ hashFiles('data/stroke-data/**') }}
+
+      - name: Install Kaggle CLI
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: pip install --quiet "kaggle==2.2.4"
+
+      - name: Upload
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          KAGGLE_TOKEN: ${{ secrets.KAGGLE_TOKEN }}
+          KAGGLE_DATASET: ${{ vars.KAGGLE_DATASET }}
+          KAGGLE_USERNAME_VAR: ${{ vars.KAGGLE_USERNAME }}
+        run: python main/tools/stroke-model/kaggle_upload.py data/stroke-data main/tools/stroke-model/SCHEMA.md
+
+      - name: Mark uploaded
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p .kaggle-uploaded && git -C data rev-parse HEAD > .kaggle-uploaded/sha
