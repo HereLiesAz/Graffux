@@ -22,7 +22,7 @@ std::mt19937 rng(77);
 float U() { return std::uniform_real_distribution<float>(0.f, 1.f)(rng); }
 
 std::vector<uint8_t> seedLayer() {
-    std::vector<uint8_t> v(W * H * 4);
+    std::vector<uint8_t> v(static_cast<size_t>(W) * H * 4);
     for (int i = 0; i < W * H; ++i) {
         const uint8_t a = static_cast<uint8_t>(rng() % 256);
         for (int c = 0; c < 3; ++c) v[i * 4 + c] = static_cast<uint8_t>((rng() % 256) * a / 255);
@@ -52,9 +52,9 @@ Stroke makeStroke(Kind kind, float x0, float x1) {
 }
 
 std::vector<uint8_t> mask(int n) {
-    std::vector<uint8_t> m(n * n);
+    std::vector<uint8_t> m(static_cast<size_t>(n) * n);
     for (int y = 0; y < n; ++y)
-        for (int x = 0; x < n; ++x) m[y * n + x] = static_cast<uint8_t>((x * 7 + y * 13) % 256);
+        for (int x = 0; x < n; ++x) m[static_cast<size_t>(y) * n + x] = static_cast<uint8_t>((x * 7 + y * 13) % 256);
     return m;
 }
 
@@ -81,7 +81,7 @@ void changeRect(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, in
     int x0 = W, y0 = H, x1 = -1, y1 = -1;
     for (int y = 0; y < H; ++y)
         for (int x = 0; x < W; ++x)
-            if (std::memcmp(&a[(y * W + x) * 4], &b[(y * W + x) * 4], 4) != 0) {
+            if (std::memcmp(&a[(static_cast<size_t>(y) * W + x) * 4], &b[(static_cast<size_t>(y) * W + x) * 4], 4) != 0) {
                 x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y);
             }
     if (x1 < 0) { r[0] = r[1] = r[2] = r[3] = 0; return; }
@@ -136,7 +136,7 @@ int main() {
         // for CPU/GPU rounding differences, so refreshLayer has real work to do.
         std::vector<uint8_t> committed = got;
         for (int y = 60; y < 64; ++y)
-            for (int x = 5; x < 9; ++x) committed[(y * W + x) * 4 + 3] ^= 1;
+            for (int x = 5; x < 9; ++x) committed[(static_cast<size_t>(y) * W + x) * 4 + 3] ^= 1;
         int r[4];
         changeRect(truth, committed, r);
         history.push_back(truth);
