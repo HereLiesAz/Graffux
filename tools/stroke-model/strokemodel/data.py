@@ -21,7 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+# v1: no `pointers`/`sensorStatus`/arrival times; v2: no `heatmap`. See SCHEMA.md.
+READABLE_SCHEMAS = (1, 2, 3)
 HISTORY = 16
 HORIZONS = 4
 POS_SCALE = 100.0  # px per unit
@@ -61,9 +63,9 @@ def read_file(path: Path) -> list[Stroke]:
                 continue
             obj = json.loads(line)
             if obj.get("type") == "session":
-                if int(obj.get("schema", 0)) != SCHEMA_VERSION:
-                    raise ValueError(f"{path}: schema {obj.get('schema')} != {SCHEMA_VERSION}")
-                session = obj
+                if int(obj.get("schema", 0)) not in READABLE_SCHEMAS:
+                    raise ValueError(f"{path}: schema {obj.get('schema')} not in {READABLE_SCHEMAS}")
+                session = dict(obj, path=str(path))
             elif obj.get("type") == "stroke":
                 strokes.append(Stroke(session, obj))
     return strokes
@@ -121,7 +123,9 @@ def stroke_examples(stroke: Stroke):
     rec = stroke.record
     s = rec["samples"]
     t = np.asarray(s["t"], dtype=np.float64)
-    if len(t) < 3 or rec.get("multiTouch"):
+    # v1 followed pointer index 0, which switches finger when the first one lifts early; v2 follows
+    # the primary pointer by id, so its multi-touch strokes are clean.
+    if len(t) < 3 or (rec.get("multiTouch") and int(stroke.session.get("schema", 1)) < 2):
         return
     xy = np.stack([np.asarray(s["x"], float), np.asarray(s["y"], float)], axis=1)
     pressure = np.asarray(s["pressure"], float)

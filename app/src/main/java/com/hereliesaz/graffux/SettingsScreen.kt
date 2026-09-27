@@ -329,6 +329,7 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
         },
     )
     TextButton(onClick = { vm.uploadStrokeData(context) }) { Text("Upload stroke data now") }
+    HeatmapSettingsRow()
 }
 
 /**

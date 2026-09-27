@@ -146,6 +146,11 @@ android {
             }
             jniLibs {
                 pickFirsts += "**/libc++_shared.so"
+                // Extract native libs on install (android:extractNativeLibs="true"). Needed so
+                // libgraffux_heatmap.so, an executable run via `su` (core/nativebridge
+                // heatmap_helper.c), exists as a real file in nativeLibraryDir. Loading the other
+                // .so files is unaffected; they are simply read from disk rather than the APK.
+                useLegacyPackaging = true
             }
         }
 
