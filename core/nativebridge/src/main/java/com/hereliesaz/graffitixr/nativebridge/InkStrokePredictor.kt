@@ -3,20 +3,20 @@ package com.hereliesaz.graffitixr.nativebridge
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 
 /**
- * Thin per-stroke owner for Google's Ink Stroke Modeler Kalman predictor. Coordinates are passed in
- * screen pixels and timestamps in Android uptime milliseconds; the native bridge normalizes pixels
- * before feeding the unit-agnostic model and converts its prediction back again.
+ * Google Ink Stroke Modeler's Kalman predictor, used directly (see InkStrokePredictorJNI.cpp for
+ * why not through its StrokeModeler). Coordinates are screen pixels, timestamps Android uptime
+ * milliseconds.
+ *
+ * [estimate] returns Ink's Kalman state at the latest sample; [predictAt] evaluates Ink's own cubic
+ * from it (p + v t + a t^2/2 + j t^3/6) at any future time, so every display frame ahead is read
+ * straight off the model rather than interpolated or extrapolated from a fixed curve.
  */
-@Suppress("TooManyFunctions") // Mostly JNI declarations.
-class InkStrokePredictor(
-    /** How far ahead the predicted curve reaches (clamped natively to ~4-250 ms). */
-    predictionIntervalMs: Long = DEFAULT_PREDICTION_INTERVAL_MS,
-) : AutoCloseable {
+class InkStrokePredictor : AutoCloseable {
     init {
         NativeLibLoader.loadAll()
     }
 
-    private var nativeHandle: Long = nativeCreate(predictionIntervalMs / MILLIS_PER_SECOND)
+    private var nativeHandle: Long = nativeCreate()
     private var hasInput = false
 
     val isAvailable: Boolean get() = nativeHandle != 0L
@@ -29,18 +29,24 @@ class InkStrokePredictor(
 
     fun record(x: Float, y: Float, uptimeMillis: Long, pressure: Float): Boolean {
         if (nativeHandle == 0L) return false
-        val down = !hasInput
-        val ok = nativeRecord(
-            nativeHandle,
-            x,
-            y,
-            uptimeMillis,
-            pressure.coerceIn(0f, 1f),
-            down,
-        )
+        val ok = nativeRecord(nativeHandle, x, y, uptimeMillis, pressure.coerceIn(0f, 1f))
         if (ok) hasInput = true
         return ok
     }
+
+    /** Ink's Kalman estimate at [uptimeMillis] (the latest sample). Pixels; per-second rates. */
+    data class Estimate(
+        val x: Float,
+        val y: Float,
+        val vx: Float,
+        val vy: Float,
+        val ax: Float,
+        val ay: Float,
+        val jx: Float,
+        val jy: Float,
+        val uptimeMillis: Long,
+        val pressure: Float,
+    )
 
     data class Prediction(
         val x: Float,
@@ -49,36 +55,32 @@ class InkStrokePredictor(
         val pressure: Float,
     )
 
-    fun predict(): Prediction? {
-        if (nativeHandle == 0L || !hasInput) return null
-        val values = nativePredict(nativeHandle) ?: return null
-        if (values.size < 4) return null
-        // A double round-trips uptimeMillis exactly (a jfloat can't past ~4.6h of device uptime --
-        // see nativePredict's doc comment); position/pressure just widen back down from it losslessly.
-        return Prediction(
-            x = values[0].toFloat(),
-            y = values[1].toFloat(),
-            uptimeMillis = values[2].toLong(),
-            pressure = values[3].toFloat().takeIf { it.isFinite() && it >= 0f } ?: 1f,
-        )
-    }
-
-    /**
-     * Every point of the model's predicted continuation, oldest first (the last one is what
-     * [predict] returns). Empty until the Kalman estimate is stable.
-     */
-    fun predictTrajectory(): List<Prediction> {
-        val values = if (nativeHandle != 0L && hasInput) nativePredictTrajectory(nativeHandle) else null
-        return List((values?.size ?: 0) / FIELDS_PER_POINT) { i ->
-            val o = i * FIELDS_PER_POINT
-            val v = requireNotNull(values)
-            Prediction(
-                x = v[o].toFloat(),
-                y = v[o + 1].toFloat(),
-                uptimeMillis = v[o + 2].toLong(),
-                pressure = v[o + 3].toFloat().takeIf { it.isFinite() && it >= 0f } ?: 1f,
+    /** Null until Ink's Kalman filters are stable (a few samples into the stroke). */
+    fun estimate(): Estimate? {
+        val v = if (nativeHandle != 0L && hasInput) nativeEstimate(nativeHandle) else null
+        return v?.takeIf { it.size >= ESTIMATE_FIELDS }?.let {
+            Estimate(
+                x = it[0].toFloat(), y = it[1].toFloat(),
+                vx = it[2].toFloat(), vy = it[3].toFloat(),
+                ax = it[4].toFloat(), ay = it[5].toFloat(),
+                jx = it[6].toFloat(), jy = it[7].toFloat(),
+                uptimeMillis = it[8].toLong(),
+                pressure = it[9].toFloat().takeIf { p -> p.isFinite() && p >= 0f } ?: 1f,
             )
         }
+    }
+
+    /** Ink's cubic evaluated at [targetUptimeMillis]; null until the estimate is stable. */
+    fun predictAt(targetUptimeMillis: Long): Prediction? = estimate()?.let { e ->
+        val t = ((targetUptimeMillis - e.uptimeMillis).coerceAtLeast(0L) / MILLIS_PER_SECOND).toFloat()
+        val t2 = t * t / 2f
+        val t3 = t * t * t / THIRD_ORDER_FACTORIAL
+        Prediction(
+            x = e.x + e.vx * t + e.ax * t2 + e.jx * t3,
+            y = e.y + e.vy * t + e.ay * t2 + e.jy * t3,
+            uptimeMillis = targetUptimeMillis,
+            pressure = e.pressure,
+        )
     }
 
     override fun close() {
@@ -89,21 +91,13 @@ class InkStrokePredictor(
         }
     }
 
-    private external fun nativeCreate(predictionIntervalSeconds: Double): Long
+    private external fun nativeCreate(): Long
     private external fun nativeReset(handle: Long): Boolean
-    private external fun nativeRecord(
-        handle: Long,
-        x: Float,
-        y: Float,
-        uptimeMillis: Long,
-        pressure: Float,
-        isDown: Boolean,
-    ): Boolean
-    private external fun nativePredict(handle: Long): DoubleArray?
-    private external fun nativePredictTrajectory(handle: Long): DoubleArray?
+    private external fun nativeRecord(handle: Long, x: Float, y: Float, uptimeMillis: Long, pressure: Float): Boolean
+    private external fun nativeEstimate(handle: Long): DoubleArray?
     private external fun nativeDestroy(handle: Long)
 }
 
-private const val FIELDS_PER_POINT = 4 // x, y, timeMs, pressure -- nativePredictTrajectory's layout
-private const val DEFAULT_PREDICTION_INTERVAL_MS = 17L // one 60 Hz frame, the historical default
+private const val ESTIMATE_FIELDS = 10 // nativeEstimate's layout, see InkStrokePredictorJNI.cpp
 private const val MILLIS_PER_SECOND = 1000.0
+private const val THIRD_ORDER_FACTORIAL = 6f // the 3! of the cubic term j t^3/3!

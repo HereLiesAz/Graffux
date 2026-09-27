@@ -206,8 +206,8 @@ never paints a predicted dab at all, real or provisional; prediction only shows 
 the line is about to go.
 
 **Per-horizon ranking (frames 1-4).** Every prediction now asks all four models (linear,
-acceleration, AndroidX, Google Ink) for the next four frames, not one. Google Ink reads each frame
-off its full predicted curve (`InkStrokePredictor.predictTrajectory`). AndroidX, and any model
+acceleration, AndroidX, Google Ink) for the next four frames, not one. Google Ink evaluates its
+own cubic at each frame time (`InkStrokePredictor.predictAt`, below). AndroidX, and any model
 that picks its own horizon, is rescaled along the line from the latest real sample through its
 prediction. Everyone is judged at the same instants against the true position, interpolated
 between the real samples on either side. Horizon 1 still drives the drawn tail (per-stroke
@@ -217,9 +217,20 @@ per frame ahead, best first. That ranking is the data for choosing the best mode
 
 Each score also carries **lead**: the signed error along the direction of travel. Positive means
 the model ran ahead of the pen (overshoot), which is what reads worst at stroke ends and turns.
-Google Ink's predicted curve is sized to the real display frame length times four
-(`PredictionTournament(frameMs = …)` → `InkStrokePredictor(predictionIntervalMs)`), so all four
-frames sit on its own curve instead of past its end.
+
+**Google Ink is used through its Kalman predictor alone.** The first hookup read
+`StrokeModeler::Predict()`. That output is made for drawing a smoothed stroke: it starts at the
+spring-mass position modeler's state, which deliberately trails the pen, and joins it to the
+Kalman estimate with a cubic "connector". The next few frames landed on that connector, so the first
+field report (issue #425, Pixel 5) had Ink about 74 px *behind* the pen at every horizon.
+`InkStrokePredictorJNI.cpp` now drives `KalmanPredictor` directly and returns its estimated state
+(position, velocity, acceleration, jerk at the latest sample). Kotlin evaluates Ink's own cubic
+(`EvaluateCubic`: p + v t + a t²/2 + j t³/6) at each frame time. On synthetic strokes (host build
+of the pinned library, 120 Hz input, 60 Hz frames) this is about 1 px off one frame ahead. On a
+circle it is roughly half linear's error four frames ahead (10 px vs 20 px).
+
+**Solo runs.** Settings → Developer → Stroke predictors pins one model (or "All"). The pinned model
+alone draws the tail and alone appears in the rankings; each report begins with a `models:` line.
 
 The drawn tail is the horizon-1 winner shortened by `tailDamping`: speed ratio of the last two real
 segments (braking shrinks it) times (1 + cos turn angle) / 2 (a right angle halves it, a reversal

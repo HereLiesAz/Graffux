@@ -187,3 +187,36 @@ class TailDampingTest {
         )
     }
 }
+
+class PredictionSoloTest {
+    private fun run(t: PredictionTournament) {
+        for (i in 0..10) {
+            t.record(GestureSample(Offset(i * 5f, 0f), i * 10L))
+            t.predict(i * 10L + 10L)
+        }
+    }
+
+    @Test
+    fun soloRunsOnlyTheNamedPredictor() {
+        val t = PredictionTournament(
+            listOf(LinearGesturePredictor(), AccelerationGesturePredictor()),
+            includeGoogleInk = false,
+            soloModel = "acceleration",
+        )
+        run(t)
+        assertEquals(listOf("acceleration"), t.activeModels)
+        val models = t.rankings().getValue(1).map { it.model }.toSet()
+        assertEquals(setOf("acceleration", PredictionTournament.DAMPED_TAIL), models)
+        assertTrue(t.rankingReport().startsWith("models: acceleration\n"))
+    }
+
+    @Test
+    fun unknownSoloFallsBackToAll() {
+        val t = PredictionTournament(
+            listOf(LinearGesturePredictor(), AccelerationGesturePredictor()),
+            includeGoogleInk = false,
+            soloModel = "nope",
+        )
+        assertEquals(listOf("linear", "acceleration"), t.activeModels)
+    }
+}

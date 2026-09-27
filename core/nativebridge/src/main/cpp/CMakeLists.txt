@@ -124,4 +124,6 @@ target_link_libraries(graffitixr
     jnigraphics
     ${vulkan-lib}
     InkStrokeModeler::stroke_modeler
+    # InkStrokePredictorJNI.cpp uses the Kalman predictor directly.
+    InkStrokeModeler::kalman_predictor
 )
