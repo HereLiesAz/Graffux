@@ -1,0 +1,291 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:Knob.kt$(updatedValue &lt; updatedDefault &amp;&amp; newValue &gt;= updatedDefault) || (updatedValue &gt; updatedDefault &amp;&amp; newValue &lt;= updatedDefault)</ID>
+    <ID>CyclomaticComplexMethod:AdjustmentsPanel.kt$@Composable fun AdjustmentsPanel( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:AdjustmentsControls.kt$@Composable // Renders all adjustment knobs in a single row fun AdjustmentsKnobsRow( opacity: Float, brightness: Float, contrast: Float, saturation: Float, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:AdjustmentsControls.kt$@Composable fun ColorBalanceKnobsRow( colorBalanceR: Float, colorBalanceG: Float, colorBalanceB: Float, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:AdjustmentsPanel.kt$@Composable fun AdjustmentsPanel( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:ConfirmDialog.kt$@Composable fun ConfirmDialog( title: String, message: String, confirmLabel: String, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:DoubleTapHintDialog.kt$@Composable fun DoubleTapHintDialog( onDismissRequest: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FloatingWindow.kt$@Composable fun FloatingWindow( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(60f, 160f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>FunctionNaming:InfoDialog.kt$@Composable fun InfoDialog( title: String, content: String, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:Knob.kt$@Composable fun Knob( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { "%.2f".format(it) } )</ID>
+    <ID>FunctionNaming:PageIndicator.kt$@Composable fun PageIndicator( pageCount: Int, currentPage: Int, onPageSelected: (Int) -&gt; Unit, modifier: Modifier = Modifier, activeColor: Color = MaterialTheme.colorScheme.primary, inactiveColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) )</ID>
+    <ID>FunctionNaming:ProgressIndicator.kt$@Composable fun ProgressIndicator(progress: () -&gt; Float, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:Theme.kt$@Composable fun GraffitiXRTheme( darkTheme: Boolean = isSystemInDarkTheme(), // Dynamic color is available on Android 12+ dynamicColor: Boolean = false, content: @Composable () -&gt; Unit )</ID>
+    <ID>LargeClass:GraffuxIcons.kt$GraffuxIcons</ID>
+    <ID>LongMethod:AdjustmentsPanel.kt$@Composable fun AdjustmentsPanel( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:AppStrings.kt$@Composable fun rememberAppStrings(): AppStrings</ID>
+    <ID>LongMethod:Knob.kt$@Composable fun Knob( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { "%.2f".format(it) } )</ID>
+    <ID>LongMethod:NavStrings.kt$@Composable fun rememberNavStrings(): NavStrings</ID>
+    <ID>LongParameterList:AdjustmentsControls.kt$( colorBalanceR: Float, colorBalanceG: Float, colorBalanceB: Float, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:AdjustmentsControls.kt$( opacity: Float, brightness: Float, contrast: Float, saturation: Float, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:AdjustmentsPanel.kt$( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:FloatingWindow.kt$( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(60f, 160f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>LongParameterList:Knob.kt$( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { "%.2f".format(it) } )</ID>
+    <ID>LongParameterList:PageIndicator.kt$( pageCount: Int, currentPage: Int, onPageSelected: (Int) -&gt; Unit, modifier: Modifier = Modifier, activeColor: Color = MaterialTheme.colorScheme.primary, inactiveColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) )</ID>
+    <ID>MagicNumber:Color.kt$0xFF000000</ID>
+    <ID>MagicNumber:Color.kt$0xFF00FFFF</ID>
+    <ID>MagicNumber:Color.kt$0xFF39FF14</ID>
+    <ID>MagicNumber:Color.kt$0xFFFF00C8</ID>
+    <ID>MagicNumber:Color.kt$0xFFFFFFFF</ID>
+    <ID>MagicNumber:FloatingWindow.kt$160f</ID>
+    <ID>MagicNumber:FloatingWindow.kt$60f</ID>
+    <ID>MagicNumber:Knob.kt$135f</ID>
+    <ID>MagicNumber:Knob.kt$405f</ID>
+    <ID>MagicNumber:Theme.kt$0xFF2A2A30</ID>
+    <ID>MagicNumber:Theme.kt$0xFF3A3A42</ID>
+    <ID>MagicNumber:Theme.kt$0xFF4A4A54</ID>
+    <ID>MagicNumber:Theme.kt$0xFFC6C6CE</ID>
+    <ID>MatchingDeclarationName:AdjustmentsPanel.kt$AdjustmentsState</ID>
+    <ID>MatchingDeclarationName:FloatingWindow.kt$RailInset</ID>
+    <ID>MaxLineLength:ConfirmDialog.kt$AzButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:DoubleTapHintDialog.kt$AzButton(text = stringResource(R.string.ok_button), onClick = onDismissRequest, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:FloatingWindow.kt$private</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("action-record", R.drawable.ic_gx_action_record, GxIconCategory.HISTORY, listOf("record macro", "start recording"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("actions-panel", R.drawable.ic_gx_actions_panel, GxIconCategory.HISTORY, listOf("macro", "recorded steps"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("airbrush", R.drawable.ic_gx_airbrush, GxIconCategory.TOOLS, listOf("spray", "atomiser", "soft", "mist"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("align-center-h", R.drawable.ic_gx_align_center_h, GxIconCategory.TRANSFORM, listOf("align objects centre horizontal"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("align-middle-v", R.drawable.ic_gx_align_middle_v, GxIconCategory.TRANSFORM, listOf("align objects centre vertical"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("align-to-artboard", R.drawable.ic_gx_align_to_artboard, GxIconCategory.TRANSFORM, listOf("align to canvas", "align to page"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("alpha-lock", R.drawable.ic_gx_alpha_lock, GxIconCategory.TOOLS, listOf("lock transparency", "paint inside", "preserve"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("anchor-convert", R.drawable.ic_gx_anchor_convert, GxIconCategory.VECTOR, listOf("corner smooth toggle", "convert point"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("ar-view", R.drawable.ic_gx_ar_view, GxIconCategory.GENERATIVE, listOf("augmented reality", "camera overlay"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("artboard", R.drawable.ic_gx_artboard, GxIconCategory.LAYERS, listOf("canvas", "page", "document frame"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("artboard-add", R.drawable.ic_gx_artboard_add, GxIconCategory.LAYERS, listOf("new artboard", "new page"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("batch-process", R.drawable.ic_gx_batch_process, GxIconCategory.HISTORY, listOf("run on folder", "bulk action"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("black-white", R.drawable.ic_gx_black_white, GxIconCategory.COLOR, listOf("mono", "channel mix to grey"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("bleed-marks", R.drawable.ic_gx_bleed_marks, GxIconCategory.DOCUMENT, listOf("print bleed", "trim marks"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("blob-brush", R.drawable.ic_gx_blob_brush, GxIconCategory.TOOLS, listOf("merge shapes", "vector paint", "blob"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("boolean-exclude", R.drawable.ic_gx_boolean_exclude, GxIconCategory.VECTOR, listOf("pathfinder exclude"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("boolean-intersect", R.drawable.ic_gx_boolean_intersect, GxIconCategory.VECTOR, listOf("pathfinder intersect"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("boolean-minus", R.drawable.ic_gx_boolean_minus, GxIconCategory.VECTOR, listOf("pathfinder subtract", "minus front"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("boolean-unite", R.drawable.ic_gx_boolean_unite, GxIconCategory.VECTOR, listOf("pathfinder add", "merge shapes"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush", R.drawable.ic_gx_brush, GxIconCategory.TOOLS, listOf("paint", "bristle", "draw", "round brush"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-angle", R.drawable.ic_gx_brush_angle, GxIconCategory.TOOLS, listOf("rotation", "nib angle", "protractor"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-cursor", R.drawable.ic_gx_brush_cursor, GxIconCategory.UI, listOf("custom cursor", "tool preview"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-hardness", R.drawable.ic_gx_brush_hardness, GxIconCategory.TOOLS, listOf("edge", "falloff", "core"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-import", R.drawable.ic_gx_brush_import, GxIconCategory.TOOLS, listOf("load brush", "install", "abr"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-library", R.drawable.ic_gx_brush_library, GxIconCategory.TOOLS, listOf("brushes", "presets", "pot"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-opacity", R.drawable.ic_gx_brush_opacity, GxIconCategory.TOOLS, listOf("alpha", "coverage", "translucent"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-roundness", R.drawable.ic_gx_brush_roundness, GxIconCategory.TOOLS, listOf("flatten", "squash", "ellipse nib"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-scatter", R.drawable.ic_gx_brush_scatter, GxIconCategory.TOOLS, listOf("jitter", "spread", "random"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-settings", R.drawable.ic_gx_brush_settings, GxIconCategory.TOOLS, listOf("brush studio", "parameters", "engine"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-size", R.drawable.ic_gx_brush_size, GxIconCategory.TOOLS, listOf("diameter", "radius", "scale brush"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-spacing", R.drawable.ic_gx_brush_spacing, GxIconCategory.TOOLS, listOf("stamps", "interval", "gap"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("brush-texture", R.drawable.ic_gx_brush_texture, GxIconCategory.TOOLS, listOf("grain", "tooth", "paper"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("burn", R.drawable.ic_gx_burn, GxIconCategory.TOOLS, listOf("darken", "shade", "cupped hand", "aperture"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("calligraphy", R.drawable.ic_gx_calligraphy, GxIconCategory.TOOLS, listOf("broad edge", "lettering", "italic nib"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("camera-capture", R.drawable.ic_gx_camera_capture, GxIconCategory.GENERATIVE, listOf("take photo", "reference photo"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("canvas-size", R.drawable.ic_gx_canvas_size, GxIconCategory.DOCUMENT, listOf("resize canvas", "expand document"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("channel-mixer", R.drawable.ic_gx_channel_mixer, GxIconCategory.COLOR, listOf("per channel", "recombine"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("checkpoint-restore", R.drawable.ic_gx_checkpoint_restore, GxIconCategory.HISTORY, listOf("roll back", "go to state"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("clear-history", R.drawable.ic_gx_clear_history, GxIconCategory.HISTORY, listOf("purge undo stack", "forget states"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("clipping-mask-vector", R.drawable.ic_gx_clipping_mask_vector, GxIconCategory.VECTOR, listOf("crop to shape", "clip path"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("cloud-offline", R.drawable.ic_gx_cloud_offline, GxIconCategory.UI, listOf("no connection", "local only"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-alpha", R.drawable.ic_gx_color_alpha, GxIconCategory.COLOR, listOf("transparency", "opacity channel"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-balance", R.drawable.ic_gx_color_balance, GxIconCategory.COLOR, listOf("cast", "cool warm", "scales"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-cmyk", R.drawable.ic_gx_color_cmyk, GxIconCategory.COLOR, listOf("subtractive", "print", "process"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-disc", R.drawable.ic_gx_color_disc, GxIconCategory.COLOR, listOf("picker", "wheel", "choose colour"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-harmony", R.drawable.ic_gx_color_harmony, GxIconCategory.COLOR, listOf("complementary", "triad", "scheme"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-history", R.drawable.ic_gx_color_history, GxIconCategory.COLOR, listOf("recent", "used", "last colours"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-lookup", R.drawable.ic_gx_color_lookup, GxIconCategory.COLOR, listOf("lut", "preset grade", "cube"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-profile", R.drawable.ic_gx_color_profile, GxIconCategory.COLOR, listOf("gamut", "icc", "colour space"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-swatch", R.drawable.ic_gx_color_swatch, GxIconCategory.COLOR, listOf("chip", "sample", "current colour"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("color-swatches", R.drawable.ic_gx_color_swatches, GxIconCategory.COLOR, listOf("palette", "library", "saved colours"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("colordrop", R.drawable.ic_gx_colordrop, GxIconCategory.TOOLS, listOf("flood fill", "drag colour", "drop"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("compound-path", R.drawable.ic_gx_compound_path, GxIconCategory.VECTOR, listOf("make compound", "holes"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("crop-straighten", R.drawable.ic_gx_crop_straighten, GxIconCategory.DOCUMENT, listOf("level horizon", "de-skew"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("distort", R.drawable.ic_gx_distort, GxIconCategory.TRANSFORM, listOf("free distort", "perspective corners"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("distribute-horizontal", R.drawable.ic_gx_distribute_horizontal, GxIconCategory.TRANSFORM, listOf("equal gaps across"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("distribute-vertical", R.drawable.ic_gx_distribute_vertical, GxIconCategory.TRANSFORM, listOf("equal gaps down"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("document-new", R.drawable.ic_gx_document_new, GxIconCategory.DOCUMENT, listOf("new file", "blank canvas"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("document-properties", R.drawable.ic_gx_document_properties, GxIconCategory.DOCUMENT, listOf("file info", "metadata"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("document-revert", R.drawable.ic_gx_document_revert, GxIconCategory.DOCUMENT, listOf("revert to saved", "discard changes"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("document-save-as", R.drawable.ic_gx_document_save_as, GxIconCategory.DOCUMENT, listOf("save copy", "duplicate file"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("edge-detect", R.drawable.ic_gx_edge_detect, GxIconCategory.GENERATIVE, listOf("canny", "outline extraction"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("eraser-hard", R.drawable.ic_gx_eraser_hard, GxIconCategory.TOOLS, listOf("hard edge", "crisp", "block"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("eraser-soft", R.drawable.ic_gx_eraser_soft, GxIconCategory.TOOLS, listOf("feather", "soft edge", "fade"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("export-gif", R.drawable.ic_gx_export_gif, GxIconCategory.ANIMATION, listOf("animated gif", "loop export"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("export-video", R.drawable.ic_gx_export_video, GxIconCategory.ANIMATION, listOf("render animation", "save as video"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("eyedropper", R.drawable.ic_gx_eyedropper, GxIconCategory.TOOLS, listOf("picker", "sample", "colour pick"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-bevel", R.drawable.ic_gx_filter_bevel, GxIconCategory.FILTERS, listOf("ridge", "3d edge", "chamfer"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-blur-gaussian", R.drawable.ic_gx_filter_blur_gaussian, GxIconCategory.FILTERS, listOf("soft focus", "smooth"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-blur-lens", R.drawable.ic_gx_filter_blur_lens, GxIconCategory.FILTERS, listOf("depth of field", "bokeh"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-blur-motion", R.drawable.ic_gx_filter_blur_motion, GxIconCategory.FILTERS, listOf("speed", "streak", "movement"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-blur-radial", R.drawable.ic_gx_filter_blur_radial, GxIconCategory.FILTERS, listOf("zoom blur", "spin blur"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-clone-source", R.drawable.ic_gx_filter_clone_source, GxIconCategory.FILTERS, listOf("sample point", "reference"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-content-aware-fill", R.drawable.ic_gx_filter_content_aware_fill, GxIconCategory.FILTERS, listOf("ai fill", "remove and fill"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-crystallize", R.drawable.ic_gx_filter_crystallize, GxIconCategory.FILTERS, listOf("facets", "voronoi"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-distort-pinch", R.drawable.ic_gx_filter_distort_pinch, GxIconCategory.FILTERS, listOf("squeeze", "implode"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-distort-spherize", R.drawable.ic_gx_filter_distort_spherize, GxIconCategory.FILTERS, listOf("bulge", "inflate", "fisheye"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-distort-twirl", R.drawable.ic_gx_filter_distort_twirl, GxIconCategory.FILTERS, listOf("swirl", "vortex"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-distort-wave", R.drawable.ic_gx_filter_distort_wave, GxIconCategory.FILTERS, listOf("ripple", "undulate"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-gallery", R.drawable.ic_gx_filter_gallery, GxIconCategory.FILTERS, listOf("stack of filters", "fx library"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-generative-fill", R.drawable.ic_gx_filter_generative_fill, GxIconCategory.FILTERS, listOf("ai generate", "text to image fill"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-halftone", R.drawable.ic_gx_filter_halftone, GxIconCategory.FILTERS, listOf("dots", "print screen", "ben-day"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-lens-flare", R.drawable.ic_gx_filter_lens_flare, GxIconCategory.FILTERS, listOf("light leak", "sun flare"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-liquify", R.drawable.ic_gx_filter_liquify, GxIconCategory.FILTERS, listOf("push", "warp", "reshape"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-noise-add", R.drawable.ic_gx_filter_noise_add, GxIconCategory.FILTERS, listOf("grain", "static", "speckle"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-noise-reduce", R.drawable.ic_gx_filter_noise_reduce, GxIconCategory.FILTERS, listOf("denoise", "clean up", "smooth grain"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-render-clouds", R.drawable.ic_gx_filter_render_clouds, GxIconCategory.FILTERS, listOf("procedural sky", "fractal"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-shadow-drop", R.drawable.ic_gx_filter_shadow_drop, GxIconCategory.FILTERS, listOf("cast shadow", "depth"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-shadow-inner", R.drawable.ic_gx_filter_shadow_inner, GxIconCategory.FILTERS, listOf("inset shadow", "recessed"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-sharpen-unsharp", R.drawable.ic_gx_filter_sharpen_unsharp, GxIconCategory.FILTERS, listOf("edge contrast", "unsharp mask"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-sky-replace", R.drawable.ic_gx_filter_sky_replace, GxIconCategory.FILTERS, listOf("ai sky", "replace background"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-smart-radius", R.drawable.ic_gx_filter_smart_radius, GxIconCategory.FILTERS, listOf("adaptive edge", "AI mask edge"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-stroke-outline", R.drawable.ic_gx_filter_stroke_outline, GxIconCategory.FILTERS, listOf("outline effect", "border"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-vanishing-point", R.drawable.ic_gx_filter_vanishing_point, GxIconCategory.FILTERS, listOf("perspective clone", "3d plane"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("filter-vignette-post", R.drawable.ic_gx_filter_vignette_post, GxIconCategory.FILTERS, listOf("darken corners", "frame edge"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("find-replace-text", R.drawable.ic_gx_find_replace_text, GxIconCategory.TYPE, listOf("search text", "swap words"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("flip-horizontal", R.drawable.ic_gx_flip_horizontal, GxIconCategory.TRANSFORM, listOf("mirror x", "flip left right"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("flip-vertical", R.drawable.ic_gx_flip_vertical, GxIconCategory.TRANSFORM, listOf("mirror y", "flip top bottom"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("frame-duplicate", R.drawable.ic_gx_frame_duplicate, GxIconCategory.ANIMATION, listOf("copy frame", "hold frame"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("full-screen", R.drawable.ic_gx_full_screen, GxIconCategory.DOCUMENT, listOf("immersive mode", "hide panels"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gallery-import", R.drawable.ic_gx_gallery_import, GxIconCategory.GENERATIVE, listOf("photo library", "import image"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("generate", R.drawable.ic_gx_generate, GxIconCategory.GENERATIVE, listOf("ai generate", "text to image"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("generate-expand", R.drawable.ic_gx_generate_expand, GxIconCategory.GENERATIVE, listOf("ai outpaint", "generative expand"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("generate-remove", R.drawable.ic_gx_generate_remove, GxIconCategory.GENERATIVE, listOf("ai remove", "smart erase"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("generate-variations", R.drawable.ic_gx_generate_variations, GxIconCategory.GENERATIVE, listOf("ai variations", "reroll"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gesture-two-finger-tap", R.drawable.ic_gx_gesture_two_finger_tap, GxIconCategory.UI, listOf("undo gesture", "quick undo"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("glyphs-panel", R.drawable.ic_gx_glyphs_panel, GxIconCategory.TYPE, listOf("special characters", "ligatures"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gradient-linear", R.drawable.ic_gx_gradient_linear, GxIconCategory.COLOR, listOf("axis ramp", "straight"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gradient-map", R.drawable.ic_gx_gradient_map, GxIconCategory.COLOR, listOf("remap tone to colour", "duotone"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gradient-mesh", R.drawable.ic_gx_gradient_mesh, GxIconCategory.COLOR, listOf("mesh", "surface", "multi point"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("gradient-radial", R.drawable.ic_gx_gradient_radial, GxIconCategory.COLOR, listOf("from centre", "round ramp"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("grid-overlay", R.drawable.ic_gx_grid_overlay, GxIconCategory.DOCUMENT, listOf("pixel grid", "show grid"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("guide-drawing", R.drawable.ic_gx_guide_drawing, GxIconCategory.TOOLS, listOf("assist", "grid guide", "on rails"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("guide-isometric", R.drawable.ic_gx_guide_isometric, GxIconCategory.TOOLS, listOf("axonometric", "30 degrees", "isometric"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("guide-perspective", R.drawable.ic_gx_guide_perspective, GxIconCategory.TOOLS, listOf("vanishing point", "one point", "recede"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("handle-asymmetric", R.drawable.ic_gx_handle_asymmetric, GxIconCategory.VECTOR, listOf("broken handles", "independent tangent"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("handle-symmetric", R.drawable.ic_gx_handle_symmetric, GxIconCategory.VECTOR, listOf("smooth handles", "mirrored tangent"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("heal-spot", R.drawable.ic_gx_heal_spot, GxIconCategory.TOOLS, listOf("blemish", "spot removal", "target"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("histogram", R.drawable.ic_gx_histogram, GxIconCategory.COLOR, listOf("distribution", "readout", "levels display"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("history-brush", R.drawable.ic_gx_history_brush, GxIconCategory.HISTORY, listOf("restore from history", "paint back"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("history-panel", R.drawable.ic_gx_history_panel, GxIconCategory.HISTORY, listOf("state list", "undo stack"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("history-snapshot", R.drawable.ic_gx_history_snapshot, GxIconCategory.HISTORY, listOf("checkpoint", "save state"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("keyboard-shortcut", R.drawable.ic_gx_keyboard_shortcut, GxIconCategory.UI, listOf("hotkeys", "key command"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("keyframe-add", R.drawable.ic_gx_keyframe_add, GxIconCategory.ANIMATION, listOf("set key", "record state"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-adjustment", R.drawable.ic_gx_layer_adjustment, GxIconCategory.LAYERS, listOf("adjustment layer", "non destructive"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-background", R.drawable.ic_gx_layer_background, GxIconCategory.LAYERS, listOf("backdrop", "base", "foundation"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-blend", R.drawable.ic_gx_layer_blend, GxIconCategory.LAYERS, listOf("blend mode", "mix", "interaction"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-duplicate", R.drawable.ic_gx_layer_duplicate, GxIconCategory.LAYERS, listOf("copy layer", "clone layer"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-filter", R.drawable.ic_gx_layer_filter, GxIconCategory.LAYERS, listOf("find layer", "search stack"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-flatten", R.drawable.ic_gx_layer_flatten, GxIconCategory.LAYERS, listOf("one layer", "collapse all"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-frame", R.drawable.ic_gx_layer_frame, GxIconCategory.LAYERS, listOf("frame tool", "placeholder", "crop into"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-hidden", R.drawable.ic_gx_layer_hidden, GxIconCategory.LAYERS, listOf("hide", "eye off", "invisible"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-isolate", R.drawable.ic_gx_layer_isolate, GxIconCategory.LAYERS, listOf("solo", "only this", "focus layer"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-link", R.drawable.ic_gx_layer_link, GxIconCategory.LAYERS, listOf("chain", "tie together", "move as one"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-lock", R.drawable.ic_gx_layer_lock, GxIconCategory.LAYERS, listOf("protect", "padlock", "read only"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-merge-down", R.drawable.ic_gx_layer_merge_down, GxIconCategory.LAYERS, listOf("combine", "flatten two", "down"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-merge-visible", R.drawable.ic_gx_layer_merge_visible, GxIconCategory.LAYERS, listOf("merge shown", "collapse visible"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-opacity", R.drawable.ic_gx_layer_opacity, GxIconCategory.LAYERS, listOf("transparency", "alpha", "fade"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-rasterize", R.drawable.ic_gx_layer_rasterize, GxIconCategory.LAYERS, listOf("to pixels", "commit", "bake"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-reference", R.drawable.ic_gx_layer_reference, GxIconCategory.LAYERS, listOf("reference layer", "source", "pin"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-rename", R.drawable.ic_gx_layer_rename, GxIconCategory.LAYERS, listOf("label", "title", "edit name"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-smart", R.drawable.ic_gx_layer_smart, GxIconCategory.LAYERS, listOf("smart object", "linked", "non destructive"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-style", R.drawable.ic_gx_layer_style, GxIconCategory.LAYERS, listOf("fx", "effects", "layer effects"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-thumbnail", R.drawable.ic_gx_layer_thumbnail, GxIconCategory.LAYERS, listOf("preview", "row", "panel row"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-to-back", R.drawable.ic_gx_layer_to_back, GxIconCategory.LAYERS, listOf("send to back", "bottom"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-to-front", R.drawable.ic_gx_layer_to_front, GxIconCategory.LAYERS, listOf("bring to front", "top"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-ungroup", R.drawable.ic_gx_layer_ungroup, GxIconCategory.LAYERS, listOf("release", "unnest", "flatten group"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("layer-unlock", R.drawable.ic_gx_layer_unlock, GxIconCategory.LAYERS, listOf("unprotect", "open lock", "editable"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("levels", R.drawable.ic_gx_levels, GxIconCategory.COLOR, listOf("histogram", "black point", "white point"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("link-external", R.drawable.ic_gx_link_external, GxIconCategory.UI, listOf("open in browser", "outbound"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-apply", R.drawable.ic_gx_mask_apply, GxIconCategory.SELECTION, listOf("bake mask", "commit", "flatten mask"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-channel", R.drawable.ic_gx_mask_channel, GxIconCategory.SELECTION, listOf("save selection", "alpha channel", "store"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-clipping", R.drawable.ic_gx_mask_clipping, GxIconCategory.SELECTION, listOf("clip to layer", "clipped", "inside"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-disable", R.drawable.ic_gx_mask_disable, GxIconCategory.SELECTION, listOf("turn off mask", "bypass"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-luminance", R.drawable.ic_gx_mask_luminance, GxIconCategory.SELECTION, listOf("luminosity mask", "by tone", "highlights"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mask-quick", R.drawable.ic_gx_mask_quick, GxIconCategory.SELECTION, listOf("quick mask", "rubylith", "paint a selection"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mixer-brush", R.drawable.ic_gx_mixer_brush, GxIconCategory.TOOLS, listOf("wet mix", "blend paint", "load"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("more-horizontal", R.drawable.ic_gx_more_horizontal, GxIconCategory.UI, listOf("overflow menu", "kebab horizontal"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("more-vertical", R.drawable.ic_gx_more_vertical, GxIconCategory.UI, listOf("overflow menu", "kebab vertical"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("motion-tween", R.drawable.ic_gx_motion_tween, GxIconCategory.ANIMATION, listOf("interpolate", "in between frames"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("multi-window", R.drawable.ic_gx_multi_window, GxIconCategory.DOCUMENT, listOf("new window", "second view"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("mural-scale", R.drawable.ic_gx_mural_scale, GxIconCategory.GENERATIVE, listOf("wall scale", "project size"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("oil-brush", R.drawable.ic_gx_oil_brush, GxIconCategory.TOOLS, listOf("flat brush", "bristle", "impasto"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("onion-skin", R.drawable.ic_gx_onion_skin, GxIconCategory.ANIMATION, listOf("ghost frames", "previous next frame"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("paragraph-align-center", R.drawable.ic_gx_paragraph_align_center, GxIconCategory.TYPE, listOf("centre text"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("paragraph-align-left", R.drawable.ic_gx_paragraph_align_left, GxIconCategory.TYPE, listOf("justify left"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("paragraph-align-right", R.drawable.ic_gx_paragraph_align_right, GxIconCategory.TYPE, listOf("justify right"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-eraser-vector", R.drawable.ic_gx_path_eraser_vector, GxIconCategory.VECTOR, listOf("vector eraser", "erase path"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-offset", R.drawable.ic_gx_path_offset, GxIconCategory.VECTOR, listOf("parallel copy", "grow path"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-outline-stroke", R.drawable.ic_gx_path_outline_stroke, GxIconCategory.VECTOR, listOf("stroke to fill", "expand stroke"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-reverse", R.drawable.ic_gx_path_reverse, GxIconCategory.VECTOR, listOf("flip direction", "winding"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-select-direct", R.drawable.ic_gx_path_select_direct, GxIconCategory.VECTOR, listOf("white arrow", "edit anchors"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-select-group", R.drawable.ic_gx_path_select_group, GxIconCategory.VECTOR, listOf("black arrow", "select object"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-simplify", R.drawable.ic_gx_path_simplify, GxIconCategory.VECTOR, listOf("reduce points", "clean path"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("path-width", R.drawable.ic_gx_path_width, GxIconCategory.VECTOR, listOf("variable width", "width profile"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("pen-remove", R.drawable.ic_gx_pen_remove, GxIconCategory.VECTOR, listOf("delete anchor", "remove point"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("perspective-transform", R.drawable.ic_gx_perspective_transform, GxIconCategory.TRANSFORM, listOf("perspective corners linked"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("photo-filter", R.drawable.ic_gx_photo_filter, GxIconCategory.COLOR, listOf("warming filter", "gel", "lens filter"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("puppet-warp", R.drawable.ic_gx_puppet_warp, GxIconCategory.TRANSFORM, listOf("mesh warp", "pin and bend"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("quickshape", R.drawable.ic_gx_quickshape, GxIconCategory.TOOLS, listOf("snap to shape", "clean up", "auto shape"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("registration-mark", R.drawable.ic_gx_registration_mark, GxIconCategory.GENERATIVE, listOf("alignment target", "print register"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("resample", R.drawable.ic_gx_resample, GxIconCategory.DOCUMENT, listOf("interpolation", "pixel resample"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("reset-transform", R.drawable.ic_gx_reset_transform, GxIconCategory.TRANSFORM, listOf("clear transform", "original state"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("scale-proportional", R.drawable.ic_gx_scale_proportional, GxIconCategory.TRANSFORM, listOf("lock aspect", "uniform scale"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-add", R.drawable.ic_gx_select_add, GxIconCategory.SELECTION, listOf("union", "unite", "add to selection"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-all", R.drawable.ic_gx_select_all, GxIconCategory.SELECTION, listOf("everything", "whole canvas"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-color-range", R.drawable.ic_gx_select_color_range, GxIconCategory.SELECTION, listOf("by colour", "tolerance", "sample"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-ellipse", R.drawable.ic_gx_select_ellipse, GxIconCategory.SELECTION, listOf("marquee", "oval", "round"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-exclude", R.drawable.ic_gx_select_exclude, GxIconCategory.SELECTION, listOf("difference", "xor", "either but not both"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-feather", R.drawable.ic_gx_select_feather, GxIconCategory.SELECTION, listOf("soften edge", "falloff", "blur selection"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-focus", R.drawable.ic_gx_select_focus, GxIconCategory.SELECTION, listOf("focus area", "depth", "sharp region"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-grow", R.drawable.ic_gx_select_grow, GxIconCategory.SELECTION, listOf("expand", "dilate", "outward"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-intersect", R.drawable.ic_gx_select_intersect, GxIconCategory.SELECTION, listOf("overlap", "common", "both"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-invert", R.drawable.ic_gx_select_invert, GxIconCategory.SELECTION, listOf("inverse", "everything else", "swap"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-lasso", R.drawable.ic_gx_select_lasso, GxIconCategory.SELECTION, listOf("freehand", "draw selection", "loop"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-magnetic", R.drawable.ic_gx_select_magnetic, GxIconCategory.SELECTION, listOf("snap to edge", "magnetic lasso", "cling"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-none", R.drawable.ic_gx_select_none, GxIconCategory.SELECTION, listOf("deselect", "drop selection", "clear"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-object", R.drawable.ic_gx_select_object, GxIconCategory.SELECTION, listOf("object select", "auto", "detect"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-polygon", R.drawable.ic_gx_select_polygon, GxIconCategory.SELECTION, listOf("polygonal lasso", "straight", "vertices"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-quick", R.drawable.ic_gx_select_quick, GxIconCategory.SELECTION, listOf("quick selection", "brush select", "grow"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-rect", R.drawable.ic_gx_select_rect, GxIconCategory.SELECTION, listOf("marquee", "rectangle", "crop area"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-refine", R.drawable.ic_gx_select_refine, GxIconCategory.SELECTION, listOf("refine edge", "hair", "detail"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-reselect", R.drawable.ic_gx_select_reselect, GxIconCategory.SELECTION, listOf("restore selection", "again"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-shrink", R.drawable.ic_gx_select_shrink, GxIconCategory.SELECTION, listOf("contract", "erode", "inward"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-similar", R.drawable.ic_gx_select_similar, GxIconCategory.SELECTION, listOf("grow", "like this", "match"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-sky", R.drawable.ic_gx_select_sky, GxIconCategory.SELECTION, listOf("sky replacement", "horizon", "upper region"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-subject", R.drawable.ic_gx_select_subject, GxIconCategory.SELECTION, listOf("person", "cut out", "isolate"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-subtract", R.drawable.ic_gx_select_subtract, GxIconCategory.SELECTION, listOf("minus front", "remove", "take away"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-transform", R.drawable.ic_gx_select_transform, GxIconCategory.SELECTION, listOf("transform selection", "handles", "resize"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("select-wand", R.drawable.ic_gx_select_wand, GxIconCategory.SELECTION, listOf("magic wand", "similar pixels", "tolerance"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("selective-color", R.drawable.ic_gx_selective_color, GxIconCategory.COLOR, listOf("one hue only", "target colour"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("shadows-highlights", R.drawable.ic_gx_shadows_highlights, GxIconCategory.COLOR, listOf("recover", "lift shadows", "pull highlights"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("shape-line", R.drawable.ic_gx_shape_line, GxIconCategory.VECTOR, listOf("straight segment", "line tool"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("shape-polygon", R.drawable.ic_gx_shape_polygon, GxIconCategory.VECTOR, listOf("vector polygon", "n sides"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("shape-rectangle", R.drawable.ic_gx_shape_rectangle, GxIconCategory.VECTOR, listOf("vector rect", "live shape"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("smart-guides", R.drawable.ic_gx_smart_guides, GxIconCategory.TRANSFORM, listOf("alignment guides", "magenta lines"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("spray-can", R.drawable.ic_gx_spray_can, GxIconCategory.TOOLS, listOf("aerosol", "graffiti", "rattle can"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stamp", R.drawable.ic_gx_stamp, GxIconCategory.TOOLS, listOf("clone", "rubber stamp", "duplicate source"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stamp-pattern", R.drawable.ic_gx_stamp_pattern, GxIconCategory.TOOLS, listOf("pattern stamp", "tile", "repeat"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("stencil-layers", R.drawable.ic_gx_stencil_layers, GxIconCategory.GENERATIVE, listOf("multi layer stencil", "registration"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("streamline", R.drawable.ic_gx_streamline, GxIconCategory.TOOLS, listOf("stabiliser", "smoothing", "steady"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("style-transfer", R.drawable.ic_gx_style_transfer, GxIconCategory.GENERATIVE, listOf("ai style", "restyle"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("subject-isolate", R.drawable.ic_gx_subject_isolate, GxIconCategory.GENERATIVE, listOf("ml cutout", "background removal"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("temperature", R.drawable.ic_gx_temperature, GxIconCategory.COLOR, listOf("warm cool", "kelvin", "white balance"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("text-outline-convert", R.drawable.ic_gx_text_outline_convert, GxIconCategory.TYPE, listOf("create outlines", "text to shape"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("timeline", R.drawable.ic_gx_timeline, GxIconCategory.ANIMATION, listOf("frames track", "animation panel"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("trace-image", R.drawable.ic_gx_trace_image, GxIconCategory.VECTOR, listOf("image trace", "raster to vector"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("transform-again", R.drawable.ic_gx_transform_again, GxIconCategory.TRANSFORM, listOf("repeat transform"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("type-mask", R.drawable.ic_gx_type_mask, GxIconCategory.TYPE, listOf("type selection", "text as selection"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("type-superscript", R.drawable.ic_gx_type_superscript, GxIconCategory.TYPE, listOf("exponent", "raised"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("type-vertical", R.drawable.ic_gx_type_vertical, GxIconCategory.TYPE, listOf("vertical text", "top to bottom"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("undo-history-slider", R.drawable.ic_gx_undo_history_slider, GxIconCategory.UI, listOf("scrub history", "time slider"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("upscale", R.drawable.ic_gx_upscale, GxIconCategory.GENERATIVE, listOf("ai upscale", "super resolution"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("vectorize", R.drawable.ic_gx_vectorize, GxIconCategory.VECTOR, listOf("auto vector", "convert to path"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("version-compare", R.drawable.ic_gx_version_compare, GxIconCategory.HISTORY, listOf("diff", "compare states"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("view-actual-colors", R.drawable.ic_gx_view_actual_colors, GxIconCategory.DOCUMENT, listOf("proof colours", "soft proof"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("view-cmyk-preview", R.drawable.ic_gx_view_cmyk_preview, GxIconCategory.DOCUMENT, listOf("gamut warning", "print preview"))</ID>
+    <ID>MaxLineLength:GraffuxIcons.kt$GxIconCategory$enum</ID>
+    <ID>MaxLineLength:Knob.kt$val newValue = (updatedValue - dragAmount.y * sensitivity).coerceIn(updatedRange.start, updatedRange.endInclusive)</ID>
+    <ID>NewLineAtEndOfFile:Color.kt$com.hereliesaz.graffitixr.design.theme.Color.kt</ID>
+    <ID>NewLineAtEndOfFile:ProgressIndicator.kt$com.hereliesaz.graffitixr.design.components.ProgressIndicator.kt</ID>
+    <ID>TooGenericExceptionThrown:ShaderUtil.kt$ShaderUtil$throw RuntimeException("Error creating shader.")</ID>
+    <ID>UnusedParameter:ShaderUtil.kt$ShaderUtil$context: Context</ID>
+  </CurrentIssues>
+</SmellBaseline>

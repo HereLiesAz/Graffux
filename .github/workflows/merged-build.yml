@@ -90,7 +90,8 @@ jobs:
           dependency-graph: disabled
 
       # config/detekt/detekt.yml sets maxIssues: 0 (zero-tolerance); without this step detekt
-      # findings never fail CI despite that config implying they should.
+      # findings never fail CI despite that config implying they should. The pre-existing backlog
+      # is recorded in each module's detekt-baseline.xml, so only new findings fail here.
       - name: Run detekt
         run: |
           chmod +x gradlew

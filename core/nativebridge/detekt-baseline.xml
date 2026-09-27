@@ -1,0 +1,86 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:VulkanStampEngine.kt$VulkanStampEngine$sampleSource != null &amp;&amp; sampleSourceWidth &gt; 0 &amp;&amp; sampleSourceHeight &gt; 0 &amp;&amp; sampleSource.size &gt;= sampleSourceWidth * sampleSourceHeight</ID>
+    <ID>CyclomaticComplexMethod:VulkanStampEngine.kt$VulkanStampEngine$fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: VulkanSubstrateParams? = null, ): Boolean</ID>
+    <ID>LongMethod:VulkanStampEngine.kt$VulkanStampEngine$fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: VulkanSubstrateParams? = null, ): Boolean</ID>
+    <ID>LongParameterList:InkStrokePredictor.kt$InkStrokePredictor$( handle: Long, x: Float, y: Float, uptimeMillis: Long, pressure: Float, isDown: Boolean, )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( bitmap: Bitmap, depthBuffer: ByteBuffer?, depthW: Int, depthH: Int, depthStride: Int, intrinsics: FloatArray, viewMatrix: FloatArray )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( bitmap: Bitmap, mask: Bitmap?, depthBuffer: ByteBuffer, depthW: Int, depthH: Int, depthStride: Int, intrinsics: FloatArray, viewMatrix: FloatArray )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int? = null, confidence: Float = 0.5f )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, anchorMatrix: FloatArray, intrinsics: FloatArray )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, anchorMatrix: FloatArray, intrinsics: FloatArray, )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, confidence: FloatArray, obsCount: IntArray, anchor: FloatArray, intrinsics: FloatArray )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( yBuffer: ByteBuffer, uBuffer: ByteBuffer, vBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, uvPixelStride: Int, timestampNs: Long, cvRotateCode: Int )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$( yBuffer: ByteBuffer, uBuffer: ByteBuffer, vBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, uvPixelStride: Int, timestampNs: Long, cvRotateCode: Int? = null )</ID>
+    <ID>LongParameterList:SlamManager.kt$SlamManager$(depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int, confidence: Float)</ID>
+    <ID>LongParameterList:VulkanStampEngine.kt$VulkanStampEngine$( dabs: List&lt;ColorSmudgeDab&gt;, mode: Int, radiusPx: Float, feathering: Float, smearAlpha: Boolean, paintColorArgb: Int, dilution: Float = 0f, baseColorRate: Float = 0f, chargeDecayRate: Float = 0f, pickupRate: Float = 0f, sampleSource: IntArray? = null, sampleSourceWidth: Int = 0, sampleSourceHeight: Int = 0, )</ID>
+    <ID>LongParameterList:VulkanStampEngine.kt$VulkanStampEngine$( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: VulkanSubstrateParams? = null, )</ID>
+    <ID>LongParameterList:VulkanStampEngine.kt$VulkanStampEngine$( handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean, substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float, substrateOffsetX: Float, substrateOffsetY: Float, strokeMax: Boolean, )</ID>
+    <ID>LongParameterList:VulkanStampEngine.kt$VulkanStampEngine$( handle: Long, dabData: FloatArray, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray?, grainWidth: Int, grainHeight: Int, grainCanvasLocked: Boolean, grainScale: Float, grainPhaseX: Float, grainPhaseY: Float, secondaryDabData: FloatArray?, secondaryMaskAlpha8: ByteArray?, secondaryMaskWidth: Int, secondaryMaskHeight: Int, hasSubstrate: Boolean, hasPaintHeight: Boolean, substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float, substrateOffsetX: Float, substrateOffsetY: Float, )</ID>
+    <ID>LongParameterList:VulkanStampEngine.kt$VulkanStampEngine$( handle: Long, dabData: FloatArray, mode: Int, radiusPx: Float, feathering: Float, smearAlpha: Boolean, paintColorArgb: Int, dilution: Float, baseColorRate: Float, chargeDecayRate: Float, pickupRate: Float, sampleSourceRgba8: ByteArray?, sampleSourceWidth: Int, sampleSourceHeight: Int, )</ID>
+    <ID>LongParameterList:YuvConverter.kt$YuvConverter$( yBuffer: ByteBuffer, uBuffer: ByteBuffer, vBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvRowStride: Int, uvPixelStride: Int, outBitmap: Bitmap, )</ID>
+    <ID>MagicNumber:InkStrokePredictor.kt$InkStrokePredictor$4</ID>
+    <ID>MagicNumber:LiquifyGlContext.kt$LiquifyGlContext$3</ID>
+    <ID>MagicNumber:LiquifyGlContext.kt$LiquifyGlContext$8</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$16</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$19</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$20</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$3</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$4</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$5</ID>
+    <ID>MagicNumber:SlamManager.kt$SlamManager$96</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$0xFF</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$10</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$11</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$12</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$13</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$14</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$15</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$16</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$24</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$255f</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$3</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$4</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$5</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$6</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$7</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$8</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanStampEngine$9</ID>
+    <ID>MagicNumber:VulkanStampEngine.kt$VulkanSubstrateParams$0.05f</ID>
+    <ID>MagicNumber:YuvConverter.kt$YuvConverter$3</ID>
+    <ID>MaxLineLength:SlamManager.kt$SlamManager$nativeFeedArCoreDepth(depthBuffer, width, height, rowStride, intrinsics, intrW, intrH, cvRotateCode ?: -1, confidence)</ID>
+    <ID>MaxLineLength:SlamManager.kt$SlamManager$nativeFeedYuvFrame(yBuffer, uBuffer, vBuffer, width, height, yStride, uvStride, uvPixelStride, timestampNs, cvRotateCode ?: -1)</ID>
+    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedArCoreDepth(depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int, confidence: Float)</ID>
+    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedColorFrame(colorBuffer: ByteBuffer, width: Int, height: Int, timestampNs: Long, cvRotateCode: Int)</ID>
+    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedStereoData(leftBuffer: ByteBuffer, rightBuffer: ByteBuffer, width: Int, height: Int, timestamp: Long)</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$MaskedBrushDab$/** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [VulkanStampEngine.stampMaskedDabs]. */</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$"secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$"secondaryMaskAlpha8/secondaryMaskWidth/secondaryMaskHeight must be supplied when secondaryDabs is non-empty"</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$private external fun nativeUploadSubstrateHeight(handle: Long, heightR8: ByteArray, width: Int, height: Int): Boolean</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$require(bitmap.config == Bitmap.Config.ARGB_8888) { "VulkanStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$require(bitmap.config == Bitmap.Config.ARGB_8888) { "VulkanStampEngine.upload requires ARGB_8888, got ${bitmap.config}" }</ID>
+    <ID>MaxLineLength:VulkanStampEngine.kt$VulkanStampEngine$require(grainWidth &gt; 0 &amp;&amp; grainHeight &gt; 0) { "grainWidth/grainHeight must be positive when grainAlpha8 is supplied" }</ID>
+    <ID>MaxLineLength:VulkanStampEngineSelfTest.kt$VulkanStampEngineSelfTest$return Result(success = true, message = "Vulkan compute stamp engine works on this device.", bitmap = bitmap)</ID>
+    <ID>NewLineAtEndOfFile:StereoDepthProvider.kt$com.hereliesaz.graffitixr.nativebridge.depth.StereoDepthProvider.kt</ID>
+    <ID>NewLineAtEndOfFile:VulkanStampEngine.kt$com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine.kt</ID>
+    <ID>ReturnCount:InkStrokePredictor.kt$InkStrokePredictor$fun predict(): Prediction?</ID>
+    <ID>ReturnCount:SlamManager.kt$SlamManager$fun getWallFeatureMap(): WallFeatureMap?</ID>
+    <ID>ReturnCount:SlamManager.kt$SlamManager$private fun forwardYuvFrame(frame: CameraFrame)</ID>
+    <ID>ReturnCount:StereoDepthProvider.kt$StereoDepthProvider$@Synchronized fun processStereoFrames(left: ByteArray, right: ByteArray, width: Int, height: Int, timestamp: Long)</ID>
+    <ID>ReturnCount:StereoDepthProvider.kt$StereoDepthProvider$@Synchronized fun submitFrame(yPlane: ByteBuffer, width: Int, height: Int, timestamp: Long)</ID>
+    <ID>ReturnCount:VulkanStampEngine.kt$VulkanStampEngine$fun colorSmudgeBenchmarkInfo(): ColorSmudgeBenchmarkInfo?</ID>
+    <ID>ReturnCount:VulkanStampEngine.kt$VulkanStampEngine$fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: VulkanSubstrateParams? = null, ): Boolean</ID>
+    <ID>ReturnCount:VulkanStampEngine.kt$VulkanStampEngine$fun stampResolvedDabs( dabs: List&lt;ResolvedBrushDab&gt;, buildUp: Boolean = false, substrate: VulkanSubstrateParams? = null, strokeMax: Boolean = false, ): Boolean</ID>
+    <ID>ReturnCount:VulkanStampEngine.kt$VulkanStampEngine$private fun initialize(width: Int, height: Int, hardwareBufferBacked: Boolean): Boolean</ID>
+    <ID>ReturnCount:VulkanStampEngineSelfTest.kt$VulkanStampEngineSelfTest$fun run(): Result</ID>
+    <ID>SwallowedException:NativeCrashHandler.kt$NativeCrashHandler$t: Throwable</ID>
+    <ID>SwallowedException:SlamManager.kt$SlamManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LiquifyGlContext.kt$LiquifyGlContext$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:NativeCrashHandler.kt$NativeCrashHandler$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SlamManager.kt$SlamManager$e: Exception</ID>
+    <ID>TooManyFunctions:SlamManager.kt$SlamManager</ID>
+    <ID>TooManyFunctions:VulkanStampEngine.kt$VulkanStampEngine</ID>
+  </CurrentIssues>
+</SmellBaseline>
