@@ -220,3 +220,24 @@ class PredictionSoloTest {
         assertEquals(listOf("linear", "acceleration"), t.activeModels)
     }
 }
+
+class PredictionEndStrokeTest {
+    @Test
+    fun overshootPastTheLiftPointIsScoredNotDropped() {
+        val t = PredictionTournament(listOf(LinearGesturePredictor()), includeGoogleInk = false)
+        // Moving right at 1 px/ms, then the pen lifts where it is.
+        for (i in 0..5) {
+            t.record(GestureSample(Offset(i * 10f, 0f), i * 10L))
+            t.predict(i * 10L + 16L)
+        }
+        val before = t.rankings().getValue(4).firstOrNull { it.model == "linear" }?.samples ?: 0
+        t.endStroke(Offset(50f, 0f))
+        val f4 = t.rankings().getValue(4).first { it.model == "linear" }
+        assertTrue("pending f4 predictions scored at lift", f4.samples > before)
+        // Linear keeps going past the lift point, so its lead must now show overshoot.
+        assertTrue("lead was ${f4.meanLeadPx}", f4.meanLeadPx > 0f)
+        // Nothing left to score twice.
+        t.endStroke(Offset(50f, 0f))
+        assertEquals(f4.samples, t.rankings().getValue(4).first { it.model == "linear" }.samples)
+    }
+}

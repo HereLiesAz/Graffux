@@ -188,6 +188,18 @@ class PredictionTournament(
 
     fun resetRankings() = session.clear()
 
+    /**
+     * Pen lifted: score every still-pending prediction against the lift point, where the pen
+     * stopped. Without this they were discarded at the next [reset], and those are exactly the
+     * predictions that run past the end of a stroke -- so overshoot went unmeasured and every
+     * model's lead read more negative than it is. [liftPosition] is the pen-up point when known
+     * (it can arrive before the last move sample is recorded); otherwise the last recorded sample.
+     */
+    fun endStroke(liftPosition: Offset? = null) {
+        val lift = liftPosition ?: lastReal?.position ?: return
+        while (pending.isNotEmpty()) score(pending.removeFirst(), lift)
+    }
+
     /** Record a real sample and score every prediction whose target time it has reached. */
     fun record(sample: GestureSample) {
         val previous = lastReal
