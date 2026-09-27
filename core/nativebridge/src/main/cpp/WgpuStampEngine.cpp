@@ -46,6 +46,17 @@ struct Api {
     void (*benchmarkInfo)(GfxWgpuEngine*, uint32_t*, uint64_t*);
     bool (*readback)(GfxWgpuEngine*, uint8_t*, size_t);
     size_t (*adapterDescription)(GfxWgpuEngine*, char*, size_t);
+    // Optional (resident layers, rectangle readback): a library without them still loads; the
+    // adapter then behaves like the other backends (no residency, whole-layer rect reports).
+    bool (*readbackRect)(GfxWgpuEngine*, uint8_t*, size_t, int32_t*);
+    uint64_t (*bindLayer)(GfxWgpuEngine*, uint64_t, uint64_t);
+    uint64_t (*uploadLayer)(GfxWgpuEngine*, uint64_t, uint64_t, const uint8_t*, size_t);
+    bool (*commitLayer)(GfxWgpuEngine*, uint64_t, uint64_t, uint64_t);
+    bool (*refreshLayer)(GfxWgpuEngine*, uint64_t, uint64_t, uint64_t, const uint8_t*, size_t,
+                         int32_t, int32_t, int32_t, int32_t);
+    bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
+    void (*invalidateAllLayers)(GfxWgpuEngine*);
+    void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
 };
 
 std::once_flag gLoadOnce;
@@ -56,6 +67,12 @@ template <class F>
 bool resolve(void* lib, const char* name, F& out) {
     out = reinterpret_cast<F>(dlsym(lib, name));
     if (out == nullptr) WGPU_LOGW("missing symbol %s", name);
+    return out != nullptr;
+}
+
+template <class F>
+bool optional(void* lib, const char* name, F& out) {
+    out = reinterpret_cast<F>(dlsym(lib, name));
     return out != nullptr;
 }
 
@@ -78,7 +95,18 @@ void load() {
               resolve(lib, "gfx_wgpu_benchmark_info", a.benchmarkInfo) &&
               resolve(lib, "gfx_wgpu_readback", a.readback) &&
               resolve(lib, "gfx_wgpu_adapter_description", a.adapterDescription);
-    if (gLoaded) gApi = a;  // The library stays loaded for the process lifetime.
+    if (gLoaded) {
+        optional(lib, "gfx_wgpu_readback_rect", a.readbackRect);
+        const bool resident = optional(lib, "gfx_wgpu_bind_layer", a.bindLayer) &&
+                              optional(lib, "gfx_wgpu_upload_layer", a.uploadLayer) &&
+                              optional(lib, "gfx_wgpu_commit_layer", a.commitLayer) &&
+                              optional(lib, "gfx_wgpu_refresh_layer", a.refreshLayer) &&
+                              optional(lib, "gfx_wgpu_invalidate_layer", a.invalidateLayer) &&
+                              optional(lib, "gfx_wgpu_invalidate_all_layers", a.invalidateAllLayers) &&
+                              optional(lib, "gfx_wgpu_set_resident_budget", a.setResidentBudget);
+        if (!resident) a.bindLayer = nullptr;  // all or nothing
+        gApi = a;  // The library stays loaded for the process lifetime.
+    }
 }
 
 GfxWgpuSubstrate toC(const SubstrateStampParams& s) {
@@ -185,6 +213,48 @@ ColorSmudgeBenchmarkInfo WgpuStampEngine::colorSmudgeBenchmarkInfo() const {
 bool WgpuStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     return engine_ != nullptr && outRgba8 != nullptr &&
            gApi.readback(engine_, outRgba8, outCapacityBytes);
+}
+
+bool WgpuStampEngine::readbackRect(uint8_t* outRgba8, size_t outCapacityBytes, int32_t rect[4]) {
+    if (gApi.readbackRect == nullptr) return StampEngine::readbackRect(outRgba8, outCapacityBytes, rect);
+    return engine_ != nullptr && outRgba8 != nullptr &&
+           gApi.readbackRect(engine_, outRgba8, outCapacityBytes, rect);
+}
+
+bool WgpuStampEngine::supportsResidentLayers() const {
+    return engine_ != nullptr && gApi.bindLayer != nullptr;
+}
+
+uint64_t WgpuStampEngine::bindLayer(uint64_t key, uint64_t generation) {
+    return supportsResidentLayers() ? gApi.bindLayer(engine_, key, generation) : 0;
+}
+
+uint64_t WgpuStampEngine::uploadLayer(uint64_t key, uint64_t generation, const uint8_t* rgba,
+                                      size_t size) {
+    if (!supportsResidentLayers() || rgba == nullptr) return 0;
+    return gApi.uploadLayer(engine_, key, generation, rgba, size);
+}
+
+bool WgpuStampEngine::commitLayer(uint64_t key, uint64_t session, uint64_t generation) {
+    return supportsResidentLayers() && gApi.commitLayer(engine_, key, session, generation);
+}
+
+bool WgpuStampEngine::refreshLayer(uint64_t key, uint64_t session, uint64_t generation,
+                                   const uint8_t* rgba, size_t size, int x, int y, int w, int h) {
+    return supportsResidentLayers() && rgba != nullptr &&
+           gApi.refreshLayer(engine_, key, session, generation, rgba, size, x, y, w, h);
+}
+
+bool WgpuStampEngine::invalidateLayer(uint64_t key) {
+    return supportsResidentLayers() && gApi.invalidateLayer(engine_, key);
+}
+
+void WgpuStampEngine::invalidateAllLayers() {
+    if (supportsResidentLayers()) gApi.invalidateAllLayers(engine_);
+}
+
+void WgpuStampEngine::setResidentBudget(uint64_t bytes) {
+    if (supportsResidentLayers()) gApi.setResidentBudget(engine_, bytes);
 }
 
 void WgpuStampEngine::destroy() {

@@ -346,14 +346,14 @@ fn dirty_rect_readback_reports_and_copies_only_the_rect() {
         assert_eq!(e.dirty_rect(), (0, 0, 0, 0), "[{name}] bound layer starts clean");
         let d = GpuDab::legacy(40.0, 30.0, 5.0, 1.0, 0.0);
         assert!(e.stamp_dabs(&[d], 0xFFFFFFFF, 1.0, false, SubstrateParams::default(), false));
-        // dabRegion: floor(35)..ceil(45)+1 in both axes.
-        assert_eq!(e.dirty_rect(), (35, 25, 11, 11), "[{name}]");
+        // dabRegion: floor(35)..ceil(45)+1 in both axes, dispatched as one 16x16 workgroup.
+        assert_eq!(e.dirty_rect(), (35, 25, 16, 16), "[{name}]");
         let mut buf = vec![0x5Au8; (W * H * 4) as usize];
-        assert_eq!(e.readback_rect(&mut buf), Some((35, 25, 11, 11)), "[{name}]");
+        assert_eq!(e.readback_rect(&mut buf), Some((35, 25, 16, 16)), "[{name}]");
         let at = |x: i32, y: i32| ((y * W + x) * 4) as usize;
         assert_eq!(&buf[at(40, 30)..at(40, 30) + 4], &[255, 255, 255, 255], "[{name}]");
         assert_eq!(&buf[at(34, 30)..at(34, 30) + 4], &[0x5A; 4], "[{name}] left of rect");
-        assert_eq!(&buf[at(46, 30)..at(46, 30) + 4], &[0x5A; 4], "[{name}] right of rect");
+        assert_eq!(&buf[at(51, 30)..at(51, 30) + 4], &[0x5A; 4], "[{name}] right of rect");
         assert_eq!(&buf[at(40, 24)..at(40, 24) + 4], &[0x5A; 4], "[{name}] above rect");
         // Inside the rect but untouched by the dab: the layer's own pixels came back.
         assert_eq!(&buf[at(35, 25)..at(35, 25) + 4], &s[at(35, 25)..at(35, 25) + 4]);
@@ -401,5 +401,36 @@ fn color_smudge_taints_the_whole_layer() {
         let committed = e.read_all().unwrap();
         assert!(e.refresh_layer(LAYER, session, 2, &committed, (0, 0, 0, 0)));
         assert_eq!(e.read_all().unwrap(), committed, "[{name}]");
+    }
+}
+
+/// A masked tip's rotated rectangle reaches past its radius into the dispatch's workgroup padding.
+/// The rectangle readback must still return every pixel the dispatch wrote.
+#[test]
+fn masked_writes_past_the_radius_are_read_back() {
+    for (name, b) in backends() {
+        let mut e = engine(b);
+        let s = seed(&mut Rng(31));
+        assert_ne!(e.upload_layer(LAYER, 1, &s), 0);
+        let mut d = GpuDab::legacy(40.0, 40.0, 8.0, 1.0, 45.0);
+        d.tip_ratio = 1.0;
+        let mask = vec![255u8; 16 * 16];
+        let p = graffux_wgpu::MaskedParams {
+            mask: &mask,
+            mask_width: 16,
+            mask_height: 16,
+            grain: None,
+            grain_canvas_locked: false,
+            grain_scale: 1.0,
+            grain_phase_x: 0.0,
+            grain_phase_y: 0.0,
+            secondary_dabs: &[],
+            secondary_mask: None,
+            substrate: SubstrateParams::default(),
+        };
+        assert!(e.stamp_masked_dabs(&[d], 0xFFFF0000, 1.0, &p));
+        let mut rect_read = s.clone();
+        assert!(e.readback(&mut rect_read));
+        assert_eq!(rect_read, e.read_all().unwrap(), "[{name}]");
     }
 }

@@ -137,6 +137,42 @@ public:
     virtual ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const = 0;
     virtual bool readback(uint8_t* outRgba8, size_t outCapacityBytes) = 0;
     virtual void destroy() = 0;
+
+    // ---- Optional: resident layers and rectangle readback (wgpu only for now) ---------------
+    // Defaults keep Vulkan and GLES exactly as they were: no resident layers (every bind misses and
+    // every upload fails, so callers take the plain upload() path) and readbackRect() is readback()
+    // reporting the whole layer. See core/wgpu-engine/include/graffux_wgpu.h for the contract.
+
+    // Copies the rectangle dirtied since the last readback and reports it as {x, y, w, h}.
+    virtual bool readbackRect(uint8_t* outRgba8, size_t outCapacityBytes, int32_t rect[4]) {
+        const bool ok = readback(outRgba8, outCapacityBytes);
+        if (ok) {
+            rect[0] = 0;
+            rect[1] = 0;
+            rect[2] = width();
+            rect[3] = height();
+        }
+        return ok;
+    }
+    virtual bool supportsResidentLayers() const { return false; }
+    // Bind session (> 0) if layer `key` is resident at `generation`, else 0.
+    virtual uint64_t bindLayer(uint64_t /*key*/, uint64_t /*generation*/) { return 0; }
+    // Uploads a full layer image as resident layer `key`; bind session or 0.
+    virtual uint64_t uploadLayer(uint64_t /*key*/, uint64_t /*generation*/,
+                                 const uint8_t* /*rgba*/, size_t /*size*/) {
+        return 0;
+    }
+    virtual bool commitLayer(uint64_t /*key*/, uint64_t /*session*/, uint64_t /*generation*/) {
+        return false;
+    }
+    virtual bool refreshLayer(uint64_t /*key*/, uint64_t /*session*/, uint64_t /*generation*/,
+                              const uint8_t* /*rgba*/, size_t /*size*/, int /*x*/, int /*y*/,
+                              int /*w*/, int /*h*/) {
+        return false;
+    }
+    virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
+    virtual void invalidateAllLayers() {}
+    virtual void setResidentBudget(uint64_t /*bytes*/) {}
     virtual bool isInitialized() const = 0;
     virtual int width() const = 0;
     virtual int height() const = 0;

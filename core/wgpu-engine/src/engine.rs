@@ -1079,7 +1079,7 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.note_write(r);
+        self.note_write(self.dispatch_footprint(r));
         self.ok()
     }
 
@@ -1270,7 +1270,7 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.note_write(r);
+        self.note_write(self.dispatch_footprint(r));
         self.ok()
     }
 
@@ -1579,6 +1579,20 @@ impl Engine {
                 e.touched = e.touched.union(r).clamp(width, height);
             }
         }
+    }
+
+    /// Every pixel a stamp dispatch over `r` can store: whole 16x16 workgroups from `r`'s origin,
+    /// clamped to the layer. The shaders bound-check against the layer, not `r`, and a masked tip's
+    /// rotated rectangle reaches past the radius-sized `r` into that padding, so tracking only `r`
+    /// would let a rectangle readback (or a resident refresh) miss real writes.
+    fn dispatch_footprint(&self, r: Rect) -> Rect {
+        if r.is_empty() {
+            return r;
+        }
+        let tile = STAMP_TILE as i32;
+        let w = (r.w + tile - 1) / tile * tile;
+        let h = (r.h + tile - 1) / tile * tile;
+        Rect::new(r.x, r.y, w, h).clamp(self.width, self.height)
     }
 
     /// Back to the anonymous scratch layer (`upload()`/`clear()`); resident layers stay put.
