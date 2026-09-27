@@ -142,7 +142,12 @@ class BrushTaperTest {
             name = "plain",
             spacing = 0.25f,
             dynamics = listOf(
-                BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.SIZE, outputMin = 1f, outputMax = 1f),
+                BrushSensorBinding(
+                    sensor = BrushSensor.PRESSURE,
+                    parameter = BrushParameter.SIZE,
+                    outputMin = 1f,
+                    outputMax = 1f,
+                ),
             ),
         )
         val dabs = BrushStamps.dynamicDabs(samples, 20f, brush, seed = 3L)
