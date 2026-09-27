@@ -160,9 +160,9 @@ fun SettingsScreen(
             )
             ChoiceRow(
                 title = "Sample rate",
-                subtitle = "How often a stroke is sampled and redrawn. Modern screens report touch " +
-                    "far faster than they can display it, so a lower rate usually looks identical " +
-                    "and draws much less power.",
+                subtitle = "Caps how often a stroke is redrawn. Every touch sample is always kept, " +
+                    "and Brush never redraws faster than the screen refreshes, so Unlimited means " +
+                    "once per displayed frame. A lower cap draws less power.",
                 options = SAMPLE_RATES,
                 selected = sampleRate,
                 label = { hz -> if (hz <= 0) "Unlimited" else "$hz Hz" },

@@ -29,4 +29,13 @@ class AzphaltRenderCadenceTest {
         assertTrue(gate.shouldRender(100L, 0))
         assertTrue(gate.shouldRender(101L, 0))
     }
+
+    @Test
+    fun first_sample_is_claimed_once_per_stroke() {
+        val gate = AzphaltRenderCadence()
+        assertTrue(gate.claimFirst(100L))
+        assertFalse(gate.claimFirst(101L))
+        gate.reset()
+        assertTrue(gate.claimFirst(200L))
+    }
 }
