@@ -53,6 +53,7 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
+import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngineSelfTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -361,6 +362,21 @@ private fun GpuBackendRow() {
             backend = it
             GpuStampEngine.Backend.preferred = it
             prefs.edit().putString(GpuStampEngine.Backend.KEY, it.label).apply()
+        },
+    )
+    var direct by remember { mutableStateOf(LiveStrokeOverlay.enabled) }
+    ChoiceRow(
+        title = "Direct display",
+        subtitle = "Draws the stroke in progress straight to the screen through Vulkan, skipping " +
+            "the app's own frame. Normal-blend layers with nothing visible above them; everything " +
+            "else draws as before. Takes effect next time the canvas opens.",
+        options = listOf(false, true),
+        selected = direct,
+        label = { if (it) "On" else "Off" },
+        onSelect = {
+            direct = it
+            LiveStrokeOverlay.enabled = it
+            prefs.edit().putBoolean(LiveStrokeOverlay.ENABLED_KEY, it).apply()
         },
     )
 }

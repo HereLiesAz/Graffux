@@ -82,6 +82,11 @@ graffux_embed_shader(
     -DTILE_SIZE=8
 )
 graffux_embed_shader(
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/live_overlay.comp"
+    "LiveOverlaySpv.h"
+    "kLiveOverlayCompSpv"
+)
+graffux_embed_shader(
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
     "ColorSmudge16Spv.h"
     "kColorSmudge16CompSpv"
@@ -120,6 +125,7 @@ add_library(graffitixr SHARED
     VulkanColorSmudgeJNI.cpp
     GlesStampEngine.cpp
     StampEngineFactory.cpp
+    LiveStrokeOverlay.cpp
     InkStrokePredictorJNI.cpp
 )
 
