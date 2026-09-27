@@ -21,8 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA_VERSION = 2
-READABLE_SCHEMAS = (1, 2)  # v1: no `pointers`/`sensorStatus`/arrival times; see SCHEMA.md
+SCHEMA_VERSION = 3
+# v1: no `pointers`/`sensorStatus`/arrival times; v2: no `heatmap`. See SCHEMA.md.
+READABLE_SCHEMAS = (1, 2, 3)
 HISTORY = 16
 HORIZONS = 4
 POS_SCALE = 100.0  # px per unit

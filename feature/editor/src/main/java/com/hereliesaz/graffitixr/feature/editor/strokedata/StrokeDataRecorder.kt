@@ -36,6 +36,9 @@ class StrokeDataRecorder(
     private val sensorThread: Boolean = true,
 ) : SensorEventListener2 {
 
+    /** Raw touch heatmap (root only, opt-in); null when off. Set before the first stroke. */
+    var heatmap: HeatmapSource? = null
+
     private val rings = SENSORS.associate { (type, name) -> type to SensorRing(name, RING_CAPACITY) }
     private val registeredTypes = LinkedHashSet<Int>()
     private var registered = false
@@ -122,6 +125,8 @@ class StrokeDataRecorder(
             fromNs = builder.firstTimeNs - SENSOR_LEAD_NS + clockOffsetNs,
             toNs = builder.lastTimeNs + SENSOR_TAIL_NS + clockOffsetNs,
             registered = registeredTypes.toSet(),
+            heatFromNs = builder.firstTimeNs - HEATMAP_LEAD_NS,
+            heatToNs = builder.lastTimeNs + HEATMAP_TAIL_NS,
         )
         // Let the tail after the lift happen, then flush whatever the sensor stack still holds.
         mainHandler.postDelayed({ requestFlush(pending) }, SENSOR_TAIL_NS / NS_PER_MS)
@@ -164,6 +169,11 @@ class StrokeDataRecorder(
         pending.record.put("sensorsRegistered", JSONArray(pending.registered.mapNotNull { rings[it]?.name }))
         pending.record.put("sensorStatus", status)
         pending.record.put("flush", flush)
+        heatmap?.let { source ->
+            // Uptime ns, like the samples. Capped per stroke in HeatmapCapture.slice.
+            source.slice(pending.heatFromNs, pending.heatToNs)?.let { pending.record.put("heatmap", it.toJson()) }
+            pending.record.put("heatmapStatus", source.status().toJson())
+        }
         sink(pending.record)
     }
 
@@ -172,6 +182,8 @@ class StrokeDataRecorder(
         val fromNs: Long,
         val toNs: Long,
         val registered: Set<Int>,
+        val heatFromNs: Long,
+        val heatToNs: Long,
     ) {
         val awaiting = HashSet<Int>()
         val flushed = HashSet<Int>()
@@ -180,11 +192,14 @@ class StrokeDataRecorder(
 
     companion object {
         /** Bumped whenever the record layout changes; the dataset loader checks it. */
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
 
         private const val NS_PER_MS = 1_000_000L
         private const val SENSOR_LEAD_NS = 500 * NS_PER_MS
         private const val SENSOR_TAIL_NS = 150 * NS_PER_MS
+        /** Heatmap window around a stroke; the tail fits inside [SENSOR_TAIL_NS], so it has arrived. */
+        const val HEATMAP_LEAD_NS = 100 * NS_PER_MS
+        const val HEATMAP_TAIL_NS = 50 * NS_PER_MS
         /** How long a stroke waits for [onFlushCompleted] before slicing what it has. */
         const val FLUSH_TIMEOUT_MS = 1_000L
         // 200 Hz: the fastest rate Android grants without HIGH_SAMPLING_RATE_SENSORS.

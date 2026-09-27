@@ -12,7 +12,9 @@ plus two direct tests of the owner's rules (no fitting): onset yaw vs initial di
 egg shape (eggness vs fast-and-controlled strokes, egg lead direction vs initial direction).
 
 Feature sets compared: a trivial baseline (mean direction / mean / majority class), kinematics only,
-contact shape only (no position or velocity), shape + kinematics, and the derived finger pose.
+contact shape only (no position or velocity), shape + kinematics, and the derived finger pose; plus,
+when any stroke carries a raw touch heatmap (schema v3), "heatmap" (contact-image moments,
+strokemodel/heatmap.py) and heatmap + derived pose, and a direct test of the heatmap egg lead.
 
 Split: by session (leave one session out) by default. With a single session that is impossible, and
 --split strokes does repeated K-fold over strokes instead: strokes from the same sitting share hand,
@@ -44,6 +46,10 @@ CLASS_SETS = [
     ("contact shape only", ("shape.",)),
     ("derived pose only", ("pose.", "drift.")),
     ("pose + kinematics", ("pose.", "drift.", "kin.")),
+]
+HEATMAP_SETS = [  # used only when some strokes carry a heatmap (schema v3, root)
+    ("heatmap", ("heatmap.",)),
+    ("heatmap + derived pose", ("heatmap.", "pose.", "drift.")),
 ]
 TYPE_WINDOWS_MS = (30.0, 60.0, 100.0)
 
@@ -266,6 +272,19 @@ def egg_test(rep: Report, items: list[Onset]) -> None:
             f"{q[0]:.0f}° / {q[1]:.0f}° / {q[2]:.0f}° (uniform: 45 / 90 / 135), within 45°: "
             f"{100 * (e < 45).mean():.0f}% (uniform 25%), permutation p = {fmt_p(ek.perm_p_angle(lead, d))}; "
             f"raw onset motion on the same strokes: median {_motion_ref(sub, d)}°.")
+    heat = [o for o in items if o.features.get("heatmap.lead_conf", 0) > 0]
+    for h in DIR_HORIZONS_MS:
+        key = f"dir{int(h)}"
+        sub = [o for o in heat if o.targets.get(key) is not None]
+        if len(sub) < 5:
+            continue
+        lead = np.asarray([math.atan2(o.features["heatmap.lead_sin"], o.features["heatmap.lead_cos"]) for o in sub])
+        d = np.asarray([o.targets[key] for o in sub])
+        e = ek.ang_err(lead, d)
+        q = np.percentile(e, [25, 50, 75])
+        rep(f"- Heatmap egg lead (skew along the contact's major axis) vs direction over the next {int(h)} ms "
+            f"(n = {len(sub)}): error quartiles {q[0]:.0f}° / {q[1]:.0f}° / {q[2]:.0f}°, within 45°: "
+            f"{100 * (e < 45).mean():.0f}%, permutation p = {fmt_p(ek.perm_p_angle(lead, d))}.")
     settle = sum(o.features["ref.settle_only"] > 0 for o in items)
     rep(f"- Strokes whose first report after touchdown kept the centroid still (so a settle phase could be "
         f"seen apart from motion): {settle} of {len(items)}.")
@@ -322,6 +341,9 @@ def main():
         a.repeats = 1
     all_items = onsets(strokes, a.onset_ms, a.anchor)
     items = [o for o in all_items if o.usable]
+    if any(o.features.get("heatmap.present") for o in items):
+        SETS.extend(HEATMAP_SETS)
+        CLASS_SETS.extend(HEATMAP_SETS)
     rep = Report()
     describe(rep, strokes, all_items, items, a.split)
     rep(f"\n## Whole-stroke prediction from the first {a.onset_ms:.0f} ms after the first report\n")

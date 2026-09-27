@@ -152,3 +152,19 @@ target_link_libraries(graffitixr
     # InkStrokePredictorJNI.cpp uses the Kalman predictor directly.
     InkStrokeModeler::kalman_predictor
 )
+
+# Raw touch heatmap helper (heatmap/heatmap_helper.c): a standalone executable the app runs through
+# `su`, never loaded with System.loadLibrary. It is named lib*.so so the APK packager puts it in
+# lib/<abi>/ and the installer extracts it, executable, into nativeLibraryDir (app/build.gradle.kts
+# sets jniLibs.useLegacyPackaging for that). Plain C, no STL, no dependencies.
+add_executable(graffux_heatmap
+    heatmap/heatmap_helper.c
+    heatmap/sec_parse.c
+)
+set_target_properties(graffux_heatmap PROPERTIES
+    PREFIX "lib"
+    OUTPUT_NAME "graffux_heatmap"
+    SUFFIX ".so"
+    C_STANDARD 11
+)
+target_compile_options(graffux_heatmap PRIVATE -Wall -Wextra -Werror)
