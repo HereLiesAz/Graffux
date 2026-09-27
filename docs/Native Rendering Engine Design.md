@@ -161,6 +161,32 @@ the stored best re-composites base-over-best, which is identical to one max-comb
 whole stroke. Cost: width x height x 8 bytes, allocated on first use. Above
 `maxStorageBufferRange`, the call returns false and the stroke falls back to the CPU.
 
+### 2a. Second backend: OpenGL ES 3.1 (selectable)
+
+The stamp engine now has two interchangeable native backends behind one C++ interface
+(`include/StampEngine.h`): `VulkanStampEngine` (above) and `GlesStampEngine` (OpenGL ES 3.1
+compute). Settings → "GPU engine" picks which one new engines use (`GpuStampEngine.Backend`, Kotlin);
+the feel reports name it (`gpu vulkan` / `gpu gles`), so the two can be compared on a real device.
+Vulkan stays the default, and nothing is removed while a Vulkan/GLES hybrid and other options are
+evaluated.
+
+- **Shaders.** `shaders/gles/*.comp` are generated from the Vulkan GLSL by
+  `shaders/gles/port_from_vulkan.py`: same math, with the layer held in an SSBO of packed RGBA8
+  words, because ES 3.1 forbids load+store on an rgba8 image. `unpack/packUnorm4x8` does the same
+  unorm conversion. Edit the Vulkan source and re-run the script; the two can't drift apart.
+- **Context.** Private EGL context, surfaceless or a 1x1 pbuffer. Every call makes it current and
+  restores whatever the thread had current before (e.g. a GLSurfaceView's context).
+- **Zero-copy display.** `initWithHardwareBuffer` publishes each written region into an
+  AHardwareBuffer-backed texture, GPU-side via a pixel-unpack buffer, so `AzphaltGpuDisplay` works
+  unchanged.
+- **Verified on host.** `tools/stamp-engine-diff/run.sh` runs 26 scenarios through both backends on
+  Mesa. All are byte-identical except ±1–2 levels in a few dozen bytes: `round()` on exact halves,
+  which GLSL leaves implementation-defined. The comparison also found that the Vulkan engine
+  crashes on lavapipe in `uploadPaintHeight` (`vkUpdateDescriptorSets`). Whether real drivers hit
+  the same crash is unverified.
+- **Not yet measured:** on-device speed of either backend against the other. The feel reports
+  answer that.
+
 ## 3. Front-buffer / low-latency presentation
 
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is
@@ -192,10 +218,8 @@ said prediction infrastructure was missing and proposed wiring `androidx.input.m
 in. That infrastructure already exists and is already wired — the gap is narrower and different
 in kind than what was described here.
 
-`DrawingCanvas.kt` already runs a `PredictionTournament` (`LinearGesturePredictor`,
-`AccelerationGesturePredictor`, and `AndroidXMotionGesturePredictor` wrapping
-`androidx.input.motionprediction.MotionEventPredictor`) fed the live `MotionEvent` stream via
-`androidXPredictor.recordMotionEvent(event)`. But the class's own KDoc states the actual contract
+`DrawingCanvas.kt` runs a `PredictionTournament` (Google Ink's Kalman predictor, with
+`LinearGesturePredictor` as the early-stroke fallback; see "Where it landed" below). The contract
 plainly: "Brush latency prediction is presentation-only: predictors race to extend the visible
 tail to the next frame, but predicted points are NEVER sent to `onStrokePoint`. Only real input
 can enter the bitmap/history path" — rendered as `predictionTail`, a translucent overlay line, not
@@ -205,57 +229,64 @@ of the stroke, then on the next real sample, discard and overwrite with ground t
 never paints a predicted dab at all, real or provisional; prediction only shows the artist where
 the line is about to go.
 
-**Per-horizon ranking (frames 1-4).** Every prediction now asks all four models (linear,
-acceleration, AndroidX, Google Ink) for the next four frames, not one. Google Ink evaluates its
-own cubic at each frame time (`InkStrokePredictor.predictAt`, below). AndroidX, and any model
-that picks its own horizon, is rescaled along the line from the latest real sample through its
-prediction. Everyone is judged at the same instants against the true position, interpolated
-between the real samples on either side. Horizon 1 still drives the drawn tail (per-stroke
-exponential average). All horizons feed a session-long mean per model and horizon, which survives
-across strokes and is logged at every Brush stroke end: `adb logcat -s StrokePrediction`, one line
-per frame ahead, best first. That ranking is the data for choosing the best model per frame.
+**Where it landed.** Google Ink's Kalman predictor draws the tail. `LinearGesturePredictor` only
+covers the first few samples of a stroke, before Ink's filters are stable. The tail reaches two
+frames ahead (`PredictionTournament.TAIL_FRAMES`). The decision came from on-device rankings on a
+Pixel 5 at 60 Hz (issues #425, #426 and #435-#439):
 
-Each score also carries **lead**: the signed error along the direction of travel. Positive means
-the model ran ahead of the pen (overshoot), which is what reads worst at stroke ends and turns.
+| Model | f1 error | f4 error | Why it went |
+|---|---|---|---|
+| Google Ink (Kalman, direct) | 20.5 px, 3.8 behind | 184 px | kept: predicts on nearly every sample, barely lags |
+| AndroidX `MotionEventPredictor` | 13.3 px, 9.9 behind | 113 px, 80 behind | answered only ~30% of samples; can't carry the tail |
+| Linear | 27-32 px | 223-255 px | kept only as the early-stroke fallback |
+| Acceleration | 32.8 px | 439 px | overshot worst at every horizon |
+| Damped tail (speed/turn shortening) | ~= undamped | -- | no gain; removed |
+
+Every model's error roughly doubles per frame. Past two frames, the tail reads as a wrong line
+rather than a lead.
+
+**Rankings.** Each prediction still asks every running model for the next four frames. Each is
+scored when real input passes its target time, against the true position interpolated between the
+real samples on either side. Predictions still pending at pen-up are scored at the lift point
+(`endStroke`), so overshoot past the end of a stroke counts. Scores carry **lead**, the signed error
+along the direction of travel (+ = ran ahead). The session-long mean per model and horizon is logged
+at every Brush stroke end (`adb logcat -s StrokePrediction`) and filed as a GitHub issue every 25
+strokes when a token is set in Settings (temporary).
 
 **Google Ink is used through its Kalman predictor alone.** The first hookup read
 `StrokeModeler::Predict()`. That output is made for drawing a smoothed stroke: it starts at the
 spring-mass position modeler's state, which deliberately trails the pen, and joins it to the
 Kalman estimate with a cubic "connector". The next few frames landed on that connector, so the first
-field report (issue #425, Pixel 5) had Ink about 74 px *behind* the pen at every horizon.
+field report (issue #425) had Ink about 74 px *behind* the pen at every horizon.
 `InkStrokePredictorJNI.cpp` now drives `KalmanPredictor` directly and returns its estimated state
 (position, velocity, acceleration, jerk at the latest sample). Kotlin evaluates Ink's own cubic
-(`EvaluateCubic`: p + v t + a t²/2 + j t³/6) at each frame time. On synthetic strokes (host build
-of the pinned library, 120 Hz input, 60 Hz frames) this is about 1 px off one frame ahead. On a
-circle it is roughly half linear's error four frames ahead (10 px vs 20 px).
+(`EvaluateCubic`: p + v t + a t²/2 + j t³/6) at each frame time. On the device that took Ink from
+74 px behind to 3.8 px behind one frame ahead (#435).
 
-**Solo runs.** Settings → Developer → Stroke predictors pins one model (or "All"). The pinned model
-alone draws the tail and alone appears in the rankings; each report begins with a `models:` line.
-
-The drawn tail is the horizon-1 winner shortened by `tailDamping`: speed ratio of the last two real
-segments (braking shrinks it) times (1 + cos turn angle) / 2 (a right angle halves it, a reversal
-removes it). It's ranked as `tail(damped)`, so its benefit is measured, not assumed.
+**Solo runs.** Settings → Developer → Stroke predictors pins one model (or "All"). Each report
+begins with a `models:` line.
 
 #### Stroke prediction to-do
 
-Ordered by value for effort. Items 1-3 of the original list (measure, one shared horizon,
-overshoot damping) are done above.
+Done:
+- **The tail looks like the brush.** `drawPredictionTail` stamps soft round dabs along Ink's
+  predicted curve, using the active brush's hardness for edge falloff and its spacing. All stamps
+  go into one layer, composited at 45% opacity, so overlaps don't darken. Nothing is committed.
+- **The tail covers the measured lag.** `EditorViewModel.predictionLeadMs` is the median
+  touch-to-paint latency from `AzphaltLatencyTracker` (refreshed per stroke once 20 samples exist).
+  The tail reaches that far, clamped to one to two frames. It is a curve through each frame's
+  prediction, not a straight line.
+- **Tuning and threading are now measurable.** Reports carry the prediction cost per sample on the
+  UI thread (mean and max, in µs), and the Ink tuning in use. Settings → Developer → Google Ink tuning
+  switches between `standard` (Ink's reference weights), `steady` and `responsive`.
 
-1. **Keep the winner between strokes.** Horizon-1 selection restarts at zero every stroke, so each
-   stroke re-learns from scratch. Seed it from the session ranking, ideally per input tool
-   (stylus vs finger).
-2. **Pick the best model per frame.** Once the ranking settles, draw a multi-frame tail using the
-   winner at each horizon rather than one model's line.
-3. **Make the tail look like the brush.** Replace the flat line with a few low-opacity stamps of
-   the active brush along the predicted path, still never committed.
-4. **Aim at measured latency, not one frame.** GPU paint lands on a background thread and can
-   trail by more than a frame. Size the horizon from `AzphaltLatencyTracker`'s touch-to-paint
-   measurement.
-5. **Tune Google Ink and move prediction off the UI thread.** Its constants were cut ~6x without
-   measurement; tune them against the ranking. Move the tournament to the input thread if it shows
-   in frame timing.
-6. **Train a Graffux model (later).** A small model on recorded Graffux strokes (pressure, tilt)
-   could beat all four; only worth it once the ranking proves the gap.
+Next, driven by the reports:
+1. **Pick the Ink tuning** with the lowest error and lead near zero across a few sessions, then make
+   it the default and drop the setting.
+2. **Move prediction off the UI thread only if the reported cost warrants it** (roughly: mean above
+   ~200 µs, or spikes that show up in frame timing).
+3. **Train a Graffux model (later).** A small model on recorded Graffux strokes (pressure, tilt)
+   could beat Ink; only worth it once the ranking proves the gap.
 
 Adopting the companion doc's actual substitution model — painting provisional predicted dabs and
 overwriting them once ground truth arrives — remains unimplemented and is a real, separate item
@@ -367,7 +398,7 @@ Not every Android device in `minSdk 26`'s range can do all of this. Rather than 
 | GPU compute stamping (§2) | Vulkan 1.1+ (API 29 for the version guaranteed present; effectively near-universal by now, but see below) | Today's CPU `Canvas` path, unchanged |
 | `AHardwareBuffer` GPU interop (§2) | API 26+ (`AHardwareBuffer` itself), API 29+ for the GL/Vulkan external-memory extensions this design actually needs | Same as above — no interop, no GPU path |
 | Front-buffer presentation (§3) | API 29+ (`SurfaceControl`); best on 34+ (`HardwareBufferRenderer`) | Persistent-texture render + normal Compose frame |
-| Touch prediction (§4) | `androidx.input.motionprediction` — works on any API level, quality varies by digitizer | Already shipped, presentation-only: `PredictionTournament` extends the visible tail; no predicted dab enters the paint path on any device |
+| Touch prediction (§4) | Google Ink Stroke Modeler's Kalman predictor (native, pinned) — works on any API level | Shipped, presentation-only: `PredictionTournament` extends the visible tail two frames; no predicted dab enters the paint path on any device |
 | Wet Mix GPU port (§7) | GPU compute (same as §2) | Already the shipped behaviour: the full, non-approximated `ColorSmudgeEngine` CPU path, same as every device runs today — not a degraded fallback |
 
 Net effect of the Vulkan-compute revision on this table: the GPU path's floor moved from "GLES
@@ -479,7 +510,15 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
-5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) already shipped;
+   **Interim, shipped:** provisional ink. `DrawingCanvas` stamps the brush itself from the raw
+   `ACTION_DOWN` (before touch slop even decides it is a stroke) and follows the real samples
+   until the editor reports the stroke's first real paint presented
+   (`EditorViewModel.strokePaintPresented`), capped at 250 ms. Ink appears on the next composed
+   frame instead of after the engine round trip, finger or stylus. Cleared on hold-to-eyedrop,
+   pinch and lift. It still waits for one Compose frame; front-buffer is what removes that.
+5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) shipped and was
+   later taken off screen at the user's call (the translucent run-ahead read as a taper); the
+   models still run and are ranked;
    what remains is the dab-substitution model itself (provisional predicted dabs, overwritten by
    ground truth), which needs `onStrokePoint`'s real-input-only invariant to grow a
    provisional/authoritative distinction first — independent of the GPU work, but a real design

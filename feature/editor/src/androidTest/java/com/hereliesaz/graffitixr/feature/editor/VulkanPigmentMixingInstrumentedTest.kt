@@ -7,7 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -80,7 +80,7 @@ class VulkanPigmentMixingInstrumentedTest {
             expected.contentEquals(legacy),
         )
 
-        val engine = VulkanStampEngine()
+        val engine = GpuStampEngine()
         assumeTrue("Vulkan compute unavailable on this device", engine.init(width, height))
         try {
             assertTrue(engine.upload(source))
@@ -132,7 +132,7 @@ class VulkanPigmentMixingInstrumentedTest {
             assertTrue("pigment CPU/GPU channel delta was $maxDelta", maxDelta <= 3)
         } finally {
             engine.destroy()
-            VulkanStampEngine.trimPool()
+            GpuStampEngine.trimPool()
             source.recycle()
         }
     }

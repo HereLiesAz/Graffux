@@ -6,9 +6,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.input.motionprediction.MotionEventPredictor
 
 /**
- * Adapter around AndroidX's frame-time MotionEvent predictor. Raw MotionEvents are fed separately
- * through [recordMotionEvent]; the GesturePredictor [record] call is deliberately a no-op because
- * AndroidX owns its own input history and requires the original MotionEvent stream.
+ * Adapter around AndroidX's frame-time MotionEvent predictor (TEMPORARY, ranked against Ink and
+ * linear). Raw MotionEvents are fed separately through [recordMotionEvent]; the GesturePredictor
+ * [record] call is deliberately a no-op because AndroidX owns its own input history and requires
+ * the original MotionEvent stream.
+ *
+ * AndroidX predicts one point, at a time it picks itself (about the next frame). It is asked once
+ * per real sample and that answer is reused for every target up to [SLACK_MS] past its own time;
+ * later targets get null, so it is scored at the one horizon it actually predicts instead of the
+ * same point being counted at f2-f4.
  *
  * MotionEventPredictor construction itself can fail when a View has no associated display (for
  * example a detached host, preview, or Robolectric). Prediction is optional, so that condition
@@ -17,9 +23,11 @@ import androidx.input.motionprediction.MotionEventPredictor
 class AndroidXMotionGesturePredictor(
     private val view: View,
 ) : GesturePredictor {
-    override val name: String = "androidx"
+    override val name: String = PredictionTournament.ANDROIDX
     private var predictor: MotionEventPredictor? = createPredictor()
     private var latestPressure: Float = 1f
+    private var cached: GesturePrediction? = null
+    private var cacheValid = false
 
     private fun createPredictor(): MotionEventPredictor? =
         runCatching { MotionEventPredictor.newInstance(view) }.getOrNull()
@@ -27,6 +35,8 @@ class AndroidXMotionGesturePredictor(
     override fun reset() {
         predictor = createPredictor()
         latestPressure = 1f
+        cached = null
+        cacheValid = false
     }
 
     override fun record(sample: GestureSample) = Unit
@@ -34,6 +44,7 @@ class AndroidXMotionGesturePredictor(
     fun recordMotionEvent(event: MotionEvent) {
         if (event.pointerCount <= 0) return
         latestPressure = event.getPressure(event.actionIndex.coerceIn(0, event.pointerCount - 1))
+        cacheValid = false
         val active = predictor ?: return
         try {
             active.record(event)
@@ -48,25 +59,37 @@ class AndroidXMotionGesturePredictor(
         }
     }
 
-    /** AndroidX chooses its own next-frame target time, so [targetUptimeMillis] is advisory only. */
     override fun predict(targetUptimeMillis: Long): GesturePrediction? {
-        val active = predictor ?: return null
+        if (!cacheValid) {
+            cached = predictNow()
+            cacheValid = true
+        }
+        return cached?.takeIf { targetUptimeMillis <= it.targetUptimeMillis + SLACK_MS }
+    }
+
+    private fun predictNow(): GesturePrediction? {
         val predicted = try {
-            active.predict()
+            predictor?.predict()
         } catch (_: IllegalArgumentException) {
             null
         } ?: return null
         return try {
-            if (predicted.pointerCount <= 0) return null
-            val index = predicted.actionIndex.coerceIn(0, predicted.pointerCount - 1)
-            GesturePrediction(
-                model = name,
-                position = Offset(predicted.getX(index), predicted.getY(index)),
-                targetUptimeMillis = predicted.eventTime,
-                pressure = predicted.getPressure(index).takeIf { it.isFinite() } ?: latestPressure,
-            )
+            predicted.takeIf { it.pointerCount > 0 }?.let { event ->
+                val index = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                GesturePrediction(
+                    model = name,
+                    position = Offset(event.getX(index), event.getY(index)),
+                    targetUptimeMillis = event.eventTime,
+                    pressure = event.getPressure(index).takeIf { it.isFinite() } ?: latestPressure,
+                )
+            }
         } finally {
             predicted.recycle()
         }
+    }
+
+    private companion object {
+        /** Half a 60 Hz frame: a target this far past AndroidX's own time still counts as its frame. */
+        const val SLACK_MS = 8L
     }
 }

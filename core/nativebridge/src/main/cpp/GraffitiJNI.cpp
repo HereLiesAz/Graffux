@@ -19,7 +19,7 @@
 #include "include/MobileGS.h"
 #include "include/StereoProcessor.h"
 #include "include/ImageWarper.h"
-#include "include/VulkanStampEngine.h"
+#include "include/StampEngine.h"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
@@ -1455,15 +1455,17 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
 } // extern "C"
 
 // ---------------------------------------------------------------------------------------------
-// VulkanStampEngine bridge (docs/Native Rendering Engine Design.md §9 Phase 3).
+// GPU stamp engine bridge (docs/Native Rendering Engine Design.md §2/§9). Drives a
+// graffux::StampEngine -- VulkanStampEngine or GlesStampEngine, picked per instance by the
+// `backend` id nativeInit receives (GpuStampEngine.Backend on the Kotlin side).
 //
-// Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above — this engine has no
-// GLES/window dependency (compute-only Vulkan) and is created/destroyed per drawing session by
-// the Kotlin-side VulkanStampEngine wrapper, not tied to AR session start/stop.
+// Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above -- both backends own
+// their own headless context/device -- created/destroyed per drawing session by the Kotlin-side
+// GpuStampEngine wrapper, not tied to AR session start/stop.
 //
-// Per-instance, NOT a single global: nativeInit allocates its own graffux::VulkanStampEngine and
+// Per-instance, NOT a single global: nativeInit allocates its own graffux::StampEngine and
 // returns it to Kotlin as an opaque jlong handle, which every other nativeXxx call takes and
-// nativeDestroy frees. A single shared engine (the original design) meant two VulkanStampEngine
+// nativeDestroy frees. A single shared engine (the original design) meant two GpuStampEngine
 // Kotlin objects silently fought over one native instance — initializing the second destroyed the
 // first's layer out from under it, and destroying either invalidated the other while its Kotlin
 // `initialized` flag stayed true. The Kotlin/C++ classes both already document themselves as not
@@ -1472,9 +1474,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
-    JNIEnv*, jobject, jint width, jint height) {
-    auto* engine = new graffux::VulkanStampEngine();
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
+    JNIEnv*, jobject, jint width, jint height, jint backend) {
+    auto* engine = graffux::createStampEngine(backend);
     if (!engine->init(width, height)) {
         delete engine;
         return 0;
@@ -1483,12 +1485,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInit(
 }
 
 // Same contract as nativeInit, but the layer image's memory is an imported AHardwareBuffer (see
-// VulkanStampEngine::initWithHardwareBuffer) — docs/Native Rendering Engine Design.md §2's
+// StampEngine::initWithHardwareBuffer) — docs/Native Rendering Engine Design.md §2's
 // zero-copy interop. Falling back to nativeInit on failure is expected and safe.
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInitHardwareBuffer(
-    JNIEnv*, jobject, jint width, jint height) {
-    auto* engine = new graffux::VulkanStampEngine();
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInitHardwareBuffer(
+    JNIEnv*, jobject, jint width, jint height, jint backend) {
+    auto* engine = graffux::createStampEngine(backend);
     if (!engine->initWithHardwareBuffer(width, height)) {
         delete engine;
         return 0;
@@ -1503,9 +1505,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeInitHardware
 // lifetime/destroy() — the caller is responsible for eventually letting it go (HardwareBuffer.close()
 // or GC), same as any other AHardwareBuffer-backed Java object.
 JNIEXPORT jobject JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeGetHardwareBuffer(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGetHardwareBuffer(
     JNIEnv* env, jobject, jlong handle) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->hardwareBuffer()) return nullptr;
     return AHardwareBuffer_toHardwareBuffer(env, engine->hardwareBuffer());
 }
@@ -1514,9 +1516,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeGetHardwareB
 // requirements (ARGB_8888, non-hardware, exactly width x height, tight stride) and same "no
 // channel reordering needed" reasoning.
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUpload(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
     JNIEnv* env, jobject, jlong handle, jobject inBitmap) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     AndroidBitmapInfo info;
@@ -1541,12 +1543,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUpload(
 }
 
 // `dabData` is a flat float array, 5 floats per dab (x, y, radius, alpha, angleDeg) — the same
-// fields BrushStamps.Dab exposes on the Kotlin side, packed by the VulkanStampEngine.kt wrapper
+// fields BrushStamps.Dab exposes on the Kotlin side, packed by the GpuStampEngine.kt wrapper
 // so no per-dab JNI round trip is needed for a whole stroke's dab list.
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampDabs(
     JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jint colorArgb, jfloat hardness) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     jsize len = env->GetArrayLength(dabData);
@@ -1573,9 +1575,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampDabs(
 // app targets), which is bit-for-bit what the shader's rgba8 imageStore writes, so this is a
 // straight memcpy with no channel reordering.
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeReadback(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadback(
     JNIEnv* env, jobject, jlong handle, jobject outBitmap) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
     AndroidBitmapInfo info;
@@ -1604,8 +1606,8 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeReadback(
 }
 
 JNIEXPORT void JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (engine) {
         engine->destroy();
         delete engine;

@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.ColorSpace
 import android.hardware.HardwareBuffer
 import android.os.Build
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 
 /** Owns the Java-side reference used to display the Vulkan layer image without readback. */
 internal class AzphaltGpuDisplay private constructor(
@@ -17,7 +17,7 @@ internal class AzphaltGpuDisplay private constructor(
     }
 
     companion object {
-        fun tryCreate(engine: VulkanStampEngine): AzphaltGpuDisplay? {
+        fun tryCreate(engine: GpuStampEngine): AzphaltGpuDisplay? {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
             val buffer = engine.getHardwareBuffer() ?: return null
             val bitmap = try {

@@ -9,103 +9,9 @@
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
-struct AHardwareBuffer;
+#include "StampEngine.h"
 
 namespace graffux {
-
-// One dab. The first five fields are the historical ABI. The resolved paint fields widen the
-// buffer to 16 floats / 64 bytes; old aggregate initializers that provide only five values leave
-// `resolved` at zero, so the shader falls back to the stroke-level push-constant colour exactly as
-// before. New callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
-// shaders/stamp.comp AND shaders/stamp_masked.comp (both share this exact struct layout).
-// The fourth vec4 carries Phase-3 material state; it is ignored unless a dispatch explicitly
-// enables substrate sampling, preserving every historical/legacy dab path.
-//
-// `tipRatio` is read only by stamp_masked.comp (height/width of the tip -- see AzphaltBrush.
-// tipRatio), and is ignored entirely by stamp.comp's plain round-dab path -- its default of 1.0
-// (a round/square tip) is meaningful only to a stampMaskedDabs() caller, which must set it per dab
-// explicitly rather than relying on this default; there is no "legacy" masked caller to preserve
-// compatibility for the way `resolved` preserves stamp.comp's original five-field callers.
-// stamp.comp (the plain round-dab shader) instead repurposes this same trailing float, for a
-// *resolved* dab only, as that dab's own hardness override (see AzphaltBrush.hardness / a
-// HARDNESS BrushSensorBinding) -- the two shaders never share a dab list, so there is no conflict
-// between the two interpretations of this field.
-struct GpuDab {
-    float x;
-    float y;
-    float radius;
-    float alpha;
-    float angleDeg;
-    float colorR = 0.0f;
-    float colorG = 0.0f;
-    float colorB = 0.0f;
-    float colorA = 0.0f;
-    float flow = 0.0f;
-    float resolved = 0.0f;
-    float tipRatio = 1.0f;
-    // Phase 3 material/deposition state. Defaults preserve historical output.
-    float contactDepth = 1.0f;
-    float reservoirLoad = 1.0f;
-    float depositionRate = 1.0f;
-    float substrateResponse = 0.0f;
-};
-static_assert(sizeof(GpuDab) == 64, "GpuDab must match the shader's 4xvec4 std430 record");
-
-struct SubstrateStampParams {
-    bool enabled = false;
-    bool hasPaintHeight = false;
-    float baseHeight = 0.0f;
-    float heightScale = 0.0f;
-    float textureScale = 1.0f;
-    float textureOffsetX = 0.0f;
-    float textureOffsetY = 0.0f;
-};
-
-// Item 15's masked/dual-brush follow-up: the secondary tip stampMaskedDabs() composites onto a
-// primary dab's coverage, one entry per primary dab (same index, parallel arrays) -- see
-// shaders/stamp_masked.comp's SecondaryDab struct, which this must stay binary-identical to.
-// `keepInside` is pre-resolved on the host from Krita's MaskedBrushBlendMode + invert into a
-// single float (>0.5 = DST_IN/keep-inside, else DST_OUT/cut) rather than re-deriving that logic
-// in the shader -- see StampBrushRenderer.paintMaskedDabs' `keepInside` local for the CPU
-// reference this mirrors.
-struct GpuSecondaryDab {
-    float x;
-    float y;
-    float radius;
-    float tipRatio;
-    float alpha;
-    float angleDeg;
-    float flowMultiplier;
-    float keepInside;
-};
-static_assert(sizeof(GpuSecondaryDab) == 32, "GpuSecondaryDab must match the shader's 2xvec4 std430 record");
-
-struct ColorSmudgeDab {
-    float x;
-    float y;
-    float smudgeRate;
-    float colorRate;
-    float opacity;
-    float smudgeRadius;
-    // Sensor-only multiplier before finite reservoir load is applied.
-    float colorRateMultiplier = 1.0f;
-    // Arc-length increment from the preceding resolved dab.
-    float distanceDeltaPx = 0.0f;
-    // Stroke-level reservoir configuration repeated on each dab by the JNI bridge. Keeping these
-    // here preserves colorSmudge()/runColorSmudgePlan()'s public call shape while letting the
-    // ordered native pass evolve exactly the same state as BrushReservoirModel.
-    float baseColorRate = 0.0f;
-    float chargeDecayRate = 0.0f;
-    float pickupRate = 0.0f;
-};
-
-struct ColorSmudgeBenchmarkInfo {
-    uint32_t vendorId = 0;
-    uint32_t deviceId = 0;
-    uint32_t selectedTileSize = 0;
-    uint64_t nanos8 = 0;
-    uint64_t nanos16 = 0;
-};
 
 /**
  * Phase 3 of docs/Native Rendering Engine Design.md: a Vulkan compute engine that stamps dabs
@@ -122,10 +28,10 @@ struct ColorSmudgeBenchmarkInfo {
  * its own use of one instance (a single jlong handle) entirely on its own; that contract, not a
  * lock this class or its JNI bridge provides, is what has to make per-instance access safe.
  */
-class VulkanStampEngine {
+class VulkanStampEngine final : public StampEngine {
 public:
     VulkanStampEngine() = default;
-    ~VulkanStampEngine();
+    ~VulkanStampEngine() override;
 
     VulkanStampEngine(const VulkanStampEngine&) = delete;
     VulkanStampEngine& operator=(const VulkanStampEngine&) = delete;
@@ -135,7 +41,7 @@ public:
     // capable device is present, the driver rejects VK_FORMAT_R8G8B8A8_UNORM as a storage image
     // format, or shader module creation fails — the caller is expected to fall back to the CPU
     // path in any of those cases, not treat them as fatal.
-    bool init(int width, int height);
+    bool init(int width, int height) override;
 
     // Alternative to init(): the layer image's memory is a freshly-allocated AHardwareBuffer
     // imported via VK_ANDROID_external_memory_android_hardware_buffer instead of engine-private
@@ -147,20 +53,20 @@ public:
     // still need a CPU-visible round trip. Returns false — falling back to init() is expected and
     // safe — if the device lacks the AHB extension or its dependencies, the driver rejects AHB
     // import for this format/usage combination, or AHardwareBuffer_allocate itself fails.
-    bool initWithHardwareBuffer(int width, int height);
+    bool initWithHardwareBuffer(int width, int height) override;
 
     // Clears the existing layer image to transparent black without recreating the Vulkan instance,
     // device, AHardwareBuffer, descriptor set, pipeline, command pool, or staging buffers. Used when
     // a Kotlin wrapper checks a healthy engine back out of the bounded reuse pool. Synchronous like
     // upload()/readback()/stampDabs(): when it returns true the clear is complete.
-    bool clear();
+    bool clear() override;
 
     // The AHardwareBuffer backing the layer image when initWithHardwareBuffer() was used, or
     // nullptr otherwise (including after plain init()). Ownership stays with this engine — a
     // caller that hands this to Java/JNI (AHardwareBuffer_toHardwareBuffer) needs its own
     // reference, which that function acquires internally; do not call AHardwareBuffer_release on
     // the pointer returned here directly, destroy() already owns that.
-    struct AHardwareBuffer* hardwareBuffer() const { return hardwareBuffer_; }
+    struct AHardwareBuffer* hardwareBuffer() const override { return hardwareBuffer_; }
 
     // Seeds the layer image with `inRgba8` (same width*height*4 RGBA8 layout readback() produces),
     // replacing whatever the layer currently holds. Used to prime a live-preview session with a
@@ -168,16 +74,16 @@ public:
     // clears the layer itself, so without this every session would start from transparent black
     // (fine for `VulkanStampEngineSelfTest`'s throwaway canvas, wrong for painting into real
     // artwork). Returns false if the engine isn't initialized or `inSizeBytes` is too small.
-    bool upload(const uint8_t* inRgba8, size_t inSizeBytes);
+    bool upload(const uint8_t* inRgba8, size_t inSizeBytes) override;
 
     // Phase 3: upload the immutable canvas substrate-height tile once per stroke/document context.
     // Repeated uploads of byte-identical same-size tiles are hash-skipped; stamp dispatches only
     // carry scalar profile parameters and per-dab contact/material state afterward.
-    bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height);
+    bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) override;
 
     // GPU mirror of Layer.heightMap / ImpastoEngine normalized thickness. Dimensions must match
     // this engine's layer exactly; this resource is only sampled when hasPaintHeight is true.
-    bool uploadPaintHeight(const float* heightMap, int width, int height);
+    bool uploadPaintHeight(const float* heightMap, int width, int height) override;
 
     // Uploads `dabs` and dispatches the compute shader to stamp them onto the layer image using
     // `colorArgb` (standard Android ARGB int) and `hardness` (0..1, brush.hardness).
@@ -193,7 +99,7 @@ public:
     // state on first use; returns false if that allocation fails.
     bool stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
                     bool buildUp = false, SubstrateStampParams substrate = {},
-                    bool strokeMax = false);
+                    bool strokeMax = false) override;
 
     // shaders/stamp_masked.comp counterpart to stampDabs(): each dab samples `maskAlpha8` (an
     // R8_UNORM alpha-only tip texture, `maskWidth`x`maskHeight`, white=full coverage) in its own
@@ -231,7 +137,7 @@ public:
                          float grainPhaseX = 0.0f, float grainPhaseY = 0.0f,
                          const std::vector<GpuSecondaryDab>& secondaryDabs = {},
                          const uint8_t* secondaryMaskAlpha8 = nullptr, int secondaryMaskWidth = 0,
-                         int secondaryMaskHeight = 0, SubstrateStampParams substrate = {});
+                         int secondaryMaskHeight = 0, SubstrateStampParams substrate = {}) override;
 
     // Ordered read/modify/write Color Smudge pass on the same persistent layer image. `mode` is
     // 0=Smear, 1=Dulling. The first dab seeds Smear's carrier; later dabs are applied sequentially.
@@ -251,8 +157,8 @@ public:
     bool colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
                      float feathering, bool smearAlpha, uint32_t paintColorArgb,
                      float dilution = 0.0f, const uint8_t* sampleSourceRgba8 = nullptr,
-                     int sampleSourceWidth = 0, int sampleSourceHeight = 0);
-    ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const { return smudgeBenchmark_; }
+                     int sampleSourceWidth = 0, int sampleSourceHeight = 0) override;
+    ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const override { return smudgeBenchmark_; }
 
     // Blocks until all dispatched work completes, then reads the layer image back into
     // `outRgba8`, which must be at least width*height*4 bytes (RGBA8, PREMULTIPLIED alpha,
@@ -277,15 +183,15 @@ public:
     // dab batch, not the whole layer), which is the entire point: this was previously the
     // dominant per-touch-sample cost (a full-canvas GPU->CPU copy every call, independent of how
     // much actually changed) -- see docs/Native Rendering Engine Design.md §9's on-device timing.
-    bool readback(uint8_t* outRgba8, size_t outCapacityBytes);
+    bool readback(uint8_t* outRgba8, size_t outCapacityBytes) override;
 
     // Releases every Vulkan resource. Safe to call multiple times; init() may be called again
     // afterward to reuse this instance for a new stroke/layer size.
-    void destroy();
+    void destroy() override;
 
-    bool isInitialized() const { return device_ != VK_NULL_HANDLE; }
-    int width() const { return width_; }
-    int height() const { return height_; }
+    bool isInitialized() const override { return device_ != VK_NULL_HANDLE; }
+    int width() const override { return width_; }
+    int height() const override { return height_; }
 
 private:
     bool createInstance();

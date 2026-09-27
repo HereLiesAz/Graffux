@@ -13,6 +13,13 @@ class AzphaltRenderCadence {
         lastPresentedMs = 0L
     }
 
+    /** True once per stroke, for its first sample: that preview renders without waiting a frame. */
+    fun claimFirst(nowMs: Long): Boolean {
+        if (lastPresentedMs != 0L) return false
+        lastPresentedMs = nowMs
+        return true
+    }
+
     fun shouldRender(nowMs: Long, rateHz: Int): Boolean {
         if (rateHz <= 0) {
             lastPresentedMs = nowMs

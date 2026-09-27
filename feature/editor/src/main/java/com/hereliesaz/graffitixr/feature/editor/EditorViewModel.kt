@@ -58,7 +58,7 @@ import com.hereliesaz.graffitixr.nativebridge.BrushDab
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -336,8 +336,12 @@ private const val GPU_MASK_REFERENCE_SIZE = 128
  *  extension id could itself contain (ids are validated slugs elsewhere in the manifest pipeline). */
 private const val BRUSH_ASSET_ID_SEPARATOR = "::"
 
+/** Completed latency samples needed before [EditorViewModel.predictionLeadMs] trusts the median. */
+private const val MIN_LEAD_SAMPLES = 20
+private const val NANOS_PER_MILLI = 1_000_000L
+
 /** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
- *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
+ *  `GpuStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
 internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
     val width = bitmap.width
     val height = bitmap.height
@@ -922,7 +926,7 @@ class EditorViewModel @Inject constructor(
     // [stampGpuMaskAlpha8]/[stampGpuMaskSize] hold the stroke's tip mask pre-rasterized once (at a
     // fixed reference resolution, independent of any individual dab's radius — the shader scales
     // per dab via its own tipRatio field) as an R8 byte buffer ready for
-    // `VulkanStampEngine.stampMaskedDabs()`.
+    // `GpuStampEngine.stampMaskedDabs()`.
     // Guards every touch of stampGpuEngine (and the paired stampGpuActive/etc config it's read
     // alongside) once onStrokePoint's GPU submit/readback moved off the main thread onto a
     // serialized background job -- see that job's own comment for the full race this closes.
@@ -958,7 +962,7 @@ class EditorViewModel @Inject constructor(
     private var stampAirbrushGenerator: IncrementalAirbrushGenerator? = null
     private val stampGeneratedHeldDabs = ArrayList<Dab>()
     private var stampAirbrushConsumedSampleCount: Int = 0
-    private var stampGpuEngine: VulkanStampEngine? = null
+    private var stampGpuEngine: GpuStampEngine? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
     private var stampGpuMaskAlpha8: ByteArray? = null
@@ -987,7 +991,7 @@ class EditorViewModel @Inject constructor(
     // target bitmap to read back into as an explicit parameter (rather than a class field like
     // stampLiveBitmap) since it's set once, early, by onStrokeStart's async setup — the same
     // `workBitmap` local that later becomes strokeWorkingBitmap.
-    private var strokeGpuEngine: VulkanStampEngine? = null
+    private var strokeGpuEngine: GpuStampEngine? = null
     private var strokeGpuActive: Boolean = false
     // Basic Brush uses the same hardware-buffer-backed live presentation as Azphalt when available.
     private var strokeGpuDisplay: AzphaltGpuDisplay? = null
@@ -1009,21 +1013,72 @@ class EditorViewModel @Inject constructor(
     private val strokeStabilizer = StrokeStabilizer()
     // Engine 2 keeps canonical input fidelity independent from how often a preview is presented.
     private val azphaltRenderCadence = AzphaltRenderCadence()
+
+    /** [strokeGeneration] a stamp preview frame is already queued for; -1 = none. */
+    private var stampFrameRequestedFor = -1L
+
+    /**
+     * Runs a block on the next display frame. Swappable so tests can run it inline; off a looper
+     * thread (plain JVM) it runs immediately.
+     */
+    internal var stampFrameScheduler: (() -> Unit) -> Unit = { block ->
+        val choreographer = runCatching { android.view.Choreographer.getInstance() }.getOrNull()
+        if (choreographer == null) block() else choreographer.postFrameCallback { block() }
+    }
+
+    /** Queue one stamp preview for the next frame; later samples before it fires ride along. */
+    private fun requestStampFrame() {
+        val generation = strokeGeneration
+        if (stampFrameRequestedFor == generation) return
+        stampFrameRequestedFor = generation
+        stampFrameScheduler {
+            if (stampFrameRequestedFor != generation) return@stampFrameScheduler
+            stampFrameRequestedFor = -1L
+            val brush = stampBrushForStroke ?: return@stampFrameScheduler
+            // The Sample rate setting still caps presentation below the display rate.
+            val rateHz = _uiState.value.inputSampleRateHz
+            if (rateHz > 0 && !azphaltRenderCadence.shouldRender(android.os.SystemClock.uptimeMillis(), rateHz)) {
+                requestStampFrame()
+                return@stampFrameScheduler
+            }
+            renderStampLive(brush)
+        }
+    }
     private val azphaltLatencyTracker = AzphaltLatencyTracker()
     private val basicLatencyTracker = AzphaltLatencyTracker()
     @Volatile private var stampLatestLatencySampleId: Long = -1L
+    // TEMPORARY: feel measurements appended to the prediction reports (see StrokeFeelMeter).
+    private val strokeFeelMeter = StrokeFeelMeter()
+    // Latency id of the current stroke's first stamp-brush sample, until its paint is presented.
+    @Volatile private var feelFirstLatencyId: Long = -1L
+
+    /**
+     * True once the current Brush stroke's first real paint is on screen. The canvas draws
+     * provisional ink from touch-down until then (see DrawingCanvas.provisionalInk).
+     */
+    @Volatile var strokePaintPresented: Boolean = false
+        private set
+
+    /**
+     * Median touch-to-paint latency of recent stamp-brush samples (input accepted -> preview
+     * published), in ms; null until enough samples completed. The prediction tail reaches this far
+     * ahead, so it covers the real lag rather than a fixed guess. Refreshed once per stroke (at
+     * [onStrokeEnd]) because a snapshot sorts the whole ring.
+     */
+    @Volatile var predictionLeadMs: Long? = null
+        private set
     @Volatile private var basicLatestLatencySampleId: Long = -1L
 
     /**
-     * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
+     * Creates and initializes a [GpuStampEngine] at [width]x[height], seeded with [seed]'s
      * current pixels. Tries the `AHardwareBuffer`-backed path first (docs/Native Rendering Engine
      * Design.md §2's zero-copy interop — real memory, not yet a zero-copy DISPLAY path here, since
      * this call site still reads it back into [seed] every frame same as the plain path would) and
      * falls back to plain device memory if that's unavailable. Returns null (nothing to clean up)
      * if every step fails — the caller stays on the CPU path for this stroke, same as always.
      */
-    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): VulkanStampEngine? {
-        // VulkanStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
+    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): GpuStampEngine? {
+        // GpuStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
         // which THROWS — not returns false — when the .so can't be loaded at all: unit tests
         // (Robolectric has no native code), and in principle any device/build variant that
         // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
@@ -1031,7 +1086,7 @@ class EditorViewModel @Inject constructor(
         // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
         return try {
-            val engine = VulkanStampEngine()
+            val engine = GpuStampEngine()
             val ready = (engine.initHardwareBufferBacked(width, height) || engine.init(width, height)) &&
                 engine.upload(seed)
             if (!ready) {
@@ -3991,6 +4046,11 @@ class EditorViewModel @Inject constructor(
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
         val state = _uiState.value
         if (state.activeTool == Tool.NONE) return
+        if (state.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onStrokeStart()
+            feelFirstLatencyId = -1L
+            strokePaintPresented = false
+        }
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
         val originalBitmap = layer.bitmap ?: return
@@ -4016,6 +4076,7 @@ class EditorViewModel @Inject constructor(
         strokeSelection = state.selection
         lastSampleMs = 0L
         azphaltRenderCadence.reset()
+        stampFrameRequestedFor = -1L
         stampLatestLatencySampleId = -1L
         basicLatestLatencySampleId = -1L
         basicLiveConsumedPointCount = 0
@@ -4147,7 +4208,7 @@ class EditorViewModel @Inject constructor(
                 // Every stamp brush, plain rounds included, goes GPU-first so bundled, custom and
                 // imported brushes share one pipeline and one feel. Plain non-build-up rounds used
                 // to be pinned to the CPU because GPU max-combine reset at every frame batch; the
-                // strokeMax stamp mode (see VulkanStampEngine.stampResolvedDabs) now holds the max
+                // strokeMax stamp mode (see GpuStampEngine.stampResolvedDabs) now holds the max
                 // across the whole stroke.
                 val gpuEngine = if (gpuCompatibleBrush) {
                     createSeededGpuEngine(work.width, work.height, work)
@@ -4494,6 +4555,9 @@ class EditorViewModel @Inject constructor(
 
     /** Canonical input path used by DrawingCanvas. */
     fun onStrokePoint(sample: BrushSample) {
+        if (_uiState.value.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onSampleAccepted(sample.uptimeMillis, android.os.SystemClock.uptimeMillis())
+        }
         pendingStrokePointSample = sample
         try {
             onStrokePoint(Offset(sample.x, sample.y), sample.pressure)
@@ -4509,6 +4573,9 @@ class EditorViewModel @Inject constructor(
         val algorithm = _uiState.value.stabilizerAlgorithm
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel, algorithm)
         val stabilizedPressure = strokeStabilizer.stabilizePressure(pressure, _uiState.value.stabilizerLevel, algorithm)
+        if (_uiState.value.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onStabilized((currentPoint - stabilizedPoint).getDistance())
+        }
 
         // Engine 2 separates input fidelity from presentation cadence. Every BRUSH sample enters
         // the canonical stroke first; only the expensive preview work is rate-limited. The old
@@ -4524,6 +4591,7 @@ class EditorViewModel @Inject constructor(
             if (stampBrushForStroke != null) {
                 val latencyId = azphaltLatencyTracker.beginInput()
                 stampLatestLatencySampleId = latencyId
+                if (feelFirstLatencyId < 0L) feelFirstLatencyId = latencyId
                 stampAwaitingGenerationLatencyIds.append(latencyId)
             } else {
                 basicLatestLatencySampleId = basicLatencyTracker.beginInput()
@@ -4532,7 +4600,15 @@ class EditorViewModel @Inject constructor(
             // on the next displayed frame. Basic Brush advances a stateful Catmull-Rom window and
             // width recursion per point instead, so feed every physical sample into that cheap
             // geometry path and let its background worker coalesce only the expensive rendering.
-            if (stampBrushForStroke != null && !azphaltRenderCadence.shouldRender(nowMs, rateHz)) return
+            // Stamp preview renders on the display's own frame clock, not per sample: once per
+            // frame with everything since the last one. Rendering per sample ("Unlimited") at
+            // 120-240 Hz touch rates queued GPU work faster than it drained (0.9 s queue, 3 s
+            // frames in issue #453); gating on the next *sample* instead left samples waiting for
+            // one that might not come. The stroke's first sample still renders right away.
+            if (stampBrushForStroke != null && !azphaltRenderCadence.claimFirst(nowMs)) {
+                requestStampFrame()
+                return
+            }
         } else {
             if (rateHz > 0 && lastSampleMs != 0L) {
                 val minGapMs = 1000L / rateHz
@@ -4673,599 +4749,7 @@ class EditorViewModel @Inject constructor(
 
         val stampBrush = stampBrushForStroke
         if (stampBrush != null) {
-            // Live stamp preview: stamp only the newly-added dabs. BrushStamps.dabs grows a stable
-            // prefix, so re-drawing dabs beyond the count already stamped matches a full re-render.
-            val canvas = stampLiveCanvas ?: return          // copy not ready yet; points still collected
-            val work = stampLiveBitmap ?: return
-            val preStrokeBase = stampLivePreStrokeBase
-            // Map only the points not yet mapped (per-point transform, so a tail maps the same as the
-            // whole) and append to the cache — avoids re-mapping the full stroke every drag frame.
-            val all = snapshotStrokePoints()
-            val mappedCount = stampMappedPoints.size / 2
-            if (all.size > mappedCount) {
-                val fresh = ImageProcessor.mapScreenToBitmap(
-                    all.subList(mappedCount, all.size), strokeCanvasW, strokeCanvasH, work.width, work.height,
-                    strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
-                )
-                fresh.forEach { stampMappedPoints.add(it.x); stampMappedPoints.add(it.y) }
-            }
-            val brushScale = ImageProcessor.screenToBitmapScale(
-                strokeCanvasW, strokeCanvasH, work.width, work.height, strokeLayerScale
-            )
-            val diameterPx = _uiState.value.effectivePaintBrushSize() * brushScale
-            val allSamples = snapshotStrokeSamples()
-            val mappedSamples = if (allSamples.size * 2 == stampMappedPoints.size) {
-                allSamples.mapIndexed { index, sample ->
-                    sample.copy(
-                        x = stampMappedPoints[index * 2],
-                        y = stampMappedPoints[index * 2 + 1],
-                        predicted = false,
-                    )
-                }
-            } else {
-                emptyList()
-            }
-            // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
-            // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
-            // every stroke whose brush used only those, live and on replay alike.
-            val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()
-            val dabs = if (mappedSamples.isNotEmpty()) {
-                if (needsDynamicDabs) {
-                    var generator = stampDynamicDabGenerator
-                    if (generator == null) {
-                        generator = IncrementalDynamicDabGenerator(diameterPx, stampBrush, stampSeed)
-                        stampDynamicDabGenerator = generator
-                    }
-                    while (stampMovementConsumedSampleCount < mappedSamples.size) {
-                        val s = mappedSamples[stampMovementConsumedSampleCount]
-                        stampLengthPredictor.record(s)
-                        stampGeneratedMovementDabs.addAll(
-                            generator.append(s, stampLengthPredictor.predictedTotal)
-                        )
-                        stampMovementConsumedSampleCount++
-                    }
-                } else {
-                    var generator = stampStaticDabGenerator
-                    if (generator == null) {
-                        generator = IncrementalStaticDabGenerator(diameterPx, stampBrush, stampSeed)
-                        stampStaticDabGenerator = generator
-                    }
-                    val pointCount = stampMappedPoints.size / 2
-                    while (stampMovementConsumedSampleCount < pointCount) {
-                        val index = stampMovementConsumedSampleCount * 2
-                        stampGeneratedMovementDabs.addAll(
-                            generator.appendPoint(stampMappedPoints[index], stampMappedPoints[index + 1])
-                        )
-                        stampMovementConsumedSampleCount++
-                    }
-                }
-                stampGeneratedMovementDabs
-            } else {
-                emptyList()
-            }
-            // Item 13's airbrush held-run dabs, tracked as their own independent incremental
-            // prefix (see [stampHeldStampedCount]'s doc comment) computed from the same growing
-            // mappedSamples -- painted after this frame's new movement dabs below, rather than
-            // concatenated with `dabs` the way DrawingEngine's commit/replay path concatenates
-            // them, because the concatenated list is NOT a stable-growing prefix as more samples
-            // arrive (a later frame's new movement dabs would need to be inserted *before* an
-            // earlier frame's already-painted held dabs to match commit's dabs-then-held ordering,
-            // which incremental repaint can't do without repainting the whole stroke every frame).
-            // Net effect: within one frame, movement-then-held ordering matches commit exactly;
-            // across frames, a held run's dabs can end up painted before a *later* movement dab
-            // that arrives after it, which only visibly differs from commit if the stroke's path
-            // later crosses back over that same held-still position -- a narrow, documented
-            // residual gap, not the "no live build-up at all" gap this replaces.
-            val heldDabs = if (stampBrush.airbrushDabsPerSecond > 0f && mappedSamples.isNotEmpty()) {
-                var generator = stampAirbrushGenerator
-                if (generator == null) {
-                    generator = IncrementalAirbrushGenerator(
-                        diameterPx, stampBrush, stampBrush.airbrushDabsPerSecond,
-                        stampBrush.airbrushStillnessRadiusPx, stampSeed,
-                    )
-                    stampAirbrushGenerator = generator
-                }
-                while (stampAirbrushConsumedSampleCount < mappedSamples.size) {
-                    stampGeneratedHeldDabs.addAll(
-                        generator.append(mappedSamples[stampAirbrushConsumedSampleCount])
-                    )
-                    stampAirbrushConsumedSampleCount++
-                }
-                stampGeneratedHeldDabs
-            } else {
-                emptyList()
-            }
-            val hasNewMovementDabs = dabs.size > stampStampedCount
-            val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
-            if (hasNewMovementDabs || hasNewHeldDabs) {
-                val generatedLatencyIds = stampAwaitingGenerationLatencyIds.drain()
-                generatedLatencyIds.forEach { azphaltLatencyTracker.markGenerated(it) }
-                val colorArgb = _uiState.value.activeColor.toArgb()
-                val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
-                val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
-                val rawFlow = _uiState.value.brushFlow
-                // Hoisted above the movement/held-specific branches below so Impasto (further down)
-                // can deposit/shade the exact same dabs those branches just painted, without
-                // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
-                // Wrap-around tiles here, after slicing, so the stamped counters above stay in
-                // untiled-dab units; DrawingEngine's commit tiles the same way (wrapTiledDabs).
-                val tile: (List<Dab>) -> List<Dab> = { list ->
-                    if (strokeWrapAroundMode) wrapTiledDabs(list, work.width, work.height) else list
-                }
-                val newDabs = tile(
-                    if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList(),
-                )
-                val newHeldDabs = tile(
-                    if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList(),
-                )
-                // stampStampedCount/stampHeldStampedCount only ever depend on `dabs`/`heldDabs`,
-                // which are pure functions of stampMappedPoints/mappedSamples computed above on this
-                // (the calling) thread -- advancing them here, synchronously, is what lets the next
-                // onStrokePoint call correctly slice out only ITS new dabs regardless of whether the
-                // background job below has actually gotten around to painting this batch yet.
-                stampStampedCount = dabs.size
-                stampHeldStampedCount = heldDabs.size
-                stampPendingMovementDabs.append(newDabs)
-                stampPendingHeldDabs.append(newHeldDabs)
-                stampPendingLatencyIds.append(generatedLatencyIds)
-                val heightMap = stampLiveHeightMap
-                val liveWetness = stampLiveWetnessState
-                val liveMaterialState = stampLiveMaterialState
-                val materialSelection = stampLiveMaterialSelection
-                val shadedBitmap = stampLiveShadedBitmap
-                val strokeGen = strokeGeneration
-                val strokeLayerIdSnapshot = strokeLayerId
-
-                // GPU submit + readback are both blocking native calls (a full command-buffer
-                // submit + vkWaitForFences round trip each -- see VulkanStampEngine.cpp) that used
-                // to run right here, synchronously, on the caller's thread -- which for every
-                // DrawingCanvas sample is the main/UI thread. On a GPU slow enough to miss a frame
-                // budget, that stalled the whole app: no new frame drew and no new touch events were
-                // even processed until the round trip returned, so the visible stroke fell further
-                // and further behind the finger the longer/faster a stroke ran (the reported "gap
-                // between the stroke and my touch point" bug). Moving the actual GPU work here, onto
-                // dispatchers.default, keeps the calling thread free to keep sampling input; only the
-                // presentation of THIS batch's dabs lags, which is exactly what the prediction tail
-                // overlay already exists to paper over.
-                //
-                // Engine 2: one consumer drains all currently pending paint before sleeping.
-                // A slow GPU can make a batch larger, but it can no longer make the Job queue longer.
-                val brush = stampBrush
-                val shape = stampShapeForStroke
-                val grain = stampGrainForStroke
-                val maskShape = stampMaskShapeForStroke
-                val seed = stampSeed
-                synchronized(stampLiveLock) {
-                    if (stampGpuJob?.isActive != true) {
-                        stampGpuJob = viewModelScope.launch(dispatchers.default) {
-                            while (true) {
-                                // A fast lift/redown can leave the previous stroke's native call
-                                // finishing after the new stroke exists. Never let that stale worker
-                                // drain shared queues or clear the new stroke's worker reference.
-                                if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
-                                    return@launch
-                                }
-                                val newDabs = stampPendingMovementDabs.drain()
-                                val newHeldDabs = stampPendingHeldDabs.drain()
-                                val latencyIds = stampPendingLatencyIds.drain()
-                                latencyIds.forEach { azphaltLatencyTracker.markSubmitted(it) }
-                                val hasNewMovementDabs = newDabs.isNotEmpty()
-                                val hasNewHeldDabs = newHeldDabs.isNotEmpty()
-                                if (!hasNewMovementDabs && !hasNewHeldDabs) {
-                                    synchronized(stampLiveLock) {
-                                        if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
-                                            return@launch
-                                        }
-                                        if (stampPendingMovementDabs.isEmpty && stampPendingHeldDabs.isEmpty) {
-                                            stampGpuJob = null
-                                            return@launch
-                                        }
-                                    }
-                                    continue
-                                }
-                        // A previous stroke's native call can finish after a fast lift/redown. Check
-                    // generation BEFORE publishing this batch into shared Engine 2 state so that
-                    // stale workers cannot contaminate the next stroke's rendered prefix.
-                    if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) return@launch
-                    stampRenderedMovementDabs.addAll(newDabs)
-
-                    // Snapshotted together, under the lock, rather than read as separate field
-                    // accesses -- onStrokeStart's (re)publish and this batch's own failure-triggered
-                    // teardown below both replace/clear this whole group atomically, and a torn read
-                    // across two of them (e.g. a stale `engine` paired with a fresh `usesMasked`)
-                    // would dispatch to the wrong shader or read a freed mask buffer.
-                    val engine: VulkanStampEngine?
-                    val gpuActive: Boolean
-                    val usesMasked: Boolean
-                    val maskAlpha8: ByteArray?
-                    val maskSize: Int
-                    val grainAlpha8: ByteArray?
-                    val grainWidth: Int
-                    val grainHeight: Int
-                    val grainLocked: Boolean
-                    val grainPhaseX: Float
-                    val grainPhaseY: Float
-                    val hasDualBrush: Boolean
-                    val secondaryMaskAlpha8: ByteArray?
-                    val secondaryMaskSize: Int
-                    val usesZeroCopyDisplay: Boolean
-                    synchronized(stampLiveLock) {
-                        engine = stampGpuEngine
-                        gpuActive = stampGpuActive
-                        usesMasked = stampGpuUsesMaskedPipeline
-                        maskAlpha8 = stampGpuMaskAlpha8
-                        maskSize = stampGpuMaskSize
-                        grainAlpha8 = stampGpuGrainAlpha8
-                        grainWidth = stampGpuGrainWidth
-                        grainHeight = stampGpuGrainHeight
-                        grainLocked = stampGpuGrainCanvasLocked
-                        grainPhaseX = stampGpuGrainPhaseX
-                        grainPhaseY = stampGpuGrainPhaseY
-                        hasDualBrush = stampGpuHasDualBrush
-                        secondaryMaskAlpha8 = stampGpuSecondaryMaskAlpha8
-                        secondaryMaskSize = stampGpuSecondaryMaskSize
-                        usesZeroCopyDisplay = stampGpuDisplay != null
-                    }
-
-                    var gpuHandled = false
-                    var gpuHandledHeld = false
-                    if (hasNewMovementDabs && gpuActive && engine != null) {
-                        // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
-                        // stampGpuActive's doc comment for the fallback contract, and
-                        // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke
-                        // uses. A failure here disables it for the rest of THIS stroke only — work
-                        // is already correctly up to date through the last successful GPU readback
-                        // (or, if GPU was never active, was always drawn by the CPU branch below),
-                        // so continuing straight into the CPU branch for just `newDabs` is exactly
-                        // correct, no re-render of earlier dabs needed either way.
-                        gpuHandled = if (usesMasked) {
-                            if (maskAlpha8 == null) {
-                                false
-                            } else {
-                                val gpuDabs = newDabs.map { dab ->
-                                    MaskedBrushDab(
-                                        x = dab.x,
-                                        y = dab.y,
-                                        radius = dab.radius,
-                                        alpha = dab.alpha,
-                                        angleDeg = dab.angleDeg,
-                                        colorArgb = StampBrushRenderer.resolvedColor(
-                                            colorArgb, secondaryColorArgb, brush, dab,
-                                        ),
-                                        flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                                        tipRatio = dab.tipRatio,
-                                        contactDepth = dab.contactDepth,
-                                    )
-                                }
-                                val secondaryDabs = if (hasDualBrush && newDabs.all { it.mask != null }) {
-                                    newDabs.map { dab ->
-                                        val maskDab = dab.mask!!
-                                        SecondaryBrushDab(
-                                            x = maskDab.x,
-                                            y = maskDab.y,
-                                            radius = maskDab.radius,
-                                            tipRatio = maskDab.tipRatio,
-                                            alpha = maskDab.alpha,
-                                            angleDeg = maskDab.angleDeg,
-                                            flowMultiplier = maskDab.flowMultiplier,
-                                            keepInside = maskDab.keepInside,
-                                        )
-                                    }
-                                } else {
-                                    emptyList()
-                                }
-                                (!hasDualBrush || newDabs.all { it.mask != null }) &&
-                                    engine.stampMaskedDabs(
-                                        gpuDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
-                                        maskSize, maskSize,
-                                        grainAlpha8, grainWidth, grainHeight,
-                                        grainLocked, brush.grainScale,
-                                        grainPhaseX, grainPhaseY,
-                                        secondaryDabs, secondaryMaskAlpha8,
-                                        secondaryMaskSize, secondaryMaskSize,
-                                    ) && (usesZeroCopyDisplay || engine.readback(work))
-                            }
-                        } else {
-                            fun resolve(dab: Dab) = ResolvedBrushDab(
-                                x = dab.x,
-                                y = dab.y,
-                                radius = dab.radius,
-                                alpha = dab.alpha,
-                                angleDeg = dab.angleDeg,
-                                colorArgb = StampBrushRenderer.resolvedColor(
-                                    colorArgb, secondaryColorArgb, brush, dab,
-                                ),
-                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                                hardness = dab.hardness,
-                                contactDepth = dab.contactDepth,
-                            )
-                            val gpuDabs = newDabs.map(::resolve)
-                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp, strokeMax = true) &&
-                                (usesZeroCopyDisplay || engine.readback(work))
-                        }
-                    }
-                    if (hasNewMovementDabs && !gpuHandled) {
-                        var replayedGpuPrefix = false
-                        if (usesZeroCopyDisplay && preStrokeBase != null) {
-                            val restorePaint = Paint().apply {
-                                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
-                            }
-                            canvas.drawBitmap(preStrokeBase, 0f, 0f, restorePaint)
-                            restorePaint.xfermode = null
-                            StampBrushRenderer.paintDabs(
-                                canvas, stampRenderedMovementDabs, brush, colorArgb, rawFlow,
-                                shape, grain, maskShape, seed, secondaryColorArgb,
-                            )
-                            replayedGpuPrefix = true
-                        }
-                        if (gpuActive) {
-                            // Disable for the rest of THIS stroke only -- release the engine iff
-                            // it's still the one this batch snapshotted (identity check): a newer
-                            // stroke's onStrokeStart may already have destroyed/replaced it under
-                            // the same lock while this batch was doing its (unlocked) GPU work
-                            // above, in which case destroying it a second time here would be a
-                            // native use-after-free. Mirrors releaseGpuEngineIfCurrent's exact
-                            // convention for strokeGpuEngine below.
-                            synchronized(stampLiveLock) {
-                                if (stampGpuEngine === engine) {
-                                    stampGpuActive = false
-                                    stampGpuEngine = null
-                                    stampGpuDisplay?.close()
-                                    stampGpuDisplay = null
-                                    stampGpuUsesMaskedPipeline = false
-                                    stampGpuMaskAlpha8 = null
-                                    stampGpuMaskSize = 0
-                                    stampGpuGrainAlpha8 = null
-                                    stampGpuGrainWidth = 0
-                                    stampGpuGrainHeight = 0
-                                    stampGpuHasDualBrush = false
-                                    stampGpuSecondaryMaskAlpha8 = null
-                                    stampGpuSecondaryMaskSize = 0
-                                    engine?.destroy()
-                                }
-                            }
-                        }
-                        // The plain round, non-build-up path composites via max-combine (see
-                        // StampBrushRenderer.paintRoundDabsMaxCombined's doc comment), which only
-                        // takes the max WITHIN one call's own dabs -- SRC_OVER-ing each frame's own
-                        // tiny new-dab batch on top of the previous frame's reproduces the exact
-                        // hardened-edge-on-a-drag bug that compositor exists to prevent, just at
-                        // frame granularity instead of per-dab (a live stroke reads as distinct hard
-                        // dots that only resolve into one smooth stroke once the finger lifts and
-                        // the whole thing commits as a single paintDabs call). Repainting the WHOLE
-                        // stroke's dabs from preStrokeBase every frame instead -- what
-                        // repaintRoundStrokeFromBase is for -- keeps every frame a genuine full
-                        // re-render, matching commit. Every other path (shaped tip, grain, masked/
-                        // dual-tip, build-up) composites sequentially, which IS stable incrementally
-                        // frame to frame, so those keep painting only each frame's new dabs.
-                        if (!replayedGpuPrefix) {
-                            val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
-                            if (!advancedMaskPipeline && shape == null && !brush.buildUp && preStrokeBase != null) {
-                                var compositor = stampRoundMaxCompositor
-                                if (compositor == null) {
-                                    compositor = IncrementalRoundStampCompositor(work.width, work.height)
-                                    stampRoundMaxCompositor = compositor
-                                }
-                                val changedTiles = compositor.append(
-                                    newDabs, colorArgb, secondaryColorArgb, brush.colorSource, rawFlow,
-                                )
-                                IncrementalRoundStampRenderer.repaintTilesFromBase(
-                                    canvas, preStrokeBase, changedTiles,
-                                )
-                            } else {
-                                StampBrushRenderer.paintDabs(
-                                    canvas, newDabs, brush, colorArgb, rawFlow,
-                                    shape, grain, maskShape, seed,
-                                    secondaryColorArgb,
-                                )
-                            }
-                        }
-                    }
-                    if (hasNewHeldDabs && engine != null &&
-                        ((!hasNewMovementDabs && gpuActive) || gpuHandled)
-                    ) {
-                        gpuHandledHeld = if (usesMasked) {
-                            if (maskAlpha8 == null) {
-                                false
-                            } else {
-                                val gpuHeldDabs = newHeldDabs.map { dab ->
-                                    MaskedBrushDab(
-                                        x = dab.x,
-                                        y = dab.y,
-                                        radius = dab.radius,
-                                        alpha = dab.alpha,
-                                        angleDeg = dab.angleDeg,
-                                        colorArgb = StampBrushRenderer.resolvedColor(
-                                            colorArgb, secondaryColorArgb, brush, dab,
-                                        ),
-                                        flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                                        tipRatio = dab.tipRatio,
-                                        contactDepth = dab.contactDepth,
-                                    )
-                                }
-                                val secondaryHeldDabs = emptyList<SecondaryBrushDab>()
-                                engine.stampMaskedDabs(
-                                    gpuHeldDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
-                                    maskSize, maskSize,
-                                    grainAlpha8, grainWidth, grainHeight,
-                                    grainLocked, brush.grainScale,
-                                    grainPhaseX, grainPhaseY,
-                                    secondaryHeldDabs, secondaryMaskAlpha8,
-                                    secondaryMaskSize, secondaryMaskSize,
-                                ) && (usesZeroCopyDisplay || engine.readback(work))
-                            }
-                        } else {
-                            fun resolveHeld(dab: Dab) = ResolvedBrushDab(
-                                x = dab.x,
-                                y = dab.y,
-                                radius = dab.radius,
-                                alpha = dab.alpha,
-                                angleDeg = dab.angleDeg,
-                                colorArgb = StampBrushRenderer.resolvedColor(
-                                    colorArgb, secondaryColorArgb, brush, dab,
-                                ),
-                                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                                hardness = dab.hardness,
-                                contactDepth = dab.contactDepth,
-                            )
-                            val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
-                            engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
-                                (usesZeroCopyDisplay || engine.readback(work))
-                        }
-                        if (!gpuHandledHeld && gpuActive) {
-                            synchronized(stampLiveLock) {
-                                if (stampGpuEngine === engine) {
-                                    stampGpuActive = false
-                                    stampGpuEngine = null
-                                    stampGpuDisplay?.close()
-                                    stampGpuDisplay = null
-                                    engine.destroy()
-                                }
-                            }
-                        }
-                    }
-                    if (hasNewHeldDabs && !gpuHandledHeld) {
-                        // CPU fallback for held dabs after any Vulkan failure/unsupported path.
-                        // commit/replay path (DrawingEngine's stamp-brush branch deposits held dabs
-                        // CPU-only regardless of GPU live-preview availability -- see item 13's
-                        // Vulkan target note). There is no GPU dispatch for this secondary dab
-                        // source, only for the primary movement dabs above; both draw onto the same
-                        // `work` bitmap/`canvas`, so ordering between this block and the movement-
-                        // dab block above (movement first, held second, every batch) is
-                        // deterministic -- both run on this same serialized background job.
-                        StampBrushRenderer.paintDabs(
-                            canvas, newHeldDabs, brush, colorArgb, rawFlow,
-                            shape, grain, maskShape, seed,
-                            secondaryColorArgb, allowBuildUp = true,
-                        )
-                    }
-                    // Live Impasto stays local: the raw paint target is canonical for this
-                    // preview, while the separate shaded bitmap is presentation-only. V2 uses the
-                    // same resolved dabs and Phase-4 wetness channel as commit/replay, but deliberately
-                    // does not run time/settling simulation per display batch -- batching depends on
-                    // device cadence and would make canonical results hardware-dependent. Commit is
-                    // authoritative for wet leveling; live shows contact height + wet gloss immediately.
-                    if (brush.impastoThicknessRate > 0f && heightMap != null && shadedBitmap != null) {
-                        val impastoDabs = newDabs + newHeldDabs
-                        if (impastoDabs.isNotEmpty()) {
-                            val config = brush.impastoMaterial.sanitized()
-                            val incomingMedium = config.toMedium()
-                            val allowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
-                                { x, y -> region.contains(x, y) }
-                            }
-                            val touched: DirtyRegion?
-                            if (config.usesV2) {
-                                val transfer = ImpastoEngine.transferMaterialStroke(
-                                    height = heightMap,
-                                    width = work.width,
-                                    imgHeight = work.height,
-                                    dabs = impastoDabs,
-                                    hardness = brush.hardness,
-                                    thicknessRate = brush.impastoThicknessRate,
-                                    medium = incomingMedium,
-                                    initialState = stampLiveImpastoState
-                                        ?: ImpastoMaterialStrokeState(config.initialLoad),
-                                    pixelAllowed = allowed,
-                                )
-                                if (
-                                    strokeGeneration == strokeGen &&
-                                    strokeLayerId == strokeLayerIdSnapshot &&
-                                    stampBrushForStroke === brush
-                                ) {
-                                    stampLiveImpastoState = transfer.state
-                                }
-                                val wetDirty = liveWetness?.let {
-                                    ImpastoEngine.depositWetnessStroke(
-                                        wetness = it.field,
-                                        dabs = impastoDabs,
-                                        hardness = brush.hardness,
-                                        wetnessRate = config.wetness * brush.impastoThicknessRate,
-                                        pixelAllowed = allowed,
-                                    )
-                                }
-                                val transferDirty = transfer.dirtyRegion
-                                touched = when {
-                                    transferDirty == null -> wetDirty
-                                    wetDirty == null -> transferDirty
-                                    else -> transferDirty.union(wetDirty)
-                                }
-                                // Record the medium this batch's contact actually deposited, the
-                                // same way commit/replay's DrawingEngine.applyTool does — once per
-                                // batch over the touched region, rather than per pixel (mirrors
-                                // recordMedium's own tile-weighted-blend contract).
-                                liveMaterialState?.recordMedium(touched, incomingMedium)
-                            } else {
-                                ImpastoEngine.depositStroke(
-                                    heightMap, work.width, work.height, impastoDabs,
-                                    brush.hardness, brush.impastoThicknessRate,
-                                )
-                                touched = DirtyRegion.fromDabs(impastoDabs)
-                            }
-
-                            val region = touched?.let {
-                                DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
-                            }?.clampTo(work.width, work.height)
-                            if (region != null && !region.isEmpty) {
-                                val regionWidth = region.right - region.left
-                                val regionHeight = region.bottom - region.top
-                                val rawRegion = IntArray(regionWidth * regionHeight)
-                                work.getPixels(
-                                    rawRegion, 0, regionWidth,
-                                    region.left, region.top, regionWidth, regionHeight,
-                                )
-                                val shadedRegion = if (config.usesV2) {
-                                    ImpastoRegionShader.shadeMaterial(
-                                        rawRegion = rawRegion,
-                                        height = heightMap,
-                                        wetness = liveWetness?.field,
-                                        canvasWidth = work.width,
-                                        canvasHeight = work.height,
-                                        left = region.left,
-                                        top = region.top,
-                                        regionWidth = regionWidth,
-                                        regionHeight = regionHeight,
-                                        lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
-                                        lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
-                                        reliefStrength = IMPASTO_LIGHT_STRENGTH,
-                                        medium = incomingMedium,
-                                        mediumAt = liveMaterialState?.let { state ->
-                                            { x, y -> state.mediumAt(x, y, incomingMedium) }
-                                        },
-                                    )
-                                } else {
-                                    ImpastoRegionShader.shade(
-                                        rawRegion, heightMap, work.width, work.height,
-                                        region.left, region.top, regionWidth, regionHeight,
-                                        IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
-                                        IMPASTO_LIGHT_STRENGTH,
-                                    )
-                                }
-                                shadedBitmap.setPixels(
-                                    shadedRegion, 0, regionWidth,
-                                    region.left, region.top, regionWidth, regionHeight,
-                                )
-                            }
-                        }
-                    }
-                    if (strokeGeneration == strokeGen && strokeLayerId == strokeLayerIdSnapshot) {
-                        // Thread-safe by itself (StateFlow.update is lock-free/CAS-based) -- no
-                        // dispatchers.main hop needed, which matters here specifically: this job is
-                        // joined (awaited) from the main thread elsewhere (clearTransientStrokeState
-                        // has no such wait, but a future caller might), and a job that itself needs
-                        // the main dispatcher to resume before it can finish would deadlock against
-                        // a main-thread wait for it to finish.
-                        val publishedBitmap = synchronized(stampLiveLock) {
-                            stampGpuDisplay?.bitmap
-                        } ?: shadedBitmap ?: work
-                        _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
-                        latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
-                    }
-                        }
-                    }
-                }
-                }
-            }
+            renderStampLive(stampBrush)
             return
         }
 
@@ -5348,8 +4832,619 @@ class EditorViewModel @Inject constructor(
         _liveStroke.update { it.copy(version = it.version + 1) }
     }
 
+    /**
+     * Live stamp preview: stamps the dabs added since the last preview. Runs once per displayed
+     * frame (see [requestStampFrame]) with every sample that arrived since, plus immediately for
+     * a stroke's first sample so the first dab doesn't wait a frame.
+     */
+    private fun renderStampLive(stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        // Live stamp preview: stamp only the newly-added dabs. BrushStamps.dabs grows a stable
+        // prefix, so re-drawing dabs beyond the count already stamped matches a full re-render.
+        val canvas = stampLiveCanvas ?: return          // copy not ready yet; points still collected
+        val work = stampLiveBitmap ?: return
+        val preStrokeBase = stampLivePreStrokeBase
+        // Map only the points not yet mapped (per-point transform, so a tail maps the same as the
+        // whole) and append to the cache — avoids re-mapping the full stroke every drag frame.
+        val all = snapshotStrokePoints()
+        val mappedCount = stampMappedPoints.size / 2
+        if (all.size > mappedCount) {
+            val fresh = ImageProcessor.mapScreenToBitmap(
+                all.subList(mappedCount, all.size), strokeCanvasW, strokeCanvasH, work.width, work.height,
+                strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
+            )
+            fresh.forEach { stampMappedPoints.add(it.x); stampMappedPoints.add(it.y) }
+        }
+        val brushScale = ImageProcessor.screenToBitmapScale(
+            strokeCanvasW, strokeCanvasH, work.width, work.height, strokeLayerScale
+        )
+        val diameterPx = _uiState.value.effectivePaintBrushSize() * brushScale
+        val allSamples = snapshotStrokeSamples()
+        val mappedSamples = if (allSamples.size * 2 == stampMappedPoints.size) {
+            allSamples.mapIndexed { index, sample ->
+                sample.copy(
+                    x = stampMappedPoints[index * 2],
+                    y = stampMappedPoints[index * 2 + 1],
+                    predicted = false,
+                )
+            }
+        } else {
+            emptyList()
+        }
+        // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
+        // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
+        // every stroke whose brush used only those, live and on replay alike.
+        val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
+        val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()
+        val dabs = if (mappedSamples.isNotEmpty()) {
+            if (needsDynamicDabs) {
+                var generator = stampDynamicDabGenerator
+                if (generator == null) {
+                    generator = IncrementalDynamicDabGenerator(diameterPx, stampBrush, stampSeed)
+                    stampDynamicDabGenerator = generator
+                }
+                while (stampMovementConsumedSampleCount < mappedSamples.size) {
+                    val s = mappedSamples[stampMovementConsumedSampleCount]
+                    stampLengthPredictor.record(s)
+                    stampGeneratedMovementDabs.addAll(
+                        generator.append(s, stampLengthPredictor.predictedTotal)
+                    )
+                    stampMovementConsumedSampleCount++
+                }
+            } else {
+                var generator = stampStaticDabGenerator
+                if (generator == null) {
+                    generator = IncrementalStaticDabGenerator(diameterPx, stampBrush, stampSeed)
+                    stampStaticDabGenerator = generator
+                }
+                val pointCount = stampMappedPoints.size / 2
+                while (stampMovementConsumedSampleCount < pointCount) {
+                    val index = stampMovementConsumedSampleCount * 2
+                    stampGeneratedMovementDabs.addAll(
+                        generator.appendPoint(stampMappedPoints[index], stampMappedPoints[index + 1])
+                    )
+                    stampMovementConsumedSampleCount++
+                }
+            }
+            stampGeneratedMovementDabs
+        } else {
+            emptyList()
+        }
+        // Item 13's airbrush held-run dabs, tracked as their own independent incremental
+        // prefix (see [stampHeldStampedCount]'s doc comment) computed from the same growing
+        // mappedSamples -- painted after this frame's new movement dabs below, rather than
+        // concatenated with `dabs` the way DrawingEngine's commit/replay path concatenates
+        // them, because the concatenated list is NOT a stable-growing prefix as more samples
+        // arrive (a later frame's new movement dabs would need to be inserted *before* an
+        // earlier frame's already-painted held dabs to match commit's dabs-then-held ordering,
+        // which incremental repaint can't do without repainting the whole stroke every frame).
+        // Net effect: within one frame, movement-then-held ordering matches commit exactly;
+        // across frames, a held run's dabs can end up painted before a *later* movement dab
+        // that arrives after it, which only visibly differs from commit if the stroke's path
+        // later crosses back over that same held-still position -- a narrow, documented
+        // residual gap, not the "no live build-up at all" gap this replaces.
+        val heldDabs = if (stampBrush.airbrushDabsPerSecond > 0f && mappedSamples.isNotEmpty()) {
+            var generator = stampAirbrushGenerator
+            if (generator == null) {
+                generator = IncrementalAirbrushGenerator(
+                    diameterPx, stampBrush, stampBrush.airbrushDabsPerSecond,
+                    stampBrush.airbrushStillnessRadiusPx, stampSeed,
+                )
+                stampAirbrushGenerator = generator
+            }
+            while (stampAirbrushConsumedSampleCount < mappedSamples.size) {
+                stampGeneratedHeldDabs.addAll(
+                    generator.append(mappedSamples[stampAirbrushConsumedSampleCount])
+                )
+                stampAirbrushConsumedSampleCount++
+            }
+            stampGeneratedHeldDabs
+        } else {
+            emptyList()
+        }
+        val hasNewMovementDabs = dabs.size > stampStampedCount
+        val hasNewHeldDabs = heldDabs.size > stampHeldStampedCount
+        if (hasNewMovementDabs || hasNewHeldDabs) {
+            val generatedLatencyIds = stampAwaitingGenerationLatencyIds.drain()
+            generatedLatencyIds.forEach { azphaltLatencyTracker.markGenerated(it) }
+            val colorArgb = _uiState.value.activeColor.toArgb()
+            val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
+            val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
+            val rawFlow = _uiState.value.brushFlow
+            // Hoisted above the movement/held-specific branches below so Impasto (further down)
+            // can deposit/shade the exact same dabs those branches just painted, without
+            // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
+            // Wrap-around tiles here, after slicing, so the stamped counters above stay in
+            // untiled-dab units; DrawingEngine's commit tiles the same way (wrapTiledDabs).
+            val tile: (List<Dab>) -> List<Dab> = { list ->
+                if (strokeWrapAroundMode) wrapTiledDabs(list, work.width, work.height) else list
+            }
+            val newDabs = tile(
+                if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList(),
+            )
+            val newHeldDabs = tile(
+                if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList(),
+            )
+            // stampStampedCount/stampHeldStampedCount only ever depend on `dabs`/`heldDabs`,
+            // which are pure functions of stampMappedPoints/mappedSamples computed above on this
+            // (the calling) thread -- advancing them here, synchronously, is what lets the next
+            // onStrokePoint call correctly slice out only ITS new dabs regardless of whether the
+            // background job below has actually gotten around to painting this batch yet.
+            stampStampedCount = dabs.size
+            stampHeldStampedCount = heldDabs.size
+            stampPendingMovementDabs.append(newDabs)
+            stampPendingHeldDabs.append(newHeldDabs)
+            stampPendingLatencyIds.append(generatedLatencyIds)
+            val heightMap = stampLiveHeightMap
+            val liveWetness = stampLiveWetnessState
+            val liveMaterialState = stampLiveMaterialState
+            val materialSelection = stampLiveMaterialSelection
+            val shadedBitmap = stampLiveShadedBitmap
+            val strokeGen = strokeGeneration
+            val strokeLayerIdSnapshot = strokeLayerId
+
+            // GPU submit + readback are both blocking native calls (a full command-buffer
+            // submit + vkWaitForFences round trip each -- see GpuStampEngine.cpp) that used
+            // to run right here, synchronously, on the caller's thread -- which for every
+            // DrawingCanvas sample is the main/UI thread. On a GPU slow enough to miss a frame
+            // budget, that stalled the whole app: no new frame drew and no new touch events were
+            // even processed until the round trip returned, so the visible stroke fell further
+            // and further behind the finger the longer/faster a stroke ran (the reported "gap
+            // between the stroke and my touch point" bug). Moving the actual GPU work here, onto
+            // dispatchers.default, keeps the calling thread free to keep sampling input; only the
+            // presentation of THIS batch's dabs lags, which is exactly what the prediction tail
+            // overlay already exists to paper over.
+            //
+            // Engine 2: one consumer drains all currently pending paint before sleeping.
+            // A slow GPU can make a batch larger, but it can no longer make the Job queue longer.
+            val brush = stampBrush
+            val shape = stampShapeForStroke
+            val grain = stampGrainForStroke
+            val maskShape = stampMaskShapeForStroke
+            val seed = stampSeed
+            synchronized(stampLiveLock) {
+                if (stampGpuJob?.isActive != true) {
+                    stampGpuJob = viewModelScope.launch(dispatchers.default) {
+                        while (true) {
+                            // A fast lift/redown can leave the previous stroke's native call
+                            // finishing after the new stroke exists. Never let that stale worker
+                            // drain shared queues or clear the new stroke's worker reference.
+                            if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
+                                return@launch
+                            }
+                            val newDabs = stampPendingMovementDabs.drain()
+                            val newHeldDabs = stampPendingHeldDabs.drain()
+                            val latencyIds = stampPendingLatencyIds.drain()
+                            latencyIds.forEach { azphaltLatencyTracker.markSubmitted(it) }
+                            val hasNewMovementDabs = newDabs.isNotEmpty()
+                            val hasNewHeldDabs = newHeldDabs.isNotEmpty()
+                            if (!hasNewMovementDabs && !hasNewHeldDabs) {
+                                synchronized(stampLiveLock) {
+                                    if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
+                                        return@launch
+                                    }
+                                    if (stampPendingMovementDabs.isEmpty && stampPendingHeldDabs.isEmpty) {
+                                        stampGpuJob = null
+                                        return@launch
+                                    }
+                                }
+                                continue
+                            }
+                    // A previous stroke's native call can finish after a fast lift/redown. Check
+                // generation BEFORE publishing this batch into shared Engine 2 state so that
+                // stale workers cannot contaminate the next stroke's rendered prefix.
+                if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) return@launch
+                stampRenderedMovementDabs.addAll(newDabs)
+
+                // Snapshotted together, under the lock, rather than read as separate field
+                // accesses -- onStrokeStart's (re)publish and this batch's own failure-triggered
+                // teardown below both replace/clear this whole group atomically, and a torn read
+                // across two of them (e.g. a stale `engine` paired with a fresh `usesMasked`)
+                // would dispatch to the wrong shader or read a freed mask buffer.
+                val engine: GpuStampEngine?
+                val gpuActive: Boolean
+                val usesMasked: Boolean
+                val maskAlpha8: ByteArray?
+                val maskSize: Int
+                val grainAlpha8: ByteArray?
+                val grainWidth: Int
+                val grainHeight: Int
+                val grainLocked: Boolean
+                val grainPhaseX: Float
+                val grainPhaseY: Float
+                val hasDualBrush: Boolean
+                val secondaryMaskAlpha8: ByteArray?
+                val secondaryMaskSize: Int
+                val usesZeroCopyDisplay: Boolean
+                synchronized(stampLiveLock) {
+                    engine = stampGpuEngine
+                    gpuActive = stampGpuActive
+                    usesMasked = stampGpuUsesMaskedPipeline
+                    maskAlpha8 = stampGpuMaskAlpha8
+                    maskSize = stampGpuMaskSize
+                    grainAlpha8 = stampGpuGrainAlpha8
+                    grainWidth = stampGpuGrainWidth
+                    grainHeight = stampGpuGrainHeight
+                    grainLocked = stampGpuGrainCanvasLocked
+                    grainPhaseX = stampGpuGrainPhaseX
+                    grainPhaseY = stampGpuGrainPhaseY
+                    hasDualBrush = stampGpuHasDualBrush
+                    secondaryMaskAlpha8 = stampGpuSecondaryMaskAlpha8
+                    secondaryMaskSize = stampGpuSecondaryMaskSize
+                    usesZeroCopyDisplay = stampGpuDisplay != null
+                }
+
+                var gpuHandled = false
+                var gpuHandledHeld = false
+                if (hasNewMovementDabs && gpuActive && engine != null) {
+                    // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
+                    // stampGpuActive's doc comment for the fallback contract, and
+                    // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke
+                    // uses. A failure here disables it for the rest of THIS stroke only — work
+                    // is already correctly up to date through the last successful GPU readback
+                    // (or, if GPU was never active, was always drawn by the CPU branch below),
+                    // so continuing straight into the CPU branch for just `newDabs` is exactly
+                    // correct, no re-render of earlier dabs needed either way.
+                    gpuHandled = if (usesMasked) {
+                        if (maskAlpha8 == null) {
+                            false
+                        } else {
+                            val gpuDabs = newDabs.map { dab ->
+                                MaskedBrushDab(
+                                    x = dab.x,
+                                    y = dab.y,
+                                    radius = dab.radius,
+                                    alpha = dab.alpha,
+                                    angleDeg = dab.angleDeg,
+                                    colorArgb = StampBrushRenderer.resolvedColor(
+                                        colorArgb, secondaryColorArgb, brush, dab,
+                                    ),
+                                    flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                    tipRatio = dab.tipRatio,
+                                    contactDepth = dab.contactDepth,
+                                )
+                            }
+                            val secondaryDabs = if (hasDualBrush && newDabs.all { it.mask != null }) {
+                                newDabs.map { dab ->
+                                    val maskDab = dab.mask!!
+                                    SecondaryBrushDab(
+                                        x = maskDab.x,
+                                        y = maskDab.y,
+                                        radius = maskDab.radius,
+                                        tipRatio = maskDab.tipRatio,
+                                        alpha = maskDab.alpha,
+                                        angleDeg = maskDab.angleDeg,
+                                        flowMultiplier = maskDab.flowMultiplier,
+                                        keepInside = maskDab.keepInside,
+                                    )
+                                }
+                            } else {
+                                emptyList()
+                            }
+                            (!hasDualBrush || newDabs.all { it.mask != null }) &&
+                                engine.stampMaskedDabs(
+                                    gpuDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
+                                    maskSize, maskSize,
+                                    grainAlpha8, grainWidth, grainHeight,
+                                    grainLocked, brush.grainScale,
+                                    grainPhaseX, grainPhaseY,
+                                    secondaryDabs, secondaryMaskAlpha8,
+                                    secondaryMaskSize, secondaryMaskSize,
+                                ) && (usesZeroCopyDisplay || engine.readback(work))
+                        }
+                    } else {
+                        fun resolve(dab: Dab) = ResolvedBrushDab(
+                            x = dab.x,
+                            y = dab.y,
+                            radius = dab.radius,
+                            alpha = dab.alpha,
+                            angleDeg = dab.angleDeg,
+                            colorArgb = StampBrushRenderer.resolvedColor(
+                                colorArgb, secondaryColorArgb, brush, dab,
+                            ),
+                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                            hardness = dab.hardness,
+                            contactDepth = dab.contactDepth,
+                        )
+                        val gpuDabs = newDabs.map(::resolve)
+                        engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp, strokeMax = true) &&
+                            (usesZeroCopyDisplay || engine.readback(work))
+                    }
+                }
+                if (hasNewMovementDabs && !gpuHandled) {
+                    var replayedGpuPrefix = false
+                    if (usesZeroCopyDisplay && preStrokeBase != null) {
+                        val restorePaint = Paint().apply {
+                            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+                        }
+                        canvas.drawBitmap(preStrokeBase, 0f, 0f, restorePaint)
+                        restorePaint.xfermode = null
+                        StampBrushRenderer.paintDabs(
+                            canvas, stampRenderedMovementDabs, brush, colorArgb, rawFlow,
+                            shape, grain, maskShape, seed, secondaryColorArgb,
+                        )
+                        replayedGpuPrefix = true
+                    }
+                    if (gpuActive) {
+                        // Disable for the rest of THIS stroke only -- release the engine iff
+                        // it's still the one this batch snapshotted (identity check): a newer
+                        // stroke's onStrokeStart may already have destroyed/replaced it under
+                        // the same lock while this batch was doing its (unlocked) GPU work
+                        // above, in which case destroying it a second time here would be a
+                        // native use-after-free. Mirrors releaseGpuEngineIfCurrent's exact
+                        // convention for strokeGpuEngine below.
+                        synchronized(stampLiveLock) {
+                            if (stampGpuEngine === engine) {
+                                stampGpuActive = false
+                                stampGpuEngine = null
+                                stampGpuDisplay?.close()
+                                stampGpuDisplay = null
+                                stampGpuUsesMaskedPipeline = false
+                                stampGpuMaskAlpha8 = null
+                                stampGpuMaskSize = 0
+                                stampGpuGrainAlpha8 = null
+                                stampGpuGrainWidth = 0
+                                stampGpuGrainHeight = 0
+                                stampGpuHasDualBrush = false
+                                stampGpuSecondaryMaskAlpha8 = null
+                                stampGpuSecondaryMaskSize = 0
+                                engine?.destroy()
+                            }
+                        }
+                    }
+                    // The plain round, non-build-up path composites via max-combine (see
+                    // StampBrushRenderer.paintRoundDabsMaxCombined's doc comment), which only
+                    // takes the max WITHIN one call's own dabs -- SRC_OVER-ing each frame's own
+                    // tiny new-dab batch on top of the previous frame's reproduces the exact
+                    // hardened-edge-on-a-drag bug that compositor exists to prevent, just at
+                    // frame granularity instead of per-dab (a live stroke reads as distinct hard
+                    // dots that only resolve into one smooth stroke once the finger lifts and
+                    // the whole thing commits as a single paintDabs call). Repainting the WHOLE
+                    // stroke's dabs from preStrokeBase every frame instead -- what
+                    // repaintRoundStrokeFromBase is for -- keeps every frame a genuine full
+                    // re-render, matching commit. Every other path (shaped tip, grain, masked/
+                    // dual-tip, build-up) composites sequentially, which IS stable incrementally
+                    // frame to frame, so those keep painting only each frame's new dabs.
+                    if (!replayedGpuPrefix) {
+                        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
+                        if (!advancedMaskPipeline && shape == null && !brush.buildUp && preStrokeBase != null) {
+                            var compositor = stampRoundMaxCompositor
+                            if (compositor == null) {
+                                compositor = IncrementalRoundStampCompositor(work.width, work.height)
+                                stampRoundMaxCompositor = compositor
+                            }
+                            val changedTiles = compositor.append(
+                                newDabs, colorArgb, secondaryColorArgb, brush.colorSource, rawFlow,
+                            )
+                            IncrementalRoundStampRenderer.repaintTilesFromBase(
+                                canvas, preStrokeBase, changedTiles,
+                            )
+                        } else {
+                            StampBrushRenderer.paintDabs(
+                                canvas, newDabs, brush, colorArgb, rawFlow,
+                                shape, grain, maskShape, seed,
+                                secondaryColorArgb,
+                            )
+                        }
+                    }
+                }
+                if (hasNewHeldDabs && engine != null &&
+                    ((!hasNewMovementDabs && gpuActive) || gpuHandled)
+                ) {
+                    gpuHandledHeld = if (usesMasked) {
+                        if (maskAlpha8 == null) {
+                            false
+                        } else {
+                            val gpuHeldDabs = newHeldDabs.map { dab ->
+                                MaskedBrushDab(
+                                    x = dab.x,
+                                    y = dab.y,
+                                    radius = dab.radius,
+                                    alpha = dab.alpha,
+                                    angleDeg = dab.angleDeg,
+                                    colorArgb = StampBrushRenderer.resolvedColor(
+                                        colorArgb, secondaryColorArgb, brush, dab,
+                                    ),
+                                    flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                                    tipRatio = dab.tipRatio,
+                                    contactDepth = dab.contactDepth,
+                                )
+                            }
+                            val secondaryHeldDabs = emptyList<SecondaryBrushDab>()
+                            engine.stampMaskedDabs(
+                                gpuHeldDabs, brush.hardness.coerceIn(0f, 1f), maskAlpha8,
+                                maskSize, maskSize,
+                                grainAlpha8, grainWidth, grainHeight,
+                                grainLocked, brush.grainScale,
+                                grainPhaseX, grainPhaseY,
+                                secondaryHeldDabs, secondaryMaskAlpha8,
+                                secondaryMaskSize, secondaryMaskSize,
+                            ) && (usesZeroCopyDisplay || engine.readback(work))
+                        }
+                    } else {
+                        fun resolveHeld(dab: Dab) = ResolvedBrushDab(
+                            x = dab.x,
+                            y = dab.y,
+                            radius = dab.radius,
+                            alpha = dab.alpha,
+                            angleDeg = dab.angleDeg,
+                            colorArgb = StampBrushRenderer.resolvedColor(
+                                colorArgb, secondaryColorArgb, brush, dab,
+                            ),
+                            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+                            hardness = dab.hardness,
+                            contactDepth = dab.contactDepth,
+                        )
+                        val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
+                        engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
+                            (usesZeroCopyDisplay || engine.readback(work))
+                    }
+                    if (!gpuHandledHeld && gpuActive) {
+                        synchronized(stampLiveLock) {
+                            if (stampGpuEngine === engine) {
+                                stampGpuActive = false
+                                stampGpuEngine = null
+                                stampGpuDisplay?.close()
+                                stampGpuDisplay = null
+                                engine.destroy()
+                            }
+                        }
+                    }
+                }
+                if (hasNewHeldDabs && !gpuHandledHeld) {
+                    // CPU fallback for held dabs after any Vulkan failure/unsupported path.
+                    // commit/replay path (DrawingEngine's stamp-brush branch deposits held dabs
+                    // CPU-only regardless of GPU live-preview availability -- see item 13's
+                    // Vulkan target note). There is no GPU dispatch for this secondary dab
+                    // source, only for the primary movement dabs above; both draw onto the same
+                    // `work` bitmap/`canvas`, so ordering between this block and the movement-
+                    // dab block above (movement first, held second, every batch) is
+                    // deterministic -- both run on this same serialized background job.
+                    StampBrushRenderer.paintDabs(
+                        canvas, newHeldDabs, brush, colorArgb, rawFlow,
+                        shape, grain, maskShape, seed,
+                        secondaryColorArgb, allowBuildUp = true,
+                    )
+                }
+                // Live Impasto stays local: the raw paint target is canonical for this
+                // preview, while the separate shaded bitmap is presentation-only. V2 uses the
+                // same resolved dabs and Phase-4 wetness channel as commit/replay, but deliberately
+                // does not run time/settling simulation per display batch -- batching depends on
+                // device cadence and would make canonical results hardware-dependent. Commit is
+                // authoritative for wet leveling; live shows contact height + wet gloss immediately.
+                if (brush.impastoThicknessRate > 0f && heightMap != null && shadedBitmap != null) {
+                    val impastoDabs = newDabs + newHeldDabs
+                    if (impastoDabs.isNotEmpty()) {
+                        val config = brush.impastoMaterial.sanitized()
+                        val incomingMedium = config.toMedium()
+                        val allowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
+                            { x, y -> region.contains(x, y) }
+                        }
+                        val touched: DirtyRegion?
+                        if (config.usesV2) {
+                            val transfer = ImpastoEngine.transferMaterialStroke(
+                                height = heightMap,
+                                width = work.width,
+                                imgHeight = work.height,
+                                dabs = impastoDabs,
+                                hardness = brush.hardness,
+                                thicknessRate = brush.impastoThicknessRate,
+                                medium = incomingMedium,
+                                initialState = stampLiveImpastoState
+                                    ?: ImpastoMaterialStrokeState(config.initialLoad),
+                                pixelAllowed = allowed,
+                            )
+                            if (
+                                strokeGeneration == strokeGen &&
+                                strokeLayerId == strokeLayerIdSnapshot &&
+                                stampBrushForStroke === brush
+                            ) {
+                                stampLiveImpastoState = transfer.state
+                            }
+                            val wetDirty = liveWetness?.let {
+                                ImpastoEngine.depositWetnessStroke(
+                                    wetness = it.field,
+                                    dabs = impastoDabs,
+                                    hardness = brush.hardness,
+                                    wetnessRate = config.wetness * brush.impastoThicknessRate,
+                                    pixelAllowed = allowed,
+                                )
+                            }
+                            val transferDirty = transfer.dirtyRegion
+                            touched = when {
+                                transferDirty == null -> wetDirty
+                                wetDirty == null -> transferDirty
+                                else -> transferDirty.union(wetDirty)
+                            }
+                            // Record the medium this batch's contact actually deposited, the
+                            // same way commit/replay's DrawingEngine.applyTool does — once per
+                            // batch over the touched region, rather than per pixel (mirrors
+                            // recordMedium's own tile-weighted-blend contract).
+                            liveMaterialState?.recordMedium(touched, incomingMedium)
+                        } else {
+                            ImpastoEngine.depositStroke(
+                                heightMap, work.width, work.height, impastoDabs,
+                                brush.hardness, brush.impastoThicknessRate,
+                            )
+                            touched = DirtyRegion.fromDabs(impastoDabs)
+                        }
+
+                        val region = touched?.let {
+                            DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
+                        }?.clampTo(work.width, work.height)
+                        if (region != null && !region.isEmpty) {
+                            val regionWidth = region.right - region.left
+                            val regionHeight = region.bottom - region.top
+                            val rawRegion = IntArray(regionWidth * regionHeight)
+                            work.getPixels(
+                                rawRegion, 0, regionWidth,
+                                region.left, region.top, regionWidth, regionHeight,
+                            )
+                            val shadedRegion = if (config.usesV2) {
+                                ImpastoRegionShader.shadeMaterial(
+                                    rawRegion = rawRegion,
+                                    height = heightMap,
+                                    wetness = liveWetness?.field,
+                                    canvasWidth = work.width,
+                                    canvasHeight = work.height,
+                                    left = region.left,
+                                    top = region.top,
+                                    regionWidth = regionWidth,
+                                    regionHeight = regionHeight,
+                                    lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
+                                    lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
+                                    reliefStrength = IMPASTO_LIGHT_STRENGTH,
+                                    medium = incomingMedium,
+                                    mediumAt = liveMaterialState?.let { state ->
+                                        { x, y -> state.mediumAt(x, y, incomingMedium) }
+                                    },
+                                )
+                            } else {
+                                ImpastoRegionShader.shade(
+                                    rawRegion, heightMap, work.width, work.height,
+                                    region.left, region.top, regionWidth, regionHeight,
+                                    IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
+                                    IMPASTO_LIGHT_STRENGTH,
+                                )
+                            }
+                            shadedBitmap.setPixels(
+                                shadedRegion, 0, regionWidth,
+                                region.left, region.top, regionWidth, regionHeight,
+                            )
+                        }
+                    }
+                }
+                if (strokeGeneration == strokeGen && strokeLayerId == strokeLayerIdSnapshot) {
+                    // Thread-safe by itself (StateFlow.update is lock-free/CAS-based) -- no
+                    // dispatchers.main hop needed, which matters here specifically: this job is
+                    // joined (awaited) from the main thread elsewhere (clearTransientStrokeState
+                    // has no such wait, but a future caller might), and a job that itself needs
+                    // the main dispatcher to resume before it can finish would deadlock against
+                    // a main-thread wait for it to finish.
+                    val publishedBitmap = synchronized(stampLiveLock) {
+                        stampGpuDisplay?.bitmap
+                    } ?: shadedBitmap ?: work
+                    _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
+                    latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
+                    val firstId = feelFirstLatencyId
+                    if (firstId >= 0L && firstId in latencyIds) {
+                        strokePaintPresented = true
+                        azphaltLatencyTracker.presentedLatencyMs(firstId)?.let(strokeFeelMeter::onFirstDabPresented)
+                    }
+                }
+                    }
+                }
+            }
+            }
+        }
+    }
+
     /** Called when the user lifts their finger. Finalizes the stroke into the layer and undo history. */
     fun onStrokeEnd() {
+        // The commit renders from canonical history; a preview frame queued for this stroke is moot.
+        stampFrameRequestedFor = -1L
+        azphaltLatencyTracker.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
+            predictionLeadMs = (it.total.medianNs / NANOS_PER_MILLI).coerceAtLeast(1L)
+        }
         val state = _uiState.value
         val layerId = strokeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
@@ -6032,6 +6127,7 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        stampFrameRequestedFor = -1L
         liquifyJob?.cancel()
         resampleJob?.cancel()
         _liveStroke.update { it.copy(layerId = null, bitmap = null) }
@@ -8980,7 +9076,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
-    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) {
+    fun onPredictionBrushStroke(predictionReport: String, refreshRateHz: Float) {
+        val report = predictionReport + "\n" + feelReport()
         predictionRankingReporter.onBrushStroke(report, refreshRateHz)
         if (predictionReports == null) return
         val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
@@ -8997,8 +9094,22 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
-    fun onPredictionSessionEnd(report: String, refreshRateHz: Float) =
-        predictionRankingReporter.flush(report, refreshRateHz)
+    fun onPredictionSessionEnd(predictionReport: String, refreshRateHz: Float) =
+        predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
+
+    /**
+     * Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer, GPU
+     * backend -- the backend in use now; switching mid-session mixes both into the numbers).
+     */
+    private fun feelReport(): String {
+        val s = _uiState.value
+        val canvas = s.layers.firstOrNull { it.id == s.activeLayerId }?.bitmap
+            ?.let { "${it.width}x${it.height}" } ?: "?"
+        val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
+            "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
+            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}"
+        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context)
+    }
 
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets

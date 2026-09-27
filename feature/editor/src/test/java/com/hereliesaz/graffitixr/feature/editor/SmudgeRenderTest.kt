@@ -22,7 +22,7 @@ import org.robolectric.annotation.GraphicsMode
  * A glee audit found this file exercised `ImageProcessor.applyToolToBitmap(..., Tool.SMUDGE, ...)`
  * directly -- code no real stroke reaches any more. `DrawingEngine`'s own `Tool.SMUDGE` branch
  * intercepts before that dispatch and routes through `ColorSmudgeEngine` instead (GPU-first via
- * `VulkanStampEngine.colorSmudge`, falling back to `ColorSmudgeEngine.apply` -- the CPU path this
+ * `GpuStampEngine.colorSmudge`, falling back to `ColorSmudgeEngine.apply` -- the CPU path this
  * file now calls directly, the same one a Robolectric/JVM test actually exercises since there's no
  * real Vulkan device to succeed here). `ImageProcessor`'s `Tool.SMUDGE` branch itself isn't dead --
  * `ColorSmudgeEngineTest`'s "pixel-identical to original Graffux smudge" test deliberately keeps it

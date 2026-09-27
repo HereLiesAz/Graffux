@@ -14,18 +14,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class VulkanStampEngineInstrumentedTest {
 
-    private val engines = mutableListOf<VulkanStampEngine>()
+    private val engines = mutableListOf<GpuStampEngine>()
 
     @After
     fun tearDown() {
         engines.forEach { it.destroy() }
         engines.clear()
-        VulkanStampEngine.trimPool()
+        GpuStampEngine.trimPool()
     }
 
-    private fun engine(): VulkanStampEngine = VulkanStampEngine().also { engines += it }
+    private fun engine(): GpuStampEngine = GpuStampEngine().also { engines += it }
 
-    private fun initializedEngine(width: Int = SIZE, height: Int = SIZE): VulkanStampEngine {
+    private fun initializedEngine(width: Int = SIZE, height: Int = SIZE): GpuStampEngine {
         val engine = engine()
         assumeTrue("Device does not expose a usable Vulkan compute path", engine.init(width, height))
         return engine
@@ -186,11 +186,11 @@ class VulkanStampEngineInstrumentedTest {
 
     @Test
     fun destroyThenSameSizeInitReusesNativeEngineAndClearsLayer() {
-        VulkanStampEngine.trimPool()
-        val before = VulkanStampEngine.nativeCreationCountForTesting()
+        GpuStampEngine.trimPool()
+        val before = GpuStampEngine.nativeCreationCountForTesting()
 
         val first = initializedEngine()
-        val afterFirstInit = VulkanStampEngine.nativeCreationCountForTesting()
+        val afterFirstInit = GpuStampEngine.nativeCreationCountForTesting()
         assertTrue("The first init did not create a native engine", afterFirstInit > before)
 
         val red = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(COLOR_RED) }
@@ -202,7 +202,7 @@ class VulkanStampEngineInstrumentedTest {
         assertEquals(
             "Same-size engine recreation reached native Vulkan init instead of the reuse pool",
             afterFirstInit,
-            VulkanStampEngine.nativeCreationCountForTesting(),
+            GpuStampEngine.nativeCreationCountForTesting(),
         )
 
         val cleared = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
@@ -212,13 +212,13 @@ class VulkanStampEngineInstrumentedTest {
 
     @Test
     fun hardwareBufferBackedEngineIsAlsoReusedWhenSupported() {
-        VulkanStampEngine.trimPool()
+        GpuStampEngine.trimPool()
         val first = engine()
         assumeTrue(
             "Device does not support the AHardwareBuffer-backed Vulkan path",
             first.initHardwareBufferBacked(SIZE, SIZE),
         )
-        val afterFirstInit = VulkanStampEngine.nativeCreationCountForTesting()
+        val afterFirstInit = GpuStampEngine.nativeCreationCountForTesting()
         first.destroy()
 
         val second = engine()
@@ -226,7 +226,7 @@ class VulkanStampEngineInstrumentedTest {
         assertEquals(
             "AHardwareBuffer-backed engine was recreated instead of reused",
             afterFirstInit,
-            VulkanStampEngine.nativeCreationCountForTesting(),
+            GpuStampEngine.nativeCreationCountForTesting(),
         )
     }
 
@@ -345,7 +345,7 @@ class VulkanStampEngineInstrumentedTest {
 
     @Test
     fun pooledWrapperDoesNotReusePreviousOwnersPaintHeight() {
-        VulkanStampEngine.trimPool()
+        GpuStampEngine.trimPool()
         val first = initializedEngine()
         val filled = FloatArray(SIZE * SIZE) { 1f }
         assertTrue(first.uploadPaintHeight(filled, SIZE, SIZE))
@@ -372,7 +372,7 @@ class VulkanStampEngineInstrumentedTest {
 
     @Test
     fun pooledWrapperRequiresFreshSubstrateUploadBeforeEnablingIt() {
-        VulkanStampEngine.trimPool()
+        GpuStampEngine.trimPool()
         val first = initializedEngine()
         assertTrue(first.uploadSubstrateHeight(byteArrayOf(0xFF.toByte()), 1, 1))
         first.destroy()

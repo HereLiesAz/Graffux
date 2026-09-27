@@ -106,9 +106,9 @@ bool VulkanStampEngine::clear() {
 }  // namespace graffux
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeClear(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeClear(
         JNIEnv*, jobject, jlong handle) {
-    auto* engine = reinterpret_cast<graffux::VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     return engine->clear() ? JNI_TRUE : JNI_FALSE;
 }
