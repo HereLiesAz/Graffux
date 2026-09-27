@@ -2,7 +2,8 @@
 
   python train.py DATA_DIR [--epochs 30] [--out model.onnx]
 
-Splits by file (session), so a session never appears in both train and validation.
+Splits by file (session), so a session never appears in both train and validation. With a single
+session, --split strokes splits its strokes instead (within-session numbers: optimistic).
 Baselines: constant-velocity extrapolation from the last two samples, and a least-squares linear
 model on the same features (what the network has to beat to be worth shipping).
 """
@@ -19,10 +20,16 @@ from strokemodel.data import HORIZONS, POS_SCALE, build_arrays, read_file
 from strokemodel.model import StrokePredictor
 
 
-def split_files(root: Path, val_frac: float, seed: int):
+def split_files(root: Path, val_frac: float, seed: int, by: str = "session"):
     files = sorted(root.rglob("*.jsonl.gz"))
+    if by == "strokes":
+        strokes = [s for f in files for s in read_file(f)]
+        random.Random(seed).shuffle(strokes)
+        n_val = max(1, int(len(strokes) * val_frac))
+        print(f"split: by strokes ({len(strokes)} strokes, {len(files)} session(s)) -- within-session, optimistic")
+        return strokes[n_val:], strokes[:n_val]
     if len(files) < 2:
-        raise SystemExit("need at least two session files to split train/validation")
+        raise SystemExit("need at least two session files to split train/validation (or --split strokes)")
     random.Random(seed).shuffle(files)
     n_val = max(1, int(len(files) * val_frac))
     load = lambda fs: [s for f in fs for s in read_file(f)]  # noqa: E731
@@ -54,11 +61,12 @@ def main():
     ap.add_argument("--batch", type=int, default=512)
     ap.add_argument("--val", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--split", choices=["session", "strokes"], default="session")
     ap.add_argument("--out", type=Path, default=Path("stroke_predictor.onnx"))
     a = ap.parse_args()
     torch.manual_seed(a.seed)
 
-    train_s, val_s = split_files(a.data, a.val, a.seed)
+    train_s, val_s = split_files(a.data, a.val, a.seed, a.split)
     tr = build_arrays(train_s)
     va = build_arrays(val_s)
     print(f"examples: train {len(tr[0])}, val {len(va[0])}")
