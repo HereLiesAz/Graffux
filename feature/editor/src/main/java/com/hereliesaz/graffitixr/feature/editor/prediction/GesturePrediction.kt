@@ -26,6 +26,12 @@ interface GesturePredictor {
     fun predict(targetUptimeMillis: Long): GesturePrediction?
 }
 
+/**
+ * The drawn tail: the pen's predicted path from the latest real sample, in order, ending at the
+ * tail's reach. Several points, not one, so the tail follows Ink's curve instead of a straight line.
+ */
+data class PredictionTail(val model: String, val points: List<Offset>)
+
 /** Mean error of one model at one frame horizon, accumulated across every stroke this session. */
 data class HorizonScore(
     val model: String,
@@ -82,9 +88,11 @@ class LinearGesturePredictor : GesturePredictor {
  * samples and trailed the pen 80 px four frames out, acceleration overshot worst, and a damped tail
  * didn't beat the undamped one, so all three were removed.
  *
- * **How far ahead.** The tail reaches [TAIL_FRAMES] frames ahead. Every model's error roughly
- * doubles per frame, and by frames 3-4 it is 100+ px, which reads as a wrong line rather than a
- * lead.
+ * **How far ahead.** The tail should cover exactly the lag between touch and paint, no more: the
+ * caller passes the measured touch-to-paint latency, and the tail reaches that far, clamped to
+ * between one frame and [TAIL_FRAMES] frames. Every model's error roughly doubles per frame, and by
+ * frames 3-4 it is 100+ px, which reads as a wrong line rather than a lead. Without a measurement
+ * the tail reaches [TAIL_FRAMES] frames.
  *
  * **Rankings.** Every [predict] still asks each running model for the next [HORIZON_FRAMES] frames
  * and scores them when real input passes each target time. The true position there is interpolated
@@ -106,12 +114,14 @@ class PredictionTournament(
      * runs them all.
      */
     soloModel: String? = null,
+    /** Google Ink tuning (TEMPORARY Settings choice, reported so profiles can be ranked). */
+    private val inkProfile: GoogleInkGesturePredictor.Profile = GoogleInkGesturePredictor.Profile.STANDARD,
 ) : RememberObserver {
     /** Tail priority order: Google Ink first, then whatever was supplied (the linear fallback). */
     private val predictors: List<GesturePredictor> = run {
         val all = buildList {
             if (includeGoogleInk && (soloModel == null || soloModel == GOOGLE_INK)) {
-                runCatching { GoogleInkGesturePredictor() }.getOrNull()?.let(::add)
+                runCatching { GoogleInkGesturePredictor(inkProfile) }.getOrNull()?.let(::add)
             }
             addAll(suppliedPredictors)
         }.distinctBy { it.name }
@@ -133,6 +143,13 @@ class PredictionTournament(
     private val session = HashMap<Pair<String, Int>, Accumulator>()
     private var lastReal: GestureSample? = null
 
+    // Cost of record() + predict() per real sample on the calling (UI) thread, for deciding
+    // whether prediction needs to move off it. Session-long, like the rankings.
+    private var costSumNs = 0L
+    private var costMaxNs = 0L
+    private var costCount = 0
+    private var recordStartNs = 0L
+
     /** New stroke: clears model state and pending predictions, not [rankings]. */
     fun reset() {
         predictors.forEach { it.reset() }
@@ -140,7 +157,12 @@ class PredictionTournament(
         lastReal = null
     }
 
-    fun resetRankings() = session.clear()
+    fun resetRankings() {
+        session.clear()
+        costSumNs = 0L
+        costMaxNs = 0L
+        costCount = 0
+    }
 
     /**
      * Pen lifted: score every still-pending prediction against the lift point, where the pen
@@ -156,6 +178,7 @@ class PredictionTournament(
 
     /** Record a real sample and score every prediction whose target time it has reached. */
     fun record(sample: GestureSample) {
+        recordStartNs = System.nanoTime()
         val previous = lastReal
         if (pending.isNotEmpty()) {
             val survivors = ArrayDeque<Pending>(pending.size)
@@ -175,25 +198,41 @@ class PredictionTournament(
 
     /**
      * [targetUptimeMillis] is the next display frame. Predicts [HORIZON_FRAMES] frames, one frame
-     * apart, for the rankings, and returns the tail: the first model in priority order that can
-     * predict [TAIL_FRAMES] frames ahead.
+     * apart, for the rankings, and returns the tail from the first model in priority order that can
+     * predict its reach. [tailLeadMs] is how far behind the pen the paint actually is (measured
+     * touch-to-paint latency); the tail reaches that far, clamped to 1..[TAIL_FRAMES] frames.
      */
-    fun predict(targetUptimeMillis: Long): GesturePrediction? {
+    fun predict(targetUptimeMillis: Long, tailLeadMs: Long? = null): PredictionTail? {
         val anchor = lastReal
         val frameMs = (targetUptimeMillis - (anchor?.uptimeMillis ?: targetUptimeMillis)).coerceAtLeast(1L)
         val targets = List(HORIZON_FRAMES) { targetUptimeMillis + it * frameMs }
-
-        var tail: GesturePrediction? = null
         for (predictor in predictors) {
             targets.forEachIndexed { h, target ->
-                predictor.predict(target)?.let { prediction ->
-                    pending.addLast(Pending(prediction, h + 1, anchor?.position))
-                    if (h + 1 == TAIL_FRAMES && tail == null) tail = prediction
-                }
+                predictor.predict(target)?.let { pending.addLast(Pending(it, h + 1, anchor?.position)) }
             }
         }
         while (pending.size > predictors.size * HORIZON_FRAMES * PENDING_FRAMES_KEPT) pending.removeFirst()
+
+        val tail = anchor?.let { buildTail(it, frameMs, tailLeadMs) }
+        if (recordStartNs > 0L) {
+            val cost = System.nanoTime() - recordStartNs
+            costSumNs += cost
+            costMaxNs = maxOf(costMaxNs, cost)
+            costCount += 1
+            recordStartNs = 0L
+        }
         return tail
+    }
+
+    private fun buildTail(anchor: GestureSample, frameMs: Long, tailLeadMs: Long?): PredictionTail? {
+        val reachMs = (tailLeadMs ?: (TAIL_FRAMES * frameMs)).coerceIn(frameMs, TAIL_FRAMES * frameMs)
+        val end = anchor.uptimeMillis + reachMs
+        val times = (1 until TAIL_FRAMES).map { anchor.uptimeMillis + it * frameMs }.filter { it < end } + end
+        for (predictor in predictors) {
+            val points = times.map { predictor.predict(it)?.position ?: return@map null }
+            if (points.all { it != null }) return PredictionTail(predictor.name, points.filterNotNull())
+        }
+        return null
     }
 
     /** Session mean error per horizon (1..[HORIZON_FRAMES]), each list best first. */
@@ -209,7 +248,8 @@ class PredictionTournament(
     }
 
     /** One line per horizon: `f1: google-ink 2.1px lead +0.4 (n=412) > linear 3.4px ...`. */
-    fun rankingReport(): String = "models: ${activeModels.joinToString()} (tail: $TAIL_FRAMES frames)\n" +
+    fun rankingReport(): String = "models: ${activeModels.joinToString()}, ink: ${inkProfile.label} " +
+        "(tail: measured lag, max $TAIL_FRAMES frames)\n" + costLine() +
         rankings().entries.joinToString("\n") { (h, scores) ->
             "f$h: " + if (scores.isEmpty()) {
                 "no data"
@@ -220,6 +260,13 @@ class PredictionTournament(
                 }
             }
         }
+
+    private fun costLine(): String = if (costCount == 0) {
+        ""
+    } else {
+        "cost per sample: mean ${"%.0f".format(costSumNs / costCount / NS_PER_US)} us, " +
+            "max ${"%.0f".format(costMaxNs / NS_PER_US)} us (n=$costCount)\n"
+    }
 
     private fun score(entry: Pending, actual: Offset) {
         val prediction = entry.prediction
@@ -264,9 +311,11 @@ class PredictionTournament(
         /** TEMPORARY: SharedPreferences file/key holding the solo model ("" = all). */
         const val SOLO_PREFS = "stroke_prediction"
         const val SOLO_KEY = "solo_model"
+        const val INK_PROFILE_KEY = "ink_profile"
 
         /** Unscored predictions kept per model and horizon before the oldest are dropped. */
         private const val PENDING_FRAMES_KEPT = 8
+        private const val NS_PER_US = 1000.0
     }
 }
 

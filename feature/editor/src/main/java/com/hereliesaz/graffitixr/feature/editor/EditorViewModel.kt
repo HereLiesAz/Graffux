@@ -336,6 +336,10 @@ private const val GPU_MASK_REFERENCE_SIZE = 128
  *  extension id could itself contain (ids are validated slugs elsewhere in the manifest pipeline). */
 private const val BRUSH_ASSET_ID_SEPARATOR = "::"
 
+/** Completed latency samples needed before [EditorViewModel.predictionLeadMs] trusts the median. */
+private const val MIN_LEAD_SAMPLES = 20
+private const val NANOS_PER_MILLI = 1_000_000L
+
 /** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
  *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
 internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
@@ -1012,6 +1016,15 @@ class EditorViewModel @Inject constructor(
     private val azphaltLatencyTracker = AzphaltLatencyTracker()
     private val basicLatencyTracker = AzphaltLatencyTracker()
     @Volatile private var stampLatestLatencySampleId: Long = -1L
+
+    /**
+     * Median touch-to-paint latency of recent stamp-brush samples (input accepted -> preview
+     * published), in ms; null until enough samples completed. The prediction tail reaches this far
+     * ahead, so it covers the real lag rather than a fixed guess. Refreshed once per stroke (at
+     * [onStrokeEnd]) because a snapshot sorts the whole ring.
+     */
+    @Volatile var predictionLeadMs: Long? = null
+        private set
     @Volatile private var basicLatestLatencySampleId: Long = -1L
 
     /**
@@ -5350,6 +5363,9 @@ class EditorViewModel @Inject constructor(
 
     /** Called when the user lifts their finger. Finalizes the stroke into the layer and undo history. */
     fun onStrokeEnd() {
+        azphaltLatencyTracker.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
+            predictionLeadMs = (it.total.medianNs / NANOS_PER_MILLI).coerceAtLeast(1L)
+        }
         val state = _uiState.value
         val layerId = strokeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return

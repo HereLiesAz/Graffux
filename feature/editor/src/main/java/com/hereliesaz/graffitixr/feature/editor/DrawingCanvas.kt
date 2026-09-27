@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,9 +34,69 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
 import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
+import com.hereliesaz.graffitixr.feature.editor.prediction.GoogleInkGesturePredictor
 import kotlin.math.roundToLong
 
 private const val EYEDROP_HOLD_MS = 500L
+
+/** Opacity of the whole prediction tail: clearly provisional next to real paint. */
+private const val TAIL_OPACITY = 0.45f
+private const val DEFAULT_TAIL_SPACING = 0.1f
+private const val MAX_TAIL_STAMPS = 96
+private const val MIN_TAIL_RADIUS_PX = 0.5f
+/** Floor on stamp spacing (fraction of diameter) so a 0-spacing brush can't flood the tail. */
+private const val MIN_TAIL_SPACING = 0.02f
+/** Hardness 1 would make a zero-width gradient ramp; cap just below it. */
+private const val MAX_TAIL_EDGE = 0.999f
+
+/**
+ * The prediction tail drawn like the active brush: soft round stamps (edge falloff from the brush's
+ * hardness) spaced along the predicted path at the brush's own spacing. Stamps go into one layer at
+ * full strength and the layer is composited at [TAIL_OPACITY], so overlapping stamps don't darken
+ * the tail the way separate translucent circles would. Never committed; redrawn every sample.
+ */
+private fun DrawScope.drawPredictionTail(
+    path: List<Offset>,
+    color: Color,
+    diameter: Float,
+    hardness: Float,
+    spacing: Float,
+) {
+    if (path.size < 2) return
+    val radius = (diameter / 2f).coerceAtLeast(MIN_TAIL_RADIUS_PX)
+    val step = (diameter * spacing.coerceAtLeast(MIN_TAIL_SPACING)).coerceAtLeast(1f)
+    val centers = ArrayList<Offset>()
+    for (i in 1 until path.size) {
+        val a = path[i - 1]
+        val b = path[i]
+        val length = (b - a).getDistance()
+        var d = 0f
+        while (d <= length && centers.size < MAX_TAIL_STAMPS) {
+            centers += a + (b - a) * (if (length > 0f) d / length else 0f)
+            d += step
+        }
+    }
+    centers += path.last()
+    val solid = color.copy(alpha = 1f)
+    val edge = hardness.coerceIn(0f, MAX_TAIL_EDGE)
+    val layerPaint = androidx.compose.ui.graphics.Paint().apply { alpha = color.alpha * TAIL_OPACITY }
+    val left = centers.minOf { it.x } - radius
+    val top = centers.minOf { it.y } - radius
+    val right = centers.maxOf { it.x } + radius
+    val bottom = centers.maxOf { it.y } + radius
+    drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(left, top, right, bottom), layerPaint)
+    for (c in centers) {
+        drawCircle(
+            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                0f to solid, edge to solid, 1f to solid.copy(alpha = 0f),
+                center = c, radius = radius,
+            ),
+            radius = radius,
+            center = c,
+        )
+    }
+    drawContext.canvas.restore()
+}
 
 @Composable
 fun DrawingCanvas(
@@ -65,6 +126,11 @@ fun DrawingCanvas(
     onPredictionRanked: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
     /** TEMPORARY: this canvas's prediction tournament is being discarded. */
     onPredictionSessionEnd: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
+    /**
+     * Measured touch-to-paint lag in ms (null = not measured yet). The prediction tail reaches this
+     * far ahead of the pen so it covers the real gap; see PredictionTournament.predict.
+     */
+    predictionLeadMs: () -> Long? = { null },
 ) {
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -92,20 +158,23 @@ fun DrawingCanvas(
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
     // TEMPORARY: Settings > Developer can pin one predictor to run alone (see PredictionTournament).
-    val soloModel = view.context
+    val predictionPrefs = view.context
         .getSharedPreferences(PredictionTournament.SOLO_PREFS, android.content.Context.MODE_PRIVATE)
-        .getString(PredictionTournament.SOLO_KEY, null)
-        ?.takeIf { it.isNotBlank() }
+    val soloModel = predictionPrefs.getString(PredictionTournament.SOLO_KEY, null)?.takeIf { it.isNotBlank() }
+    val inkProfile = predictionPrefs.getString(PredictionTournament.INK_PROFILE_KEY, null)
+        .let { saved -> GoogleInkGesturePredictor.Profile.entries.firstOrNull { it.label == saved } }
+        ?: GoogleInkGesturePredictor.Profile.STANDARD
     // Google Ink draws the tail; linear only covers the first samples of a stroke (see
     // PredictionTournament's doc for why the others were removed).
-    val predictionTournament = remember(view, soloModel) {
-        PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel)
+    val predictionTournament = remember(view, soloModel, inkProfile) {
+        PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel, inkProfile = inkProfile)
     }
     val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
     DisposableEffect(predictionTournament) {
         onDispose { latestOnPredictionSessionEnd.value(predictionTournament.rankingReport(), refreshRate) }
     }
-    var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
+    // Pen position followed by the predicted path, in order. Presentation only.
+    var predictionTail by remember { mutableStateOf<List<Offset>?>(null) }
 
     fun recordRealPoint(
         position: Offset,
@@ -114,12 +183,8 @@ fun DrawingCanvas(
         contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
     ): BrushSample {
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
-        val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
-        predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
-            position to prediction.position
-        } else {
-            null
-        }
+        val tail = predictionTournament.predict(uptimeMillis + nextFrameMs, predictionLeadMs())
+        predictionTail = if (activeTool == Tool.BRUSH && tail != null) listOf(position) + tail.points else null
         val sample = brushSampleBuilder.add(
             x = position.x,
             y = position.y,
@@ -396,14 +461,13 @@ fun DrawingCanvas(
             )
         }
 
-        predictionTail?.let { (real, predicted) ->
-            drawLine(
-                color = activeColor.copy(alpha = activeColor.alpha * 0.45f),
-                start = real,
-                end = predicted,
-                strokeWidth = brushSize,
-                cap = StrokeCap.Round,
-                blendMode = BlendMode.SrcOver,
+        predictionTail?.let { path ->
+            drawPredictionTail(
+                path = path,
+                color = activeColor,
+                diameter = brushSize,
+                hardness = activeBrushPreview?.hardness ?: 1f,
+                spacing = activeBrushPreview?.spacing ?: DEFAULT_TAIL_SPACING,
             )
         }
 

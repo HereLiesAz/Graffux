@@ -242,18 +242,24 @@ begins with a `models:` line.
 
 #### Stroke prediction to-do
 
-Ordered by value for effort. Measuring, one shared horizon, choosing the model and capping the tail
-are done above.
+Done:
+- **The tail looks like the brush.** `drawPredictionTail` stamps soft round dabs along Ink's
+  predicted curve, using the active brush's hardness for edge falloff and its spacing. All stamps
+  go into one layer, composited at 45% opacity, so overlaps don't darken. Nothing is committed.
+- **The tail covers the measured lag.** `EditorViewModel.predictionLeadMs` is the median
+  touch-to-paint latency from `AzphaltLatencyTracker` (refreshed per stroke once 20 samples exist).
+  The tail reaches that far, clamped to one to two frames. It is a curve through each frame's
+  prediction, not a straight line.
+- **Tuning and threading are now measurable.** Reports carry the prediction cost per sample on the
+  UI thread (mean and max, in µs), and the Ink tuning in use. Settings → Developer → Google Ink tuning
+  switches between `standard` (Ink's reference weights), `steady` and `responsive`.
 
-1. **Make the tail look like the brush.** Replace the flat line with a few low-opacity stamps of
-   the active brush along the predicted path, still never committed.
-2. **Aim at measured latency, not a fixed two frames.** GPU paint lands on a background thread and
-   can trail by more than a frame. Size the tail from `AzphaltLatencyTracker`'s touch-to-paint
-   measurement.
-3. **Tune Google Ink and move prediction off the UI thread.** Its Kalman constants are
-   carried over untuned; tune them against the ranking. Move prediction to the input thread if it
-   shows in frame timing.
-4. **Train a Graffux model (later).** A small model on recorded Graffux strokes (pressure, tilt)
+Next, driven by the reports:
+1. **Pick the Ink tuning** with the lowest error and lead near zero across a few sessions, then make
+   it the default and drop the setting.
+2. **Move prediction off the UI thread only if the reported cost warrants it** (roughly: mean above
+   ~200 µs, or spikes that show up in frame timing).
+3. **Train a Graffux model (later).** A small model on recorded Graffux strokes (pressure, tilt)
    could beat Ink; only worth it once the ranking proves the gap.
 
 Adopting the companion doc's actual substitution model — painting provisional predicted dabs and
