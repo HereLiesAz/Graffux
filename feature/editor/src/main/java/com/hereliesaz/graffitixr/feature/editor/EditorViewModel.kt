@@ -576,6 +576,8 @@ class EditorViewModel @Inject constructor(
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
+    // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it.
+    private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null,
 ) : ViewModel(), EditorActions {
 
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
@@ -8955,6 +8957,28 @@ class EditorViewModel @Inject constructor(
      * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
      * brush built before there's anything to paint with).
      */
+    // TEMPORARY: see PredictionRankingReporter / PredictionReportRepository.
+    private val predictionRankingReporter =
+        com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter(
+            device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
+                "Android ${android.os.Build.VERSION.RELEASE}",
+        ) { title, body ->
+            val reports = predictionReports ?: return@PredictionRankingReporter
+            viewModelScope.launch(dispatchers.io) {
+                reports.fileIssue(title, body).onFailure {
+                    android.util.Log.w("StrokePrediction", "ranking issue not filed", it)
+                }
+            }
+        }
+
+    /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
+    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) =
+        predictionRankingReporter.onBrushStroke(report, refreshRateHz)
+
+    /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
+    fun onPredictionSessionEnd(report: String, refreshRateHz: Float) =
+        predictionRankingReporter.flush(report, refreshRateHz)
+
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
 
