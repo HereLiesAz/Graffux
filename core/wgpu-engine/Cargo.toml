@@ -1,0 +1,27 @@
+[package]
+name = "graffux-wgpu"
+version = "0.1.0"
+edition = "2021"
+description = "Graffux GPU stamp engine on wgpu (WGSL compute); the long-term single brush engine for Android and desktop"
+publish = false
+license = "UNLICENSED"
+
+[lib]
+name = "graffux_wgpu"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "gles", "dx12", "metal"] }
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+jni = "0.21"
+log = "0.4"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+[dev-dependencies]
+naga = { version = "30", features = ["wgsl-in"] }
