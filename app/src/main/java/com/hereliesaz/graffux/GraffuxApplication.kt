@@ -38,7 +38,7 @@ class GraffuxApplication : Application() {
         // The shared editor's Liquify tool bakes through the native bridge, so load before any edit.
         // Idempotent and safe on every process start.
         NativeLibLoader.loadAll()
-        // GPU backend chosen in Settings (Vulkan / OpenGL ES) for every stamp engine created from now on.
+        // GPU backend chosen in Settings (Vulkan / OpenGL ES / wgpu) for every stamp engine created from now on.
         val gpuPrefs = getSharedPreferences(GpuStampEngine.Backend.PREFS, MODE_PRIVATE)
         GpuStampEngine.Backend.preferred =
             GpuStampEngine.Backend.fromLabel(gpuPrefs.getString(GpuStampEngine.Backend.KEY, null))
