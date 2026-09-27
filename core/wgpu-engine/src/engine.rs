@@ -13,6 +13,8 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
+
 const STAMP_TILE: u32 = 16;
 const SMUDGE_TILE: u32 = 8;
 
@@ -260,39 +262,6 @@ const _: () = assert!(std::mem::size_of::<StampUniform>() % 16 == 0);
 const _: () = assert!(std::mem::size_of::<MaskedUniform>() % 16 == 0);
 const _: () = assert!(std::mem::size_of::<SmudgeUniform>() % 16 == 0);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Rect {
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-}
-
-impl Rect {
-    fn is_empty(&self) -> bool {
-        self.w <= 0 || self.h <= 0
-    }
-
-    fn union(self, other: Rect) -> Rect {
-        if other.is_empty() {
-            return self;
-        }
-        if self.is_empty() {
-            return other;
-        }
-        let x0 = self.x.min(other.x);
-        let y0 = self.y.min(other.y);
-        let x1 = (self.x + self.w).max(other.x + other.w);
-        let y1 = (self.y + self.h).max(other.y + other.h);
-        Rect {
-            x: x0,
-            y: y0,
-            w: x1 - x0,
-            h: y1 - y0,
-        }
-    }
-}
-
 /// GlesStampEngine.cpp's dabRegion(): the dabs' bounding box, clamped to the layer, +1 on the far
 /// edge.
 fn dab_region(dabs: &[GpuDab], width: i32, height: i32) -> Rect {
@@ -395,7 +364,16 @@ pub struct Engine {
     error: Arc<AtomicBool>,
     width: i32,
     height: i32,
+    /// The layer every dispatch binds: `scratch`, or the active resident layer's buffer.
     layer: wgpu::Buffer,
+    /// The anonymous layer that `upload()`/`clear()` (the `StampEngine.h` contract) paint into.
+    scratch: wgpu::Buffer,
+    /// Key of the resident layer `layer` currently is, if any.
+    active_key: Option<u64>,
+    /// Bind session of the active resident layer (see [`Engine::bind_layer`]).
+    session: u64,
+    next_session: u64,
+    residents: ResidentSet<wgpu::Buffer>,
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
@@ -742,7 +720,12 @@ impl Engine {
             error,
             width,
             height,
-            layer,
+            layer: layer.clone(),
+            scratch: layer,
+            active_key: None,
+            session: 0,
+            next_session: 1,
+            residents: ResidentSet::new(DEFAULT_BUDGET_BYTES),
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
@@ -896,6 +879,7 @@ impl Engine {
 
     /// `StampEngine::clear`: transparent layer, new stroke.
     pub fn clear(&mut self) -> bool {
+        self.detach();
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.clear_buffer(&self.layer, 0, None);
         self.queue.submit([encoder.finish()]);
@@ -911,6 +895,7 @@ impl Engine {
         if rgba.len() < bytes {
             return false;
         }
+        self.detach();
         self.queue.write_buffer(&self.layer, 0, &rgba[..bytes]);
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
@@ -934,12 +919,7 @@ impl Engine {
         let (start, end) = (y0 as usize * row_bytes, y1 as usize * row_bytes);
         self.queue
             .write_buffer(&self.layer, start as u64, &rgba[start..end]);
-        self.dirty = self.dirty.union(Rect {
-            x: 0,
-            y: y0,
-            w: self.width,
-            h: y1 - y0,
-        });
+        self.note_write(Rect::new(0, y0, self.width, y1 - y0));
         self.ok()
     }
 
@@ -1099,7 +1079,7 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.dirty = self.dirty.union(r);
+        self.note_write(r);
         self.ok()
     }
 
@@ -1290,7 +1270,7 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.dirty = self.dirty.union(r);
+        self.note_write(r);
         self.ok()
     }
 
@@ -1451,7 +1431,7 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.mark_fully_dirty();
+        self.note_write(Rect::new(0, 0, self.width, self.height));
         self.ok()
     }
 
@@ -1469,22 +1449,81 @@ impl Engine {
     /// `out` (width*height*4 bytes, premultiplied RGBA8) and leaves every other byte untouched,
     /// exactly like the C++ engines -- callers keep one buffer per stroke and it stays current.
     pub fn readback(&mut self, out: &mut [u8]) -> bool {
+        self.readback_rect(out).is_some()
+    }
+
+    /// [`Engine::readback`] that also reports the rectangle it wrote, `(x, y, w, h)` (all zero
+    /// when nothing was dirty). Only that rectangle crosses from the GPU: a narrow rectangle is
+    /// copied row by row into a compact staging area rather than as whole layer rows, so a frame
+    /// of dabs costs its own extent, not the layer's width. `None` on failure.
+    pub fn readback_rect(&mut self, out: &mut [u8]) -> Option<(i32, i32, i32, i32)> {
         if out.len() < self.layer_bytes() as usize {
+            return None;
+        }
+        let r = self.dirty.clamp(self.width, self.height);
+        if r.is_empty() {
+            self.dirty = Rect::default();
+            return self.ok().then_some((0, 0, 0, 0));
+        }
+        let stride = self.width as usize * 4;
+        if !self.read_region_into(r, out, stride, (r.y as usize * stride) + r.x as usize * 4) {
+            return None;
+        }
+        self.dirty = Rect::default();
+        self.ok().then_some((r.x, r.y, r.w, r.h))
+    }
+
+    /// The rectangle a [`Engine::readback`] would copy now, `(x, y, w, h)`; zeros when clean.
+    pub fn dirty_rect(&self) -> (i32, i32, i32, i32) {
+        let r = self.dirty.clamp(self.width, self.height);
+        (r.x, r.y, r.w, r.h)
+    }
+
+    /// Reads an explicit rectangle of the layer into `out`, tightly packed (`w*4` bytes per row),
+    /// regardless of the dirty rectangle, which it leaves alone. False when the rectangle is not
+    /// inside the layer or `out` is too small.
+    pub fn read_region(&mut self, x: i32, y: i32, w: i32, h: i32, out: &mut [u8]) -> bool {
+        let r = Rect::new(x, y, w, h);
+        if r.is_empty() || r.clamp(self.width, self.height) != r || out.len() < (w * h * 4) as usize {
             return false;
         }
-        if self.dirty.is_empty() {
-            return self.ok();
-        }
+        self.read_region_into(r, out, w as usize * 4, 0) && self.ok()
+    }
+
+    /// Copies `r` (inside the layer) to `out`, row `i` landing at `base + i*out_stride`.
+    fn read_region_into(&mut self, r: Rect, out: &mut [u8], out_stride: usize, base: usize) -> bool {
         let row_bytes = self.width as u64 * 4;
-        let offset = self.dirty.y as u64 * row_bytes;
-        let length = self.dirty.h as u64 * row_bytes;
+        let rect_row = r.w as u64 * 4;
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_buffer_to_buffer(&self.layer, offset, &self.staging, offset, length);
+        // Whole rows are one copy; a rectangle narrower than half the layer is copied per row
+        // into a compact block so the transfer (and the mapping) is only as wide as the dabs.
+        let full_rows = r.w as u64 * 2 >= self.width as u64;
+        let (src_stride, length) = if full_rows {
+            encoder.copy_buffer_to_buffer(
+                &self.layer,
+                r.y as u64 * row_bytes,
+                &self.staging,
+                0,
+                r.h as u64 * row_bytes,
+            );
+            (row_bytes, r.h as u64 * row_bytes)
+        } else {
+            for row in 0..r.h as u64 {
+                encoder.copy_buffer_to_buffer(
+                    &self.layer,
+                    (r.y as u64 + row) * row_bytes + r.x as u64 * 4,
+                    &self.staging,
+                    row * rect_row,
+                    rect_row,
+                );
+            }
+            (rect_row, r.h as u64 * rect_row)
+        };
         self.queue.submit([encoder.finish()]);
-        let slice = self.staging.slice(offset..offset + length);
+        let slice = self.staging.slice(0..length);
         let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r.is_ok());
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res.is_ok());
         });
         if self
             .device
@@ -1501,17 +1540,16 @@ impl Engine {
                 self.staging.unmap();
                 return false;
             };
-            let col = self.dirty.x as usize * 4;
-            let copy = self.dirty.w as usize * 4;
-            for row in 0..self.dirty.h as usize {
-                let src = row * row_bytes as usize + col;
-                let dst = offset as usize + row * row_bytes as usize + col;
+            let col = if full_rows { r.x as usize * 4 } else { 0 };
+            let copy = rect_row as usize;
+            for row in 0..r.h as usize {
+                let src = row * src_stride as usize + col;
+                let dst = base + row * out_stride;
                 out[dst..dst + copy].copy_from_slice(&mapped[src..src + copy]);
             }
         }
         self.staging.unmap();
-        self.dirty = Rect::default();
-        self.ok()
+        true
     }
 
     /// Whole-layer readback regardless of the dirty rectangle (tests, desktop display refresh).
@@ -1522,6 +1560,200 @@ impl Engine {
             Some(out)
         } else {
             None
+        }
+    }
+
+    // ---- Resident layers (see resident.rs) -------------------------------------------------
+
+    /// Every dispatch/upload that changes the active layer goes through here: grows the readback
+    /// rectangle and, for a resident layer, taints it for this bind session.
+    fn note_write(&mut self, r: Rect) {
+        self.dirty = self.dirty.union(r);
+        if let Some(key) = self.active_key {
+            let session = self.session;
+            let (width, height) = (self.width, self.height);
+            if let Some(e) = self.residents.get_mut(key) {
+                if e.tag != Tag::Invalid {
+                    e.tag = Tag::Tainted(session);
+                }
+                e.touched = e.touched.union(r).clamp(width, height);
+            }
+        }
+    }
+
+    /// Back to the anonymous scratch layer (`upload()`/`clear()`); resident layers stay put.
+    fn detach(&mut self) {
+        if self.active_key.take().is_some() {
+            self.layer = self.scratch.clone();
+        }
+    }
+
+    fn activate(&mut self, key: u64) -> u64 {
+        let session = self.next_session;
+        self.next_session += 1;
+        self.residents.touch(key);
+        let e = self.residents.get_mut(key).expect("activate: key is resident");
+        e.session = session;
+        e.touched = Rect::default();
+        self.layer = e.buffer.clone();
+        self.active_key = Some(key);
+        self.session = session;
+        // A new stroke: fresh strokeMax state, and the caller's readback buffer already holds the
+        // layer (it is the CPU layer the generation names), so nothing is dirty yet.
+        self.stroke_state_dirty = true;
+        self.dirty = Rect::default();
+        session
+    }
+
+    /// Starts a stroke on the resident copy of layer `key`, if the engine holds it at content
+    /// generation `generation`. Returns the bind session (> 0) on a hit; 0 on a miss, in which case
+    /// the caller uploads with [`Engine::upload_layer`]. Nothing is uploaded or read back: the
+    /// first dab of the stroke costs only its own dispatch and rectangle.
+    pub fn bind_layer(&mut self, key: u64, generation: u64) -> u64 {
+        match self.residents.get(key) {
+            Some(e) if e.tag == Tag::Valid(generation) => self.activate(key),
+            _ => 0,
+        }
+    }
+
+    /// Uploads `rgba` (a full layer image) as layer `key` at `generation`, making it resident
+    /// (evicting least-recently-used layers over the budget) and starting a stroke on it, like
+    /// [`Engine::bind_layer`]. The caller's readback buffer must already hold these pixels: the
+    /// dirty rectangle starts empty. Returns the bind session, 0 on failure.
+    pub fn upload_layer(&mut self, key: u64, generation: u64, rgba: &[u8]) -> u64 {
+        let bytes = self.layer_bytes();
+        if rgba.len() < bytes as usize {
+            return 0;
+        }
+        if self.residents.get(key).is_none() {
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("resident layer"),
+                size: bytes,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            // The previous active layer's stroke is over once another layer is uploaded, so only
+            // the new key is protected from eviction.
+            let evicted = self.residents.insert(key, buffer, bytes, Tag::Invalid, None);
+            if self.active_key.is_some_and(|k| self.residents.get(k).is_none()) {
+                self.detach();
+            }
+            drop(evicted);
+        }
+        let buffer = self.residents.get(key).expect("inserted").buffer.clone();
+        self.queue.write_buffer(&buffer, 0, &rgba[..bytes as usize]);
+        self.residents.get_mut(key).expect("inserted").tag = Tag::Valid(generation);
+        if !self.ok() {
+            self.residents.remove(key);
+            self.detach();
+            return 0;
+        }
+        self.activate(key)
+    }
+
+    /// The stroke that bound `key` in session `session` is committed and the GPU copy *is* the
+    /// committed layer (the desktop canvas commits its GPU frame): retags it as `generation`
+    /// without any upload. False (and nothing changes) if the layer was rebound, invalidated or
+    /// evicted since -- the next bind then misses and uploads, which is always correct.
+    pub fn commit_layer(&mut self, key: u64, session: u64, generation: u64) -> bool {
+        match self.residents.get_mut(key) {
+            Some(e) if e.session == session && session != 0 && e.tag != Tag::Invalid => {
+                e.tag = Tag::Valid(generation);
+                e.touched = Rect::default();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The stroke that bound `key` in session `session` was committed by the CPU (Android's
+    /// authoritative commit), whose pixels are `rgba` (a full layer image). Re-uploads only what can
+    /// differ -- the rows the stroke painted on the GPU plus `extra` (what the CPU commit changed
+    /// relative to the layer the stroke started from) -- and retags the copy as `generation`.
+    /// Everything outside that union already equals both. False (nothing changes) under the same
+    /// conditions as [`Engine::commit_layer`].
+    pub fn refresh_layer(
+        &mut self,
+        key: u64,
+        session: u64,
+        generation: u64,
+        rgba: &[u8],
+        extra: (i32, i32, i32, i32),
+    ) -> bool {
+        if rgba.len() < self.layer_bytes() as usize {
+            return false;
+        }
+        let (width, height) = (self.width, self.height);
+        let Some(e) = self.residents.get_mut(key) else {
+            return false;
+        };
+        if e.session != session || session == 0 || e.tag == Tag::Invalid {
+            return false;
+        }
+        let r = e
+            .touched
+            .union(Rect::new(extra.0, extra.1, extra.2, extra.3))
+            .clamp(width, height);
+        let buffer = e.buffer.clone();
+        if !r.is_empty() {
+            let row_bytes = width as usize * 4;
+            if r.w * 2 >= width {
+                let (start, end) = (r.y as usize * row_bytes, (r.y + r.h) as usize * row_bytes);
+                self.queue
+                    .write_buffer(&buffer, start as u64, &rgba[start..end]);
+            } else {
+                for row in r.y..r.y + r.h {
+                    let start = row as usize * row_bytes + r.x as usize * 4;
+                    let end = start + r.w as usize * 4;
+                    self.queue
+                        .write_buffer(&buffer, start as u64, &rgba[start..end]);
+                }
+            }
+        }
+        let e = self.residents.get_mut(key).expect("checked above");
+        e.tag = Tag::Valid(generation);
+        e.touched = Rect::default();
+        self.ok()
+    }
+
+    /// The CPU layer `key` changed outside the engine: forget the resident copy (or, if it is the
+    /// active layer, mark it so no bind can match it). True if the engine held it.
+    pub fn invalidate_layer(&mut self, key: u64) -> bool {
+        if self.active_key == Some(key) {
+            if let Some(e) = self.residents.get_mut(key) {
+                e.tag = Tag::Invalid;
+                return true;
+            }
+            return false;
+        }
+        self.residents.remove(key).is_some()
+    }
+
+    /// Forgets every resident layer (memory pressure, document switch).
+    pub fn invalidate_all_layers(&mut self) {
+        let evicted = self.residents.invalidate_all(self.active_key);
+        drop(evicted);
+    }
+
+    /// Sets the resident-layer memory budget in bytes and evicts down to it (the active layer is
+    /// kept even if it alone exceeds the budget).
+    pub fn set_resident_budget(&mut self, bytes: u64) {
+        let evicted = self.residents.set_budget(bytes, self.active_key);
+        drop(evicted);
+    }
+
+    /// `(resident layer count, bytes they hold)`.
+    pub fn resident_stats(&self) -> (usize, u64) {
+        (self.residents.len(), self.residents.total_bytes())
+    }
+
+    /// The generation `key` is resident at, if its copy is currently valid (tests, diagnostics).
+    pub fn resident_generation(&self, key: u64) -> Option<u64> {
+        match self.residents.get(key)?.tag {
+            Tag::Valid(g) => Some(g),
+            _ => None,
         }
     }
 }

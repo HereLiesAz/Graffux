@@ -54,6 +54,33 @@ void gfx_wgpu_benchmark_info(GfxWgpuEngine* e, uint32_t* ids, uint64_t* nanos);
 bool gfx_wgpu_readback(GfxWgpuEngine* e, uint8_t* out, size_t capacity);
 size_t gfx_wgpu_adapter_description(GfxWgpuEngine* e, char* out, size_t capacity);
 
+// Dirty-rect readback: gfx_wgpu_readback plus the rectangle copied, rect = {x, y, w, h} (zeros when
+// nothing was dirty). Only that rectangle crosses from the GPU.
+bool gfx_wgpu_readback_rect(GfxWgpuEngine* e, uint8_t* out, size_t capacity, int32_t* rect);
+// An explicit rectangle, tightly packed (w*4 bytes per row); leaves the dirty rectangle alone.
+bool gfx_wgpu_read_region(GfxWgpuEngine* e, int32_t x, int32_t y, int32_t w, int32_t h,
+                          uint8_t* out, size_t capacity);
+
+// Resident layers (core/wgpu-engine/src/resident.rs). A layer stays on the GPU across strokes,
+// keyed by the caller's layer key and tagged with a content generation the caller makes unique
+// across layers. bind/upload start a stroke on it and return a bind session (0 = miss/failure).
+// After the stroke commits, commit_layer (the GPU result is the committed layer) or refresh_layer
+// (the CPU committed; re-upload the stroke's rows plus rect x,y,w,h from rgba) retag it. Anything
+// that changes the CPU layer otherwise must invalidate it. clear()/upload() leave resident layers
+// alone and paint an anonymous layer, exactly as before.
+uint64_t gfx_wgpu_bind_layer(GfxWgpuEngine* e, uint64_t key, uint64_t generation);
+uint64_t gfx_wgpu_upload_layer(GfxWgpuEngine* e, uint64_t key, uint64_t generation,
+                               const uint8_t* rgba, size_t len);
+bool gfx_wgpu_commit_layer(GfxWgpuEngine* e, uint64_t key, uint64_t session, uint64_t generation);
+bool gfx_wgpu_refresh_layer(GfxWgpuEngine* e, uint64_t key, uint64_t session, uint64_t generation,
+                            const uint8_t* rgba, size_t len, int32_t x, int32_t y, int32_t w,
+                            int32_t h);
+bool gfx_wgpu_invalidate_layer(GfxWgpuEngine* e, uint64_t key);
+void gfx_wgpu_invalidate_all_layers(GfxWgpuEngine* e);
+void gfx_wgpu_set_resident_budget(GfxWgpuEngine* e, uint64_t bytes);
+// out = {resident layer count, bytes held}.
+void gfx_wgpu_resident_stats(GfxWgpuEngine* e, uint64_t* out);
+
 #ifdef __cplusplus
 }
 #endif
