@@ -1022,6 +1022,13 @@ class EditorViewModel @Inject constructor(
     @Volatile private var feelFirstLatencyId: Long = -1L
 
     /**
+     * True once the current Brush stroke's first real paint is on screen. The canvas draws
+     * provisional ink from touch-down until then (see DrawingCanvas.provisionalInk).
+     */
+    @Volatile var strokePaintPresented: Boolean = false
+        private set
+
+    /**
      * Median touch-to-paint latency of recent stamp-brush samples (input accepted -> preview
      * published), in ms; null until enough samples completed. The prediction tail reaches this far
      * ahead, so it covers the real lag rather than a fixed guess. Refreshed once per stroke (at
@@ -4011,6 +4018,7 @@ class EditorViewModel @Inject constructor(
         if (state.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStrokeStart()
             feelFirstLatencyId = -1L
+            strokePaintPresented = false
         }
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
@@ -5290,6 +5298,7 @@ class EditorViewModel @Inject constructor(
                         latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
                         val firstId = feelFirstLatencyId
                         if (firstId >= 0L && firstId in latencyIds) {
+                            strokePaintPresented = true
                             azphaltLatencyTracker.presentedLatencyMs(firstId)?.let(strokeFeelMeter::onFirstDabPresented)
                         }
                     }

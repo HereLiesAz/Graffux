@@ -484,6 +484,12 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
+   **Interim, shipped:** provisional ink. `DrawingCanvas` stamps the brush itself from the raw
+   `ACTION_DOWN` (before touch slop even decides it is a stroke) and follows the real samples
+   until the editor reports the stroke's first real paint presented
+   (`EditorViewModel.strokePaintPresented`), capped at 250 ms. Ink appears on the next composed
+   frame instead of after the engine round trip, finger or stylus. Cleared on hold-to-eyedrop,
+   pinch and lift. It still waits for one Compose frame; front-buffer is what removes that.
 5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) already shipped;
    what remains is the dab-substitution model itself (provisional predicted dabs, overwritten by
    ground truth), which needs `onStrokePoint`'s real-input-only invariant to grow a
