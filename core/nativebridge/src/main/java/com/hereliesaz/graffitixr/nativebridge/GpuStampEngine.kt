@@ -57,20 +57,90 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         private val pooledHandles = ArrayDeque<CachedHandle>()
         private val nativeCreationCount = AtomicInteger(0)
 
+        private const val RECT_INTS = 4
+
+        /**
+         * Every live wgpu native handle (checked out by an engine or pooled). Touched only on
+         * [GpuRenderThread], so resident-layer refreshes and invalidations can reach whichever
+         * handle holds a layer without racing that handle's own work.
+         */
+        private val liveWgpuHandles = LinkedHashSet<Long>()
+
+        /** Instance used only to reach the instance-bound JNI entry points from the companion. */
+        private var jniHelper: GpuStampEngine? = null
+
+        private fun helper(): GpuStampEngine =
+            jniHelper ?: GpuStampEngine(Backend.WGPU).also { jniHelper = it }
+
         @JvmStatic
         fun trimPool() {
-            val handles = synchronized(poolLock) {
+            val cached = synchronized(poolLock) {
                 if (pooledHandles.isEmpty()) return
-                buildList { while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst().handle) }
+                buildList { while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst()) }
             }
             val destroyer = GpuStampEngine()
-            handles.forEach(destroyer::nativeDestroy)
+            cached.filter { it.key.backend != Backend.WGPU }.forEach { destroyer.nativeDestroy(it.handle) }
+            val wgpu = cached.filter { it.key.backend == Backend.WGPU }.map { it.handle }
+            if (wgpu.isNotEmpty()) {
+                GpuRenderThread.post {
+                    wgpu.forEach {
+                        liveWgpuHandles.remove(it)
+                        destroyer.nativeDestroy(it)
+                    }
+                }
+            }
+        }
+
+        /**
+         * The stroke [stroke] started is committed, and [committed] (the CPU's authoritative
+         * result) is now layer [ResidentStroke.layerKey] at [generation]. Queued behind the
+         * stroke's own GPU work; re-uploads only the rows the stroke painted plus [changed]
+         * ({x, y, w, h}: where [committed] differs from the layer the stroke started from), then
+         * retags the resident copy so the next stroke on this layer binds it without an upload. A
+         * no-op when the handle is gone or the copy was rebound or invalidated meanwhile -- the next
+         * stroke then misses and uploads, which is always correct. [committed] must not be mutated
+         * afterwards without invalidating the layer.
+         */
+        @JvmStatic
+        fun refreshResident(stroke: ResidentStroke, generation: Long, committed: Bitmap, changed: IntArray) {
+            require(changed.size >= RECT_INTS) { "changed must be {x, y, w, h}" }
+            GpuRenderThread.post {
+                if (stroke.handle !in liveWgpuHandles) return@post
+                helper().nativeRefreshLayer(
+                    stroke.handle, longArrayOf(stroke.layerKey, stroke.session, generation), committed, changed,
+                )
+            }
+        }
+
+        /** The CPU layer [layerKey] changed outside a GPU stroke: drop it from every engine (queued). */
+        @JvmStatic
+        fun invalidateResident(layerKey: Long) {
+            GpuRenderThread.post {
+                if (liveWgpuHandles.isEmpty()) return@post
+                val jni = helper()
+                liveWgpuHandles.forEach { jni.nativeInvalidateLayer(it, layerKey) }
+            }
+        }
+
+        /** Every layer changed (document switch, memory pressure): drop all resident layers (queued). */
+        @JvmStatic
+        fun invalidateAllResident() {
+            GpuRenderThread.post {
+                if (liveWgpuHandles.isEmpty()) return@post
+                val jni = helper()
+                liveWgpuHandles.forEach { jni.nativeInvalidateAllLayers(it) }
+            }
         }
 
         internal fun nativeCreationCountForTesting(): Int = nativeCreationCount.get()
 
         private fun takePooled(key: PoolKey): Long = synchronized(poolLock) {
-            val iterator = pooledHandles.iterator()
+            // wgpu: most recently returned first -- it holds the layers painted most recently.
+            val iterator = if (key.backend == Backend.WGPU) {
+                pooledHandles.descendingIterator()
+            } else {
+                pooledHandles.iterator()
+            }
             while (iterator.hasNext()) {
                 val cached = iterator.next()
                 if (cached.key == key) {
@@ -122,17 +192,21 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             poolKey = key
             healthy = true
             hardwareBufferExported = false
-            if (nativeClear(cached)) return true
-            nativeDestroy(cached)
+            if (onGpu { nativeClear(cached) }) return true
+            destroyHandle(cached, backend)
             nativeHandle = 0L
             poolKey = null
             healthy = false
         }
         nativeCreationCount.incrementAndGet()
-        val created = if (hardwareBufferBacked) {
-            nativeInitHardwareBuffer(width, height, backend.nativeId)
-        } else {
-            nativeInit(width, height, backend.nativeId)
+        val created = onGpu {
+            val handle = if (hardwareBufferBacked) {
+                nativeInitHardwareBuffer(width, height, backend.nativeId)
+            } else {
+                nativeInit(width, height, backend.nativeId)
+            }
+            if (handle != 0L && backend == Backend.WGPU) liveWgpuHandles.add(handle)
+            handle
         }
         nativeHandle = created
         poolKey = if (created != 0L) key else null
@@ -144,7 +218,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     @Synchronized
     fun getHardwareBuffer(): HardwareBuffer? {
         if (!isInitialized) return null
-        val buffer = nativeGetHardwareBuffer(nativeHandle)
+        val buffer = onGpu { nativeGetHardwareBuffer(nativeHandle) }
         if (buffer != null) hardwareBufferExported = true
         return buffer
     }
@@ -153,7 +227,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     fun upload(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.upload requires ARGB_8888, got ${bitmap.config}" }
-        return nativeUpload(nativeHandle, bitmap).also { if (!it) healthy = false }
+        return onGpu { nativeUpload(nativeHandle, bitmap) }.also { if (!it) healthy = false }
     }
 
     /** Upload a static R8 canvas-height tile. Call once before substrate-enabled stamping. */
@@ -163,7 +237,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         require(heightR8.size >= width * height) {
             "heightR8 too small: need ${width * height}, got ${heightR8.size}"
         }
-        val ok = nativeUploadSubstrateHeight(nativeHandle, heightR8, width, height)
+        val ok = onGpu { nativeUploadSubstrateHeight(nativeHandle, heightR8, width, height) }
         substrateHeightUploaded = ok
         if (!ok) healthy = false
         return ok
@@ -181,7 +255,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         require(heightMap.size >= width * height) {
             "heightMap too small: need ${width * height}, got ${heightMap.size}"
         }
-        val ok = nativeUploadPaintHeight(nativeHandle, heightMap, width, height)
+        val ok = onGpu { nativeUploadPaintHeight(nativeHandle, heightMap, width, height) }
         paintHeightUploaded = ok
         if (!ok) healthy = false
         return ok
@@ -198,7 +272,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             flat[base] = d.x; flat[base + 1] = d.y; flat[base + 2] = d.radius
             flat[base + 3] = d.alpha; flat[base + 4] = d.angleDeg
         }
-        return nativeStampDabs(nativeHandle, flat, colorArgb, hardness).also { if (!it) healthy = false }
+        return onGpu { nativeStampDabs(nativeHandle, flat, colorArgb, hardness) }.also { if (!it) healthy = false }
     }
 
     /**
@@ -246,11 +320,13 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
         }
         val cfg = substrate?.sanitized()
-        return nativeStampResolvedDabs(
-            nativeHandle, flat, buildUp, cfg != null, cfg != null && paintHeightUploaded,
-            cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
-            cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f, strokeMax,
-        ).also { if (!it) healthy = false }
+        return onGpu {
+            nativeStampResolvedDabs(
+                nativeHandle, flat, buildUp, cfg != null, cfg != null && paintHeightUploaded,
+                cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
+                cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f, strokeMax,
+            )
+        }.also { if (!it) healthy = false }
     }
 
     /**
@@ -359,14 +435,16 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             }
         } else null
         val cfg = substrate?.sanitized()
-        return nativeStampMaskedDabs(
+        return onGpu {
+            nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
             secondaryFlat, secondaryMaskAlpha8, secondaryMaskWidth, secondaryMaskHeight,
             cfg != null, cfg != null && paintHeightUploaded,
             cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
             cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
-        ).also { if (!it) healthy = false }
+            )
+        }.also { if (!it) healthy = false }
     }
 
     /**
@@ -434,11 +512,13 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             }
             bytes
         } else null
-        val ok = nativeColorSmudge(
+        val ok = onGpu {
+            nativeColorSmudge(
             nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
             baseColorRate, chargeDecayRate, pickupRate,
             sampleSourceRgba8, sampleSourceWidth, sampleSourceHeight,
-        )
+            )
+        }
         if (!ok) healthy = false
         return ok
     }
@@ -447,7 +527,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     @Synchronized
     fun colorSmudgeBenchmarkInfo(): ColorSmudgeBenchmarkInfo? {
         if (!isInitialized) return null
-        val values = nativeColorSmudgeBenchmarkInfo(nativeHandle) ?: return null
+        val values = onGpu { nativeColorSmudgeBenchmarkInfo(nativeHandle) } ?: return null
         if (values.size < 5 || values[2] == 0L) return null
         return ColorSmudgeBenchmarkInfo(
             vendorId = values[0].toInt(),
@@ -462,7 +542,56 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     fun readback(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }
-        return nativeReadback(nativeHandle, bitmap).also { if (!it) healthy = false }
+        val ok = if (backend == Backend.WGPU) readbackWgpuRect(bitmap) else nativeReadback(nativeHandle, bitmap)
+        if (!ok) healthy = false
+        return ok
+    }
+
+    /**
+     * wgpu: only the rectangle dirtied since the last readback crosses from the GPU, and only that
+     * rectangle of [bitmap] is written; the engine reports which one.
+     */
+    private fun readbackWgpuRect(bitmap: Bitmap): Boolean {
+        val rect = IntArray(RECT_INTS)
+        val ok = onGpu { nativeReadbackRect(nativeHandle, bitmap, rect) }
+        if (ok && rect[2] > 0 && rect[3] > 0) {
+            lastReadbackRect = rect
+            readbackPixels += rect[2].toLong() * rect[3]
+        }
+        return ok
+    }
+
+    /** The rectangle ({x, y, w, h}) the last non-empty wgpu [readback] copied; null otherwise. */
+    @Volatile var lastReadbackRect: IntArray? = null
+        private set
+
+    /** Pixels read back from the GPU by this engine instance since [init] (wgpu only; diagnostics). */
+    @Volatile var readbackPixels: Long = 0L
+        private set
+
+    /** Whether this engine keeps layers resident across strokes (wgpu with a current library). */
+    @Synchronized
+    fun supportsResidentLayers(): Boolean =
+        isInitialized && backend == Backend.WGPU && onGpu { nativeSupportsResidentLayers(nativeHandle) }
+
+    /**
+     * Starts a stroke on layer [layerKey] at content [generation] instead of [upload]: binds the
+     * copy this engine already holds when it is resident at exactly that generation (no upload, no
+     * whole-layer readback), otherwise uploads [seed] as that layer. [seed] must be the layer's
+     * pixels at [generation] and is also the caller's readback target, which is why nothing starts
+     * out dirty. Null when unsupported (not wgpu, old library) or on failure: use [upload].
+     */
+    @Synchronized
+    fun beginResidentStroke(seed: Bitmap, layerKey: Long, generation: Long): ResidentStroke? {
+        if (!isInitialized || backend != Backend.WGPU) return null
+        require(seed.config == Bitmap.Config.ARGB_8888) { "beginResidentStroke requires ARGB_8888, got ${seed.config}" }
+        val handle = nativeHandle
+        return onGpu {
+            if (!nativeSupportsResidentLayers(handle)) return@onGpu null
+            val bound = nativeBindLayer(handle, layerKey, generation)
+            val session = if (bound != 0L) bound else nativeUploadLayer(handle, layerKey, generation, seed)
+            if (session == 0L) null else ResidentStroke(handle, layerKey, generation, session, hit = bound != 0L)
+        }
     }
 
     @Synchronized
@@ -478,10 +607,36 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         healthy = true
         hardwareBufferExported = false
         substrateHeightUploaded = false
-        if (!mayPool) { nativeDestroy(handle); return }
-        val evicted = putPooled(CachedHandle(key!!, handle))
-        if (evicted != 0L) nativeDestroy(evicted)
+        lastReadbackRect = null
+        readbackPixels = 0L
+        // Pooling is bookkeeping and happens now, so the next stroke's init() finds this handle
+        // even while its last batches are still queued: every wgpu call on it runs on
+        // GpuRenderThread in order, so the next user's clear() lands after them.
+        if (!mayPool) {
+            destroyHandle(handle, backend)
+        } else {
+            val evicted = putPooled(CachedHandle(key!!, handle))
+            if (evicted != 0L) destroyHandle(evicted, backend)
+        }
     }
+
+    /** Destroys [handle]; wgpu handles later, on the render thread, leaving the live-handle registry. */
+    private fun destroyHandle(handle: Long, backend: Backend) {
+        if (backend != Backend.WGPU) {
+            nativeDestroy(handle)
+            return
+        }
+        // Queued behind the handle's in-flight work instead of waiting for it: destroy() runs on the
+        // main thread at stroke teardown and must not stall on a slow GPU.
+        GpuRenderThread.post {
+            liveWgpuHandles.remove(handle)
+            nativeDestroy(handle)
+        }
+    }
+
+    /** Runs [block] on [GpuRenderThread] for wgpu (every wgpu native call does), inline otherwise. */
+    private inline fun <T> onGpu(crossinline block: () -> T): T =
+        if (backend == Backend.WGPU) GpuRenderThread.call { block() } else block()
 
     private external fun nativeInit(width: Int, height: Int, backend: Int): Long
     private external fun nativeInitHardwareBuffer(width: Int, height: Int, backend: Int): Long
@@ -539,8 +694,28 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     ): Boolean
     private external fun nativeColorSmudgeBenchmarkInfo(handle: Long): LongArray?
     private external fun nativeReadback(handle: Long, outBitmap: Bitmap): Boolean
+    private external fun nativeReadbackRect(handle: Long, outBitmap: Bitmap, rect: IntArray): Boolean
+    private external fun nativeSupportsResidentLayers(handle: Long): Boolean
+    private external fun nativeBindLayer(handle: Long, key: Long, generation: Long): Long
+    private external fun nativeUploadLayer(handle: Long, key: Long, generation: Long, inBitmap: Bitmap): Long
+    /** [ids] = {key, session, generation}; [rect] = {x, y, w, h}. */
+    private external fun nativeRefreshLayer(handle: Long, ids: LongArray, bitmap: Bitmap, rect: IntArray): Boolean
+    private external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
+    private external fun nativeInvalidateAllLayers(handle: Long)
     private external fun nativeDestroy(handle: Long)
 }
+
+/**
+ * A stroke started on a resident layer ([GpuStampEngine.beginResidentStroke]): which native engine
+ * holds the layer, and the bind session its commit refresh must match. [hit] = no upload was needed.
+ */
+class ResidentStroke internal constructor(
+    internal val handle: Long,
+    val layerKey: Long,
+    val generation: Long,
+    val session: Long,
+    val hit: Boolean,
+)
 
 data class BrushDab(val x: Float, val y: Float, val radius: Float, val alpha: Float, val angleDeg: Float)
 

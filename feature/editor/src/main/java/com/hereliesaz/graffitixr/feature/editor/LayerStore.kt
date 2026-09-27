@@ -27,6 +27,16 @@ internal class LayerStore {
     private val impastoMaterialBases = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
     private val liveImpastoMaterial = ConcurrentHashMap<String, ImpastoMaterialReplayState>()
 
+    /**
+     * Told when a layer's content is being replaced or rewound outside a stroke commit (layer id,
+     * or null for every layer), so the GPU's resident copy of it is invalidated -- see
+     * [GpuLayerResidency]. Fired by [initStrokes] (import, filters, LUTs, curves, merge, paste,
+     * co-op replacement: every content reset pairs with it), [removeLastStroke] (undo), [remove]
+     * and [clear]. Deliberately not by [putBase]: baking old strokes into the base leaves the
+     * layer's pixels unchanged and happens after most commits once history is full.
+     */
+    @Volatile var contentChanged: ((layerId: String?) -> Unit)? = null
+
     /** Stores [bitmap] as the base for [layerId]. Callers pass a defensive copy if needed. */
     fun putBase(layerId: String, bitmap: Bitmap) {
         baseBitmaps[layerId] = bitmap
@@ -220,6 +230,7 @@ internal class LayerStore {
         layerStrokes[layerId] = mutableListOf()
         liveWetness.remove(layerId)
         liveImpastoMaterial.remove(layerId)
+        contentChanged?.invoke(layerId)
     }
 
     fun base(layerId: String): Bitmap? = baseBitmaps[layerId]
@@ -255,6 +266,7 @@ internal class LayerStore {
         synchronized(list) {
             if (list.isNotEmpty()) list.removeAt(list.lastIndex)
         }
+        contentChanged?.invoke(layerId)
         return true
     }
 
@@ -296,6 +308,7 @@ internal class LayerStore {
         liveWetness.remove(layerId)
         impastoMaterialBases.remove(layerId)
         liveImpastoMaterial.remove(layerId)
+        contentChanged?.invoke(layerId)
     }
 
     /** Clears all cached bitmaps, strokes, height bases, and wetness state (e.g. on project unload). */
@@ -307,6 +320,7 @@ internal class LayerStore {
         liveWetness.clear()
         impastoMaterialBases.clear()
         liveImpastoMaterial.clear()
+        contentChanged?.invoke(null)
     }
 
     /** Evicts cached entries for layer IDs that are no longer active or referenced in history. */

@@ -41,6 +41,8 @@ done
 for v in vk gl; do
   g++ -std=c++17 -O2 -DWITH_PAINT_HEIGHT -DOUTDIR="\"out_wgpu_ph_$v\"" -I shim -I "$C" run_wgpu.cpp "$C/WgpuStampEngine.cpp" -ldl -o "gen/run_wgpu_ph_$v"
 done
+# Resident layers: multi-stroke sequences with undos, full upload vs resident bind/refresh.
+g++ -std=c++17 -O2 -I shim -I "$C" run_wgpu_resident.cpp "$C/WgpuStampEngine.cpp" -ldl -o gen/run_wgpu_resident
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json EGL_PLATFORM=surfaceless GRAFFUX_WGPU_LIB="$WGPU_LIB"
 gen/run_vk
 gen/run_gl
@@ -49,6 +51,8 @@ WGPU_BACKEND=vulkan gen/run_wgpu_vk
 WGPU_BACKEND=gl gen/run_wgpu_gl
 WGPU_BACKEND=vulkan gen/run_wgpu_ph_vk
 WGPU_BACKEND=gl gen/run_wgpu_ph_gl
+echo "resident layers vs full upload (wgpu Vulkan):"; WGPU_BACKEND=vulkan gen/run_wgpu_resident
+echo "resident layers vs full upload (wgpu GL):"; WGPU_BACKEND=gl gen/run_wgpu_resident
 python3 - <<'PY'
 import os
 def cmp(a, b, f):

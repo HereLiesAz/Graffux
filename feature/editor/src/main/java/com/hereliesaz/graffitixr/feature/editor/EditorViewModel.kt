@@ -59,6 +59,7 @@ import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
+import com.hereliesaz.graffitixr.nativebridge.ResidentStroke
 import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
@@ -228,6 +229,9 @@ private const val OVERLAY_DAB_REACH = 1.5f
 // this session) -- Krita maps cleanly here, unlike Procreate, whose `tileSize` is a per-document
 // file-format field with no single confirmed value to copy (see the roadmap doc's item 16 entry).
 internal const val UNDO_TILE_SIZE = 64
+
+/** Ints in an {x, y, w, h} rectangle handed to the GPU resident-layer refresh. */
+private const val RECT_INTS = 4
 
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
@@ -674,8 +678,73 @@ class EditorViewModel @Inject constructor(
 
     private val history = EditHistory(HISTORY_DEPTH)
 
-    // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore).
-    private val layerStore = LayerStore()
+    // Which content generation each layer is at, for the wgpu engine's GPU-resident layer copies
+    // (see GpuLayerResidency). Invalidations also drop the GPU copies eagerly, queued on the GPU
+    // render thread behind any in-flight stroke work.
+    private val layerResidency = GpuLayerResidency { key ->
+        runCatching {
+            if (key == null) GpuStampEngine.invalidateAllResident() else GpuStampEngine.invalidateResident(key)
+        }
+    }
+
+    // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore). Content resets and
+    // undo there invalidate the layer's GPU-resident copy.
+    private val layerStore = LayerStore().also { store ->
+        store.contentChanged = { id ->
+            if (id == null) layerResidency.invalidateAll() else layerResidency.invalidate(id)
+        }
+    }
+
+    /**
+     * The current stroke's GPU-resident binding (wgpu only): which layer and pre-stroke bitmap it
+     * started from and the engine session its commit refreshes. Null = the stroke uploaded the
+     * layer the old way (other backends, CPU path, or no resident support).
+     */
+    private class ResidentTicket(
+        val strokeGeneration: Long,
+        val layerId: String,
+        val base: Bitmap,
+        val stroke: ResidentStroke,
+    )
+
+    @Volatile private var residentTicket: ResidentTicket? = null
+
+    /** A layer's CPU content changed outside a GPU stroke commit (null = every layer). */
+    private fun invalidateResident(layerId: String?) {
+        if (layerId == null) layerResidency.invalidateAll() else layerResidency.invalidate(layerId)
+    }
+
+    /** Test hook: the residency tracker the mutation paths report to. */
+    internal fun layerResidencyForTest(): GpuLayerResidency = layerResidency
+
+    /**
+     * Off the main thread, after a commit rendered [committed] from [base]: where they differ, for
+     * the resident refresh. Null when this stroke has no resident binding or the diff fails.
+     */
+    private fun residentChangedRect(ticket: ResidentTicket?, base: Bitmap, committed: Bitmap): IntArray? {
+        if (ticket == null || base.width != committed.width || base.height != committed.height) return null
+        return runCatching {
+            GpuLayerResidency.changedRect(bitmapPixels(base), bitmapPixels(committed), base.width, base.height)
+        }.getOrNull()
+    }
+
+    /**
+     * On the main thread, right after [committed] was published as [layerId]'s bitmap: if nothing
+     * else changed the layer since the stroke began, re-tag the GPU copy as the committed content
+     * and queue its refresh (the stroke's rows plus [changed]) behind the stroke's GPU work.
+     * Otherwise the copy stays stale and the next stroke uploads.
+     */
+    private fun refreshResidentAfterCommit(
+        ticket: ResidentTicket?,
+        layerId: String,
+        base: Bitmap,
+        committed: Bitmap,
+        changed: IntArray?,
+    ) {
+        if (ticket == null || changed == null || ticket.layerId != layerId) return
+        val generation = layerResidency.adoptCommit(layerId, ticket.stroke.generation, base, committed) ?: return
+        runCatching { GpuStampEngine.refreshResident(ticket.stroke, generation, committed, changed) }
+    }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
     private val drawingEngine = DrawingEngine(slamManager)
@@ -1111,7 +1180,12 @@ class EditorViewModel @Inject constructor(
      * falls back to plain device memory if that's unavailable. Returns null (nothing to clean up)
      * if every step fails — the caller stays on the CPU path for this stroke, same as always.
      */
-    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): GpuStampEngine? {
+    private fun createSeededGpuEngine(
+        width: Int,
+        height: Int,
+        seed: Bitmap,
+        resident: ((GpuStampEngine) -> Boolean)? = null,
+    ): GpuStampEngine? {
         // GpuStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
         // which THROWS — not returns false — when the .so can't be loaded at all: unit tests
         // (Robolectric has no native code), and in principle any device/build variant that
@@ -1121,8 +1195,10 @@ class EditorViewModel @Inject constructor(
         // coroutine that would otherwise have gone on to draw the stroke.
         return try {
             val engine = GpuStampEngine()
+            // wgpu keeps layers resident across strokes: [resident] binds (or uploads) the layer's
+            // GPU copy by content generation; anything else, or a failure there, seeds the old way.
             val ready = (engine.initHardwareBufferBacked(width, height) || engine.init(width, height)) &&
-                engine.upload(seed)
+                (resident?.invoke(engine) == true || engine.upload(seed))
             if (!ready) {
                 engine.destroy()
                 null
@@ -1423,6 +1499,8 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
+                // Undo rewinds the layer outside any stroke: its GPU-resident copy is stale.
+                invalidateResident(command.layerId)
                 if (!layerStore.removeLastStroke(command.layerId)) {
                     // popUndo already moved this entry's counterpart onto the redo stack on the
                     // assumption the undo would succeed. It didn't — the layer has no cached stroke
@@ -1447,6 +1525,8 @@ class EditorViewModel @Inject constructor(
                 }
             }
             is EditCommand.PropertyChange -> {
+                // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
+                invalidateResident(null)
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
                 val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
                 dispatch(EditorIntent.SetLayers(restoredLayers))
@@ -1469,6 +1549,8 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
+                // Redo re-applies a stroke through the CPU replay, not a GPU stroke: stale copy.
+                invalidateResident(command.layerId)
                 layerStore.addStroke(command.layerId, command.command)
                 val deltas = command.tileDeltas
                 val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
@@ -1486,6 +1568,8 @@ class EditorViewModel @Inject constructor(
                 }
             }
             is EditCommand.PropertyChange -> {
+                // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
+                invalidateResident(null)
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
                 val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
                 dispatch(EditorIntent.SetLayers(restoredLayers))
@@ -1619,6 +1703,8 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
+        // Every full replay publishes a CPU-rendered bitmap: the GPU-resident copy is stale.
+        invalidateResident(layerId)
         val base = layerStore.base(layerId) ?: return
         val strokes = layerStore.strokes(layerId)
         // Impasto (item 12): a fresh copy of the height base, replayed the same way the bitmap
@@ -1721,6 +1807,7 @@ class EditorViewModel @Inject constructor(
         val current = layer.bitmap ?: return false
         if (current.width != canvasWidth || current.height != canvasHeight) return false
         val patched = SafeBitmap.copy(current) ?: return false
+        invalidateResident(layerId)
         val pixels = IntArray(canvasWidth * canvasHeight)
         patched.getPixels(pixels, 0, canvasWidth, 0, 0, canvasWidth, canvasHeight)
         if (useAfter) {
@@ -1914,6 +2001,8 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        // Resident GPU layer copies live in pooled engines that outlive this editor; free them.
+        runCatching { GpuStampEngine.invalidateAllResident() }
         // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
         timeLapseRecorder.finish()
         playbackJob?.cancel()
@@ -2525,6 +2614,7 @@ class EditorViewModel @Inject constructor(
     /** Adds [bitmap] as a single new layer, scaled to fit the screen — the flattened-import path
      *  shared by PDF/Illustrator (and any future single-image decoder). */
     private suspend fun importSingleBitmap(bitmap: Bitmap, name: String) {
+        invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         val metrics = context.resources.displayMetrics
         val initialScale = minOf(
@@ -2560,6 +2650,7 @@ class EditorViewModel @Inject constructor(
      * to native bounds is a later optimisation).
      */
     private suspend fun importLayeredDocument(doc: ImportedDocument) {
+        invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         val cap = 2048f
         val docScale = minOf(1f, cap / maxOf(doc.width, doc.height).coerceAtLeast(1))
@@ -2836,6 +2927,7 @@ class EditorViewModel @Inject constructor(
     // composite against. Graffux is a design-only host with no such mode, so nothing here sets one —
     // the exporter still honours it, because a project made in GraffitiXR carries one.
     fun setBackgroundImage(uri: Uri) {
+        invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         viewModelScope.launch(dispatchers.io) {
             dispatch(EditorIntent.SetLoading(true))
@@ -3334,6 +3426,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun updateLayerUri(id: String, uri: Uri) {
+        invalidateResident(id)
         viewModelScope.launch(dispatchers.io) {
             val bitmap = ImageUtils.loadBitmapAsync(context, uri)
             withContext(dispatchers.main) {
@@ -3579,6 +3672,7 @@ class EditorViewModel @Inject constructor(
      */
     fun applyInstalledLut(extensionId: String) {
         val layerId = _uiState.value.activeLayerId
+        layerId?.let(::invalidateResident)
         val layer = layerId?.let { id -> _uiState.value.layers.find { it.id == id } }
         val bitmap = layer?.bitmap
         if (layerId == null || bitmap == null) {
@@ -3613,6 +3707,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onCurvesApplied(points: List<Offset>) {
         val layerId = _uiState.value.activeLayerId
+        layerId?.let(::invalidateResident)
         val layer = layerId?.let { id -> _uiState.value.layers.find { it.id == id } }
         val bitmap = layer?.bitmap
         if (layerId == null || bitmap == null) {
@@ -4102,6 +4197,16 @@ class EditorViewModel @Inject constructor(
         val originalBitmap = layer.bitmap ?: return
 
         val generation = ++strokeGeneration
+        residentTicket = null
+        // The content generation this stroke's GPU copy must match (see GpuLayerResidency).
+        val residentGeneration = layerResidency.generationFor(layerId, originalBitmap)
+        val residentKey = GpuLayerResidency.layerKey(layerId)
+        // Binds the resident copy of this layer, or uploads [seed] as it; records the binding.
+        var residentStroke: ResidentStroke? = null
+        val bindResident: (GpuStampEngine, Bitmap) -> Boolean = { engine, seed ->
+            residentStroke = engine.beginResidentStroke(seed, residentKey, residentGeneration)
+            residentStroke != null
+        }
         resetLiveCurveState()
         strokeStabilizer.reset()
         val stabilizedStart = strokeStabilizer.stabilize(startPoint, state.stabilizerLevel, state.stabilizerAlgorithm)
@@ -4257,7 +4362,7 @@ class EditorViewModel @Inject constructor(
                 // strokeMax stamp mode (see GpuStampEngine.stampResolvedDabs) now holds the max
                 // across the whole stroke.
                 val gpuEngine = if (gpuCompatibleBrush) {
-                    createSeededGpuEngine(work.width, work.height, work)
+                    createSeededGpuEngine(work.width, work.height, work) { bindResident(it, work) }
                 } else null
                 val gpuReady = gpuEngine != null
                 val zeroCopyEligible = gpuReady && stampBrush.impastoThicknessRate <= 0f
@@ -4351,6 +4456,9 @@ class EditorViewModel @Inject constructor(
                             stampGpuEngine = if (gpuReady) gpuEngine else null
                             stampGpuActive = gpuReady
                             stampGpuDisplay = gpuDisplay
+                        }
+                        residentTicket = residentStroke?.takeIf { gpuReady }?.let {
+                            ResidentTicket(generation, layerId, originalBitmap, it)
                         }
                         stampGpuUsesMaskedPipeline = gpuReady && usesMaskedPipeline
                         stampGpuMaskAlpha8 = if (gpuReady) maskAlpha8 else null
@@ -4490,7 +4598,11 @@ class EditorViewModel @Inject constructor(
             // only non-null when this stroke actually won the race to publish, so its two cleanup
             // call sites further down stay engine-object-identity-safe rather than blindly
             // destroying whatever's now in the field.
-            val createdGpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null
+            val createdGpuEngine = if (strokeDynamics != null) {
+                createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) { bindResident(it, workBitmap) }
+            } else {
+                null
+            }
             val createdGpuDisplay = createdGpuEngine?.let(AzphaltGpuDisplay::tryCreate)
             val gpuEngine = synchronized(liveCurveLock) {
                 if (generation != strokeGeneration || strokeLayerId != layerId) {
@@ -4506,6 +4618,9 @@ class EditorViewModel @Inject constructor(
                     strokeGpuEngine?.destroy()
                     strokeGpuEngine = createdGpuEngine
                     strokeGpuActive = createdGpuEngine != null
+                    residentTicket = residentStroke?.takeIf { createdGpuEngine != null }?.let {
+                        ResidentTicket(generation, layerId, originalBitmap, it)
+                    }
                     createdGpuEngine
                 }
             }
@@ -5524,6 +5639,8 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layerId = strokeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
+        // This stroke's resident GPU binding, if any; its commit refreshes the GPU copy.
+        val ticket = residentTicket?.takeIf { it.strokeGeneration == strokeGeneration && it.layerId == layerId }
         val points = snapshotStrokePoints()
         // Aligned 1:1 with `points` by index (both grow together — see addStrokePoint). Recorded
         // onto the command so undo/redo replay reproduces the same pressure-responsive width.
@@ -5952,12 +6069,14 @@ class EditorViewModel @Inject constructor(
                 rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                     try {
                         val committed = drawingEngine.applySingleStroke(base, command)
+                        val residentChanged = residentChangedRect(ticket, base, committed)
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
                                 s.copy(
                                     layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
                                 )
                             }
+                            refreshResidentAfterCommit(ticket, layerId, base, committed, residentChanged)
                             // Only clear the live-stroke preview if it's still ours -- a newer stroke may
                             // have already started by the time this async rebuild finishes, and clearing
                             // its preview here would flash the wrong (or no) bitmap for that new stroke.
@@ -6047,6 +6166,9 @@ class EditorViewModel @Inject constructor(
     ) {
         val base = layer.bitmap ?: return
         if (points.isEmpty()) return
+        // The stroke's resident GPU binding (wgpu), refreshed once the commit is published. Read
+        // here, synchronously: the caller clears it the moment this returns.
+        val ticket = residentTicket?.takeIf { it.strokeGeneration == strokeGeneration && it.layerId == layerId }
         val color = state.activeColor.toArgb()
         val brushSize = state.effectivePaintBrushSize()
         val flow = state.brushFlow
@@ -6148,12 +6270,19 @@ class EditorViewModel @Inject constructor(
             // `command.tileDeltas` null for every impasto stroke, which is a distinct bug from
             // (and must not be conflated with) undo correctly refusing to *use* the delta for
             // material state.
+            // The same pixel diff also tells the GPU's resident copy what the CPU commit changed
+            // (see refreshResidentAfterCommit); null when there is no resident binding.
+            var residentChanged: IntArray? = null
             val tileDeltas = runCatching {
                 val beforePixels = IntArray(base.width * base.height)
                 base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
                 val afterPixels = IntArray(target.width * target.height)
                 target.getPixels(afterPixels, 0, target.width, 0, 0, target.width, target.height)
                 val dirty = DirtyRegion.fromPixelDiff(beforePixels, afterPixels, base.width, base.height)
+                if (ticket != null && target.width == base.width && target.height == base.height) {
+                    residentChanged = dirty?.let { intArrayOf(it.left, it.top, it.width, it.height) }
+                        ?: IntArray(RECT_INTS)
+                }
                 if (dirty == null) {
                     emptyList()
                 } else {
@@ -6179,6 +6308,7 @@ class EditorViewModel @Inject constructor(
                         },
                     )
                 }
+                refreshResidentAfterCommit(ticket, layerId, base, target, residentChanged)
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
                 retainedGpuDisplay?.close()
                 scheduleDiskSave(layerId, target, layer.uri)
@@ -6279,6 +6409,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         if (state.activeTool != Tool.FILL) return
         val layerId = state.activeLayerId ?: return
+        invalidateResident(layerId)
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
             Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
@@ -6362,6 +6493,7 @@ class EditorViewModel @Inject constructor(
             onCommitted()
             return
         }
+        invalidateResident(layerId)
         val inputs = stroke.inputs
         val scratch = androidx.ink.strokes.StrokeInput()
         val path = ArrayList<Offset>(inputs.size)
@@ -6429,6 +6561,7 @@ class EditorViewModel @Inject constructor(
      * reading [onClearLayer] already takes.
      */
     fun onColorFillSelection() {
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
@@ -6474,6 +6607,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun onClearLayer() {
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
@@ -6537,6 +6671,7 @@ class EditorViewModel @Inject constructor(
      * the rebuild needs.
      */
     fun onMergeDown(layerId: String) {
+        invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         val layers = _uiState.value.layers
         val upper = layers.find { it.id == layerId } ?: return
@@ -6851,6 +6986,8 @@ class EditorViewModel @Inject constructor(
 
     /** Picks Freeform / Distort / Warp, laying a fresh handle grid over the layer for the last two. */
     fun onSetTransformMode(mode: TransformMode) {
+        // Writes moved/deformed pixels into the active layer.
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         // Leaving a session in progress has to resolve it. Each handle release writes deformed
         // pixels into the layer with no command and no disk save, so simply dropping the session —
@@ -6925,6 +7062,7 @@ class EditorViewModel @Inject constructor(
      * frame would stutter, and one on release is fast enough to read as immediate.
      */
     fun onWarpHandleReleased() {
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val original = warpOriginalBitmap ?: return
         val layerId = state.activeLayerId ?: return
@@ -6960,6 +7098,7 @@ class EditorViewModel @Inject constructor(
      * way write pixels but record nothing; this is the only thing that records.)
      */
     fun onApplyWarp() {
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
@@ -7021,6 +7160,7 @@ class EditorViewModel @Inject constructor(
 
     /** Throws the warp away and puts the original pixels back. */
     fun onCancelWarp() {
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val layerId = state.activeLayerId
         val original = warpOriginalBitmap
@@ -7232,6 +7372,8 @@ class EditorViewModel @Inject constructor(
      * The marquee travels with its pixels so the selection keeps bounding the same content.
      */
     fun onSelectionMove(delta: Offset) {
+        // Writes moved/deformed pixels into the active layer.
+        _uiState.value.activeLayerId?.let(::invalidateResident)
         val state = _uiState.value
         val selection = state.selection ?: return
         if (!selection.isUsable) return
@@ -7718,6 +7860,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun createNewProject() {
+        invalidateResident(null)
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
             val project = createProjectWithScreenSize("Untitled $n")
@@ -7976,6 +8119,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun clearTransientStrokeState() {
+        residentTicket = null
         strokeWorkingBitmap = null
         strokeWorkingCanvas = null
         strokePaint = null
@@ -8650,6 +8794,7 @@ class EditorViewModel @Inject constructor(
      * exactly as it flushes a stroke on the flat canvas.
      */
     fun onModelPaintChanged() {
+        invalidateResident(null)
         val texture = _modelState.value.texture ?: return
         val path = modelTexturePath ?: return
         val pending = PendingLayerWrite(
@@ -9111,6 +9256,7 @@ class EditorViewModel @Inject constructor(
      * import newest-last so the picker's order is the stacking order.
      */
     fun importFigmaFrames() {
+        invalidateResident(null)
         val state = _figmaState.value
         val fileKey = state.fileKey ?: return
         val ids = state.frames.map { it.id }.filter { it in state.selectedIds }
@@ -9672,6 +9818,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onFlattenAllLayers() {
+        invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         pushHistory()
         dispatch(EditorIntent.SetLoading(true))
@@ -9804,6 +9951,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun rerasterizeTextLayer(layerId: String, params: TextLayerParams) {
+        invalidateResident(layerId)
         textRasterizeJobs[layerId]?.cancel()
         textRasterizeJobs[layerId] = viewModelScope.launch(dispatchers.io) {
             val metrics = context.resources.displayMetrics
@@ -9893,7 +10041,22 @@ class EditorViewModel @Inject constructor(
     /** Applies a remote Op received from the host, without echoing it back through opEmitter. */
     // Co-op, so GraffitiXR's. Graffux binds NoOpOpEmitter (see CoopModule) and never joins a
     // session, so no remote op ever arrives for this to apply.
+    /**
+     * The layer whose pixels a co-op op changes, or null when it changes none (a new layer has no
+     * GPU copy yet; order, transform and props are applied at composite time, not in the layer's
+     * pixels). Exhaustive on purpose: a new op type must decide here.
+     */
+    private fun spectatorOpContentLayer(op: Op): String? = when (op) {
+        is Op.StrokeComplete -> op.layerId
+        is Op.TextContentChange -> op.layerId
+        is Op.LayerBitmapReplace -> op.layerId
+        is Op.LayerRemove -> op.layerId
+        is Op.LayerAdd, is Op.LayerReorder, is Op.LayerTransform, is Op.LayerPropsChange -> null
+    }
+
     fun applySpectatorOp(op: Op) {
+        // A peer's op changes layer content outside this device's strokes.
+        spectatorOpContentLayer(op)?.let(::invalidateResident)
         when (op) {
             is Op.LayerAdd -> dispatch(EditorIntent.AppendLayer(op.layer))
             is Op.LayerRemove -> dispatch(EditorIntent.RemoveLayerById(op.layerId))
