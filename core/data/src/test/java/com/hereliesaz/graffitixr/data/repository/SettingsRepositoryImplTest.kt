@@ -161,4 +161,30 @@ class SettingsRepositoryImplTest {
         repo.setBrushTipHidden("ext::0", hidden = false)
         assertEquals(setOf("ext::1"), repo.hiddenBrushTipIds.first())
     }
+
+    @Test
+    fun `jetpackInkBrush defaults off and round trips`() = runTest {
+        // Default OFF is the contract: with the toggle untouched the editor must paint exactly as
+        // before Jetpack Ink existed. No other test in this file touches this key.
+        assertFalse(repo.jetpackInkBrush.first())
+
+        repo.setJetpackInkBrush(true)
+        assertTrue(repo.jetpackInkBrush.first())
+
+        repo.setJetpackInkBrush(false)
+        assertFalse(repo.jetpackInkBrush.first())
+    }
+
+    @Test
+    fun `jetpackInkBrush survives a new repository instance and leaves other settings alone`() = runTest {
+        // A fresh repository reads the same DataStore file: what the Settings row writes is what the
+        // editor's repository sees. Ends OFF so the default-off test above holds in any order.
+        val fixedBefore = repo.brushSizeFixedOnScreen.first()
+        repo.setJetpackInkBrush(true)
+        assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
+        assertEquals(fixedBefore, repo.brushSizeFixedOnScreen.first())
+
+        repo.setJetpackInkBrush(false)
+        assertFalse(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
+    }
 }

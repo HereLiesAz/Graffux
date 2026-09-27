@@ -35,7 +35,7 @@ accompanistPermissions = "0.37.3"
 datastore = "1.2.1"
 material3 = "1.5.0-alpha29"
 roomExternalAntlr = "2.8.5"
-inkBrush = "1.0.0"
+ink = "1.0.0"
 retrofit = "3.0.0"
 okhttp = "5.5.0"
 zxingCore = "3.5.4"
@@ -120,7 +120,11 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-room-external-antlr = { group = "androidx.room", name = "room-external-antlr", version.ref = "roomExternalAntlr" }
-androidx-ink-brush = { group = "androidx.ink", name = "ink-brush", version.ref = "inkBrush" }
+androidx-ink-authoring = { group = "androidx.ink", name = "ink-authoring", version.ref = "ink" }
+androidx-ink-brush = { group = "androidx.ink", name = "ink-brush", version.ref = "ink" }
+androidx-ink-geometry = { group = "androidx.ink", name = "ink-geometry", version.ref = "ink" }
+androidx-ink-rendering = { group = "androidx.ink", name = "ink-rendering", version.ref = "ink" }
+androidx-ink-strokes = { group = "androidx.ink", name = "ink-strokes", version.ref = "ink" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
 chicory-runtime = { group = "com.dylibso.chicory", name = "runtime", version.ref = "chicory" }

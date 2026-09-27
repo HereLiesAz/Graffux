@@ -172,6 +172,14 @@ data class StrokeCommand(
     // Recorded rather than baked into the base so the deformation undoes by replay like everything
     // else — and so it replays *after* the strokes beneath it, which is the order it was applied in.
     val warpHandles: List<Offset>? = null,
+    // Set only on a Tool.BRUSH stroke drawn with the Jetpack Ink brush (Settings > Jetpack Ink
+    // brush): the finished Ink stroke, in the same world coordinates as [path]. DrawingEngine
+    // renders THIS, through Ink's CanvasStrokeRenderer, instead of the round/stamp brush — on the
+    // live commit and on every undo/redo/bake replay alike, which is what makes an Ink stroke an
+    // ordinary replayable command. [path]/[pressures] still carry its inputs for anything that only
+    // reads points. Ink strokes are immutable, so sharing one between the command and the
+    // InkStrokeLedger is safe.
+    val inkStroke: androidx.ink.strokes.Stroke? = null,
 )
 
 /**
@@ -4292,7 +4300,9 @@ class EditorViewModel @Inject constructor(
                 val preStrokeBaseSeed = SafeBitmap.copy(work)
                 // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
                 // two full-layer GPU passes run here, off the main thread, before any dab lands.
-                val overlayMatrices = if (gpuDisplay != null && LiveStrokeOverlay.enabled && liveOverlay != null) {
+                // Never alongside Jetpack Ink: the two must not both draw one stroke.
+                val directDisplay = LiveStrokeOverlay.enabled && !jetpackInkBrush.value
+                val overlayMatrices = if (gpuDisplay != null && directDisplay && liveOverlay != null) {
                     withContext(dispatchers.main) { overlayMatricesFor(layerId) }
                 } else {
                     null
@@ -6288,6 +6298,96 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, target, layer.uri)
             }
             // Fill isn't in the co-op stroke vocabulary; peers get the finished pixels instead.
+            if (opEmitter.isActive) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+            }
+        }
+    }
+
+    // ── Jetpack Ink brush (Settings > Jetpack Ink brush) ─────────────────────────────────────
+
+    /**
+     * Settings > Jetpack Ink brush. Off by default, and off means nothing below runs: the editor's
+     * own live-stroke pipeline (and Direct display, if on) draws the Brush exactly as before. On,
+     * the round Brush's in-progress stroke is Jetpack Ink's front-buffered InProgressStrokesView
+     * (see [InkBrushCanvas]) and the Direct display overlay is skipped, so the two never draw the
+     * same stroke.
+     */
+    val jetpackInkBrush: StateFlow<Boolean> = settingsRepository.jetpackInkBrush
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Whether the next Brush stroke goes through Jetpack Ink: toggle on, round brush, Brush tool. */
+    fun usesJetpackInk(state: EditorUiState = _uiState.value): Boolean =
+        jetpackInkBrush.value && state.activeTool == Tool.BRUSH && activeStampBrush == null
+
+    /** The Ink brush for the current Brush settings; sized in world units like a round stroke. */
+    fun inkBrushForCurrentState(): androidx.ink.brush.Brush {
+        val s = _uiState.value
+        return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.roundBrush(
+            s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity,
+        )
+    }
+
+    /**
+     * A finished Jetpack Ink stroke, in world coordinates. Recorded as an ordinary replayable
+     * [StrokeCommand] carrying [StrokeCommand.inkStroke], so DrawingEngine renders it through Ink
+     * on commit and on every undo/redo/bake replay. [onCommitted] runs on the main thread once the
+     * layer bitmap holding it is published, which is when the caller may drop the live Ink copy
+     * without a flicker; it also runs if the stroke can't be committed, so nothing is left behind.
+     */
+    fun onInkStrokeFinished(
+        stroke: androidx.ink.strokes.Stroke,
+        canvasSize: IntSize,
+        onCommitted: () -> Unit,
+    ) {
+        val state = _uiState.value
+        val layerId = state.activeLayerId
+        val layer = state.layers.find { it.id == layerId }
+        val base = layer?.bitmap
+        if (layerId == null || layer == null || base == null) {
+            onCommitted()
+            return
+        }
+        val inputs = stroke.inputs
+        val scratch = androidx.ink.strokes.StrokeInput()
+        val path = ArrayList<Offset>(inputs.size)
+        val pressures = ArrayList<Float>(inputs.size)
+        for (i in 0 until inputs.size) {
+            inputs.populate(i, scratch)
+            path += Offset(scratch.x, scratch.y)
+            pressures += if (scratch.hasPressure) scratch.pressure else 1f
+        }
+        val command = StrokeCommand(
+            path = path,
+            pressures = pressures,
+            canvasSize = canvasSize,
+            tool = Tool.BRUSH,
+            brushSize = state.effectivePaintBrushSize(),
+            brushColor = state.activeColor.toArgb(),
+            intensity = 1f,
+            opacity = state.brushOpacity,
+            layerScale = layer.scale,
+            layerOffset = layer.offset,
+            layerRotationZ = layer.rotationZ,
+            alphaLock = layer.alphaLock,
+            wrapAroundMode = state.wrapAroundMode,
+            selection = state.selection,
+            inkStroke = stroke,
+        )
+        layerStore.addStroke(layerId, command)
+        history.pushDraw(layerId, command)
+        updateHistoryCounts()
+        maybeBakeOldStrokes(layerId)
+        viewModelScope.launch(dispatchers.default) {
+            val target = drawingEngine.applySingleStroke(base, command)
+            withContext(dispatchers.main) {
+                _uiState.update { s ->
+                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                }
+                scheduleDiskSave(layerId, target, layer.uri)
+                onCommitted()
+            }
+            // Ink strokes aren't in the co-op stroke vocabulary; peers get the finished pixels.
             if (opEmitter.isActive) {
                 opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
             }
@@ -9132,10 +9232,19 @@ class EditorViewModel @Inject constructor(
         )
     }
 
-    /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
-    fun onPredictionBrushStroke(predictionReport: String, refreshRateHz: Float) {
-        val report = predictionReport + "\n" + feelReport()
-        predictionRankingReporter.onBrushStroke(report, refreshRateHz)
+    /**
+     * A Brush stroke ended; [report] is the tournament's current per-horizon ranking. [engine] is
+     * which live-stroke engine drew it ([PredictionRankingReporter.ENGINE_AZPHALT] from
+     * DrawingCanvas, [PredictionRankingReporter.ENGINE_JETPACK_INK] from InkBrushCanvas) and tags
+     * both the feel numbers and the filed issue.
+     */
+    fun onPredictionBrushStroke(
+        predictionReport: String,
+        refreshRateHz: Float,
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ) {
+        val report = predictionReport + "\n" + feelReport(engine)
+        predictionRankingReporter.onBrushStroke(report, refreshRateHz, engine)
         if (predictionReports == null) return
         val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
         viewModelScope.launch(dispatchers.io) {
@@ -9151,8 +9260,11 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
-    fun onPredictionSessionEnd(predictionReport: String, refreshRateHz: Float) =
-        predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
+    fun onPredictionSessionEnd(
+        predictionReport: String,
+        refreshRateHz: Float,
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ) = predictionRankingReporter.flush(predictionReport + "\n" + feelReport(engine), refreshRateHz)
 
     /**
      * Where the overlay would draw this stroke: layer px -> overlay px and its inverse, or null when
@@ -9246,7 +9358,9 @@ class EditorViewModel @Inject constructor(
      * Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer, GPU
      * backend -- the backend in use now; switching mid-session mixes both into the numbers).
      */
-    private fun feelReport(): String {
+    private fun feelReport(
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ): String {
         val s = _uiState.value
         val canvas = s.layers.firstOrNull { it.id == s.activeLayerId }?.bitmap
             ?.let { "${it.width}x${it.height}" } ?: "?"
@@ -9254,7 +9368,7 @@ class EditorViewModel @Inject constructor(
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
             "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}, " +
             "display ${if (LiveStrokeOverlay.enabled) "direct" else "compose"}"
-        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context)
+        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
     }
 
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =

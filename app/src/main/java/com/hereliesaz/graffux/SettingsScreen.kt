@@ -236,7 +236,7 @@ fun SettingsScreen(
             HorizontalDivider()
             StrokeDataRow(vm)
             HorizontalDivider()
-            GpuBackendRow()
+            GpuBackendRow(vm)
             HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
@@ -378,7 +378,7 @@ private fun PredictionSoloRow() {
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
-private fun GpuBackendRow() {
+private fun GpuBackendRow(vm: SettingsViewModel) {
     val context = LocalContext.current
     val prefs = remember(context) {
         context.getSharedPreferences(GpuStampEngine.Backend.PREFS, Context.MODE_PRIVATE)
@@ -411,6 +411,19 @@ private fun GpuBackendRow() {
             LiveStrokeOverlay.enabled = it
             prefs.edit().putBoolean(LiveStrokeOverlay.ENABLED_KEY, it).apply()
         },
+    )
+    // Jetpack Ink (androidx.ink) as the round Brush's live-stroke renderer. Persisted through
+    // SettingsRepository; off by default, and off leaves drawing exactly as it was. On, it takes
+    // the place of Direct display for those strokes rather than drawing alongside it.
+    val jetpackInk by vm.jetpackInkBrush.collectAsStateWithLifecycle()
+    ChoiceRow(
+        title = "Jetpack Ink",
+        subtitle = "Draws the round Brush's stroke in progress with Android's low-latency Jetpack " +
+            "Ink renderer. Replaces Direct display for those strokes. Applies to the next stroke.",
+        options = listOf(false, true),
+        selected = jetpackInk,
+        label = { if (it) "On" else "Off" },
+        onSelect = { vm.setJetpackInkBrush(it) },
     )
 }
 

@@ -19,6 +19,8 @@ import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
+import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
+import com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 
@@ -191,6 +193,22 @@ internal class DrawingEngine(
         val brushScale = ImageProcessor.screenToBitmapScale(
             stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height, stroke.layerScale
         )
+        // Jetpack Ink brush (Settings > Jetpack Ink brush): the command carries the finished Ink
+        // stroke, which is rendered as-is through Ink's own CanvasStrokeRenderer — the pixels
+        // committed and replayed are Ink's, matching what its InProgressStrokesView showed live.
+        // Everything around the paint is the editor's usual discipline: the selection clip (and
+        // its feather), alpha lock and wrap-around, all read off the recorded command.
+        stroke.inkStroke?.let { ink ->
+            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val inkCanvas = android.graphics.Canvas(target)
+            SelectionMask.clip(inkCanvas, paintClip)
+            val worldToBitmap = InkAffine.worldToBitmap(
+                stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                stroke.layerScale, stroke.layerOffset.x, stroke.layerOffset.y, stroke.layerRotationZ,
+            )
+            InkStrokes.draw(inkCanvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode)
+            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
+        }
         stroke.stampBrush?.let { brush ->
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)

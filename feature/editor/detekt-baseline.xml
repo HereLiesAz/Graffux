@@ -6,7 +6,6 @@
     <ID>ComplexCondition:ColorSmudgeEngine.kt$ColorSmudgeEngine$stroke.isEmpty() || width &lt;= 0 || height &lt;= 0 || pixels.size &lt; width * height</ID>
     <ID>ComplexCondition:DrawingCanvas.kt$!began &amp;&amp; !eyedrop &amp;&amp; !pickingCloneSource &amp;&amp; activeTool != Tool.FILL</ID>
     <ID>ComplexCondition:DrawingCanvas.kt$!began &amp;&amp; moved &amp;&amp; activeTool != Tool.FILL &amp;&amp; !pickingCloneSource</ID>
-    <ID>ComplexCondition:EditorScreen.kt$activeLayer != null &amp;&amp; !activeLayerLocked &amp;&amp; uiState.activeTool != Tool.NONE &amp;&amp; uiState.activeTool != Tool.PEN &amp;&amp; uiState.activeTool != Tool.SELECT</ID>
     <ID>ComplexCondition:EditorViewModel.kt$EditorViewModel$!advancedMaskPipeline &amp;&amp; shape == null &amp;&amp; !brush.buildUp &amp;&amp; preStrokeBase != null</ID>
     <ID>ComplexCondition:EditorViewModel.kt$EditorViewModel$hasNewHeldDabs &amp;&amp; engine != null &amp;&amp; ((!hasNewMovementDabs &amp;&amp; gpuActive) || gpuHandled)</ID>
     <ID>ComplexCondition:ExportManager.kt$canvasW &lt;= 0 || canvasH &lt;= 0 || docW &lt;= 0 || docH &lt;= 0</ID>

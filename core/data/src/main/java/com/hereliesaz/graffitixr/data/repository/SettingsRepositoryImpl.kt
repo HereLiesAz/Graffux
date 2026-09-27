@@ -55,6 +55,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val STEREO_CAPABILITY = intPreferencesKey("depth_triangulation_capability")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
+    private val jetpackInkBrushKey = booleanPreferencesKey("jetpack_ink_brush")
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
     private val PARALLAX_MIN_DEG = floatPreferencesKey("parallax_min_degrees")
@@ -176,6 +177,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setBrushSizeFixedOnScreen(fixed: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[BRUSH_SIZE_FIXED_ON_SCREEN] = fixed
+        }
+    }
+
+    override val jetpackInkBrush: Flow<Boolean> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[jetpackInkBrushKey] ?: false }
+
+    override suspend fun setJetpackInkBrush(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[jetpackInkBrushKey] = enabled
         }
     }
 
