@@ -243,7 +243,9 @@ fun EditorScreen(
                                     node,
                                     liveStrokeState,
                                     frameAlpha = frameAlphas[node.layer.id] ?: 1f,
-                                    overlayGeometry = overlayGeometry,
+                                    // Only the centre tile: wrap-around draws the same layer
+                                    // nine times, and the overlay maps to the real document.
+                                    overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
                                 )
                             }
                         }

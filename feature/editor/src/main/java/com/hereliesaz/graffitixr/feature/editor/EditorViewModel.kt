@@ -969,6 +969,8 @@ class EditorViewModel @Inject constructor(
     // and its inverse (for mapping dirty rects).
     @Volatile private var overlayToLayer: FloatArray? = null
     @Volatile private var layerToOverlay: FloatArray? = null
+    // Bumped per overlay stroke; a delayed clear only runs if no newer stroke has started.
+    private val overlayGeneration = java.util.concurrent.atomic.AtomicInteger()
 
     /** Called by [LiveStrokeOverlayHost] when the overlay surface appears or goes away. */
     fun setLiveOverlay(overlay: LiveStrokeOverlay?, geometry: OverlayGeometry?) {
@@ -4288,6 +4290,14 @@ class EditorViewModel @Inject constructor(
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
                 val preStrokeBaseSeed = SafeBitmap.copy(work)
+                // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
+                // two full-layer GPU passes run here, off the main thread, before any dab lands.
+                val overlayMatrices = if (gpuDisplay != null && LiveStrokeOverlay.enabled && liveOverlay != null) {
+                    withContext(dispatchers.main) { overlayMatricesFor(layerId) }
+                } else {
+                    null
+                }
+                val overlayStarted = overlayMatrices != null && startOverlay(gpuEngine!!, work.width, work.height)
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -4334,8 +4344,10 @@ class EditorViewModel @Inject constructor(
                         // it's showing the stroke, the canvas stays on `work` -- the pre-stroke
                         // pixels, never read back into during a zero-copy stroke -- because the
                         // hardware-buffer bitmap would show the stroke a second time underneath it.
-                        val overlayStarted = gpuDisplay != null &&
-                            beginOverlayStroke(gpuEngine!!, work.width, work.height, layerId)
+                        if (overlayStarted) {
+                            layerToOverlay = overlayMatrices!!.first
+                            overlayToLayer = overlayMatrices.second
+                        }
                         _liveStroke.update {
                             it.copy(
                                 layerId = layerId,
@@ -4346,6 +4358,7 @@ class EditorViewModel @Inject constructor(
                     } else {
                         // Superseded by a newer stroke before this coroutine finished — don't leak
                         // the GPU engine this branch may have just stood up.
+                        if (overlayStarted) liveOverlay?.endStroke()
                         gpuDisplay?.close()
                         gpuEngine?.destroy()
                     }
@@ -5451,7 +5464,11 @@ class EditorViewModel @Inject constructor(
                     // the main dispatcher to resume before it can finish would deadlock against
                     // a main-thread wait for it to finish.
                     val overlayMatrix = overlayToLayer
-                    if (overlayMatrix == null || !presentOverlay(overlayMatrix, newDabs, newHeldDabs)) {
+                    val presented = overlayMatrix != null && presentOverlay(overlayMatrix, newDabs, newHeldDabs)
+                    // A failed present hides the overlay before Compose takes over, so the stroke
+                    // never shows twice (stale overlay over the republished layer).
+                    if (overlayMatrix != null && !presented) endOverlayStroke(afterFrames = 0)
+                    if (!presented) {
                         val publishedBitmap = synchronized(stampLiveLock) {
                             stampGpuDisplay?.bitmap
                         } ?: shadedBitmap ?: work
@@ -5475,7 +5492,9 @@ class EditorViewModel @Inject constructor(
     fun onStrokeEnd() {
         // The commit renders from canonical history; a preview frame queued for this stroke is moot.
         stampFrameRequestedFor = -1L
-        azphaltLatencyTracker.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
+        // The tracker that measured THIS stroke: stamp brushes and Basic Brush are timed separately.
+        val strokeLatency = if (stampBrushForStroke != null) azphaltLatencyTracker else basicLatencyTracker
+        strokeLatency.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
             predictionLeadMs = (it.total.medianNs / NANOS_PER_MILLI).coerceAtLeast(1L)
         }
         val state = _uiState.value
@@ -9136,23 +9155,27 @@ class EditorViewModel @Inject constructor(
         predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
 
     /**
-     * Starts showing this stroke through the live overlay, if Settings enabled it and the layer is
-     * one the overlay reproduces exactly: plain SRC_OVER at full opacity, no colour adjustments,
-     * clipping, 3D tilt or parent group, and nothing visible above it. See live_overlay.comp for
-     * why that makes "stroke over what's on screen" exact. Main thread.
+     * Where the overlay would draw this stroke: layer px -> overlay px and its inverse, or null when
+     * the layer isn't one the overlay reproduces exactly (plain SRC_OVER at full opacity, no colour
+     * adjustments, clipping, 3D tilt or parent group, nothing visible above; see live_overlay.comp).
+     * Main thread: reads the Compose layout.
      */
-    private fun beginOverlayStroke(engine: GpuStampEngine, width: Int, height: Int, layerId: String): Boolean {
-        val overlay = liveOverlay.takeIf { LiveStrokeOverlay.enabled && overlayCanShow(layerId) }
-        val forward = overlay?.let { overlayGeometry?.layerToOverlay(layerId) }
+    private fun overlayMatricesFor(layerId: String): Pair<FloatArray, FloatArray>? {
+        if (!overlayCanShow(layerId)) return null
+        val forward = overlayGeometry?.layerToOverlay(layerId)
         val inverse = forward?.let(::invertAffine)
-        val started = inverse != null && engine.getHardwareBuffer()?.use { buffer ->
-            overlay.beginStroke(buffer, width, height)
-        } == true
-        if (started) {
-            layerToOverlay = forward
-            overlayToLayer = inverse
-        }
-        return started
+        return if (forward != null && inverse != null) forward to inverse else null
+    }
+
+    /**
+     * Imports the engine's layer into the overlay and snapshots it as the stroke's base. Two
+     * full-layer GPU passes, so never on the main thread. Bumps [overlayGeneration] first, so a
+     * previous stroke's delayed clear can't tear this one down.
+     */
+    private fun startOverlay(engine: GpuStampEngine, width: Int, height: Int): Boolean {
+        val overlay = liveOverlay ?: return false
+        overlayGeneration.incrementAndGet()
+        return engine.getHardwareBuffer()?.use { buffer -> overlay.beginStroke(buffer, width, height) } == true
     }
 
     private fun overlayCanShow(layerId: String): Boolean {
@@ -9198,13 +9221,18 @@ class EditorViewModel @Inject constructor(
         return overlay.present(overlayToLayerMatrix, x, y, w, h)
     }
 
-    /** Clears the overlay [afterFrames] display frames from now (0 = immediately). Main thread. */
+    /**
+     * Clears the overlay [afterFrames] display frames from now (0 = immediately, any thread; more
+     * needs the main thread). Skipped if another stroke has started on the overlay in the meantime.
+     */
     private fun endOverlayStroke(afterFrames: Int) {
         if (overlayToLayer == null) return
         overlayToLayer = null
         layerToOverlay = null
         val overlay = liveOverlay ?: return
+        val generation = overlayGeneration.get()
         fun after(frames: Int) {
+            if (overlayGeneration.get() != generation) return
             if (frames <= 0) {
                 overlay.endStroke()
             } else {

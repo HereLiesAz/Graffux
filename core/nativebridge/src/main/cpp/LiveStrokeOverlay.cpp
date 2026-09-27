@@ -130,14 +130,16 @@ public:
         desc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
         desc.usage = AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
                      kUsageComposerOverlay | kUsageFrontBuffer;
+        // Front-buffer usage is required, not preferred. Without it, rewriting one buffer the
+        // compositor may still be reading tears or shows undefined pixels, and a rotating pair
+        // would each miss the other's incremental updates. Devices without it (before API 33, or
+        // drivers that refuse) keep the Compose path.
         frontBuffered_ = AHardwareBuffer_allocate(&desc, &overlayBuffer_) == 0;
         if (!frontBuffered_) {
-            desc.usage &= ~kUsageFrontBuffer;
-            if (AHardwareBuffer_allocate(&desc, &overlayBuffer_) != 0) {
-                overlayBuffer_ = nullptr;
-                detach();
-                return false;
-            }
+            overlayBuffer_ = nullptr;
+            OVL_LOGI("front-buffer AHardwareBuffer unsupported: overlay disabled");
+            detach();
+            return false;
         }
         if (!importBuffer(overlayBuffer_, width, height, overlay_) || !bindOverlay() ||
             !run(kModeClear, nullptr, 0, 0, width, height)) {
@@ -522,8 +524,11 @@ private:
         writeBinding(1, base_.view);
     }
 
-    // Imported buffers are acquired from the foreign (display / other API) queue family every time,
-    // since their producer is outside this device; the plain base image transitions once.
+    // Imported buffers are acquired from the foreign (display / other device) queue family on every
+    // pass and released back after it, since their producer is outside this device. Their contents
+    // must survive, so the acquire names GENERAL -- the layout both producers (the stamp engine,
+    // this overlay) leave them in -- never UNDEFINED, which would let the driver discard them. The
+    // plain base image transitions from UNDEFINED once, before its first (full) write.
     void acquire(VkCommandBuffer cmd, Image& img, bool external) {
         if (img.image == VK_NULL_HANDLE) return;
         if (!external && img.general) return;
@@ -531,7 +536,7 @@ private:
         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         b.srcAccessMask = 0;
         b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        b.oldLayout = img.general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        b.oldLayout = (external || img.general) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED;
         b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         b.srcQueueFamilyIndex = external ? VK_QUEUE_FAMILY_FOREIGN_EXT : VK_QUEUE_FAMILY_IGNORED;
         b.dstQueueFamilyIndex = external ? queueFamily_ : VK_QUEUE_FAMILY_IGNORED;
@@ -542,8 +547,10 @@ private:
         img.general = true;
     }
 
-    // Hands the overlay buffer back to the foreign (compositor) queue family after writing it.
+    // Hands an imported buffer back to its foreign owner (the compositor for the overlay, the stamp
+    // engine's device for the layer) after this pass.
     void releaseToForeign(VkCommandBuffer cmd, Image& img) {
+        if (img.image == VK_NULL_HANDLE) return;
         VkImageMemoryBarrier b{};
         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -564,9 +571,18 @@ private:
         bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         if (!ok(vkBeginCommandBuffer(cmd_, &bi), "begin")) return false;
+        const bool readsLayer = mode != kModeClear;
         acquire(cmd_, overlay_, true);
-        if (mode != kModeClear) acquire(cmd_, layer_, true);
+        if (readsLayer) acquire(cmd_, layer_, true);
         acquire(cmd_, base_, false);
+        // The previous pass's shader writes (the snapshot into base_, earlier overlay pixels) must
+        // be visible to this pass's reads: the fence wait orders execution, not memory.
+        VkMemoryBarrier previous{};
+        previous.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        previous.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        previous.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0, 1, &previous, 0, nullptr, 0, nullptr);
 
         Push push{};
         if (m != nullptr) {
@@ -584,6 +600,7 @@ private:
         vkCmdDispatch(cmd_, (static_cast<uint32_t>(w) + kTile - 1) / kTile,
                       (static_cast<uint32_t>(h) + kTile - 1) / kTile, 1);
         releaseToForeign(cmd_, overlay_);
+        if (readsLayer) releaseToForeign(cmd_, layer_);
         if (!ok(vkEndCommandBuffer(cmd_), "end")) return false;
 
         VkSubmitInfo si{};
