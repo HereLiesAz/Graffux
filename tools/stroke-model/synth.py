@@ -1,6 +1,6 @@
-"""Writes schema-exact synthetic sessions (SCHEMA.md, version 2) for smoke-testing the pipeline.
+"""Writes schema-exact synthetic sessions (SCHEMA.md, version 3) for smoke-testing the pipeline.
 
-  python synth.py OUT_DIR [--sessions 6] [--strokes 40] [--schema 2]
+  python synth.py OUT_DIR [--sessions 6] [--strokes 40] [--schema 3]
 
 Each stroke has a planted pose that the recorded shape reveals, so the onset ablation has real
 signal to find (and a broken pipeline shows up as none):
@@ -12,22 +12,33 @@ panels do); the rest report 0, like the Pixel 5, and a palm pointer behind the f
 strokes) and the settle drift are then the only hints. Contact reports pause after touchdown (a
 hold) as real panels do, and the first report carries the settle drift.
 Sensors carry the v2 arrival times and status; one sensor is "not registered" per session.
---schema 1 writes the old layout, to check the loader still reads it.
+Schema 3 adds a raw touch heatmap to every stroke of every session but the last (whose header says
+"off"): an egg-shaped blob -- blunt end behind, narrow end leading along the stroke's initial
+direction, major axis along the finger -- on a GRID_W x GRID_H grid over the screen, at 120 Hz,
+from 100 ms before touchdown to 200 ms after the first report (the onset; real files cover the
+whole stroke). --schema 1 / 2 write the older layouts, to check the loader still reads them.
 Not a substitute for recorded data.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import json
 import math
 import random
 from pathlib import Path
 
+import numpy as np
+
 NS = 1_000_000
 PPM = 400 / 25.4  # px per mm at the synthetic 400 dpi
 COLUMNS = ["t", "action", "x", "y", "pressure", "size", "touchMajor", "touchMinor",
            "toolMajor", "toolMinor", "orientation", "tilt", "distance", "buttons"]
+GRID_W, GRID_H = 16, 34          # a plausible Samsung panel grid; the real one is unverified
+SCREEN_MM = (1080 / PPM, 2400 / PPM)
+HEATMAP_HZ = 120.0
+BLUR_MM = 1.2                    # capacitive spreading beyond the contact itself
 SENSORS = [("accelerometer", 3), ("gyroscope", 3), ("gravity", 3), ("linearAcceleration", 3),
            ("gameRotationVector", 5), ("rotationVector", 5), ("magneticField", 3)]
 
@@ -77,11 +88,62 @@ def palm_pointer(rng: random.Random, times: list[int], x0: float, y0: float, yaw
     return {"pointerId": 1, "tool": "palm", "canceled": True, "palm": True, "samples": pc}
 
 
-def stroke(rng: random.Random, t0: int, offset: int, report_orient: bool, missing: str, schema: int) -> dict:
+def egg_frame(cx: float, cy: float, lead: float, major: float, minor: float, pressure: float,
+              rng: random.Random, grid: tuple[int, int] = (GRID_W, GRID_H),
+              screen: tuple[float, float] = SCREEN_MM) -> np.ndarray:
+    """One heatmap frame (rows x cols): an egg centred at (cx, cy) mm, narrow end toward `lead` (radians)."""
+    cols, rows = np.meshgrid(np.arange(grid[0]), np.arange(grid[1]))
+    px, py = screen[0] / grid[0], screen[1] / grid[1]
+    dx, dy = (cols + 0.5) * px - cx, (rows + 0.5) * py - cy
+    u = dx * math.cos(lead) + dy * math.sin(lead)       # along the finger, + toward the narrow end
+    v = -dx * math.sin(lead) + dy * math.cos(lead)
+    su0, sv0 = major / 4, minor / 4
+    su = np.where(u > 0, 1.5 * su0, 0.7 * su0)          # long thin tail forward, blunt end behind
+    sv = sv0 * np.exp(-0.5 * np.clip(u, 0, None) / su0)  # and narrowing toward the front
+    su = np.sqrt(su ** 2 + BLUR_MM ** 2)
+    sv = np.sqrt(sv ** 2 + BLUR_MM ** 2)
+    img = 900.0 * pressure * np.exp(-0.5 * (u / su) ** 2 - 0.5 * (v / sv) ** 2)
+    noise = np.asarray([rng.gauss(0, 4.0) for _ in range(img.size)]).reshape(img.shape)
+    return np.clip(np.round(img + noise), -32768, 32767).astype("<i2")
+
+
+def heatmap(rng: random.Random, cols: dict, kind: str, scale: float, lead: float) -> dict:
+    """Frames from 100 ms before touchdown to 200 ms after the first report (schema v3 `heatmap`)."""
+    t = np.asarray(cols["t"], dtype=np.float64)
+    x = np.asarray(cols["x"]) / PPM
+    y = np.asarray(cols["y"]) / PPM
+    t0 = t[0]
+    stop = min(t[-1], t[1] + 200 * NS) + 50 * NS
+    ts, frames = [], []
+    ft = t0 - 100 * NS + rng.uniform(0, 1e9 / HEATMAP_HZ)
+    while ft <= stop:
+        if t0 <= ft <= t[-1]:
+            major, minor, pressure = shape_for(kind, (ft - t0) / NS, scale)
+            fr = egg_frame(float(np.interp(ft, t, x)), float(np.interp(ft, t, y)), lead, major, minor, pressure, rng)
+        else:
+            fr = np.asarray([rng.gauss(0, 4.0) for _ in range(GRID_W * GRID_H)]).round().astype("<i2")
+        ts.append(int(ft))
+        frames.append(fr.reshape(-1))
+        ft += 1e9 / HEATMAP_HZ
+    raw = np.concatenate(frames).astype("<i2").tobytes()
+    return {"source": "sec_delta", "w": GRID_W, "h": GRID_H, "dtype": "int16le", "t": ts, "a": ts,
+            "frames": base64.b64encode(raw).decode(), "truncated": False}
+
+
+def heatmap_status(on: bool) -> dict:
+    if not on:
+        return {"state": "off", "detail": "", "w": 0, "h": 0, "frames": 0, "clockCheckNs": None}
+    return {"state": "sec_delta", "detail": "synthetic", "w": GRID_W, "h": GRID_H, "frames": 0,
+            "clockCheckNs": 200_000}
+
+
+def stroke(rng: random.Random, t0: int, offset: int, report_orient: bool, missing: str, schema: int,
+           with_heatmap: bool = False) -> dict:
     kind = rng.choice(["scratch", "wipe", "detail", "wipe", "detail"])
     yaw = rng.uniform(-math.pi, math.pi)
     n = {"scratch": 40, "wipe": 90, "detail": 160}[kind] + rng.randint(-10, 10)
-    pts = path_for(kind, yaw + rng.gauss(0, 0.25), n)
+    heading = yaw + rng.gauss(0, 0.25)
+    pts = path_for(kind, heading, n)
     x0, y0 = rng.uniform(15, 55), rng.uniform(20, 130)
     scale = rng.uniform(0.9, 1.1)
     cols = {k: [] for k in COLUMNS}
@@ -126,6 +188,11 @@ def stroke(rng: random.Random, t0: int, offset: int, report_orient: bool, missin
         rec["sensorStatus"] = status
         rec["sensorsRegistered"] = [k for k, v in status.items() if v["registered"]]
         rec["flush"] = "completed"
+    if schema >= 3:
+        rec["heatmapStatus"] = heatmap_status(with_heatmap)
+        if with_heatmap:
+            # The narrow end leads: along the direction the stroke actually sets off in.
+            rec["heatmap"] = heatmap(rng, cols, kind, scale, heading)
     return rec
 
 
@@ -153,7 +220,7 @@ def main():
     ap.add_argument("out", type=Path)
     ap.add_argument("--sessions", type=int, default=6)
     ap.add_argument("--strokes", type=int, default=40)
-    ap.add_argument("--schema", type=int, choices=[1, 2], default=2)
+    ap.add_argument("--schema", type=int, choices=[1, 2, 3], default=3)
     a = ap.parse_args()
     rng = random.Random(1)
     d = a.out / "Synthetic"
@@ -166,10 +233,13 @@ def main():
             f.write(json.dumps({"type": "session", "schema": a.schema, "manufacturer": "x", "model": "Synthetic",
                                 "sdk": 35, "displayHz": rng.choice([60, 90, 120]), "widthPx": 1080,
                                 "heightPx": 2400, "xdpi": 400, "ydpi": 400, "density": 2.6,
-                                "startedAtMs": 0, "appVersion": "synthetic"}) + "\n")
+                                "startedAtMs": 0, "appVersion": "synthetic",
+                                **({"heatmap": heatmap_status(s < a.sessions - 1)} if a.schema >= 3 else {})})
+                    + "\n")
             t = 10**10
             for _ in range(a.strokes):
-                f.write(json.dumps(stroke(rng, t, offset, report_orient, missing, a.schema)) + "\n")
+                f.write(json.dumps(stroke(rng, t, offset, report_orient, missing, a.schema,
+                                          with_heatmap=a.schema >= 3 and s < a.sessions - 1)) + "\n")
                 t += 3 * 10**9
     print(f"wrote {a.sessions} sessions (schema {a.schema}) to {d}")
 

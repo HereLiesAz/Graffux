@@ -26,6 +26,10 @@ Feature groups (prefix of each feature name)
   drift.    finger pose that needs the contact's own centroid: yaw from settle drift (and from the
             palm), the egg lead direction. Built only from samples slower than SETTLE_MM_S, so it
             is the contact settling, not the stroke -- but it IS position data, so it is kept apart.
+  heatmap.  schema v3, root devices only: moments of the raw capacitive contact image
+            (strokemodel/heatmap.py) -- true orientation, elongation, egg skew and lead direction,
+            area, peak -- at touchdown and at the window end. All zero with heatmap.present = 0
+            when the stroke has no heatmap.
 """
 from __future__ import annotations
 
@@ -34,6 +38,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import heatmap as hm
 from .data import Stroke
 
 ONSET_MS = 30.0
@@ -476,6 +481,8 @@ def onsets(strokes: list[Stroke], onset_ms: float = ONSET_MS, anchor: str = "fir
         o.features.update(_kin_features(tr, w))
         o.features.update(_pose_features(tr, w, norms[str(st.session.get("model"))]))
         o.features.update(_drift_features(tr, w, ptr_off))
+        t0_ns = float(st.record["samples"]["t"][0])
+        o.features.update(hm.features(st, t0_ns + tr.t[w[-1]] * 1e6))
         o.targets = _targets(tr, int(w[-1]))
         o.labels = {"type": stroke_type(g), "geometry": g,
                     "part": next(p for p in PARTS if o.features[f"pose.part_{p}"] == 1.0)}

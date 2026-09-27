@@ -19,6 +19,12 @@ On the device, Settings → Stroke data is on by default. Every stroke is record
 `stroke-data` branch of this repository under `stroke-data/<device-model>/`. Upload uses the
 on-device GitHub token, which needs **Contents: read and write** on the repository.
 
+Rooted devices can also record the raw capacitive touch image: Settings → Raw touch heatmap (root),
+off by default. Turning it on runs a small read-only helper through `su` at once (the Magisk prompt
+appears then) and shows what it found: `v4l2` or `sec_delta` and the grid size, or why it failed. Each
+stroke then carries a `heatmap` (SCHEMA.md), and `onset_eval.py` adds heatmap rows. The frame format
+on the Pixel 5 is not verified yet; see SCHEMA.md "`heatmap` (v3)".
+
 ## Training
 
 ~~~
@@ -42,7 +48,9 @@ python onset_eval.py ../stroke-data/stroke-data --split strokes            # one
 
 Feature sets: a trivial baseline (mean direction / mean / majority class), kinematics only, contact
 shape only (no position or velocity), shape + kinematics, pose derived from shape alone, the full
-derived pose (pitch, yaw, contact part), and derived pose + kinematics. Targets are measured from the
+derived pose (pitch, yaw, contact part), and derived pose + kinematics. When strokes carry a raw
+heatmap (schema v3): heatmap (contact-image moments: true orientation, elongation, egg skew and
+lead, area, peak) and heatmap + derived pose. Targets are measured from the
 end of the onset window, so nothing a target measures is inside it. Models are ridge regressions /
 a class-balanced ridge classifier (numpy only), alpha picked by inner CV on the training fold.
 
@@ -121,8 +129,17 @@ always 0, no hover, no stylus, 6 multi-touch strokes and attitude for 20 strokes
 python synth.py /tmp/synth && python train.py /tmp/synth --epochs 3 && python onset_eval.py /tmp/synth
 ~~~
 
-`synth.py` writes schema 2 (`--schema 1` for the old layout) with planted pose -> type and
-yaw -> direction relations, so the onset pipeline has signal to find.
+`synth.py` writes schema 3 (`--schema 1` / `2` for the old layouts) with planted pose -> type and
+yaw -> direction relations, so the onset pipeline has signal to find. Schema 3 adds an egg-shaped
+heatmap blob (narrow end leading along the initial direction) on a 16 × 34 grid to all sessions but
+the last. On that coarse grid the lead is recoverable for pad-sized contacts and not for small round
+tips, so expect the direct heatmap-lead test to be significant while the ridge "heatmap" row stays weak.
+
+Unit tests (moment extraction on synthetic blobs, v1/v2/v3 loading):
+
+~~~
+python -m unittest discover -s tests -v
+~~~
 
 ## Layout
 
