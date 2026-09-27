@@ -152,3 +152,16 @@ python -m unittest discover -s tests -v
 | `train.py` | per-frame task: split by session, baselines, training, ONNX export |
 | `onset_eval.py` | onset task: the ablation report |
 | `synth.py` | synthetic data in the exact on-device format |
+
+## Kaggle mirror
+
+`.github/workflows/stroke-data-kaggle.yml` copies the `stroke-data` branch to a **private** Kaggle
+dataset every 6 hours (or on demand from the Actions tab), via `kaggle_upload.py`. It needs the
+`KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is
+a bare API token, also set the `KAGGLE_USERNAME` (or full `KAGGLE_DATASET`, `owner/slug`)
+repository variable. Default dataset: `<username>/graffux-stroke-data`.
+
+~~~
+kaggle datasets download <username>/graffux-stroke-data --unzip -p data/
+python train.py data/
+~~~
