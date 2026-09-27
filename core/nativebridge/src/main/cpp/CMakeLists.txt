@@ -88,6 +88,22 @@ graffux_embed_shader(
     -DTILE_SIZE=16
 )
 
+# GlesStampEngine's shaders are GLSL ES source compiled by the driver at runtime, embedded as raw
+# string literals. They are generated from the Vulkan shaders (shaders/gles/port_from_vulkan.py)
+# and committed, so this build step only wraps them.
+set(GLES_SHADERS_HEADER "#pragma once\nnamespace graffux {\n")
+foreach(PAIR "stamp.comp:kStampCompSrc" "stamp_masked.comp:kStampMaskedCompSrc" "color_smudge.comp:kColorSmudgeCompSrc")
+    string(REPLACE ":" ";" PAIR_LIST "${PAIR}")
+    list(GET PAIR_LIST 0 GLES_FILE)
+    list(GET PAIR_LIST 1 GLES_SYMBOL)
+    set(GLES_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gles/${GLES_FILE}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GLES_SOURCE}")
+    file(READ "${GLES_SOURCE}" GLES_TEXT)
+    string(APPEND GLES_SHADERS_HEADER "inline constexpr const char* ${GLES_SYMBOL} = R\"GLSL(${GLES_TEXT})GLSL\";\n")
+endforeach()
+string(APPEND GLES_SHADERS_HEADER "}  // namespace graffux\n")
+file(WRITE "${GENERATED_SHADER_DIR}/GlesShaders.h" "${GLES_SHADERS_HEADER}")
+
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
     MobileGS.cpp
@@ -102,6 +118,8 @@ add_library(graffitixr SHARED
     VulkanStampDynamicsJNI.cpp
     VulkanColorSmudge.cpp
     VulkanColorSmudgeJNI.cpp
+    GlesStampEngine.cpp
+    StampEngineFactory.cpp
     InkStrokePredictorJNI.cpp
 )
 

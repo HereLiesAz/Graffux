@@ -1,13 +1,12 @@
 #include <jni.h>
 #include <vector>
 #include <algorithm>
-#include "include/VulkanStampEngine.h"
+#include "include/StampEngine.h"
 
 namespace {
 using graffux::GpuDab;
 using graffux::GpuSecondaryDab;
 using graffux::SubstrateStampParams;
-using graffux::VulkanStampEngine;
 
 SubstrateStampParams substrateParams(jboolean enabled, jboolean hasPaintHeight,
                                      jfloat baseHeight, jfloat heightScale,
@@ -25,9 +24,9 @@ SubstrateStampParams substrateParams(jboolean enabled, jboolean hasPaintHeight,
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadSubstrateHeight(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadSubstrateHeight(
         JNIEnv* env, jobject, jlong handle, jbyteArray heightR8, jint width, jint height) {
-    auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !heightR8 || width <= 0 || height <= 0) return JNI_FALSE;
     const jsize count = env->GetArrayLength(heightR8);
     if (static_cast<jlong>(count) < static_cast<jlong>(width) * height) return JNI_FALSE;
@@ -39,9 +38,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadSubstr
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadPaintHeight(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadPaintHeight(
         JNIEnv* env, jobject, jlong handle, jfloatArray heightMap, jint width, jint height) {
-    auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !heightMap || width <= 0 || height <= 0) return JNI_FALSE;
     const jsize count = env->GetArrayLength(heightMap);
     if (static_cast<jlong>(count) < static_cast<jlong>(width) * height) return JNI_FALSE;
@@ -53,12 +52,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeUploadPaintH
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolvedDabs(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampResolvedDabs(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jboolean buildUp,
         jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight, jfloat substrateHeightScale,
         jfloat substrateTextureScale, jfloat substrateOffsetX, jfloat substrateOffsetY,
         jboolean strokeMax) {
-    auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabData);
     constexpr int kStride = 15;  // old 11 fields + contactDepth,load,depositionRate,substrateResponse
@@ -103,7 +102,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampResolve
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedDabs(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jfloat hardness,
         jbyteArray maskAlpha8, jint maskWidth, jint maskHeight,
         jbyteArray grainAlpha8, jint grainWidth, jint grainHeight, jboolean grainCanvasLocked,
@@ -112,7 +111,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_VulkanStampEngine_nativeStampMaskedD
         jint secondaryMaskHeight, jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight,
         jfloat substrateHeightScale, jfloat substrateTextureScale, jfloat substrateOffsetX,
         jfloat substrateOffsetY) {
-    auto* engine = reinterpret_cast<VulkanStampEngine*>(handle);
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !dabData || !maskAlpha8) return JNI_FALSE;
     if (maskWidth <= 0 || maskHeight <= 0) return JNI_FALSE;
     const jsize maskLen = env->GetArrayLength(maskAlpha8);

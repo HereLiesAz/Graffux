@@ -40,7 +40,7 @@ data class DirtyRegion(val left: Int, val top: Int, val right: Int, val bottom: 
          * painted shape -- round, squished by tipRatio, or rotated -- is inscribed within a circle
          * of that radius from the dab's center, so this is always a conservative superset of the
          * true painted pixels, the same bounding-box convention
-         * `VulkanStampEngine::stampDabs()`'s dispatch-region optimization already uses natively.
+         * `GpuStampEngine::stampDabs()`'s dispatch-region optimization already uses natively.
          */
         fun fromDabs(dabs: List<Dab>): DirtyRegion? {
             if (dabs.isEmpty()) return null

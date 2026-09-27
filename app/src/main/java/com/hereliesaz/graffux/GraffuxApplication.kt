@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.crash.CrashReporter
 import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.NativeCrashHandler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,11 @@ class GraffuxApplication : Application() {
         // The shared editor's Liquify tool bakes through the native bridge, so load before any edit.
         // Idempotent and safe on every process start.
         NativeLibLoader.loadAll()
+        // GPU backend chosen in Settings (Vulkan / OpenGL ES) for every stamp engine created from now on.
+        GpuStampEngine.Backend.preferred = GpuStampEngine.Backend.fromLabel(
+            getSharedPreferences(GpuStampEngine.Backend.PREFS, MODE_PRIVATE)
+                .getString(GpuStampEngine.Backend.KEY, null),
+        )
         // Extension installs and trust-store refreshes go out over plain HttpURLConnection
         // (ExtensionRepository, EditorViewModel.installExtensionFromUrl) — this was built to patch an
         // outdated device TLS provider ahead of exactly that traffic, but nothing ever called it, so

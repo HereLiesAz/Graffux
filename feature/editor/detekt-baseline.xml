@@ -824,7 +824,7 @@
     <ID>ReturnCount:AnimationFrames.kt$AnimationFrames$fun frameIndexForLayer(layers: List&lt;Layer&gt;, layerId: String?): Int</ID>
     <ID>ReturnCount:AnimationFrames.kt$AnimationFrames$private fun findNode(nodes: List&lt;LayerNode&gt;, id: String): LayerNode?</ID>
     <ID>ReturnCount:AnimationGifWriter.kt$AnimationGifWriter$fun write( file: File, range: IntRange, frameDurationMs: Int, loopMode: AnimationLoopMode, holdCountAt: (Int) -&gt; Int = { 1 }, frameAt: (Int) -&gt; Bitmap?, ): Int</ID>
-    <ID>ReturnCount:AzphaltGpuDisplay.kt$AzphaltGpuDisplay.Companion$fun tryCreate(engine: VulkanStampEngine): AzphaltGpuDisplay?</ID>
+    <ID>ReturnCount:AzphaltGpuDisplay.kt$AzphaltGpuDisplay.Companion$fun tryCreate(engine: GpuStampEngine): AzphaltGpuDisplay?</ID>
     <ID>ReturnCount:AzphaltRenderCadence.kt$AzphaltRenderCadence$fun shouldRender(nowMs: Long, rateHz: Int): Boolean</ID>
     <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun layerScreenCorners( layer: Layer, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, ): List&lt;Offset&gt;?</ID>
     <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun nearBoxEdge(corners: List&lt;Offset&gt;, p: Offset, tolerancePx: Float): Boolean</ID>
