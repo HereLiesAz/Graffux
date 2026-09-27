@@ -23,6 +23,7 @@ interface EditorActions {
     fun onLayerActivated(id: String)
     fun onLayerRenamed(id: String, name: String)
     fun onLayerReordered(newOrder: List<String>)
+    fun onLayerRailRelocated(railOrder: List<String>, parentId: String?)
     fun onLayerDuplicated(id: String)
     fun onLayerRemoved(id: String)
 

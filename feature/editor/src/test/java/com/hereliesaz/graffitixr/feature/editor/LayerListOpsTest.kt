@@ -132,4 +132,36 @@ class LayerListOpsTest {
         val layers = listOf(lyr("a"), lyr("b"))
         assertEquals(layers, LayerListOps.ungroup(layers, "a"))
     }
+
+    @Test
+    fun `rail relocate order including host buttons reorders the canvas stack`() {
+        // Bottom-first: a is drawn first (lowest), c last (on top).
+        val layers = listOf(lyr("a"), lyr("b"), lyr("c"))
+        // Exactly what AzNavRail's unattached host hands onRelocate after dragging "a" to the top:
+        // scope.navItems.map { it.id } -- every item in the rail, top-first, including the layers
+        // host's own `layer.add` / `layer.deleteActive` buttons, which share the `layer.` prefix.
+        val railOrder = listOf(
+            "tool.brush", "grp.layers", "layer.a", "layer.c", "layer.b",
+            "layer.add", "layer.deleteActive", "help",
+        )
+        val sub = LayerListOps.railOrderToSubOrder(railOrder, layers.map { it.id })
+        assertEquals(listOf("b", "c", "a"), sub)
+        assertEquals(listOf("b", "c", "a"), LayerListOps.reorderSubset(layers, sub).map { it.id })
+    }
+
+    @Test
+    fun `rail relocate order in a group only moves that group's children`() {
+        val layers = listOf(
+            lyr("x"),
+            Layer(id = "g", name = "g", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP),
+            Layer(id = "g1", name = "g1", parentId = "g"),
+            Layer(id = "g2", name = "g2", parentId = "g"),
+            lyr("y"),
+        )
+        val sub = LayerListOps.railOrderToSubOrder(
+            listOf("layer.y", "layer.g", "layer.g1", "layer.g2", "layer.x", "layer.add"),
+            listOf("g1", "g2"),
+        )
+        assertEquals(listOf("x", "g", "g2", "g1", "y"), LayerListOps.reorderSubset(layers, sub).map { it.id })
+    }
 }
