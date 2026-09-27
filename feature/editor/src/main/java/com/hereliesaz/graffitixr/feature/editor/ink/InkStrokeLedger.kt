@@ -28,10 +28,11 @@ internal class InkStrokeLedger<T : Any> {
     fun remove(layerId: String, key: Any): Boolean {
         val list = byLayer[layerId] ?: return false
         val index = list.indexOfLast { it.key === key }
-        if (index < 0) return false
-        list.removeAt(index)
-        if (list.isEmpty()) byLayer.remove(layerId)
-        return true
+        if (index >= 0) {
+            list.removeAt(index)
+            if (list.isEmpty()) byLayer.remove(layerId)
+        }
+        return index >= 0
     }
 
     /** [layerId]'s strokes, oldest first. */

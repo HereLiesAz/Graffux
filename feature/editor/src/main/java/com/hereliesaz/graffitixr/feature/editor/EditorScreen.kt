@@ -410,13 +410,25 @@ fun EditorScreen(
         // the "comparative area of the screen" a still frame and a live finger no longer agree on.
         // Direct display (Settings): a SurfaceControl layer above the window for the live stroke.
         // Composed before the drawing surface so touches still land on the canvas.
-        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled) {
+        // Jetpack Ink (Settings) replaces it for the round Brush: Ink and the overlay must never
+        // both draw the same stroke, so with Ink on the overlay isn't hosted at all.
+        val jetpackInk by vm.jetpackInkBrush.collectAsState()
+        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled && !jetpackInk) {
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
-        if (activeLayer != null && !activeLayerLocked &&
-            uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN &&
-            uiState.activeTool != Tool.SELECT
-        ) {
+        val canPaintActiveLayer = activeLayer != null && !activeLayerLocked
+        if (canPaintActiveLayer && jetpackInk && vm.usesJetpackInk(uiState)) {
+            com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
+                screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
+                    uiState.viewportOffset.x, uiState.viewportOffset.y,
+                    uiState.viewportZoom, uiState.viewportRotation,
+                ),
+                brush = { vm.inkBrushForCurrentState() },
+                onStrokeFinished = { stroke, size, done -> vm.onInkStrokeFinished(stroke, size, done) },
+                onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {
             fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
                 screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
             )
@@ -1552,3 +1564,6 @@ private fun polygonPath(cx: Float, cy: Float, w: Float, h: Float, sides: Int): P
         close()
     }
 }
+
+/** Tools with their own capture layer (or none), so the raster brush surface isn't composed for them. */
+private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT)

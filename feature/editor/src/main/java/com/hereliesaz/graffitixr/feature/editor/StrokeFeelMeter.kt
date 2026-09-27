@@ -98,7 +98,10 @@ class StrokeFeelMeter {
     private fun inkReport(context: String): String = buildString {
         appendLine("feel ($context)")
         appendLine("  engine: $ENGINE_JETPACK_INK")
-        appendLine("  touch->paint: ${inkTouchToPaint.describe("ms")} (Ink LatencyData: OS event -> estimated pixel presentation)")
+        appendLine(
+            "  touch->paint: ${inkTouchToPaint.describe("ms")} " +
+                "(Ink LatencyData: OS event -> estimated pixel presentation)",
+        )
         appendLine("  input delivery: ${delivery.describe("ms")}")
         appendLine("  first dab: ${inkFirstDab.describe("ms")} (ACTION_DOWN -> first Ink frame presented)")
         // Not measured on this path, said so rather than printed as "no data" that reads like a bug:

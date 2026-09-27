@@ -93,7 +93,7 @@ internal object InkStrokes {
         val mesh = stroke.shape
         val scratch = MutableVec()
         val result = ArrayList<FloatArray>()
-        for (group in 0 until mesh.renderGroupCount) {
+        for (group in 0 until mesh.getRenderGroupCount()) {
             for (outline in 0 until mesh.getOutlineCount(group)) {
                 val count = mesh.getOutlineVertexCount(group, outline)
                 val points = FloatArray(count * 2)

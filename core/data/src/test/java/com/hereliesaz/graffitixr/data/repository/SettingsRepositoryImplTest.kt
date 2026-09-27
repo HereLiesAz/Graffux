@@ -174,4 +174,17 @@ class SettingsRepositoryImplTest {
         repo.setJetpackInkBrush(false)
         assertFalse(repo.jetpackInkBrush.first())
     }
+
+    @Test
+    fun `jetpackInkBrush survives a new repository instance and leaves other settings alone`() = runTest {
+        // A fresh repository reads the same DataStore file: what the Settings row writes is what the
+        // editor's repository sees. Ends OFF so the default-off test above holds in any order.
+        val fixedBefore = repo.brushSizeFixedOnScreen.first()
+        repo.setJetpackInkBrush(true)
+        assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
+        assertEquals(fixedBefore, repo.brushSizeFixedOnScreen.first())
+
+        repo.setJetpackInkBrush(false)
+        assertFalse(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
+    }
 }

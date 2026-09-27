@@ -86,7 +86,7 @@ internal data class InkAffine(
             layerOffsetY: Float,
             layerRotationDeg: Float,
         ): InkAffine {
-            if (canvasWidth <= 0 || canvasHeight <= 0 || bitmapWidth <= 0 || bitmapHeight <= 0) return IDENTITY
+            if (minOf(canvasWidth, canvasHeight, bitmapWidth, bitmapHeight) <= 0) return IDENTITY
             val cx = canvasWidth / 2f
             val cy = canvasHeight / 2f
             val imageAspect = bitmapWidth.toFloat() / bitmapHeight.toFloat()
