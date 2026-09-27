@@ -144,9 +144,8 @@ class GpuStrokeParityTest {
                 continue
             }
             val (d, paint) = strokes[next++]
-            val (color, flow) = paint
-            val want = strokeFrames(old, committed, null, d, color, flow)
-            val got = strokeFrames(new, committed, committed, d, color, flow)
+            val want = strokeFrames(old, committed, null, d, paint)
+            val got = strokeFrames(new, committed, committed, d, paint)
             for (i in want.indices) {
                 assertArrayEquals("stroke $next frame $i differs from the full-upload path", want[i], got[i])
             }
@@ -156,7 +155,10 @@ class GpuStrokeParityTest {
             old.commitStroke(frame)
             new.commitStroke(frame)
         }
-        println("GpuStrokeParityTest resident: ${new.residentHits} hits, ${new.residentUploads} uploads; old path uploads every stroke")
+        println(
+            "GpuStrokeParityTest resident: ${new.residentHits} hits, ${new.residentUploads} uploads; " +
+                "old path uploads every stroke",
+        )
         assertTrue("resident hits ${new.residentHits}", new.residentHits == 2)
         assertTrue("resident uploads ${new.residentUploads}", new.residentUploads == 2)
         old.close()
@@ -169,9 +171,9 @@ class GpuStrokeParityTest {
         base: IntArray,
         key: Any?,
         dabs: List<Dab>,
-        color: Int,
-        flow: Float,
+        paint: Pair<Int, Float>,
     ): List<IntArray> {
+        val (color, flow) = paint
         assertTrue(renderer.beginStroke(base, w, h, key))
         return listOf(dabs.size / 3, dabs.size / 2, dabs.size).map { n ->
             renderer.renderStroke(dabs.take(n), color, color, BrushColorSource.PLAIN, flow)!!.copyOf()

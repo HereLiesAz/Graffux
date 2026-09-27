@@ -155,3 +155,13 @@ codebase is deferred scope or a real gap in the install-report flow.
   instead of two GLSL dialects and a port script), and a path to WebGPU in the browser. Parity is
   checked by `tools/stamp-engine-diff`, which runs every scenario through all engines on Mesa. See
   `docs/Native Rendering Engine Design.md` §2b.
+- **wgpu keeps layers resident on the GPU across strokes** (§2b of the design doc). The engine
+  holds each recently painted layer keyed by layer and content generation, under an LRU memory
+  budget. A stroke that starts on an unchanged layer binds it with no upload. The commit then
+  refreshes only what changed. `GpuLayerResidency` (feature/editor) owns the generations: any
+  swapped layer bitmap is a new generation, and every non-stroke mutation path invalidates
+  explicitly. When unsure, invalidate: that costs one upload, never wrong pixels. Readback copies
+  only the dirty rectangle. Every wgpu native call runs on `GpuRenderThread`, one FIFO thread,
+  so batches, commit refreshes and invalidations stay in order and teardown never blocks the main
+  thread. Vulkan and GLES do none of this. `StampEngine.h`'s new methods default to the old
+  behaviour for them.

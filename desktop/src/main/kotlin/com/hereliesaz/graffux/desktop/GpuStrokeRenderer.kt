@@ -195,12 +195,6 @@ class GpuStrokeRenderer {
         return if (first > last) IntRange.EMPTY else first..last
     }
 
-    private fun union(a: IntRange, b: IntRange): IntRange = when {
-        a.isEmpty() -> b
-        b.isEmpty() -> a
-        else -> minOf(a.first, b.first)..maxOf(a.last, b.last)
-    }
-
     private fun engineFor(width: Int, height: Int): WgpuStampEngine? {
         val current = engine?.takeIf { it.width == width && it.height == height }
         return when {

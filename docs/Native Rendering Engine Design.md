@@ -37,7 +37,8 @@ Dynamics that already exist and are worth keeping as-is conceptually:
 
 **The ceiling of this architecture**: every stroke operation allocates and walks full-resolution
 `Bitmap`s on the CPU. `applyToolToBitmap` copies the entire layer bitmap per stroke commit and per
-undo/redo step. There is no compute-shader parallelism, no persistent GPU-resident layer state, no
+undo/redo step. There is no compute-shader parallelism, no persistent GPU-resident layer state (the
+wgpu engine now has it, see §2b), no
 frame-pacing control beyond Compose's own recomposition, and touch-prediction is presentation-only
 (§4) — no predicted dab ever enters the paint path. This is why a
 fast, heavy stroke on a large canvas visibly lags — it is doing exactly what Valkyrie was built to
@@ -248,6 +249,89 @@ backends), and `:desktop:test` compares the desktop GPU path with `RoundStampCom
 Vulkan and GLES engines, driver quirks on Adreno/Mali/PowerVR, and whether wgpu's GL backend on
 Android picks up EGL correctly.
 
+#### Resident layers, rectangle readback and the render thread (wgpu only)
+
+Built for the wgpu engine; Vulkan and GLES are unchanged. `StampEngine.h` gained optional methods
+whose defaults keep the old behaviour (no resident layers, `readbackRect` = `readback` reporting
+the whole layer).
+
+- **Layers stay on the GPU across strokes.** `core/wgpu-engine/src/resident.rs` keeps one storage
+  buffer per recently painted layer, keyed by a layer key and tagged with a content generation.
+  `bind_layer(key, generation)` starts a stroke on the resident copy with no upload and no
+  whole-layer first readback; a miss uploads with `upload_layer`. Stamping taints the copy. After
+  the commit, `commit_layer` (the GPU result is the committed layer: desktop) or `refresh_layer`
+  (the CPU committed: Android) retags it. `refresh_layer` re-uploads only the stroke's rows plus
+  the rectangle where the CPU commit differs from the pre-stroke layer. A retag from a superseded
+  bind session is refused. The budget is 256 MiB per engine, LRU, and the active layer is never
+  evicted. `clear()`/`upload()` keep their old meaning on an anonymous scratch layer.
+- **Generations (Android).** `GpuLayerResidency` (feature/editor) holds one generation per layer
+  from a process-wide counter. A stroke keeps the generation only if the layer's bitmap is the
+  very object the generation was recorded for. Any path that swaps the bitmap therefore misses
+  and uploads, wired or not. The mutation paths also invalidate explicitly: undo and redo (both
+  Draw and layer-list), the full replay and tile-delta fast path, co-op ops that change pixels
+  (stroke, text, bitmap replace, layer remove), clear layer, fill, colour-fill, LUT, curves, warp
+  (release, apply, cancel), transform-mode exit, selection move, Jetpack Ink commits, merge,
+  flatten, imports (single, layered, Figma), new project, background image, model paint, text
+  re-rasterize and layer URI reload. `LayerStore` invalidates on `initStrokes` (every content
+  reset pairs with it), `removeLastStroke`, `remove` and `clear`. It does not invalidate on
+  `putBase`, because baking old strokes leaves the pixels unchanged. A commit is adopted, and the
+  copy refreshed, only when the generation and the base bitmap are still the ones the stroke
+  bound.
+- **Desktop.** `GpuStrokeRenderer` binds the resident canvas when a stroke starts from the image
+  it last committed. At stroke end it refreshes the stroke's rows from the committed frame,
+  re-premultiplied, because straight ARGB does not round-trip at low alpha.
+- **Rectangle readback.** `readback_rect` copies only the dirty rectangle. A narrow rectangle is
+  copied row by row into a compact staging block rather than as whole layer rows. It also reports
+  which rectangle it copied. The dirty rectangle is now the dispatch's whole-workgroup footprint.
+  A masked tip's rotated rectangle writes past its radius into that padding, and a radius-sized
+  rectangle missed those pixels. The Vulkan and GLES engines still track the radius-sized
+  rectangle and so still under-report those corner pixels in partial readbacks. That is a
+  pre-existing gap, left alone here. Android's `GpuStampEngine.readback` uses the rectangle path
+  for wgpu. The desktop converts only the reported rectangle to ARGB each frame.
+- **Render thread.** Every wgpu native call goes through `GpuRenderThread`, one FIFO thread.
+  Dab batches reach the GPU in generation order. A commit's refresh is queued behind the stroke's
+  own batches, which is the stroke-end flush. An invalidation from undo is queued behind whatever
+  was in flight. `destroy()` from the main thread posts instead of blocking. The stroke workers
+  that call in were already off the main thread. Provisional ink, `strokePaintPresented` and live
+  overlay eligibility are untouched: wgpu was already overlay-ineligible.
+
+**Measured, host only.** These are software-renderer numbers from Mesa 25.2.8 lavapipe (Vulkan)
+and llvmpipe (GL) with no GPU. Only the before/after ratio means anything, and it says nothing
+about a phone. `cargo run --release --example resident_bench` uses a 2048x2048 layer, median of
+15 runs:
+
+| | lavapipe | llvmpipe (GL) |
+|---|---|---|
+| first dab, before (upload + whole-layer readback) | 12.45 ms | 19.79 ms |
+| first dab, resident hit | 2.11 ms | 2.35 ms |
+| first dab, miss (`upload_layer`, rectangle readback) | 5.61 ms | 12.99 ms |
+| per frame, before (dirty rows at full width) | 0.40 ms | 0.18 ms |
+| per frame, after (rectangle) | 0.41 ms | 0.21 ms |
+
+The first dab gets 6–8x cheaper. Most of what remains is clearing the stroke-max state buffer at
+bind. The per-frame cost does not change measurably on a software renderer, where a row copy is a
+memcpy. The rectangle path is expected to matter where readback crosses a real bus. That is
+unmeasured.
+
+**Parity.** Resident strokes are byte-identical to the full-upload path across multi-stroke
+sequences with undos. Three checks cover it:
+
+- `cargo test` (`tests/resident.rs`): GPU-commit and CPU-commit variants, on both backends.
+- `tools/stamp-engine-diff/run_wgpu_resident.cpp`: round, masked and smudge strokes through the
+  C++ adapter.
+- `GpuStrokeParityTest.residentCanvasMatchesFullUploadAcrossUndo`: every desktop frame.
+
+**Not done / not verified.**
+
+- Anything on a device or a real GPU.
+- The Android wiring is covered by unit tests of the invalidation points and the tracker. No
+  instrumented test runs a wgpu stroke end to end.
+- The pool keeps two native engines. Strokes that overlap (lift and redown before teardown) can
+  land on the other engine and upload.
+- Wet-mix/impasto side state (paint height, wetness) is uploaded per stroke as before. Only the
+  colour layer is resident.
+- No zero-copy display (AHardwareBuffer) for wgpu, so direct display stays ineligible (§3).
+
 ## 3. Front-buffer / low-latency presentation
 
 **Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
@@ -265,6 +349,9 @@ Android picks up EGL correctly.
 - **Eligibility.** Only layers whose compositing the overlay reproduces exactly: SRC_OVER, full
   opacity, no colour adjustments, clip, 3D tilt or parent group, nothing visible above, no impasto
   shading. Anything else takes the Compose path as before. API 29+ (SurfaceControl NDK).
+- **Not with wgpu.** The wgpu engine keeps layers resident and reads back only dirty rectangles
+  (§2b), but it has no AHardwareBuffer output. The overlay stays Vulkan-only, and a wgpu stroke
+  displays through readback into the live bitmap.
 - **Unverified on a device:** that importing another device's AHardwareBuffer preserves its
   contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
   per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
