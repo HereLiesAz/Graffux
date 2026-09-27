@@ -189,6 +189,25 @@ evaluated.
 
 ## 3. Front-buffer / low-latency presentation
 
+**Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
+
+- **Where it draws.** A transparent SurfaceView over the canvas parents an `ASurfaceControl` child
+  layer. Its buffer is an AHardwareBuffer allocated with `FRONT_BUFFER | COMPOSER_OVERLAY` usage,
+  retried without FRONT_BUFFER where that's unsupported.
+- **Its own Vulkan device.** The overlay renderer has its own small device. At stroke start it
+  imports the stamp engine's hardware-buffer layer and snapshots it as the stroke's base.
+- **Per batch.** `live_overlay.comp` writes only the stroke's own contribution (see the shader) for
+  the batch's dab bounds, mapped through the layer's real on-screen affine (`OverlayGeometry`).
+  The buffer is then handed to SurfaceFlinger. No Compose frame, bitmap re-upload or readback.
+- **Canvas.** While the overlay is active the canvas keeps the pre-stroke pixels, so the stroke
+  never shows twice. The overlay clears two frames after the committed layer is published.
+- **Eligibility.** Only layers whose compositing the overlay reproduces exactly: SRC_OVER, full
+  opacity, no colour adjustments, clip, 3D tilt or parent group, nothing visible above, no impasto
+  shading. Anything else takes the Compose path as before. API 29+ (SurfaceControl NDK).
+- **Unverified on a device:** that importing another device's AHardwareBuffer preserves its
+  contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
+  per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
+
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is
 `androidx.graphics.lowlatency` (`GLFrontBufferedRenderer`, API 29+; wraps `SurfaceControl` +,
 where available, `HardwareBufferRenderer` on API 34+ per the companion doc's own §"Bringing the
