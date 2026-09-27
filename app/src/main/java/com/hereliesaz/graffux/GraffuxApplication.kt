@@ -60,6 +60,8 @@ class GraffuxApplication : Application() {
         // TEMPORARY: with a GitHub token pasted in Settings, file what the last run left behind.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { CrashIssueUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+            // Stroke-model training data from earlier sessions (Settings → Record strokes).
+            runCatching { StrokeDataUploader(this@GraffuxApplication, predictionReports).uploadPending() }
         }
     }
 }
