@@ -1678,15 +1678,23 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeCommitLayer(JNI
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JNIEnv* env, jobject, jlong handle, jlong key, jlong session, jlong generation,
-                      jobject bitmap, jint x, jint y, jint w, jint h) {
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JNIEnv* env, jobject, jlong handle, jlongArray ids,
+                      jobject bitmap, jintArray rect) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !engine->supportsResidentLayers()) return JNI_FALSE;
+    if (ids == nullptr || rect == nullptr || env->GetArrayLength(ids) < 3 || env->GetArrayLength(rect) < 4) {
+        return JNI_FALSE;
+    }
+    jlong id[3];
+    jint r[4];
+    env->GetLongArrayRegion(ids, 0, 3, id);
+    env->GetIntArrayRegion(rect, 0, 4, r);
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
     if (!pixels) return JNI_FALSE;
-    const bool ok = engine->refreshLayer(static_cast<uint64_t>(key), static_cast<uint64_t>(session),
-                                         static_cast<uint64_t>(generation), pixels, capacity, x, y, w, h);
+    // ids = {key, session, generation}, rect = {x, y, w, h}.
+    const bool ok = engine->refreshLayer(static_cast<uint64_t>(id[0]), static_cast<uint64_t>(id[1]),
+                                         static_cast<uint64_t>(id[2]), pixels, capacity, r[0], r[1], r[2], r[3]);
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
