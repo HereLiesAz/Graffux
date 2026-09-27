@@ -51,6 +51,12 @@ class AzphaltLatencyTracker(private val capacity: Int = 256) {
         entries[slot(id)].takeIf { it.id == id }?.presentedNs = nowNs
     }
 
+    /** Input-accepted to preview-published for one sample, in ms; null if not presented (yet). */
+    fun presentedLatencyMs(id: Long): Double? = synchronized(lock) {
+        entries[slot(id)].takeIf { it.id == id && it.presentedNs >= it.inputNs && it.inputNs > 0L }
+            ?.let { (it.presentedNs - it.inputNs) / NANOS_PER_MS }
+    }
+
     fun snapshot(): Snapshot = synchronized(lock) {
         val end = nextId
         val start = (end - capacity).coerceAtLeast(0L)
@@ -85,6 +91,10 @@ class AzphaltLatencyTracker(private val capacity: Int = 256) {
     }
 
     private fun slot(id: Long): Int = (id % capacity).toInt()
+
+    private companion object {
+        const val NANOS_PER_MS = 1_000_000.0
+    }
 
     data class Snapshot(
         val retainedSamples: Int,
