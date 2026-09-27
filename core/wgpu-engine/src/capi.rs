@@ -327,3 +327,169 @@ pub unsafe extern "C" fn gfx_wgpu_adapter_description(
     }
     text.len()
 }
+
+// ---- Dirty-rect readback and resident layers (see resident.rs and Engine's docs) ----------
+
+/// `gfx_wgpu_readback` that also writes the rectangle it copied to `rect` as {x, y, w, h} (all
+/// zero when nothing was dirty).
+///
+/// # Safety
+/// `out` must point to `capacity` writable bytes, `rect` to 4 writable i32s (or be null).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_readback_rect(
+    e: *mut Engine,
+    out: *mut u8,
+    capacity: usize,
+    rect: *mut i32,
+) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        let Some(e) = engine(e) else { return false };
+        match e.readback_rect(std::slice::from_raw_parts_mut(out, capacity)) {
+            Some((x, y, w, h)) => {
+                if !rect.is_null() {
+                    *rect = x;
+                    *rect.add(1) = y;
+                    *rect.add(2) = w;
+                    *rect.add(3) = h;
+                }
+                true
+            }
+            None => false,
+        }
+    })
+}
+
+/// Reads rectangle {x, y, w, h} of the layer into `out`, tightly packed.
+///
+/// # Safety
+/// `out` must point to `capacity` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_read_region(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    out: *mut u8,
+    capacity: usize,
+) -> bool {
+    guard(false, || {
+        !out.is_null()
+            && engine(e).is_some_and(|e| {
+                e.read_region(x, y, w, h, std::slice::from_raw_parts_mut(out, capacity))
+            })
+    })
+}
+
+/// Bind session (> 0) when layer `key` is resident at `generation`; 0 = miss, upload instead.
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_bind_layer(e: *mut Engine, key: u64, generation: u64) -> u64 {
+    guard(0, || engine(e).map_or(0, |e| e.bind_layer(key, generation)))
+}
+
+/// Uploads a full layer image as resident layer `key` at `generation`; returns the bind session.
+///
+/// # Safety
+/// `rgba` must point to `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_upload_layer(
+    e: *mut Engine,
+    key: u64,
+    generation: u64,
+    rgba: *const u8,
+    len: usize,
+) -> u64 {
+    guard(0, || {
+        if rgba.is_null() {
+            return 0;
+        }
+        engine(e).map_or(0, |e| e.upload_layer(key, generation, slice(rgba, len)))
+    })
+}
+
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_commit_layer(
+    e: *mut Engine,
+    key: u64,
+    session: u64,
+    generation: u64,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| e.commit_layer(key, session, generation))
+    })
+}
+
+/// # Safety
+/// `rgba` must point to `len` readable bytes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_refresh_layer(
+    e: *mut Engine,
+    key: u64,
+    session: u64,
+    generation: u64,
+    rgba: *const u8,
+    len: usize,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) -> bool {
+    guard(false, || {
+        !rgba.is_null()
+            && engine(e).is_some_and(|e| {
+                e.refresh_layer(key, session, generation, slice(rgba, len), (x, y, w, h))
+            })
+    })
+}
+
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_invalidate_layer(e: *mut Engine, key: u64) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.invalidate_layer(key)))
+}
+
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_invalidate_all_layers(e: *mut Engine) {
+    guard((), || {
+        if let Some(e) = engine(e) {
+            e.invalidate_all_layers();
+        }
+    })
+}
+
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_resident_budget(e: *mut Engine, bytes: u64) {
+    guard((), || {
+        if let Some(e) = engine(e) {
+            e.set_resident_budget(bytes);
+        }
+    })
+}
+
+/// Writes {resident layer count, bytes held} to `out`.
+///
+/// # Safety
+/// `out` must point to 2 writable u64s.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_resident_stats(e: *mut Engine, out: *mut u64) {
+    let Some(e) = engine(e) else { return };
+    if !out.is_null() {
+        let (n, bytes) = e.resident_stats();
+        *out = n as u64;
+        *out.add(1) = bytes;
+    }
+}

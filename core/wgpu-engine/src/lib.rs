@@ -9,6 +9,7 @@ pub mod capi;
 pub mod engine;
 pub mod jni_api;
 pub mod reference;
+pub mod resident;
 
 pub use wgpu;
 

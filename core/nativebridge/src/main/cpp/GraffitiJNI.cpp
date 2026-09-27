@@ -1605,6 +1605,119 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadback(
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+// ---- Resident layers and rectangle readback (StampEngine's optional methods; wgpu only) ------
+// Same bitmap requirements as nativeUpload/nativeReadback above. Locks `bitmap` and returns its
+// pixels, or nullptr (nothing locked) when it does not match the engine's layer exactly.
+static uint8_t* gfxLockLayerBitmap(JNIEnv* env, graffux::StampEngine* engine, jobject bitmap,
+                                   size_t* capacity) {
+    AndroidBitmapInfo info;
+    void* pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return nullptr;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.stride != info.width * 4) return nullptr;
+    if (static_cast<int32_t>(info.width) != engine->width() ||
+        static_cast<int32_t>(info.height) != engine->height()) {
+        return nullptr;
+    }
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
+        return nullptr;
+    }
+    *capacity = static_cast<size_t>(info.stride) * info.height;
+    return static_cast<uint8_t*>(pixels);
+}
+
+// `rect` (int[4], may be null) receives the {x, y, w, h} actually copied.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadbackRect(JNIEnv* env, jobject, jlong handle, jobject outBitmap, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, outBitmap, &capacity);
+    if (!pixels) return JNI_FALSE;
+    int32_t r[4] = {0, 0, 0, 0};
+    const bool ok = engine->readbackRect(pixels, capacity, r);
+    AndroidBitmap_unlockPixels(env, outBitmap);
+    if (ok && rect != nullptr && env->GetArrayLength(rect) >= 4) {
+        const jint values[4] = {r[0], r[1], r[2], r[3]};
+        env->SetIntArrayRegion(rect, 0, 4, values);
+    }
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSupportsResidentLayers(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() && engine->supportsResidentLayers() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBindLayer(JNIEnv*, jobject, jlong handle, jlong key, jlong generation) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return 0;
+    return static_cast<jlong>(engine->bindLayer(static_cast<uint64_t>(key), static_cast<uint64_t>(generation)));
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadLayer(JNIEnv* env, jobject, jlong handle, jlong key, jlong generation, jobject inBitmap) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || !engine->supportsResidentLayers()) return 0;
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, inBitmap, &capacity);
+    if (!pixels) return 0;
+    const uint64_t session = engine->uploadLayer(static_cast<uint64_t>(key),
+                                                 static_cast<uint64_t>(generation), pixels, capacity);
+    AndroidBitmap_unlockPixels(env, inBitmap);
+    return static_cast<jlong>(session);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeCommitLayer(JNIEnv*, jobject, jlong handle, jlong key, jlong session, jlong generation) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+    return engine->commitLayer(static_cast<uint64_t>(key), static_cast<uint64_t>(session),
+                               static_cast<uint64_t>(generation)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JNIEnv* env, jobject, jlong handle, jlongArray ids,
+                      jobject bitmap, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || !engine->supportsResidentLayers()) return JNI_FALSE;
+    if (ids == nullptr || rect == nullptr || env->GetArrayLength(ids) < 3 || env->GetArrayLength(rect) < 4) {
+        return JNI_FALSE;
+    }
+    jlong id[3];
+    jint r[4];
+    env->GetLongArrayRegion(ids, 0, 3, id);
+    env->GetIntArrayRegion(rect, 0, 4, r);
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
+    if (!pixels) return JNI_FALSE;
+    // ids = {key, session, generation}, rect = {x, y, w, h}.
+    const bool ok = engine->refreshLayer(static_cast<uint64_t>(id[0]), static_cast<uint64_t>(id[1]),
+                                         static_cast<uint64_t>(id[2]), pixels, capacity, r[0], r[1], r[2], r[3]);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInvalidateLayer(JNIEnv*, jobject, jlong handle, jlong key) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+    return engine->invalidateLayer(static_cast<uint64_t>(key)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInvalidateAllLayers(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (engine && engine->isInitialized()) engine->invalidateAllLayers();
+}
+
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetResidentBudget(JNIEnv*, jobject, jlong handle, jlong bytes) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (engine && engine->isInitialized() && bytes >= 0) engine->setResidentBudget(static_cast<uint64_t>(bytes));
+}
+
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);

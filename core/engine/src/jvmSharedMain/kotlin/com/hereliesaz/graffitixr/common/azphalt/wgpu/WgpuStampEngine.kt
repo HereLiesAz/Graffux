@@ -43,6 +43,15 @@ class WgpuStampEngine private constructor(
         )
     }
 
+    /** A pixel rectangle, [x]/[y] inclusive; empty when either extent is zero. */
+    data class PixelRect(val x: Int, val y: Int, val width: Int, val height: Int) {
+        val isEmpty: Boolean get() = width <= 0 || height <= 0
+
+        companion object {
+            val EMPTY = PixelRect(0, 0, 0, 0)
+        }
+    }
+
     /** An R8 image (tip mask, grain tile, secondary mask). */
     class AlphaImage(val pixels: ByteArray, val width: Int, val height: Int)
 
@@ -125,6 +134,65 @@ class WgpuStampEngine private constructor(
     /** Copies the rectangle dirtied since the last readback into [out] (`width * height * 4` bytes). */
     @Synchronized fun readback(out: ByteArray): Boolean = handle != 0L && WgpuNative.nativeReadback(handle, out)
 
+    /**
+     * [readback] that returns the rectangle it copied (only that rectangle crosses from the GPU), an
+     * empty [PixelRect] when nothing was dirty, or null on failure.
+     */
+    @Synchronized
+    fun readbackRect(out: ByteArray): PixelRect? {
+        if (handle == 0L) return null
+        val rect = IntArray(RECT_INTS)
+        return if (WgpuNative.nativeReadbackRect(handle, out, rect)) PixelRect(rect[0], rect[1], rect[2], rect[3]) else null
+    }
+
+    /** Reads [rect] of the layer into [out], tightly packed (`rect.width * 4` bytes per row). */
+    @Synchronized
+    fun readRegion(rect: PixelRect, out: ByteArray): Boolean =
+        handle != 0L && WgpuNative.nativeReadRegion(handle, rect.x, rect.y, rect.width, rect.height, out)
+
+    // ---- Resident layers (core/wgpu-engine/src/resident.rs) ----------------------------------
+    // A layer stays on the GPU across strokes, keyed by [layerKey] and tagged with a content
+    // generation the caller keeps unique across layers. bindLayer/uploadLayer start a stroke on it
+    // and return a bind session (0 = miss / failure); commitLayer (the GPU result is the committed
+    // layer) or refreshLayer (the CPU committed; re-upload the stroke's rows plus [PixelRect]) retag
+    // it afterwards. Anything else that changes the CPU layer must invalidateLayer it.
+
+    /** Session (> 0) when [layerKey] is resident at [generation]; 0 = upload with [uploadLayer]. */
+    @Synchronized fun bindLayer(layerKey: Long, generation: Long): Long =
+        if (handle == 0L) 0L else WgpuNative.nativeBindLayer(handle, layerKey, generation)
+
+    /** Uploads [rgbaPremultiplied] as [layerKey] at [generation]; the caller's readback buffer must already hold it. */
+    @Synchronized fun uploadLayer(layerKey: Long, generation: Long, rgbaPremultiplied: ByteArray): Long =
+        if (handle == 0L) 0L else WgpuNative.nativeUploadLayer(handle, layerKey, generation, rgbaPremultiplied)
+
+    @Synchronized fun commitLayer(layerKey: Long, session: Long, generation: Long): Boolean =
+        handle != 0L && WgpuNative.nativeCommitLayer(handle, layerKey, session, generation)
+
+    @Synchronized
+    fun refreshLayer(layerKey: Long, session: Long, generation: Long, rgbaPremultiplied: ByteArray, changed: PixelRect): Boolean =
+        handle != 0L && WgpuNative.nativeRefreshLayer(
+            handle, layerKey, session, generation, rgbaPremultiplied,
+            changed.x, changed.y, changed.width, changed.height,
+        )
+
+    @Synchronized fun invalidateLayer(layerKey: Long): Boolean =
+        handle != 0L && WgpuNative.nativeInvalidateLayer(handle, layerKey)
+
+    @Synchronized fun invalidateAllLayers() {
+        if (handle != 0L) WgpuNative.nativeInvalidateAllLayers(handle)
+    }
+
+    @Synchronized fun setResidentBudget(bytes: Long) {
+        if (handle != 0L) WgpuNative.nativeSetResidentBudget(handle, bytes)
+    }
+
+    /** (resident layer count, bytes they hold). */
+    @get:Synchronized
+    val residentStats: Pair<Long, Long> get() {
+        val stats = if (handle == 0L) null else WgpuNative.nativeResidentStats(handle)
+        return if (stats == null || stats.size < 2) 0L to 0L else stats[0] to stats[1]
+    }
+
     @Synchronized
     override fun close() {
         val h = handle
@@ -136,6 +204,7 @@ class WgpuStampEngine private constructor(
         const val DAB_FLOATS = 16
         const val SECONDARY_FLOATS = 8
         const val SMUDGE_FLOATS = 11
+        private const val RECT_INTS = 4
 
         /** Null when the library is missing or there is no usable GPU adapter. */
         fun create(width: Int, height: Int, backend: Backend = Backend.AUTO): WgpuStampEngine? {

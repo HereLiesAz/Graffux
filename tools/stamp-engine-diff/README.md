@@ -37,4 +37,11 @@ against an independent NumPy implementation of the shader math instead. Build `r
 `-DWITH_PAINT_HEIGHT` to produce its inputs. `run.sh` builds that variant of both GLES and wgpu and
 compares them.
 
+`run_wgpu_resident.cpp` checks resident layers through the same adapter: six strokes (round with
+stroke-max frame batches, masked, smudge) with three undos in between, painted once by uploading
+the whole layer before every stroke and once through `bindLayer`/`uploadLayer` plus
+`refreshLayer` after a CPU commit, as Android does. Every stroke must be byte-identical, and only
+the first stroke and the first stroke after each undo may upload. Measured on Mesa 25.2.8: 0 bytes
+differ on both wgpu backends, 3 of 6 uploads avoided.
+
 `shim/` stubs the two Android NDK headers the Vulkan engine includes, so it builds off-device.

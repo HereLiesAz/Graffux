@@ -114,6 +114,9 @@ fun DesktopStampCanvas(
                 var lastRenderedFrame: BufferedImage? = null
 
                 var gpuStroke: Boolean? = null
+                // The committed image the stroke started from: the GPU keeps the canvas resident
+                // between strokes and binds it again when this is the image it last committed.
+                var strokeContentKey: Any? = null
 
                 suspend fun renderStroke(base: BufferedImage) {
                     val dabs = BrushStamps.dynamicDabs(samples, brushRadiusPx * 2f, brush, strokeSeed)
@@ -124,6 +127,7 @@ fun DesktopStampCanvas(
                             base.getRGB(0, 0, base.width, base.height, null, 0, base.width),
                             base.width,
                             base.height,
+                            strokeContentKey,
                         ).also { gpuStroke = it }
                         if (started) {
                             gpu.renderStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)
@@ -162,6 +166,7 @@ fun DesktopStampCanvas(
                             }
                             samples.clear()
                             gpuStroke = null
+                            strokeContentKey = base
                             strokeSeed = Random.nextLong()
                             samples.add(
                                 sampleBuilder.add(
@@ -192,7 +197,13 @@ fun DesktopStampCanvas(
                         // The last `onMove`'s renderStroke call has already been awaited by the time
                         // this runs (see the class doc comment), so `lastRenderedFrame` is exactly
                         // what's on screen -- bake it in as the next stroke's starting point.
-                        lastRenderedFrame?.let { state.commitStroke(it) }
+                        lastRenderedFrame?.let { frame ->
+                            state.commitStroke(frame)
+                            // Keeps the GPU's resident canvas equal to `frame` for the next stroke
+                            // (or forgets it when this stroke did not end on a GPU frame).
+                            withContext(Dispatchers.Default) { gpu.commitStroke(frame) }
+                        }
+                        strokeContentKey = null
                         strokeBase = null
                         lastRenderedFrame = null
                         samples.clear()

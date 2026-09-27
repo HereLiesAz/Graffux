@@ -262,4 +262,18 @@ class LayerStoreTest {
         brushColor = 0,
         intensity = 0f,
     )
+
+    @Test
+    fun `content resets, undo, removal and clear report the layer so its GPU copy is invalidated`() {
+        val changed = ArrayList<String?>()
+        store.contentChanged = { changed += it }
+        store.initStrokes("L")
+        store.addStroke("L", stroke())
+        store.putBase("L", bmp())
+        assertEquals("addStroke/putBase (stroke commit, bake) must not invalidate", listOf<String?>("L"), changed)
+        store.removeLastStroke("L")
+        store.remove("L")
+        store.clear()
+        assertEquals(listOf("L", "L", "L", null), changed)
+    }
 }

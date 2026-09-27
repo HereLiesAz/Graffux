@@ -111,6 +111,75 @@ class GpuStrokeParityTest {
         renderer.close()
     }
 
+    /**
+     * Resident canvas vs the old whole-canvas upload per stroke: the same strokes, with an undo in
+     * between, through one renderer that never passes a content key (so every stroke uploads, the
+     * pre-residency path) and one that keeps the canvas resident. Every frame must be identical,
+     * pixel for pixel, and the resident renderer must upload only for the first stroke and the one
+     * after the undo.
+     */
+    @Test
+    fun residentCanvasMatchesFullUploadAcrossUndo() {
+        val old = GpuStrokeRenderer()
+        val new = GpuStrokeRenderer()
+        assumeTrue("no wgpu adapter: ${old.description}", gpu(old, IntArray(w * h), emptyList(), 0, 1f) != null)
+        val rng = Random(21)
+        // Semi-transparent base: low-alpha pixels are where straight ARGB and the premultiplied
+        // layer can disagree, so this is the base that would expose a stale or unrefreshed copy.
+        val base0 = IntArray(w * h) {
+            ArgbColor.argb(rng.nextInt(256), rng.nextInt(256), rng.nextInt(256), rng.nextInt(256))
+        }
+        val history = ArrayList<IntArray>()
+        var committed = base0 // the "committed image" object; its identity is the content key
+        val strokes = listOf(
+            dabs(1).take(30) to (0xFFE04020.toInt() to 1f),
+            dabs(2).take(25) to (0xB02080C0.toInt() to 0.6f),
+            dabs(3).take(40) to (0xFF10A050.toInt() to 0.9f),
+            dabs(4).take(20) to (0x80FFFFFF.toInt() to 1f),
+        )
+        var next = 0
+        for (step in listOf("s", "s", "undo", "s", "s")) {
+            if (step == "undo") {
+                committed = history.removeAt(history.lastIndex)
+                continue
+            }
+            val (d, paint) = strokes[next++]
+            val want = strokeFrames(old, committed, null, d, paint)
+            val got = strokeFrames(new, committed, committed, d, paint)
+            for (i in want.indices) {
+                assertArrayEquals("stroke $next frame $i differs from the full-upload path", want[i], got[i])
+            }
+            val frame = got.last()
+            history.add(committed)
+            committed = frame
+            old.commitStroke(frame)
+            new.commitStroke(frame)
+        }
+        println(
+            "GpuStrokeParityTest resident: ${new.residentHits} hits, ${new.residentUploads} uploads; " +
+                "old path uploads every stroke",
+        )
+        assertTrue("resident hits ${new.residentHits}", new.residentHits == 2)
+        assertTrue("resident uploads ${new.residentUploads}", new.residentUploads == 2)
+        old.close()
+        new.close()
+    }
+
+    /** Every frame of one stroke (a drag in three growing steps plus the final frame), copied. */
+    private fun strokeFrames(
+        renderer: GpuStrokeRenderer,
+        base: IntArray,
+        key: Any?,
+        dabs: List<Dab>,
+        paint: Pair<Int, Float>,
+    ): List<IntArray> {
+        val (color, flow) = paint
+        assertTrue(renderer.beginStroke(base, w, h, key))
+        return listOf(dabs.size / 3, dabs.size / 2, dabs.size).map { n ->
+            renderer.renderStroke(dabs.take(n), color, color, BrushColorSource.PLAIN, flow)!!.copyOf()
+        }
+    }
+
     @Test
     fun premultiplyRoundTripsOpaquePixels() {
         val px = IntArray(256) { ArgbColor.argb(255, it, 255 - it, (it * 7) and 0xFF) }

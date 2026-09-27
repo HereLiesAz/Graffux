@@ -61,6 +61,17 @@ public:
     ColorSmudgeBenchmarkInfo colorSmudgeBenchmarkInfo() const override;
     bool readback(uint8_t* outRgba8, size_t outCapacityBytes) override;
     void destroy() override;
+    bool readbackRect(uint8_t* outRgba8, size_t outCapacityBytes, int32_t rect[4]) override;
+    bool supportsResidentLayers() const override;
+    uint64_t bindLayer(uint64_t key, uint64_t generation) override;
+    uint64_t uploadLayer(uint64_t key, uint64_t generation, const uint8_t* rgba,
+                         size_t size) override;
+    bool commitLayer(uint64_t key, uint64_t session, uint64_t generation) override;
+    bool refreshLayer(uint64_t key, uint64_t session, uint64_t generation, const uint8_t* rgba,
+                      size_t size, int x, int y, int w, int h) override;
+    bool invalidateLayer(uint64_t key) override;
+    void invalidateAllLayers() override;
+    void setResidentBudget(uint64_t bytes) override;
     bool isInitialized() const override { return engine_ != nullptr; }
     int width() const override { return width_; }
     int height() const override { return height_; }
