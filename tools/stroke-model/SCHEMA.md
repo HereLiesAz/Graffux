@@ -113,3 +113,27 @@ v1 files have no `pointers`, `sensorStatus`, `sensorsRegistered`, `flush` or `a`
 them as single-pointer strokes whose sensor registration is unknown (`sensorStatus` missing, not
 `registered: false`). v1's `samples` could switch to another finger if the first one lifted
 before the others; strokes with `multiTouch` in v1 are best treated with suspicion.
+
+## Derived features (computed offline, not recorded)
+
+`tools/stroke-model/strokemodel/onset.py` derives these per stroke from its onset window (README
+"Onset window"). Contact sizes are converted to mm with `xdpi`; "relative" means relative to the
+device's median over all strokes at touchdown.
+
+| name | definition |
+|---|---|
+| `pose.pitch_td`, `pose.pitch_end`, `pose.pitch_min` | `asin(clamp(touchMinor / touchMajor, 0, 1))` at touchdown, window end, minimum over the window |
+| `pose.area_rel` | log(π/4 · major · minor) at touchdown, relative |
+| `pose.hardness` | relative pressure − 0.25 · relative log area |
+| `pose.part_{tip,pad,side,nail}` | one-hot contact part (README "Derived finger pose") |
+| `pose.tip_only` | mean of: small (relative area), round (ratio), hard (relative pressure), and not growing |
+| `pose.flatten`, `pose.flatten_rate` | growth of log area and of elongation over the window; rate per 10 ms |
+| `pose.side_roll` | elongation growth × (1 − area growth), both clipped to [0, 1] |
+| `drift.dx`, `drift.dy`, `drift.norm` | centroid displacement from touchdown over the settle samples (slower than 20 mm/s), ÷ touchMajor |
+| `drift.yaw_cos`, `drift.yaw_sin`, `drift.yaw_conf` | yaw unit vector from −sign(Δ log area) · drift and −(palm − finger), weighted; confidence = resultant length ÷ cue count |
+| `drift.egg`, `drift.lead_cos`, `drift.lead_sin` | eggness (README "The owner's rules") and the predicted lead direction |
+
+Egg-shaped contacts are only indirectly observable through public Android APIs: `MotionEvent`
+reports a symmetric ellipse. Direct observation needs the raw capacitive heatmap, which some OEMs
+expose only through vendor APIs. Recording it is a possible future addition, as an optional
+per-sample `heatmap` field in a later schema version.
