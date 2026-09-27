@@ -31,6 +31,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipGeometryConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipTopology
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
 import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
@@ -177,11 +178,17 @@ fun DrawingCanvas(
     val inkProfile = predictionPrefs.getString(PredictionTournament.INK_PROFILE_KEY, null)
         .let { saved -> GoogleInkGesturePredictor.Profile.entries.firstOrNull { it.label == saved } }
         ?: GoogleInkGesturePredictor.Profile.STANDARD
-    // Google Ink draws the tail; linear only covers the first samples of a stroke (see
-    // PredictionTournament's doc for why the others were removed).
+    // Google Ink draws the tail; linear covers the first samples of a stroke. AndroidX is ranked
+    // alongside (TEMPORARY) and only draws the tail when run solo, since it predicts a single frame.
+    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
     val predictionTournament = remember(view, soloModel, inkProfile) {
-        PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel, inkProfile = inkProfile)
+        PredictionTournament(
+            listOf(LinearGesturePredictor(), androidXPredictor),
+            soloModel = soloModel,
+            inkProfile = inkProfile,
+        )
     }
+    val androidXRunning = PredictionTournament.ANDROIDX in predictionTournament.activeModels
     // Provisional ink: the real samples since touch-down, drawn here until the engine's own paint
     // shows (or PROVISIONAL_MAX_MS passes). Presentation only.
     var provisionalInk by remember { mutableStateOf<List<Offset>?>(null) }
@@ -343,6 +350,8 @@ fun DrawingCanvas(
                         brushCursorPosition = null
                     }
                 }
+                // After the ACTION_DOWN reset above, so the new stroke's history starts with its down.
+                if (activeTool == Tool.BRUSH && androidXRunning) androidXPredictor.recordMotionEvent(event)
             }
             .pointerInput(activeTool, nextFrameMs, pickingCloneSource) {
                 gate.strokeActive = false
