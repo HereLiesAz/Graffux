@@ -218,6 +218,12 @@ fun DrawingCanvas(
                     // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
                     // `adb logcat -s StrokePrediction` to read it.
                     if (activeTool == Tool.BRUSH) {
+                        // Score what was still waiting against where the pen lifted (CANCEL has no
+                        // real lift point, so those are dropped rather than scored).
+                        if (event.actionMasked == MotionEvent.ACTION_UP) {
+                            val i = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                            predictionTournament.endStroke(Offset(event.getX(i), event.getY(i)))
+                        }
                         val report = predictionTournament.rankingReport()
                         android.util.Log.i("StrokePrediction", report)
                         onPredictionRanked(report, refreshRate)
