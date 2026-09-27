@@ -38,6 +38,7 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.GoogleInkGesturePredi
 import kotlin.math.roundToLong
 
 private const val EYEDROP_HOLD_MS = 500L
+private const val NANOS_PER_SECOND = 1_000_000_000f
 
 /** Opacity of the whole prediction tail: clearly provisional next to real paint. */
 private const val TAIL_OPACITY = 0.45f
@@ -169,9 +170,23 @@ fun DrawingCanvas(
     val predictionTournament = remember(view, soloModel, inkProfile) {
         PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel, inkProfile = inkProfile)
     }
+    // TEMPORARY: UI frame pacing while a Brush stroke is down, appended to the reports.
+    val frameMeter = remember(refreshRate) { FrameIntervalMeter((NANOS_PER_SECOND / refreshRate).toLong()) }
+    var brushStrokeDown by remember { mutableStateOf(false) }
+    LaunchedEffect(brushStrokeDown) {
+        if (!brushStrokeDown) return@LaunchedEffect
+        var last = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (last != 0L) frameMeter.add(now - last)
+                last = now
+            }
+        }
+    }
+    fun fullReport() = predictionTournament.rankingReport() + "\n" + frameMeter.report()
     val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
     DisposableEffect(predictionTournament) {
-        onDispose { latestOnPredictionSessionEnd.value(predictionTournament.rankingReport(), refreshRate) }
+        onDispose { latestOnPredictionSessionEnd.value(fullReport(), refreshRate) }
     }
     // Pen position followed by the predicted path, in order. Presentation only.
     var predictionTail by remember { mutableStateOf<List<Offset>?>(null) }
@@ -263,6 +278,7 @@ fun DrawingCanvas(
                     }
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    brushStrokeDown = activeTool == Tool.BRUSH
                     predictionTournament.reset()
                     brushSampleBuilder.reset()
                     predictionTail = null
@@ -271,6 +287,7 @@ fun DrawingCanvas(
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
                     predictionTail = null
+                    brushStrokeDown = false
                     // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
                     // `adb logcat -s StrokePrediction` to read it.
                     if (activeTool == Tool.BRUSH) {
@@ -280,7 +297,7 @@ fun DrawingCanvas(
                             val i = event.actionIndex.coerceIn(0, event.pointerCount - 1)
                             predictionTournament.endStroke(Offset(event.getX(i), event.getY(i)))
                         }
-                        val report = predictionTournament.rankingReport()
+                        val report = fullReport()
                         android.util.Log.i("StrokePrediction", report)
                         onPredictionRanked(report, refreshRate)
                     }
