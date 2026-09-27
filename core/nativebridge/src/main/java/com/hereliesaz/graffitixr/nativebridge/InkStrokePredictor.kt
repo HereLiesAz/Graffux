@@ -11,12 +11,18 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
  * from it (p + v t + a t^2/2 + j t^3/6) at any future time, so every display frame ahead is read
  * straight off the model rather than interpolated or extrapolated from a fixed curve.
  */
-class InkStrokePredictor : AutoCloseable {
+class InkStrokePredictor(
+    /** Ink's pull toward linear motion: 0 = straight lines only, 1 = full curvature. */
+    accelerationWeight: Float = 0.5f,
+    jerkWeight: Float = 0.1f,
+    /** Kalman measurement noise in Ink model units (1 unit = 100 px). */
+    measurementNoise: Double = 0.026458,
+) : AutoCloseable {
     init {
         NativeLibLoader.loadAll()
     }
 
-    private var nativeHandle: Long = nativeCreate()
+    private var nativeHandle: Long = nativeCreate(accelerationWeight, jerkWeight, measurementNoise)
     private var hasInput = false
 
     val isAvailable: Boolean get() = nativeHandle != 0L
@@ -91,7 +97,7 @@ class InkStrokePredictor : AutoCloseable {
         }
     }
 
-    private external fun nativeCreate(): Long
+    private external fun nativeCreate(accelerationWeight: Float, jerkWeight: Float, measurementNoise: Double): Long
     private external fun nativeReset(handle: Long): Boolean
     private external fun nativeRecord(handle: Long, x: Float, y: Float, uptimeMillis: Long, pressure: Float): Boolean
     private external fun nativeEstimate(handle: Long): DoubleArray?

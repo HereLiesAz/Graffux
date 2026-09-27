@@ -46,20 +46,37 @@ private class FixedPredictor(
 class PredictionTailTest {
 
     @Test
-    fun tailComesFromTheFirstModelThatCanPredictAndReachesTwoFrames() {
+    fun tailComesFromTheFirstModelThatCanPredict() {
         val ink = FixedPredictor(PredictionTournament.GOOGLE_INK, slope = 1f, ready = false)
         val linear = FixedPredictor("linear", slope = 2f)
         val t = PredictionTournament(listOf(ink, linear), includeGoogleInk = false)
         t.record(GestureSample(Offset(0f, 0f), 0L))
 
         // Ink not stable yet: linear draws the tail.
-        val early = t.predict(16L)!!
-        assertEquals("linear", early.model)
-        assertEquals("tail reaches frame 2", 32L, early.targetUptimeMillis)
-
+        assertEquals("linear", t.predict(16L)!!.model)
         // Once Ink can predict, it takes over.
         ink.ready = true
         assertEquals(PredictionTournament.GOOGLE_INK, t.predict(16L)!!.model)
+    }
+
+    @Test
+    fun tailIsACurveThroughEachFrameUpToItsReach() {
+        val t = PredictionTournament(listOf(FixedPredictor("linear", slope = 2f)), includeGoogleInk = false)
+        t.record(GestureSample(Offset(0f, 0f), 0L))
+        // No measured lag: two frames (16 ms each), one point per frame.
+        assertEquals(listOf(Offset(32f, 0f), Offset(64f, 0f)), t.predict(16L)!!.points)
+    }
+
+    @Test
+    fun tailReachFollowsMeasuredLagClampedToOneToTwoFrames() {
+        val t = PredictionTournament(listOf(FixedPredictor("linear", slope = 1f)), includeGoogleInk = false)
+        t.record(GestureSample(Offset(0f, 0f), 0L))
+        // 20 ms of lag: frame 1 (16 ms), then the reach at 20 ms.
+        assertEquals(listOf(Offset(16f, 0f), Offset(20f, 0f)), t.predict(16L, tailLeadMs = 20L)!!.points)
+        // Less than a frame: never shorter than one frame.
+        assertEquals(listOf(Offset(16f, 0f)), t.predict(16L, tailLeadMs = 5L)!!.points)
+        // A lot of lag: never past two frames.
+        assertEquals(Offset(32f, 0f), t.predict(16L, tailLeadMs = 200L)!!.points.last())
     }
 
     @Test
@@ -115,9 +132,13 @@ class PredictionHorizonRankingTest {
     }
 
     @Test
-    fun reportNamesTheModelsAndTailLength() {
+    fun reportNamesTheModelsTailAndCost() {
         val t = tournament()
-        assertTrue(t.rankingReport().startsWith("models: linear (tail: 2 frames)\n"))
+        t.record(GestureSample(Offset(0f, 0f), 0L))
+        t.record(GestureSample(Offset(5f, 0f), 10L))
+        t.predict(20L)
+        assertTrue(t.rankingReport().contains("cost per sample: mean "))
+        assertTrue(t.rankingReport().startsWith("models: linear, ink: standard (tail: measured lag, max 2 frames)\n"))
     }
 }
 

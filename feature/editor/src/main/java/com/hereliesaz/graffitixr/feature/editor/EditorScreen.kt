@@ -435,6 +435,7 @@ fun EditorScreen(
                 onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
                 onPredictionRanked = { report, hz -> vm.onPredictionBrushStroke(report, hz) },
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
+                predictionLeadMs = { vm.predictionLeadMs },
             )
         }
 
