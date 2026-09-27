@@ -11,7 +11,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * [alphaChannelBytes] extracts a [Bitmap]'s alpha channel into the flat R8 byte layout
- * `VulkanStampEngine.stampMaskedDabs()` expects for a tip-mask texture upload (item 15).
+ * `GpuStampEngine.stampMaskedDabs()` expects for a tip-mask texture upload (item 15).
  *
  * Robolectric (not a plain JVM test) because reading real pixels back via [Bitmap.getPixels]
  * needs the native graphics implementation the mockable android.jar stubs out.

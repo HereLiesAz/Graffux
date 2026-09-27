@@ -24,7 +24,7 @@ object BuiltInBrushes {
      * default selection on every platform and the reference every other brush, bundled or
      * imported, is felt against, so it deliberately carries no character of its own. Renders
      * through the same Vulkan stamp pipeline as every other stamp brush (stroke-max mode; see
-     * VulkanStampEngine.stampResolvedDabs), not the legacy Catmull-Rom Round.
+     * GpuStampEngine.stampResolvedDabs), not the legacy Catmull-Rom Round.
      */
     val round: AzphaltBrush = AzphaltBrush(
         name = DEFAULT_NAME,

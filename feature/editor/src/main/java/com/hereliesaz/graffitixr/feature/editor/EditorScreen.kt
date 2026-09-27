@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.feature.editor.strokedata.rememberStrokeDataRecorder
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -107,6 +108,10 @@ fun EditorScreen(
     // State object itself down lets each layer decide, via derivedStateOf, whether IT actually
     // changed.
     val liveStrokeState = vm.liveStroke.collectAsState()
+    // Stroke-model training capture (Settings → Record strokes for training).
+    val strokeRecorder = rememberStrokeDataRecorder(uiState)
+    // Where each layer lands on screen, for the direct-display overlay (LiveStrokeOverlayHost).
+    val overlayGeometry = remember { OverlayGeometry() }
     // Separate from EditorUiState because these are transient cache bitmaps, not document state.
     val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
     val strings = rememberAppStrings()
@@ -238,6 +243,9 @@ fun EditorScreen(
                                     node,
                                     liveStrokeState,
                                     frameAlpha = frameAlphas[node.layer.id] ?: 1f,
+                                    // Only the centre tile: wrap-around draws the same layer
+                                    // nine times, and the overlay maps to the real document.
+                                    overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
                                 )
                             }
                         }
@@ -400,6 +408,11 @@ fun EditorScreen(
         // landed under the finger only at the camera's identity pose: pan, zoom or rotate the
         // viewport first and the paint appeared at the finger's *pre-camera* position instead —
         // the "comparative area of the screen" a still frame and a live finger no longer agree on.
+        // Direct display (Settings): a SurfaceControl layer above the window for the live stroke.
+        // Composed before the drawing surface so touches still land on the canvas.
+        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled) {
+            LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
+        }
         if (activeLayer != null && !activeLayerLocked &&
             uiState.activeTool != Tool.NONE && uiState.activeTool != Tool.PEN &&
             uiState.activeTool != Tool.SELECT
@@ -437,6 +450,7 @@ fun EditorScreen(
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
                 strokePaintPresented = { vm.strokePaintPresented },
+                onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
             )
         }
 
@@ -736,6 +750,8 @@ private fun LayerStackNode(
     // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha
     // already covers its whole subtree — recursive calls take the 1f default so it isn't squared.
     frameAlpha: Float = 1f,
+    // Records where this layer's bitmap lands on screen, for the direct-display overlay.
+    overlayGeometry: OverlayGeometry? = null,
 ) {
     val layer = node.layer
     if (!layer.isVisible) return
@@ -764,7 +780,7 @@ private fun LayerStackNode(
                     }
             ) {
                 node.children.forEach { child ->
-                    LayerStackNode(child, liveStroke)
+                    LayerStackNode(child, liveStroke, overlayGeometry = overlayGeometry)
                 }
             }
         } else {
@@ -844,7 +860,9 @@ private fun LayerStackNode(
                                 CompositingStrategy.Offscreen
                             else
                                 CompositingStrategy.Auto
-                        },
+                        }
+                        // After graphicsLayer, so the recorded screen mapping includes it.
+                        .recordOverlayPlacement(overlayGeometry, layer.id, displayBmp.width, displayBmp.height),
                     contentScale = ContentScale.Fit
                 )
             }

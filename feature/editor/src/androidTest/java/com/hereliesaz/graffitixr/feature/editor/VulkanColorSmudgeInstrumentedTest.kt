@@ -6,7 +6,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -102,7 +102,7 @@ class VulkanColorSmudgeInstrumentedTest {
             sampleSource = sampleSourcePixels,
         )
 
-        val engine = VulkanStampEngine()
+        val engine = GpuStampEngine()
         assumeTrue("Vulkan compute unavailable on this device", engine.init(width, height))
         try {
             assertTrue(engine.upload(source))
@@ -156,7 +156,7 @@ class VulkanColorSmudgeInstrumentedTest {
             assertTrue(actualPixels.any { Color.alpha(it) > 0 })
         } finally {
             engine.destroy()
-            VulkanStampEngine.trimPool()
+            GpuStampEngine.trimPool()
             source.recycle()
         }
     }
@@ -189,7 +189,7 @@ class VulkanColorSmudgeInstrumentedTest {
         )
         ColorSmudgeEngine.apply(expected, width, height, stroke, settings, strokeSeed = 77L)
 
-        val engine = VulkanStampEngine()
+        val engine = GpuStampEngine()
         assumeTrue("Vulkan compute unavailable on this device", engine.init(width, height))
         try {
             assertTrue(engine.upload(source))
@@ -248,7 +248,7 @@ class VulkanColorSmudgeInstrumentedTest {
             )
         } finally {
             engine.destroy()
-            VulkanStampEngine.trimPool()
+            GpuStampEngine.trimPool()
             source.recycle()
         }
     }

@@ -161,7 +161,52 @@ the stored best re-composites base-over-best, which is identical to one max-comb
 whole stroke. Cost: width x height x 8 bytes, allocated on first use. Above
 `maxStorageBufferRange`, the call returns false and the stroke falls back to the CPU.
 
+### 2a. Second backend: OpenGL ES 3.1 (selectable)
+
+The stamp engine now has two interchangeable native backends behind one C++ interface
+(`include/StampEngine.h`): `VulkanStampEngine` (above) and `GlesStampEngine` (OpenGL ES 3.1
+compute). Settings → "GPU engine" picks which one new engines use (`GpuStampEngine.Backend`, Kotlin);
+the feel reports name it (`gpu vulkan` / `gpu gles`), so the two can be compared on a real device.
+Vulkan stays the default, and nothing is removed while a Vulkan/GLES hybrid and other options are
+evaluated.
+
+- **Shaders.** `shaders/gles/*.comp` are generated from the Vulkan GLSL by
+  `shaders/gles/port_from_vulkan.py`: same math, with the layer held in an SSBO of packed RGBA8
+  words, because ES 3.1 forbids load+store on an rgba8 image. `unpack/packUnorm4x8` does the same
+  unorm conversion. Edit the Vulkan source and re-run the script; the two can't drift apart.
+- **Context.** Private EGL context, surfaceless or a 1x1 pbuffer. Every call makes it current and
+  restores whatever the thread had current before (e.g. a GLSurfaceView's context).
+- **Zero-copy display.** `initWithHardwareBuffer` publishes each written region into an
+  AHardwareBuffer-backed texture, GPU-side via a pixel-unpack buffer, so `AzphaltGpuDisplay` works
+  unchanged.
+- **Verified on host.** `tools/stamp-engine-diff/run.sh` runs 26 scenarios through both backends on
+  Mesa. All are byte-identical except ±1–2 levels in a few dozen bytes: `round()` on exact halves,
+  which GLSL leaves implementation-defined. The comparison also found that the Vulkan engine
+  crashes on lavapipe in `uploadPaintHeight` (`vkUpdateDescriptorSets`). Whether real drivers hit
+  the same crash is unverified.
+- **Not yet measured:** on-device speed of either backend against the other. The feel reports
+  answer that.
+
 ## 3. Front-buffer / low-latency presentation
+
+**Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
+
+- **Where it draws.** A transparent SurfaceView over the canvas parents an `ASurfaceControl` child
+  layer. Its buffer is an AHardwareBuffer allocated with `FRONT_BUFFER | COMPOSER_OVERLAY` usage,
+  retried without FRONT_BUFFER where that's unsupported.
+- **Its own Vulkan device.** The overlay renderer has its own small device. At stroke start it
+  imports the stamp engine's hardware-buffer layer and snapshots it as the stroke's base.
+- **Per batch.** `live_overlay.comp` writes only the stroke's own contribution (see the shader) for
+  the batch's dab bounds, mapped through the layer's real on-screen affine (`OverlayGeometry`).
+  The buffer is then handed to SurfaceFlinger. No Compose frame, bitmap re-upload or readback.
+- **Canvas.** While the overlay is active the canvas keeps the pre-stroke pixels, so the stroke
+  never shows twice. The overlay clears two frames after the committed layer is published.
+- **Eligibility.** Only layers whose compositing the overlay reproduces exactly: SRC_OVER, full
+  opacity, no colour adjustments, clip, 3D tilt or parent group, nothing visible above, no impasto
+  shading. Anything else takes the Compose path as before. API 29+ (SurfaceControl NDK).
+- **Unverified on a device:** that importing another device's AHardwareBuffer preserves its
+  contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
+  per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
 
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is
 `androidx.graphics.lowlatency` (`GLFrontBufferedRenderer`, API 29+; wraps `SurfaceControl` +,
@@ -490,7 +535,9 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    (`EditorViewModel.strokePaintPresented`), capped at 250 ms. Ink appears on the next composed
    frame instead of after the engine round trip, finger or stylus. Cleared on hold-to-eyedrop,
    pinch and lift. It still waits for one Compose frame; front-buffer is what removes that.
-5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) already shipped;
+5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) shipped and was
+   later taken off screen at the user's call (the translucent run-ahead read as a taper); the
+   models still run and are ranked;
    what remains is the dab-substitution model itself (provisional predicted dabs, overwritten by
    ground truth), which needs `onStrokePoint`'s real-input-only invariant to grow a
    provisional/authoritative distinction first — independent of the GPU work, but a real design

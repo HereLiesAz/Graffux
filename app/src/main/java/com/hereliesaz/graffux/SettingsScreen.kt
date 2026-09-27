@@ -52,6 +52,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
+import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
+import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY
+import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
+import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngineSelfTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -229,6 +234,10 @@ fun SettingsScreen(
             HorizontalDivider()
             PredictionSoloRow()
             HorizontalDivider()
+            StrokeDataRow(vm)
+            HorizontalDivider()
+            GpuBackendRow()
+            HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = { showNotices = true }) {
@@ -295,6 +304,34 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
 }
 
 /**
+ * Stroke-model training capture (feature/editor StrokeDataRecorder, tools/stroke-model): on by
+ * default. Files go to the `stroke-data` branch with the GitHub token above at each launch, or now.
+ */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun StrokeDataRow(vm: SettingsViewModel) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE) }
+    var recording by remember { mutableStateOf(prefs.getBoolean(STROKE_DATA_KEY, true)) }
+    val pending = remember(recording) { StrokeDataStore.get(context).pending().size }
+    ChoiceRow(
+        title = "Record strokes for training",
+        subtitle = "Keeps every stroke's raw input (position, pressure, contact size, finger or " +
+            "stylus orientation and tilt, hover) with the phone's motion sensors, to train " +
+            "Graffux's own stroke predictor. Uploaded with the GitHub token above, which needs " +
+            "Contents: read and write. $pending file(s) waiting. Applies next time the canvas opens.",
+        options = listOf(true, false),
+        selected = recording,
+        label = { if (it) "On" else "Off" },
+        onSelect = {
+            recording = it
+            prefs.edit().putBoolean(STROKE_DATA_KEY, it).apply()
+        },
+    )
+    TextButton(onClick = { vm.uploadStrokeData(context) }) { Text("Upload stroke data now") }
+}
+
+/**
  * TEMPORARY. Runs one stroke predictor alone (it draws the tail and is the only one ranked), or all
  * of them. Read by DrawingCanvas when the editor canvas is next composed.
  */
@@ -336,6 +373,48 @@ private fun PredictionSoloRow() {
 }
 
 /**
+ * Which GPU backend paints the stamp brushes: Vulkan or OpenGL ES (same shaders, same pixels). A
+ * comparison switch: reports name the backend, and new strokes pick the change up immediately.
+ */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun GpuBackendRow() {
+    val context = LocalContext.current
+    val prefs = remember(context) {
+        context.getSharedPreferences(GpuStampEngine.Backend.PREFS, Context.MODE_PRIVATE)
+    }
+    var backend by remember { mutableStateOf(GpuStampEngine.Backend.preferred) }
+    ChoiceRow(
+        title = "GPU engine",
+        subtitle = "Which graphics API paints the brushes. Both produce the same pixels; switch to " +
+            "compare how drawing feels. Applies to the next stroke.",
+        options = GpuStampEngine.Backend.entries.toList(),
+        selected = backend,
+        label = { if (it == GpuStampEngine.Backend.VULKAN) "Vulkan" else "OpenGL ES" },
+        onSelect = {
+            backend = it
+            GpuStampEngine.Backend.preferred = it
+            prefs.edit().putString(GpuStampEngine.Backend.KEY, it.label).apply()
+        },
+    )
+    var direct by remember { mutableStateOf(LiveStrokeOverlay.enabled) }
+    ChoiceRow(
+        title = "Direct display",
+        subtitle = "Draws the stroke in progress straight to the screen through Vulkan, skipping " +
+            "the app's own frame. Normal-blend layers with nothing visible above them; everything " +
+            "else draws as before. Takes effect next time the canvas opens.",
+        options = listOf(false, true),
+        selected = direct,
+        label = { if (it) "On" else "Off" },
+        onSelect = {
+            direct = it
+            LiveStrokeOverlay.enabled = it
+            prefs.edit().putBoolean(LiveStrokeOverlay.ENABLED_KEY, it).apply()
+        },
+    )
+}
+
+/**
  * Third-party attribution for the icon set.
  *
  * 88 of the 404 icons are Phosphor Icons drawings used as delivered, and Phosphor's MIT
@@ -370,7 +449,7 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
 }
 
 /** Shows [VulkanStampEngineSelfTest.run]'s outcome: the stamped bitmap on success, the failure
- *  reason (with a pointer to the `VulkanStampEngine` logcat tag for the underlying VkResult) on
+ *  reason (with a pointer to the `GpuStampEngine` logcat tag for the underlying VkResult) on
  *  failure. */
 @Composable
 private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -> Unit) {

@@ -58,7 +58,8 @@ import com.hereliesaz.graffitixr.nativebridge.BrushDab
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
+import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -214,6 +215,13 @@ internal fun EditorUiState.effectivePaintBrushSize(): Float =
  */
 internal const val HISTORY_DEPTH = 20
 
+/** Display frames between publishing the committed stroke and clearing the live overlay. */
+private const val OVERLAY_HANDOFF_FRAMES = 2
+/** Safety margin, in overlay pixels, around each redrawn overlay region (filtering, rounding). */
+private const val OVERLAY_PAD_PX = 2
+/** Dab reach as a multiple of its radius when bounding overlay redraws (secondary tips, rotation). */
+private const val OVERLAY_DAB_REACH = 1.5f
+
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
 // a stroke's before/after tile deltas. 64 matches Krita's own hardcoded tile dimension
 // (`libs/image/tiles3/kis_tile_data_interface.h`'s WIDTH/HEIGHT constants, confirmed from source
@@ -349,7 +357,7 @@ private const val MIN_LEAD_SAMPLES = 20
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
- *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
+ *  `GpuStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
 internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
     val width = bitmap.width
     val height = bitmap.height
@@ -934,7 +942,7 @@ class EditorViewModel @Inject constructor(
     // [stampGpuMaskAlpha8]/[stampGpuMaskSize] hold the stroke's tip mask pre-rasterized once (at a
     // fixed reference resolution, independent of any individual dab's radius — the shader scales
     // per dab via its own tipRatio field) as an R8 byte buffer ready for
-    // `VulkanStampEngine.stampMaskedDabs()`.
+    // `GpuStampEngine.stampMaskedDabs()`.
     // Guards every touch of stampGpuEngine (and the paired stampGpuActive/etc config it's read
     // alongside) once onStrokePoint's GPU submit/readback moved off the main thread onto a
     // serialized background job -- see that job's own comment for the full race this closes.
@@ -959,6 +967,24 @@ class EditorViewModel @Inject constructor(
     // When the Vulkan layer is AHardwareBuffer-backed and this brush has no CPU-only side effects,
     // the actual GPU image is published directly as the live Bitmap and no per-frame readback runs.
     private var stampGpuDisplay: AzphaltGpuDisplay? = null
+
+    // Direct display (Settings → Direct display, LiveStrokeOverlay): while a stroke runs through it,
+    // new paint goes straight to a front-buffered SurfaceControl layer and the canvas keeps showing
+    // the pre-stroke layer, so no Compose frame sits between the GPU and the screen.
+    @Volatile private var liveOverlay: LiveStrokeOverlay? = null
+    @Volatile private var overlayGeometry: OverlayGeometry? = null
+    // Set only while the current stroke is being shown through the overlay: overlay px -> layer px
+    // and its inverse (for mapping dirty rects).
+    @Volatile private var overlayToLayer: FloatArray? = null
+    @Volatile private var layerToOverlay: FloatArray? = null
+    // Bumped per overlay stroke; a delayed clear only runs if no newer stroke has started.
+    private val overlayGeneration = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Called by [LiveStrokeOverlayHost] when the overlay surface appears or goes away. */
+    fun setLiveOverlay(overlay: LiveStrokeOverlay?, geometry: OverlayGeometry?) {
+        liveOverlay = overlay
+        overlayGeometry = geometry
+    }
     // Static stamp brushes now generate only the dabs made possible by newly mapped points. The
     // complete generated prefix is kept separately from the rendered prefix because the renderer
     // is deliberately allowed to lag/coalesce while input continues at full speed.
@@ -970,7 +996,7 @@ class EditorViewModel @Inject constructor(
     private var stampAirbrushGenerator: IncrementalAirbrushGenerator? = null
     private val stampGeneratedHeldDabs = ArrayList<Dab>()
     private var stampAirbrushConsumedSampleCount: Int = 0
-    private var stampGpuEngine: VulkanStampEngine? = null
+    private var stampGpuEngine: GpuStampEngine? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
     private var stampGpuMaskAlpha8: ByteArray? = null
@@ -999,7 +1025,7 @@ class EditorViewModel @Inject constructor(
     // target bitmap to read back into as an explicit parameter (rather than a class field like
     // stampLiveBitmap) since it's set once, early, by onStrokeStart's async setup — the same
     // `workBitmap` local that later becomes strokeWorkingBitmap.
-    private var strokeGpuEngine: VulkanStampEngine? = null
+    private var strokeGpuEngine: GpuStampEngine? = null
     private var strokeGpuActive: Boolean = false
     // Basic Brush uses the same hardware-buffer-backed live presentation as Azphalt when available.
     private var strokeGpuDisplay: AzphaltGpuDisplay? = null
@@ -1078,15 +1104,15 @@ class EditorViewModel @Inject constructor(
     @Volatile private var basicLatestLatencySampleId: Long = -1L
 
     /**
-     * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
+     * Creates and initializes a [GpuStampEngine] at [width]x[height], seeded with [seed]'s
      * current pixels. Tries the `AHardwareBuffer`-backed path first (docs/Native Rendering Engine
      * Design.md §2's zero-copy interop — real memory, not yet a zero-copy DISPLAY path here, since
      * this call site still reads it back into [seed] every frame same as the plain path would) and
      * falls back to plain device memory if that's unavailable. Returns null (nothing to clean up)
      * if every step fails — the caller stays on the CPU path for this stroke, same as always.
      */
-    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): VulkanStampEngine? {
-        // VulkanStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
+    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): GpuStampEngine? {
+        // GpuStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
         // which THROWS — not returns false — when the .so can't be loaded at all: unit tests
         // (Robolectric has no native code), and in principle any device/build variant that
         // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
@@ -1094,7 +1120,7 @@ class EditorViewModel @Inject constructor(
         // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
         return try {
-            val engine = VulkanStampEngine()
+            val engine = GpuStampEngine()
             val ready = (engine.initHardwareBufferBacked(width, height) || engine.init(width, height)) &&
                 engine.upload(seed)
             if (!ready) {
@@ -4216,7 +4242,7 @@ class EditorViewModel @Inject constructor(
                 // Every stamp brush, plain rounds included, goes GPU-first so bundled, custom and
                 // imported brushes share one pipeline and one feel. Plain non-build-up rounds used
                 // to be pinned to the CPU because GPU max-combine reset at every frame batch; the
-                // strokeMax stamp mode (see VulkanStampEngine.stampResolvedDabs) now holds the max
+                // strokeMax stamp mode (see GpuStampEngine.stampResolvedDabs) now holds the max
                 // across the whole stroke.
                 val gpuEngine = if (gpuCompatibleBrush) {
                     createSeededGpuEngine(work.width, work.height, work)
@@ -4272,6 +4298,14 @@ class EditorViewModel @Inject constructor(
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
                 val preStrokeBaseSeed = SafeBitmap.copy(work)
+                // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
+                // two full-layer GPU passes run here, off the main thread, before any dab lands.
+                val overlayMatrices = if (gpuDisplay != null && LiveStrokeOverlay.enabled && liveOverlay != null) {
+                    withContext(dispatchers.main) { overlayMatricesFor(layerId) }
+                } else {
+                    null
+                }
+                val overlayStarted = overlayMatrices != null && startOverlay(gpuEngine!!, work.width, work.height)
                 withContext(dispatchers.main) {
                     // Only adopt if this is STILL the in-flight stamp stroke — a fast restart bumps
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
@@ -4314,16 +4348,25 @@ class EditorViewModel @Inject constructor(
                         stampGpuHasDualBrush = gpuReady && hasDualBrush
                         stampGpuSecondaryMaskAlpha8 = if (gpuReady) secondaryMaskAlpha8 else null
                         stampGpuSecondaryMaskSize = if (gpuReady && hasDualBrush) GPU_MASK_REFERENCE_SIZE else 0
+                        // The overlay needs the zero-copy layer (no impasto shading) to read from. When
+                        // it's showing the stroke, the canvas stays on `work` -- the pre-stroke
+                        // pixels, never read back into during a zero-copy stroke -- because the
+                        // hardware-buffer bitmap would show the stroke a second time underneath it.
+                        if (overlayStarted) {
+                            layerToOverlay = overlayMatrices!!.first
+                            overlayToLayer = overlayMatrices.second
+                        }
                         _liveStroke.update {
                             it.copy(
                                 layerId = layerId,
-                                bitmap = gpuDisplay?.bitmap ?: shadedBitmapSeed ?: work,
+                                bitmap = if (overlayStarted) work else gpuDisplay?.bitmap ?: shadedBitmapSeed ?: work,
                                 version = it.version + 1,
                             )
                         }
                     } else {
                         // Superseded by a newer stroke before this coroutine finished — don't leak
                         // the GPU engine this branch may have just stood up.
+                        if (overlayStarted) liveOverlay?.endStroke()
                         gpuDisplay?.close()
                         gpuEngine?.destroy()
                     }
@@ -4991,7 +5034,7 @@ class EditorViewModel @Inject constructor(
             val strokeLayerIdSnapshot = strokeLayerId
 
             // GPU submit + readback are both blocking native calls (a full command-buffer
-            // submit + vkWaitForFences round trip each -- see VulkanStampEngine.cpp) that used
+            // submit + vkWaitForFences round trip each -- see GpuStampEngine.cpp) that used
             // to run right here, synchronously, on the caller's thread -- which for every
             // DrawingCanvas sample is the main/UI thread. On a GPU slow enough to miss a frame
             // budget, that stalled the whole app: no new frame drew and no new touch events were
@@ -5048,7 +5091,7 @@ class EditorViewModel @Inject constructor(
                 // teardown below both replace/clear this whole group atomically, and a torn read
                 // across two of them (e.g. a stale `engine` paired with a fresh `usesMasked`)
                 // would dispatch to the wrong shader or read a freed mask buffer.
-                val engine: VulkanStampEngine?
+                val engine: GpuStampEngine?
                 val gpuActive: Boolean
                 val usesMasked: Boolean
                 val maskAlpha8: ByteArray?
@@ -5428,10 +5471,17 @@ class EditorViewModel @Inject constructor(
                     // has no such wait, but a future caller might), and a job that itself needs
                     // the main dispatcher to resume before it can finish would deadlock against
                     // a main-thread wait for it to finish.
-                    val publishedBitmap = synchronized(stampLiveLock) {
-                        stampGpuDisplay?.bitmap
-                    } ?: shadedBitmap ?: work
-                    _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
+                    val overlayMatrix = overlayToLayer
+                    val presented = overlayMatrix != null && presentOverlay(overlayMatrix, newDabs, newHeldDabs)
+                    // A failed present hides the overlay before Compose takes over, so the stroke
+                    // never shows twice (stale overlay over the republished layer).
+                    if (overlayMatrix != null && !presented) endOverlayStroke(afterFrames = 0)
+                    if (!presented) {
+                        val publishedBitmap = synchronized(stampLiveLock) {
+                            stampGpuDisplay?.bitmap
+                        } ?: shadedBitmap ?: work
+                        _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
+                    }
                     latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
                     val firstId = feelFirstLatencyId
                     if (firstId >= 0L && firstId in latencyIds) {
@@ -5450,7 +5500,9 @@ class EditorViewModel @Inject constructor(
     fun onStrokeEnd() {
         // The commit renders from canonical history; a preview frame queued for this stroke is moot.
         stampFrameRequestedFor = -1L
-        azphaltLatencyTracker.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
+        // The tracker that measured THIS stroke: stamp brushes and Basic Brush are timed separately.
+        val strokeLatency = if (stampBrushForStroke != null) azphaltLatencyTracker else basicLatencyTracker
+        strokeLatency.snapshot().takeIf { it.completedSamples >= MIN_LEAD_SAMPLES }?.let {
             predictionLeadMs = (it.total.medianNs / NANOS_PER_MILLI).coerceAtLeast(1L)
         }
         val state = _uiState.value
@@ -5559,6 +5611,9 @@ class EditorViewModel @Inject constructor(
                             )
                         }
                         _liveStroke.update { it.copy(layerId = null, bitmap = null) }
+                        // The committed layer now carries the stroke; drop the overlay once Compose
+                        // has drawn it, so the stroke is never missing or shown twice for a frame.
+                        endOverlayStroke(afterFrames = OVERLAY_HANDOFF_FRAMES)
                         scheduleDiskSave(layerId, resampled, layer.uri)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -5567,6 +5622,7 @@ class EditorViewModel @Inject constructor(
                     android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke", e)
                     withContext(dispatchers.main) {
                         _liveStroke.update { s -> s.copy(layerId = null, bitmap = null) }
+                        endOverlayStroke(afterFrames = 0)
                     }
                 }
             }
@@ -6136,6 +6192,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onStrokeCancel() {
         stampFrameRequestedFor = -1L
+        endOverlayStroke(afterFrames = 0)
         liquifyJob?.cancel()
         resampleJob?.cancel()
         _liveStroke.update { it.copy(layerId = null, bitmap = null) }
@@ -9117,7 +9174,98 @@ class EditorViewModel @Inject constructor(
         engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
     ) = predictionRankingReporter.flush(predictionReport + "\n" + feelReport(engine), refreshRateHz)
 
-    /** Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer). */
+    /**
+     * Where the overlay would draw this stroke: layer px -> overlay px and its inverse, or null when
+     * the layer isn't one the overlay reproduces exactly (plain SRC_OVER at full opacity, no colour
+     * adjustments, clipping, 3D tilt or parent group, nothing visible above; see live_overlay.comp).
+     * Main thread: reads the Compose layout.
+     */
+    private fun overlayMatricesFor(layerId: String): Pair<FloatArray, FloatArray>? {
+        if (!overlayCanShow(layerId)) return null
+        val forward = overlayGeometry?.layerToOverlay(layerId)
+        val inverse = forward?.let(::invertAffine)
+        return if (forward != null && inverse != null) forward to inverse else null
+    }
+
+    /**
+     * Imports the engine's layer into the overlay and snapshots it as the stroke's base. Two
+     * full-layer GPU passes, so never on the main thread. Bumps [overlayGeneration] first, so a
+     * previous stroke's delayed clear can't tear this one down.
+     */
+    private fun startOverlay(engine: GpuStampEngine, width: Int, height: Int): Boolean {
+        val overlay = liveOverlay ?: return false
+        overlayGeneration.incrementAndGet()
+        return engine.getHardwareBuffer()?.use { buffer -> overlay.beginStroke(buffer, width, height) } == true
+    }
+
+    private fun overlayCanShow(layerId: String): Boolean {
+        val s = _uiState.value
+        val index = s.layers.indexOfFirst { it.id == layerId }
+        val layer = s.layers.getOrNull(index)
+        return !s.isAnimationMode && layer != null && layer.showsExactlyUnderOverlay() &&
+            s.layers.drop(index + 1).none { it.isVisible }
+    }
+
+    /** Plain SRC_OVER at full opacity with no adjustments, clip, tilt or parent group. */
+    private fun Layer.showsExactlyUnderOverlay(): Boolean {
+        val composited = parentId == null && opacity >= 1f && !clipToLayerBelow &&
+            blendMode == androidx.compose.ui.graphics.BlendMode.SrcOver
+        val flat = rotationX == 0f && rotationY == 0f
+        val unadjusted = brightness == 0f && contrast == 1f && saturation == 1f && !isInverted &&
+            colorBalanceR == 1f && colorBalanceG == 1f && colorBalanceB == 1f
+        return composited && flat && unadjusted
+    }
+
+    /**
+     * Live-render worker: redraws the overlay over this batch's dabs (layer bounds mapped to overlay
+     * pixels) instead of republishing a bitmap to Compose. Only pixels under new dabs can have
+     * changed, so earlier batches' overlay pixels stay valid. False = fall back to Compose.
+     */
+    private fun presentOverlay(overlayToLayerMatrix: FloatArray, vararg batches: List<Dab>): Boolean {
+        val overlay = liveOverlay
+        val forward = layerToOverlay
+        val dabs = batches.flatMap { it }
+        if (overlay == null || forward == null || dabs.isEmpty()) return overlay != null && forward != null
+        // A dual-brush secondary tip or a rotated elongated tip can reach past `radius`.
+        val left = dabs.minOf { it.x - it.radius * OVERLAY_DAB_REACH } - 1f
+        val right = dabs.maxOf { it.x + it.radius * OVERLAY_DAB_REACH } + 1f
+        val top = dabs.minOf { it.y - it.radius * OVERLAY_DAB_REACH } - 1f
+        val bottom = dabs.maxOf { it.y + it.radius * OVERLAY_DAB_REACH } + 1f
+        val corners = listOf(left to top, right to top, left to bottom, right to bottom).map { (u, v) ->
+            applyAffine(forward, u, v)
+        }
+        val x = kotlin.math.floor(corners.minOf { it.x }).toInt() - OVERLAY_PAD_PX
+        val y = kotlin.math.floor(corners.minOf { it.y }).toInt() - OVERLAY_PAD_PX
+        val w = kotlin.math.ceil(corners.maxOf { it.x }).toInt() + OVERLAY_PAD_PX - x
+        val h = kotlin.math.ceil(corners.maxOf { it.y }).toInt() + OVERLAY_PAD_PX - y
+        return overlay.present(overlayToLayerMatrix, x, y, w, h)
+    }
+
+    /**
+     * Clears the overlay [afterFrames] display frames from now (0 = immediately, any thread; more
+     * needs the main thread). Skipped if another stroke has started on the overlay in the meantime.
+     */
+    private fun endOverlayStroke(afterFrames: Int) {
+        if (overlayToLayer == null) return
+        overlayToLayer = null
+        layerToOverlay = null
+        val overlay = liveOverlay ?: return
+        val generation = overlayGeneration.get()
+        fun after(frames: Int) {
+            if (overlayGeneration.get() != generation) return
+            if (frames <= 0) {
+                overlay.endStroke()
+            } else {
+                android.view.Choreographer.getInstance().postFrameCallback { after(frames - 1) }
+            }
+        }
+        after(afterFrames)
+    }
+
+    /**
+     * Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer, GPU
+     * backend -- the backend in use now; switching mid-session mixes both into the numbers).
+     */
     private fun feelReport(
         engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
     ): String {
@@ -9126,7 +9274,8 @@ class EditorViewModel @Inject constructor(
             ?.let { "${it.width}x${it.height}" } ?: "?"
         val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
-            "${s.stabilizerLevel}"
+            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}, " +
+            "display ${if (LiveStrokeOverlay.enabled) "direct" else "compose"}"
         return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
     }
 
