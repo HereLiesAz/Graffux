@@ -2484,7 +2484,8 @@ private fun AzNavHostScope.ConfigureRailItems(
  * Renders one layer row under [hostId] and, if it's a [LayerType.GROUP], recurses into its own
  * nested rail for its children (their own host scope, so drag-reordering a group's contents never
  * touches a sibling group or the top level). onRelocate's newOrder comes back in this rail's own
- * top-first display order restricted to this host's items; reversed to bottom-first and applied via
+ * top-first display order (AzNavRail reports every rail item, so it is narrowed to this host's
+ * layers by [EditorViewModel.onLayerRailRelocated]), reversed to bottom-first and applied via
  * [LayerListOps.reorderSubset], which — unlike the plain [LayerListOps.reorder] the rest of the
  * app's history assumed — only touches the named layers' own slots, since a scoped relocate no
  * longer covers the whole flat list the way the single flat "grp.layers" host used to.
@@ -2527,10 +2528,9 @@ private fun AzNavHostScope.renderLayerRailItem(
         shape = if (isGroup) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
         color = navItemColor,
         onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
-        onRelocate = { _, _, newOrder ->
-            val ids = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
-            vm.onLayerReordered(ids.reversed())
-        },
+        // newOrder is every item id in the rail (including this host's `layer.add` /
+        // `layer.deleteActive` buttons), top-first; the ViewModel narrows it to this host's layers.
+        onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
         keepNestedRailOpen = isGroup,
         nestedContent = if (isGroup) {
             {

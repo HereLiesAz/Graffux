@@ -26,6 +26,31 @@ internal object LayerListOps {
         return if (reordered.size == layers.size) reordered else layers
     }
 
+    /**
+     * Turns the order AzNavRail's relocate callback reports into a bottom-first sub-order for
+     * [reorderSubset], scoped to [hostLayerIds] (the layers shown under the dragged item's host).
+     *
+     * AzNavRail passes `scope.navItems.map { it.id }` — every item in the whole rail, top-first,
+     * not just this host's layers. That includes the layers host's own `layer.add` and
+     * `layer.deleteActive` buttons, whose ids share the `layer.` prefix; a bare prefix filter
+     * turned them into layer ids "add" / "deleteActive", reorderSubset refused the unknown ids,
+     * and the canvas kept the old stacking while the rail showed the new one. Keeping only ids
+     * that name one of this host's layers makes the result independent of whatever else the
+     * rail holds.
+     */
+    fun railOrderToSubOrder(railOrder: List<String>, hostLayerIds: Collection<String>): List<String> {
+        val wanted = hostLayerIds.toSet()
+        return railOrder.asSequence()
+            .filter { it.startsWith(RAIL_LAYER_PREFIX) }
+            .map { it.removePrefix(RAIL_LAYER_PREFIX) }
+            .filter { it in wanted }
+            .distinct()
+            .toList()
+            .reversed()
+    }
+
+    const val RAIL_LAYER_PREFIX = "layer."
+
     /** Applies [transform] to the layer with [id], leaving every other layer untouched. */
     fun mapLayer(layers: List<Layer>, id: String, transform: (Layer) -> Layer): List<Layer> =
         layers.map { if (it.id == id) transform(it) else it }
