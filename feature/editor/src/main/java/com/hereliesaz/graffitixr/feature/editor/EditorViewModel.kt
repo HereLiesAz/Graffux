@@ -4786,8 +4786,17 @@ class EditorViewModel @Inject constructor(
                 // Hoisted above the movement/held-specific branches below so Impasto (further down)
                 // can deposit/shade the exact same dabs those branches just painted, without
                 // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
-                val newDabs = if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList()
-                val newHeldDabs = if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList()
+                // Wrap-around tiles here, after slicing, so the stamped counters above stay in
+                // untiled-dab units; DrawingEngine's commit tiles the same way (wrapTiledDabs).
+                val tile: (List<Dab>) -> List<Dab> = { list ->
+                    if (strokeWrapAroundMode) wrapTiledDabs(list, work.width, work.height) else list
+                }
+                val newDabs = tile(
+                    if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList(),
+                )
+                val newHeldDabs = tile(
+                    if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList(),
+                )
                 // stampStampedCount/stampHeldStampedCount only ever depend on `dabs`/`heldDabs`,
                 // which are pure functions of stampMappedPoints/mappedSamples computed above on this
                 // (the calling) thread -- advancing them here, synchronously, is what lets the next
@@ -5885,6 +5894,7 @@ class EditorViewModel @Inject constructor(
             stampGrain = stampGrain,
             stampMaskShape = stampMaskShape,
             selection = selection,
+            wrapAroundMode = strokeWrapAroundMode,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -9173,7 +9183,9 @@ class EditorViewModel @Inject constructor(
             activeStampShape = null
             activeStampGrain = null
             activeStampMaskShape = null
-            dispatch(EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME))
+            dispatch(
+                EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME),
+            )
             return
         }
         val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)

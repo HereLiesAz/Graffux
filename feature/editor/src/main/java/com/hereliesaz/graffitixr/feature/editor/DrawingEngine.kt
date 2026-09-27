@@ -323,6 +323,7 @@ internal class DrawingEngine(
                 // same as sensor dynamics above it.
                 val diameterPx = stroke.brushSize * brushScale
                 val movementDabs = BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)
+                    .let { if (stroke.wrapAroundMode) wrapTiledDabs(it, target.width, target.height) else it }
                 val heldDabs = if (brush.airbrushDabsPerSecond > 0f) {
                     AirbrushEngine.heldDabs(
                         mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
@@ -330,7 +331,7 @@ internal class DrawingEngine(
                     )
                 } else {
                     emptyList()
-                }
+                }.let { if (stroke.wrapAroundMode) wrapTiledDabs(it, target.width, target.height) else it }
                 // Two calls, not one combined list: movement dabs must NOT build up on each other
                 // (paintDabs' default allowBuildUp = false -- see paintRoundDabsMaxCombined's doc
                 // comment), but Airbrush's held dabs must (allowBuildUp = true) -- matching the
@@ -349,6 +350,18 @@ internal class DrawingEngine(
                     )
                 }
                 paintedDabs = movementDabs + heldDabs
+            } else if (stroke.wrapAroundMode) {
+                // paintStroke's own dab list (densify + BrushStamps.dabs), tiled first.
+                val tiled = wrapTiledDabs(
+                    BrushStamps.dabs(CatmullRom.densify(pts), stroke.brushSize * brushScale, brush, stroke.seed),
+                    target.width, target.height,
+                )
+                StampBrushRenderer.paintDabs(
+                    stampCanvas, tiled, brush, stroke.brushColor, stroke.flow,
+                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+                    stroke.secondaryBrushColor, substrate = substrate,
+                )
+                paintedDabs = tiled
             } else {
                 StampBrushRenderer.paintStroke(
                     stampCanvas, pts, brush, stroke.brushColor,
