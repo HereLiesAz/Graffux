@@ -42,8 +42,10 @@ class GpuStrokeRenderer {
     /** Starts a stroke over [baseArgb] (straight ARGB, the pre-stroke canvas). False = use the CPU. */
     fun beginStroke(baseArgb: IntArray, width: Int, height: Int): Boolean {
         if (engineFor(width, height) == null) return false
-        baseRgba = WgpuDabs.premultipliedRgba(baseArgb, if (baseRgba.size == baseArgb.size * 4) baseRgba else ByteArray(baseArgb.size * 4))
-        if (readback.size != baseRgba.size) readback = ByteArray(baseRgba.size)
+        val bytes = baseArgb.size * BYTES_PER_PIXEL
+        if (baseRgba.size != bytes) baseRgba = ByteArray(bytes)
+        if (readback.size != bytes) readback = ByteArray(bytes)
+        WgpuDabs.premultipliedRgba(baseArgb, baseRgba)
         frame = baseArgb.copyOf()
         firstFrame = true
         touchedRows = IntRange.EMPTY
@@ -90,7 +92,7 @@ class GpuStrokeRenderer {
         var top = Float.MAX_VALUE
         var bottom = -Float.MAX_VALUE
         for (d in dabs) {
-            val r = max(d.radius, 0.5f)
+            val r = max(d.radius, MIN_DAB_RADIUS)
             top = minOf(top, d.y - r)
             bottom = maxOf(bottom, d.y + r)
         }
@@ -107,22 +109,28 @@ class GpuStrokeRenderer {
     }
 
     private fun engineFor(width: Int, height: Int): WgpuStampEngine? {
-        if (!enabled) {
-            description = "CPU (-Dgraffux.gpu=false)"
-            return null
+        val current = engine?.takeIf { it.width == width && it.height == height }
+        return when {
+            !enabled -> {
+                description = "CPU (-Dgraffux.gpu=false)"
+                null
+            }
+            current != null -> current
+            failedSize == width to height -> null
+            else -> createEngine(width, height)
         }
-        engine?.let { if (it.width == width && it.height == height) return it }
-        if (failedSize == width to height) return null
+    }
+
+    private fun createEngine(width: Int, height: Int): WgpuStampEngine? {
         close()
         val created = WgpuStampEngine.create(width, height)
-        if (created == null) {
-            failedSize = width to height
-            description = "CPU (${WgpuLibrary.failure ?: "no wgpu adapter with compute support"})"
-            println("Graffux canvas: $description")
-            return null
-        }
         engine = created
-        description = "GPU wgpu -- ${created.adapterDescription}"
+        if (created == null) failedSize = width to height
+        description = if (created == null) {
+            "CPU (${WgpuLibrary.failure ?: "no wgpu adapter with compute support"})"
+        } else {
+            "GPU wgpu -- ${created.adapterDescription}"
+        }
         println("Graffux canvas: $description")
         return created
     }
@@ -141,6 +149,11 @@ class GpuStrokeRenderer {
     }
 
     private companion object {
+        const val BYTES_PER_PIXEL = 4
+
+        /** The engines' own minimum dab radius (StampEngine.h dabRegion / stamp.comp). */
+        const val MIN_DAB_RADIUS = 0.5f
+
         val enabled: Boolean = System.getProperty("graffux.gpu")?.toBooleanStrictOrNull() ?: true
     }
 }

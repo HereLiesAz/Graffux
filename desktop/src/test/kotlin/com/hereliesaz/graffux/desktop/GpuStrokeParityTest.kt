@@ -49,15 +49,18 @@ class GpuStrokeParityTest {
     }
 
     private fun gpu(renderer: GpuStrokeRenderer, base: IntArray, dabs: List<Dab>, color: Int, flow: Float): IntArray? {
-        if (!renderer.beginStroke(base, w, h)) return null
-        // Grow the stroke over several frames, like a drag: exercises the per-frame row restore.
-        for (n in listOf(dabs.size / 3, dabs.size / 2, (dabs.size - 5).coerceAtLeast(0))) {
-            renderer.renderStroke(dabs.take(n), color xor 0x00FFFFFF, color, BrushColorSource.PLAIN, flow) ?: return null
+        // Grow the stroke over several frames, like a drag, in another colour: a frame that failed
+        // to restore the rows the previous one painted would leave that colour behind.
+        val partial = listOf(dabs.size / 3, dabs.size / 2, (dabs.size - 5).coerceAtLeast(0))
+        val grew = renderer.beginStroke(base, w, h) && partial.all { n ->
+            renderer.renderStroke(dabs.take(n), color xor 0x00FFFFFF, color, BrushColorSource.PLAIN, flow) != null
         }
-        return renderer.renderStroke(dabs, color, color, BrushColorSource.PLAIN, flow)?.copyOf()
+        val frame = if (grew) renderer.renderStroke(dabs, color, color, BrushColorSource.PLAIN, flow) else null
+        return frame?.copyOf()
     }
 
-    private fun channels(c: Int) = intArrayOf(ArgbColor.alpha(c), ArgbColor.red(c), ArgbColor.green(c), ArgbColor.blue(c))
+    private fun channels(c: Int) =
+        intArrayOf(ArgbColor.alpha(c), ArgbColor.red(c), ArgbColor.green(c), ArgbColor.blue(c))
 
     /**
      * (max alpha diff, max premultiplied-colour diff, pixels differing at all). Colour is compared
@@ -87,7 +90,9 @@ class GpuStrokeParityTest {
         assumeTrue("no wgpu adapter: ${renderer.description}", probe != null)
         println("GpuStrokeParityTest on ${renderer.description}")
         val rng = Random(9)
-        val opaque = IntArray(w * h) { ArgbColor.argb(255, rng.nextInt(256), rng.nextInt(256), rng.nextInt(256)) }
+        val opaque = IntArray(w * h) {
+            ArgbColor.argb(255, rng.nextInt(256), rng.nextInt(256), rng.nextInt(256))
+        }
         val transparent = IntArray(w * h)
         for ((label, base) in listOf("opaque base" to opaque, "transparent base" to transparent)) {
             for ((color, flow) in listOf(0xFFE04020.toInt() to 1f, 0xB02080C0.toInt() to 0.6f)) {
@@ -95,7 +100,10 @@ class GpuStrokeParityTest {
                 val want = cpu(base, d, color, flow)
                 val got = gpu(renderer, base, d, color, flow)!!
                 val (maxA, maxC, n) = compare(got, want)
-                println("  $label color=${Integer.toHexString(color)} flow=$flow: $n/${w * h} px differ, alpha max $maxA, premultiplied colour max $maxC")
+                println(
+                    "  $label color=${Integer.toHexString(color)} flow=$flow: $n/${w * h} px differ, " +
+                        "alpha max $maxA, premultiplied colour max $maxC",
+                )
                 assertTrue("$label alpha diff $maxA", maxA <= ALPHA_TOLERANCE)
                 assertTrue("$label colour diff $maxC", maxC <= COLOR_TOLERANCE)
             }

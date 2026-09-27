@@ -167,13 +167,14 @@ abstract class StageWgpuJniLibs : DefaultTask() {
     fun stage() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
+        out.mkdirs()
+        // Skipped means skipped: never package a stale library left in the cargo target directory.
+        if (skip.get()) return
         val lib = library.files.firstOrNull { it.isFile }
         if (lib != null) {
             lib.copyTo(out.resolve("${abi.get()}/libgraffux_wgpu.so"), overwrite = true)
             return
         }
-        out.mkdirs()
-        if (skip.get()) return
         val message = "libgraffux_wgpu.so was not built (cargo or the aarch64-linux-android Rust target is " +
             "missing -- `rustup target add aarch64-linux-android`). The wgpu GPU engine falls back to the CPU."
         if (require.get()) throw GradleException(message) else logger.warn("w: $message")
@@ -185,7 +186,7 @@ val stageWgpuJniLibs = tasks.register<StageWgpuJniLibs>("stageWgpuJniLibs") {
     library.from(File(wgpuTargetDir, "$androidRustTarget/release/libgraffux_wgpu.so"))
     abi.set(androidRustAbi)
     require.set(wgpuRequire)
-    skip.set(wgpuSkip || cargoExecutable == null)
+    skip.set(wgpuSkip)
 }
 
 androidComponents {
