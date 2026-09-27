@@ -1,0 +1,59 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:DesktopStampCanvas.kt$sizeKnown &amp;&amp; (committed == null || committed.width != canvasSize.width || committed.height != canvasSize.height)</ID>
+    <ID>CyclomaticComplexMethod:DesktopStampCanvas.kt$@Composable fun DesktopStampCanvas( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:PixelBlend.kt$fun blitSrcOver(dst: IntArray, dstWidth: Int, dstHeight: Int, tile: CompositedTile)</ID>
+    <ID>FunctionNaming:ColorWheel.kt$@Composable fun ColorWheel( currentColor: Color, onColorSelected: (Color) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:DesktopStampCanvas.kt$@Composable fun DesktopStampCanvas( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:FloatingWindow.kt$@Composable fun FloatingWindow( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(120f, 120f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Main.kt$@Composable private fun GraffuxDesktopApp( canvasState: CanvasState, lastSavedPath: String?, saveError: String?, onSaved: (String?) -&gt; Unit, onSaveError: (String?) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Theme.kt$@Composable fun GraffuxDesktopTheme(content: @Composable () -&gt; Unit)</ID>
+    <ID>LongMethod:ColorWheel.kt$@Composable fun ColorWheel( currentColor: Color, onColorSelected: (Color) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:DesktopStampCanvas.kt$@Composable fun DesktopStampCanvas( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:Main.kt$@Composable private fun GraffuxDesktopApp( canvasState: CanvasState, lastSavedPath: String?, saveError: String?, onSaved: (String?) -&gt; Unit, onSaveError: (String?) -&gt; Unit, )</ID>
+    <ID>LongParameterList:DesktopStampCanvas.kt$( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:FloatingWindow.kt$( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(120f, 120f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>LongParameterList:TileParallelRenderer.kt$( dabs: List&lt;Dab&gt;, canvasWidth: Int, canvasHeight: Int, colorArgb: Int, secondaryColorArgb: Int, colorSource: BrushColorSource, flow: Float, )</ID>
+    <ID>LoopWithTooManyJumpStatements:DetectStampGestures.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:PixelBlend.kt$for</ID>
+    <ID>MagicNumber:ColorWheel.kt$0xFF</ID>
+    <ID>MagicNumber:ColorWheel.kt$16</ID>
+    <ID>MagicNumber:ColorWheel.kt$255</ID>
+    <ID>MagicNumber:ColorWheel.kt$30</ID>
+    <ID>MagicNumber:ColorWheel.kt$360f</ID>
+    <ID>MagicNumber:ColorWheel.kt$8</ID>
+    <ID>MagicNumber:FloatingWindow.kt$10f</ID>
+    <ID>MagicNumber:FloatingWindow.kt$120f</ID>
+    <ID>MagicNumber:Main.kt$0xFF141414</ID>
+    <ID>MagicNumber:Main.kt$0xFF1E88E5</ID>
+    <ID>MagicNumber:Main.kt$0xFF43A047</ID>
+    <ID>MagicNumber:Main.kt$0xFF8E24AA</ID>
+    <ID>MagicNumber:Main.kt$0xFFE53935</ID>
+    <ID>MagicNumber:Main.kt$0xFFFDD835</ID>
+    <ID>MagicNumber:Main.kt$0xFFFF6F00</ID>
+    <ID>MagicNumber:Main.kt$0xFFFFFFFF</ID>
+    <ID>MagicNumber:Main.kt$100</ID>
+    <ID>MagicNumber:Main.kt$120f</ID>
+    <ID>MagicNumber:Main.kt$24f</ID>
+    <ID>MagicNumber:Main.kt$340f</ID>
+    <ID>MagicNumber:Main.kt$80f</ID>
+    <ID>MagicNumber:PixelBlend.kt$255</ID>
+    <ID>MagicNumber:PixelBlend.kt$255f</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFF000000</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFF00FFFF</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFF2C2C2C</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFF39FF14</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFF5D5D5D</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFFFF00C8</ID>
+    <ID>MagicNumber:Theme.kt$GraffuxColors$0xFFFFFFFF</ID>
+    <ID>MagicNumber:TileParallelRenderer.kt$0.5f</ID>
+    <ID>MatchingDeclarationName:Icons.kt$GraffuxDesktopIcons</ID>
+    <ID>MatchingDeclarationName:Theme.kt$GraffuxColors</ID>
+    <ID>MaxLineLength:DesktopStampCanvas.kt$if</ID>
+    <ID>MaxLineLength:DetectStampGestures.kt$*</ID>
+    <ID>MaxLineLength:Main.kt$color = if (color == selectedColor) GraffuxColors.HotPink else GraffuxColors.Gray</ID>
+    <ID>TooGenericExceptionCaught:Main.kt$e: Exception</ID>
+  </CurrentIssues>
+</SmellBaseline>

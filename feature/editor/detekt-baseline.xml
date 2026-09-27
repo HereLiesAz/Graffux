@@ -1,0 +1,957 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:CanvasHitTest.kt$CanvasHitTest$canvasWidth &lt;= 0f || canvasHeight &lt;= 0f || viewportZoom &lt;= 0f || layer.scale &lt;= 0f</ID>
+    <ID>ComplexCondition:ColorSmudgeEngine.kt$ColorSmudgeEngine$stroke.isEmpty() || width &lt;= 0 || height &lt;= 0 || pixels.size &lt; width * height</ID>
+    <ID>ComplexCondition:DrawingCanvas.kt$!began &amp;&amp; !eyedrop &amp;&amp; !pickingCloneSource &amp;&amp; activeTool != Tool.FILL</ID>
+    <ID>ComplexCondition:DrawingCanvas.kt$!began &amp;&amp; moved &amp;&amp; activeTool != Tool.FILL &amp;&amp; !pickingCloneSource</ID>
+    <ID>ComplexCondition:EditorScreen.kt$activeLayer != null &amp;&amp; !activeLayerLocked &amp;&amp; uiState.activeTool != Tool.NONE &amp;&amp; uiState.activeTool != Tool.PEN &amp;&amp; uiState.activeTool != Tool.SELECT</ID>
+    <ID>ComplexCondition:EditorViewModel.kt$EditorViewModel$!advancedMaskPipeline &amp;&amp; shape == null &amp;&amp; !brush.buildUp &amp;&amp; preStrokeBase != null</ID>
+    <ID>ComplexCondition:EditorViewModel.kt$EditorViewModel$hasNewHeldDabs &amp;&amp; engine != null &amp;&amp; ((!hasNewMovementDabs &amp;&amp; gpuActive) || gpuHandled)</ID>
+    <ID>ComplexCondition:ExportManager.kt$canvasW &lt;= 0 || canvasH &lt;= 0 || docW &lt;= 0 || docH &lt;= 0</ID>
+    <ID>ComplexCondition:ImageProcessor.kt$ImageProcessor$screenWidth &lt;= 0 || screenHeight &lt;= 0 || bitmapWidth &lt;= 0 || bitmapHeight &lt;= 0</ID>
+    <ID>ComplexCondition:MultiFingerTaps.kt$MultiFingerRecognizer$repeats &gt; 0 || scrubFired || moved || duration &gt; TAP_MAX_DURATION_MS || suppressed</ID>
+    <ID>ComplexCondition:SelectionCanvas.kt$d != null &amp;&amp; selection != null &amp;&amp; selection.isUsable &amp;&amp; d != Offset.Zero</ID>
+    <ID>CyclomaticComplexMethod:AnimationWindow.kt$@Composable fun AnimationWindow( frameCount: Int, activeFrameIndex: Int, isPlaying: Boolean, onionSkinEnabled: Boolean, onionSkinPastCount: Int, onionSkinFutureCount: Int, loopMode: AnimationLoopMode, frameDurationMs: Int, // The playback range, already resolved to real frame numbers (see // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields. rangeStart: Int, rangeEnd: Int, // The RAW animationRangeEnd (may be -1), separate from the resolved [rangeEnd] above. The Start // slider must round-trip this, not [rangeEnd] -- passing the resolved value back through // onSetRange on every Start drag would silently pin the end to "whatever the last frame happens // to be right now", destroying the -1 sentinel's whole point (tracking new frames as they're // added) the very first time the user touches Start without ever having touched End. rawRangeEnd: Int, currentFrameHoldCount: Int, isTimeLapseRecording: Boolean, previewIsRendering: Boolean, previewIsReady: Boolean, previewRenderedFrames: Int, previewTotalFrames: Int, previewError: String?, onTogglePlayback: () -&gt; Unit, onPreviousFrame: () -&gt; Unit, onNextFrame: () -&gt; Unit, onSeekFrame: (Int) -&gt; Unit, onAddFrame: () -&gt; Unit, onToggleOnionSkin: () -&gt; Unit, onSetOnionSkinPastCount: (Int) -&gt; Unit, onSetOnionSkinFutureCount: (Int) -&gt; Unit, onSetLoopMode: (AnimationLoopMode) -&gt; Unit, onSetFrameDurationMs: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, onRenderPreview: () -&gt; Unit, onSetFrameHoldCount: (Int) -&gt; Unit, onExport: () -&gt; Unit, onToggleTimeLapse: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:BlendModeExt.kt$fun DomainBlendMode.toComposeBlendMode(): BlendMode</ID>
+    <ID>CyclomaticComplexMethod:BrushStudioWindow.kt$@Composable fun BrushStudioWindow( draft: AzphaltBrush, brushColor: Color, secondaryColor: Color = Color.Black, isSaved: Boolean, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, onSave: () -&gt; Unit, onDelete: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:CanvasHitTest.kt$CanvasHitTest$fun allHits( layers: List&lt;Layer&gt;, tap: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, ): List&lt;String&gt;</ID>
+    <ID>CyclomaticComplexMethod:CanvasHitTest.kt$CanvasHitTest$fun topHit( layers: List&lt;Layer&gt;, tap: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, ): String?</ID>
+    <ID>CyclomaticComplexMethod:DrawingCanvas.kt$@Composable fun DrawingCanvas( activeTool: Tool, brushSize: Float, activeColor: Color, layerBitmapKey: Any?, gate: StrokeGate, modifier: Modifier = Modifier, onStrokeStart: (BrushSample, IntSize) -&gt; Unit, onStrokePoint: (BrushSample) -&gt; Unit, onStrokeEnd: () -&gt; Unit, onStrokeCancel: () -&gt; Unit, onFillTap: (Offset, IntSize) -&gt; Unit, pickingCloneSource: Boolean = false, onPickCloneSource: (Offset) -&gt; Unit = {}, onEyedropStart: (IntSize) -&gt; Unit, onEyedropSample: (Offset) -&gt; Unit, onEyedropEnd: (commit: Boolean) -&gt; Unit, /** * Optional physical brush definition for the cursor. Existing callers remain compatible; null * falls back to the historical round/elliptical footprint. When supplied, hover uses the same * morphology, bristle population and device-pose model as the mechanics layer. */ activeBrushPreview: AzphaltBrush? = null, /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */ onPredictionRanked: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, /** TEMPORARY: this canvas's prediction tournament is being discarded. */ onPredictionSessionEnd: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, )</ID>
+    <ID>CyclomaticComplexMethod:DrawingEngine.kt$DrawingEngine$private suspend fun applyTool( bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, ): Bitmap</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceBrushSettings(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceEditorSettings(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceLayerList(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceLayerProperties(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceLayoutAndStyles(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorReducer.kt$EditorReducer$private fun reduceSelection(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$@Composable fun EditorScreen( vm: EditorViewModel, modifier: Modifier = Modifier, // Non-null when the HOST owns the Procreate history gestures. The host installs the observer // above the whole app (see MainActivity) so two- and three-finger taps also register over the // nav rail, the floating panels and the onscreen chrome — none of which live inside this // screen's subtree, and all of which used to swallow the gesture entirely. This screen then // only feeds the shared gate from its drawing surfaces. Null = standalone: it owns both, and // the gestures are canvas-only. hostStrokeGate: StrokeGate? = null, )</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$@Composable private fun BoxScope.Rulers( zoom: Float, offset: Offset, rotationDeg: Float, imperial: Boolean, spacing: Float = 48f, )</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$@Composable private fun PenCanvas( color: Color, strokeWidthPx: Float, gate: StrokeGate, onCommit: (points: List&lt;Offset&gt;, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$@Composable private fun SelectionHandles( activeLayer: Layer, viewportOffset: Offset, viewportZoom: Float, viewportRotation: Float, onGestureStart: () -&gt; Unit, onResize: (zoom: Float) -&gt; Unit, onRotate: (degrees: Float) -&gt; Unit, onMove: (delta: Offset) -&gt; Unit, onGestureEnd: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun applySpectatorOp(op: Op)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onImportDocument(uri: Uri)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun commitStampStroke( state: EditorUiState, layer: Layer, layerId: String, points: List&lt;Offset&gt;, brushSamples: List&lt;BrushSample&gt;, canvasW: Int, canvasH: Int, scale: Float, offset: Offset, rotationZ: Float, brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, stampShape: Bitmap?, stampGrain: Bitmap?, stampMaskShape: Bitmap?, // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke // state the moment this returns, while the rasterization below runs later on a background // dispatcher and would otherwise find it already null. selection: com.hereliesaz.graffitixr.common.model.Selection?, )</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun enqueueBasicLiveDabs( canvas: Canvas, paint: Paint, dabs: List&lt;BrushDab&gt;, targetBitmap: Bitmap, )</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun startPlayback()</ID>
+    <ID>CyclomaticComplexMethod:ExportManager.kt$ExportManager$private fun BlendMode.toNativeBlendMode(): NativeBlendMode</ID>
+    <ID>CyclomaticComplexMethod:ExportManager.kt$ExportManager$private fun drawShape(canvas: Canvas, shape: VectorShape, cx: Float, cy: Float, paint: Paint)</ID>
+    <ID>CyclomaticComplexMethod:ExtensionParamsPanel.kt$@Composable private fun ControlRow( control: UiControl, params: Map&lt;String, ParamValue&gt;, onParamChanged: (String, ParamValue) -&gt; Unit, onRun: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:ImageProcessor.kt$ImageProcessor$fun floodFill( bitmap: Bitmap, x: Int, y: Int, fillColor: Int, tolerance: Int = 32, // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline // fill, so containment is tested per pixel instead — the fill spreads only // within the selection, and a seed tapped outside it fills nothing. clipRegion: android.graphics.Region? = null, )</ID>
+    <ID>CyclomaticComplexMethod:ImageProcessor.kt$ImageProcessor$private fun smudgeAlong( px: IntArray, w: Int, h: Int, stroke: List&lt;Offset&gt;, radius: Float, rate: Float, feathering: Float, wrapAround: Boolean, )</ID>
+    <ID>CyclomaticComplexMethod:ImageProcessor.kt$ImageProcessor$suspend fun applyToolToBitmap( originalBitmap: Bitmap, stroke: List&lt;Offset&gt;, tool: Tool, brushSize: Float = 50f, brushColor: Int = Color.BLACK, intensity: Float = 0.5f, mutateInPlace: Boolean = false, feathering: Float = 0f, wrapAroundMode: Boolean = false, // Alpha Lock confines paint to existing alpha (SRC_ATOP). alphaLock: Boolean = false, // Bitmap-space lasso selection, if one is active: every tool in the switch // below is confined to it. Built by SelectionMask so the live paint, the // commit and the history replay all clip to the identical boundary. // Tool.LIQUIFY never reaches this function — it warps through the native // pass — but it is confined to the selection all the same, by compositing // its baked result back through SelectionMask.feather in // DrawingEngine.applyLiquify. clipPath: android.graphics.Path? = null, // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it // copies. Passed in rather than derived here because it is fixed at the // moment the stroke starts and recorded onto the command, which is what // makes a clone stroke replay identically on undo/redo. cloneOffset: Offset? = null, // Tool.BRUSH only: whole-stroke opacity ceiling (0..1). Ignored by every other tool. opacity: Float = 1f, // Tool.BRUSH only: per-point pressure (0..1, aligned 1:1 with `stroke`), fed into // BrushDynamics alongside speed. Empty (the default) reads as full pressure throughout. pressures: List&lt;Float&gt; = emptyList(), ): Bitmap</ID>
+    <ID>CyclomaticComplexMethod:KritaPresetMapper.kt$KritaPresetMapper$fun toColorSmudgeSettings(preset: KritaPresetParser.Preset): ColorSmudgeEngine.Settings?</ID>
+    <ID>CyclomaticComplexMethod:LayerMappers.kt$fun ComposeBlendMode.toModelBlendMode(): ModelBlendMode</ID>
+    <ID>CyclomaticComplexMethod:MagicWand.kt$MagicWand$fun mask(bitmap: Bitmap, x: Int, y: Int, tolerance: Int = 32): BooleanArray?</ID>
+    <ID>CyclomaticComplexMethod:MaterialStateCodec.kt$MaterialStateCodec$fun encode(snapshot: Snapshot): ByteArray</ID>
+    <ID>CyclomaticComplexMethod:ModelView.kt$@Composable fun ModelView( mesh: Mesh?, modifier: Modifier = Modifier, texture: PaintableTexture? = null, paintEnabled: Boolean = false, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, onPaintChanged: () -&gt; Unit = {}, captureRequest: Int = 0, onCaptured: (android.graphics.Bitmap?) -&gt; Unit = {}, )</ID>
+    <ID>CyclomaticComplexMethod:MultiFingerTaps.kt$MultiFingerRecognizer$fun onEvent(pressed: List&lt;TouchPoint&gt;, uptimeMs: Long, suppressed: Boolean): GestureSlot?</ID>
+    <ID>CyclomaticComplexMethod:PathEditOverlay.kt$@Composable fun PathEditOverlay( layer: Layer, uiState: EditorUiState, onEditStart: () -&gt; Unit, onMoveNode: (index: Int, dx: Float, dy: Float) -&gt; Unit, onMoveHandle: (index: Int, outgoing: Boolean, x: Float, y: Float) -&gt; Unit, onEditEnd: () -&gt; Unit, onSelectNode: (Int?) -&gt; Unit, onInsertNode: (segmentIndex: Int, t: Float) -&gt; Unit, onToggleCornerSmooth: (Int) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:SelectionCanvas.kt$@Composable fun SelectionCanvas( selection: Selection?, shape: SelectionShape, op: SelectionOp, gate: StrokeGate, modifier: Modifier = Modifier, onSelectionEnd: (List&lt;Offset&gt;, IntSize) -&gt; Unit, onSelectionMove: (Offset) -&gt; Unit, onAutoSelect: (Offset, IntSize) -&gt; Unit, onClearSelection: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:SelectionMask.kt$SelectionMask$fun bitmapPath( selection: Selection?, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float = 1f, layerOffset: Offset = Offset.Zero, layerRotationZ: Float = 0f, ): Path?</ID>
+    <ID>CyclomaticComplexMethod:SketchToolsDialog.kt$@Composable fun ColorPickerDialog( currentColor: Color, secondaryColor: Color = Color.Black, history: List&lt;Color&gt;, onSelectColor: (Color) -&gt; Unit, onSelectSecondaryColor: (Color) -&gt; Unit = {}, onSwapColors: () -&gt; Unit = {}, onDismiss: () -&gt; Unit, strings: AppStrings, savedPalette: List&lt;Color&gt; = emptyList(), onSavePaletteColor: (Color) -&gt; Unit = {}, onRemovePaletteColor: (Color) -&gt; Unit = {}, )</ID>
+    <ID>CyclomaticComplexMethod:StampBrushRenderer.kt$StampBrushRenderer$fun paintDabs( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, flow: Float, stamp: Bitmap? = null, grain: Bitmap? = null, maskStamp: Bitmap? = null, seed: Long = 0L, secondaryColorArgb: Int = colorArgb, // True for Airbrush's held-still dabs (AirbrushEngine.heldDabs): those represent genuinely // separate time-based paint deposits at (roughly) the same spot -- "hold longer, get more // opaque" -- and must keep compositing the old way (sequential SRC_OVER, each dab building on // whatever the previous one left) or Airbrush stops building up at all. False (default) for // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead -- // see that function's doc comment for why movement dabs must NOT use this same build-up. allowBuildUp: Boolean = false, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>CyclomaticComplexMethod:StampBrushRenderer.kt$StampBrushRenderer$private fun paintMaskedDabs( destination: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, baseColor: Int, secondaryColor: Int, flow: Float, stamp: Bitmap?, grain: Bitmap?, maskStamp: Bitmap?, seed: Long, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>CyclomaticComplexMethod:StampBrushRenderer.kt$StampBrushRenderer$private fun paintRoundDabsMaxCombined( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, secondaryColorArgb: Int, flow: Float, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>CyclomaticComplexMethod:StoreWindow.kt$@Composable private fun PackageCard( pkg: PackageSummary, installed: Boolean, updateVersion: String?, installing: Boolean, onInstall: () -&gt; Unit, onBuy: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:ToolOptionsWindow.kt$@Composable fun ToolOptionsWindow( stabilizerLevel: Int, onSetStabilizerLevel: (Int) -&gt; Unit, stabilizerAlgorithm: StabilizerAlgorithm, onSetStabilizerAlgorithm: (StabilizerAlgorithm) -&gt; Unit, magicWandTolerance: Int?, onSetMagicWandTolerance: (Int) -&gt; Unit, selectionFeatherPx: Float?, onSetSelectionFeather: (Float) -&gt; Unit, brushFlow: Float?, onSetBrushFlow: (Float) -&gt; Unit, brushOpacity: Float?, onSetBrushOpacity: (Float) -&gt; Unit, // The active azphalt stamp brush, for the live preview strip -- null whenever the plain // (non-stamp) round brush is active, since that's a different render pipeline entirely // (DrawingEngine's drawStrokeDynamic, not BrushStamps/StampBrushRenderer) that this preview // can't accurately stand in for; see its own use below. previewBrush: AzphaltBrush?, brushColor: Color, secondaryColor: Color = Color.Black, // Decoded runtime assets for [previewBrush] when it's an installed brush with a custom tip/ // grain/masked secondary tip, so the preview matches what will actually paint instead of // always falling back to a generated gradient oval. Null for built-in/generated brushes. previewStampShape: Bitmap? = null, previewStampGrain: Bitmap? = null, previewStampMaskShape: Bitmap? = null, colorSmudgeSettings: ColorSmudgeEngine.Settings?, onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -&gt; Unit, onSetColorSmudgeRate: (Float) -&gt; Unit, onSetColorSmudgeColorRate: (Float) -&gt; Unit, onSetColorSmudgeChargeDecayRate: (Float) -&gt; Unit, onSetColorSmudgeDilution: (Float) -&gt; Unit, onSetColorSmudgePickupRate: (Float) -&gt; Unit, onSetColorSmudgeMixingModel: (MaterialMixingModel) -&gt; Unit, onSetColorSmudgeRadius: (Float) -&gt; Unit, onSetColorSmudgeOpacity: (Float) -&gt; Unit, onSetColorSmudgeAlphaCarry: (Boolean) -&gt; Unit, onSetColorSmudgeSampleMerged: (Boolean) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:WarpHandles.kt$@Composable fun WarpHandles( handles: List&lt;Offset&gt;, gridSize: Int, onHandleMoved: (Int, Offset) -&gt; Unit, onRelease: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:AddContentDialog.kt$@Composable fun AddContentDialog( onAddText: () -&gt; Unit, onAddRectangle: () -&gt; Unit, onAddEllipse: () -&gt; Unit, onAddLine: () -&gt; Unit, onAddTriangle: () -&gt; Unit, onAddPentagon: () -&gt; Unit, onAddHexagon: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:AnimationWindow.kt$@Composable fun AnimationWindow( frameCount: Int, activeFrameIndex: Int, isPlaying: Boolean, onionSkinEnabled: Boolean, onionSkinPastCount: Int, onionSkinFutureCount: Int, loopMode: AnimationLoopMode, frameDurationMs: Int, // The playback range, already resolved to real frame numbers (see // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields. rangeStart: Int, rangeEnd: Int, // The RAW animationRangeEnd (may be -1), separate from the resolved [rangeEnd] above. The Start // slider must round-trip this, not [rangeEnd] -- passing the resolved value back through // onSetRange on every Start drag would silently pin the end to "whatever the last frame happens // to be right now", destroying the -1 sentinel's whole point (tracking new frames as they're // added) the very first time the user touches Start without ever having touched End. rawRangeEnd: Int, currentFrameHoldCount: Int, isTimeLapseRecording: Boolean, previewIsRendering: Boolean, previewIsReady: Boolean, previewRenderedFrames: Int, previewTotalFrames: Int, previewError: String?, onTogglePlayback: () -&gt; Unit, onPreviousFrame: () -&gt; Unit, onNextFrame: () -&gt; Unit, onSeekFrame: (Int) -&gt; Unit, onAddFrame: () -&gt; Unit, onToggleOnionSkin: () -&gt; Unit, onSetOnionSkinPastCount: (Int) -&gt; Unit, onSetOnionSkinFutureCount: (Int) -&gt; Unit, onSetLoopMode: (AnimationLoopMode) -&gt; Unit, onSetFrameDurationMs: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, onRenderPreview: () -&gt; Unit, onSetFrameHoldCount: (Int) -&gt; Unit, onExport: () -&gt; Unit, onToggleTimeLapse: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:AnimationWindow.kt$@Composable private fun PlaybackRuler( frameCount: Int, activeFrameIndex: Int, rangeStart: Int, rangeEnd: Int, onSeekFrame: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BackgroundColorDialog.kt$@OptIn(ExperimentalLayoutApi::class) @Composable fun BackgroundColorDialog( current: Color, onSelect: (Color) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BlendModePicker.kt$@Composable fun BlendModePicker( current: BlendMode, onSelect: (BlendMode) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BrushStudioWindow.kt$@Composable fun BrushPreview( brush: AzphaltBrush, color: Color, secondaryColor: Color, height: androidx.compose.ui.unit.Dp = 72.dp, // Flow is a per-session paint setting (EditorUiState.brushFlow), not stored on AzphaltBrush // itself, so it isn't reflected by `brush` alone -- callers previewing a live Flow slider // (ToolOptionsWindow) pass the current value here; everyone else keeps the default, which // matches flow's own default of fully-opaque (StampBrushRenderer.paintDabs' `baseFlow`). flow: Float = 1f, // The dab diameter this preview strokes with is normally derived from the strip's own // height (canvasHeight / 3f) purely so the S-curve reads at a sensible scale regardless of // brush size -- accurate for Brush Studio/My Brushes, where no single "current size" exists // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here // instead, so the preview shows the brush at the size it's actually about to paint at. sizeOverridePx: Float? = null, // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip. // When present, each dab is stamped from the real tip bitmap (used as an alpha mask, tinted // with the resolved dab color) with the grain composited on top, instead of a generated // gradient oval. stampShape: Bitmap? = null, stampGrain: Bitmap? = null, stampMaskShape: Bitmap? = null, )</ID>
+    <ID>FunctionNaming:BrushStudioWindow.kt$@Composable fun BrushStudioWindow( draft: AzphaltBrush, brushColor: Color, secondaryColor: Color = Color.Black, isSaved: Boolean, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, onSave: () -&gt; Unit, onDelete: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BrushStudioWindow.kt$@Composable private fun &lt;T&gt; EnumButtons(label: String, values: List&lt;T&gt;, selected: T, onSelected: (T) -&gt; Unit)</ID>
+    <ID>FunctionNaming:BrushStudioWindow.kt$@Composable private fun DynamicsMappingControl( label: String, brush: AzphaltBrush, defaultBinding: BrushSensorBinding, inputRange: ClosedFloatingPointRange&lt;Float&gt; = defaultBinding.inputMin..defaultBinding.inputMax, inputUnit: String? = null, outputRange: ClosedFloatingPointRange&lt;Float&gt;, outputUnit: String? = null, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BrushStudioWindow.kt$@Composable private fun ParamSlider( label: String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, asFraction: Boolean = false, unit: String? = null, onChange: (Float) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BrushTipsManagerWindow.kt$@Composable fun BrushTipsManagerWindow( allBrushAssets: List&lt;Pair&lt;String, String&gt;&gt;, hiddenIds: Set&lt;String&gt;, onSetHidden: (id: String, hidden: Boolean) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:CornerRadiusDialog.kt$@Composable fun CornerRadiusDialog( currentRadius: Float, onApply: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:CurvesAdjustment.kt$@Composable fun CurvesAdjustment( points: List&lt;Offset&gt;, onPointsChanged: (List&lt;Offset&gt;) -&gt; Unit, onDragEnd: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:CurvesDialog.kt$@Composable fun CurvesDialog( onDismissRequest: () -&gt; Unit, onCurvesApplied: (List&lt;Offset&gt;) -&gt; Unit )</ID>
+    <ID>FunctionNaming:CustomBrushesWindow.kt$@Composable fun CustomBrushesWindow( brushes: List&lt;CustomBrush&gt;, activeBrushName: String?, brushColor: Color, secondaryColor: Color = Color.Black, onSelect: (String) -&gt; Unit, onEdit: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, onNew: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:CustomBrushesWindow.kt$@Composable private fun BrushCard( custom: CustomBrush, isActive: Boolean, brushColor: Color, secondaryColor: Color, onSelect: () -&gt; Unit, onEdit: () -&gt; Unit, onDeleteRequest: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:DocumentSizeDialog.kt$@Composable fun DocumentSizeDialog( currentWidth: Int, currentHeight: Int, onConfirm: (width: Int, height: Int) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:DrawingCanvas.kt$@Composable fun DrawingCanvas( activeTool: Tool, brushSize: Float, activeColor: Color, layerBitmapKey: Any?, gate: StrokeGate, modifier: Modifier = Modifier, onStrokeStart: (BrushSample, IntSize) -&gt; Unit, onStrokePoint: (BrushSample) -&gt; Unit, onStrokeEnd: () -&gt; Unit, onStrokeCancel: () -&gt; Unit, onFillTap: (Offset, IntSize) -&gt; Unit, pickingCloneSource: Boolean = false, onPickCloneSource: (Offset) -&gt; Unit = {}, onEyedropStart: (IntSize) -&gt; Unit, onEyedropSample: (Offset) -&gt; Unit, onEyedropEnd: (commit: Boolean) -&gt; Unit, /** * Optional physical brush definition for the cursor. Existing callers remain compatible; null * falls back to the historical round/elliptical footprint. When supplied, hover uses the same * morphology, bristle population and device-pose model as the mechanics layer. */ activeBrushPreview: AzphaltBrush? = null, /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */ onPredictionRanked: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, /** TEMPORARY: this canvas's prediction tournament is being discarded. */ onPredictionSessionEnd: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable fun EditorScreen( vm: EditorViewModel, modifier: Modifier = Modifier, // Non-null when the HOST owns the Procreate history gestures. The host installs the observer // above the whole app (see MainActivity) so two- and three-finger taps also register over the // nav rail, the floating panels and the onscreen chrome — none of which live inside this // screen's subtree, and all of which used to swallow the gesture entirely. This screen then // only feeds the shared gate from its drawing surfaces. Null = standalone: it owns both, and // the gestures are canvas-only. hostStrokeGate: StrokeGate? = null, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun ArtboardFrame( documentWidth: Int, documentHeight: Int, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun ArtboardPage(documentWidth: Int, documentHeight: Int, color: Color, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun BoxScope.Rulers( zoom: Float, offset: Offset, rotationDeg: Float, imperial: Boolean, spacing: Float = 48f, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun EyedropLoupe(color: Color?, position: Offset, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun InfiniteGrid( zoom: Float, offset: Offset, rotationDeg: Float, modifier: Modifier = Modifier, spacing: Float = 48f, color: Color = Color(0x33808080), )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun LayerStackNode( node: LayerNode, // A Compose State, not the live LiveStroke value itself: reading `.value` only inside the // derivedStateOf below (not here, at this composable's own top level) is what keeps a stroke's // ~60/sec updates from recomposing every layer in the stack instead of just the one being // painted — see LiveStroke's doc comment for the recomposition-storm this replaced. liveStroke: androidx.compose.runtime.State&lt;com.hereliesaz.graffitixr.common.model.LiveStroke&gt;, modifier: Modifier = Modifier, // Animation Assist's per-frame opacity override, applied on top of the layer's own opacity. // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha // already covers its whole subtree — recursive calls take the 1f default so it isn't squared. frameAlpha: Float = 1f, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun PenCanvas( color: Color, strokeWidthPx: Float, gate: StrokeGate, onCommit: (points: List&lt;Offset&gt;, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun SelectionHandles( activeLayer: Layer, viewportOffset: Offset, viewportZoom: Float, viewportRotation: Float, onGestureStart: () -&gt; Unit, onResize: (zoom: Float) -&gt; Unit, onRotate: (degrees: Float) -&gt; Unit, onMove: (delta: Offset) -&gt; Unit, onGestureEnd: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun SelectionOverlay( activeLayer: Layer?, viewportOffset: Offset, viewportZoom: Float, viewportRotation: Float, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun SnapGuides(guidesX: List&lt;Float&gt;, guidesY: List&lt;Float&gt;, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier, frameAlpha: Float = 1f)</ID>
+    <ID>FunctionNaming:EditorUi.kt$@Composable fun EditorUi( actions: EditorViewModel, uiState: EditorUiState, isTouchLocked: Boolean, showUnlockInstructions: Boolean, strings: AppStrings, isCapturingTarget: Boolean = false )</ID>
+    <ID>FunctionNaming:ExtensionParamsPanel.kt$@Composable fun ExtensionParamsPanel( contributionName: String, schema: UiSchema, params: Map&lt;String, ParamValue&gt;, onParamChanged: (key: String, value: ParamValue) -&gt; Unit, onRun: () -&gt; Unit, onBack: () -&gt; Unit, onClose: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ExtensionParamsPanel.kt$@Composable private fun ControlList( controls: List&lt;UiControl&gt;, params: Map&lt;String, ParamValue&gt;, onParamChanged: (String, ParamValue) -&gt; Unit, onRun: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ExtensionParamsPanel.kt$@Composable private fun ControlRow( control: UiControl, params: Map&lt;String, ParamValue&gt;, onParamChanged: (String, ParamValue) -&gt; Unit, onRun: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ExtensionsPanel.kt$@Composable fun ExtensionsPanel( extensions: List&lt;InstalledExtension&gt;, activeExtension: InstalledExtension?, contributionsOf: (InstalledExtension) -&gt; List&lt;Pair&lt;String, Contribution&gt;&gt;, onSelect: (String) -&gt; Unit, onSelectContribution: (String, Contribution) -&gt; Unit, onBack: () -&gt; Unit, onClose: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:FigmaWindow.kt$@Composable fun FigmaWindow( state: EditorViewModel.FigmaUiState, onTokenSubmit: (String) -&gt; Unit, onDisconnect: () -&gt; Unit, onFileInputChanged: (String) -&gt; Unit, onLoadFile: () -&gt; Unit, onToggleFrame: (String) -&gt; Unit, onImport: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:FigmaWindow.kt$@Composable private fun ConnectSection(isLoading: Boolean, error: String?, onTokenSubmit: (String) -&gt; Unit)</ID>
+    <ID>FunctionNaming:FigmaWindow.kt$@Composable private fun FrameRow(frame: FigmaFrame, isSelected: Boolean, onToggle: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:GalleryWindow.kt$@Composable fun GalleryWindow( projects: List&lt;GraffitiProject&gt;, currentProjectId: String?, onOpen: (String) -&gt; Unit, onNew: () -&gt; Unit, onDelete: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:GalleryWindow.kt$@Composable private fun GalleryCard( project: GraffitiProject, isCurrent: Boolean, onOpen: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:GestureFeedback.kt$@Composable fun GestureFeedback(state: EditorUiState, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:LayerOptionsDialog.kt$@Composable fun LayerOptionsDialog( overlay: Layer, navStrings: NavStrings, onEditText: () -&gt; Unit, onInvert: () -&gt; Unit, onShapeSize: () -&gt; Unit, onStrokeWidth: () -&gt; Unit, onCornerRadius: () -&gt; Unit, onPolygonSides: () -&gt; Unit, onToggleFill: () -&gt; Unit, // Brackets a slider's drag so each drag pushes one undo checkpoint and persists on release — // see EditorViewModel.onLayerEditStart/onLayerEditEnd. A stock Material Slider has no drag-start // callback, so the flag below detects it manually. onEditStart: () -&gt; Unit, onEditCommit: () -&gt; Unit, /** * Auto-layout gap, non-null only when this layer actually has children to space out. It moved * here from a rail slider: it is a property of this layer, and this is the window that holds * this layer's properties. The rail had it filed under a separate "Layout" group that only * appeared under the same condition. */ autoLayoutGap: Float?, onGapChange: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelView.kt$@Composable fun ModelView( mesh: Mesh?, modifier: Modifier = Modifier, texture: PaintableTexture? = null, paintEnabled: Boolean = false, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, onPaintChanged: () -&gt; Unit = {}, captureRequest: Int = 0, onCaptured: (android.graphics.Bitmap?) -&gt; Unit = {}, )</ID>
+    <ID>FunctionNaming:ModelWindow.kt$@Composable fun ModelWindow( state: ModelUiState, onPickModel: () -&gt; Unit, onDismiss: () -&gt; Unit, onPaintChanged: () -&gt; Unit = {}, onAddToCanvas: (android.graphics.Bitmap) -&gt; Unit = {}, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, )</ID>
+    <ID>FunctionNaming:OpenProjectWindow.kt$@Composable fun OpenProjectWindow( state: OpenScreenState, currentProjectId: String?, onOpenProject: (String) -&gt; Unit, onOpenFile: (Uri) -&gt; Unit, onNew: () -&gt; Unit, onChooseLocation: () -&gt; Unit, onDelete: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:OpenProjectWindow.kt$@Composable private fun OpenCard( name: String, location: String, isCurrent: Boolean, thumbnailKey: String?, loadThumbnail: () -&gt; android.graphics.Bitmap?, onOpen: () -&gt; Unit, onDelete: (() -&gt; Unit)?, )</ID>
+    <ID>FunctionNaming:PathEditOverlay.kt$@Composable fun PathEditOverlay( layer: Layer, uiState: EditorUiState, onEditStart: () -&gt; Unit, onMoveNode: (index: Int, dx: Float, dy: Float) -&gt; Unit, onMoveHandle: (index: Int, outgoing: Boolean, x: Float, y: Float) -&gt; Unit, onEditEnd: () -&gt; Unit, onSelectNode: (Int?) -&gt; Unit, onInsertNode: (segmentIndex: Int, t: Float) -&gt; Unit, onToggleCornerSmooth: (Int) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:PolygonSidesDialog.kt$@Composable fun PolygonSidesDialog( currentSides: Int, onApply: (Int) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:QuickMenu.kt$@Composable fun QuickMenu( center: Offset, actions: List&lt;QuickAction&gt;, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ReferenceWindow.kt$@Composable fun ReferenceWindow( imageUri: Uri?, onPickImage: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:RotationAxisFeedback.kt$@Composable fun RotationAxisFeedback( axis: RotationAxis, visible: Boolean, onFeedbackShown: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:SaveProjectDialog.kt$@Composable fun SaveProjectDialog( currentName: String, onConfirm: (name: String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SelectionCanvas.kt$@Composable fun SelectionCanvas( selection: Selection?, shape: SelectionShape, op: SelectionOp, gate: StrokeGate, modifier: Modifier = Modifier, onSelectionEnd: (List&lt;Offset&gt;, IntSize) -&gt; Unit, onSelectionMove: (Offset) -&gt; Unit, onAutoSelect: (Offset, IntSize) -&gt; Unit, onClearSelection: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SelectionCanvas.kt$@Composable fun SelectionMarquee( selection: Selection, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ShapeSizeDialog.kt$@Composable fun ShapeSizeDialog( currentWidth: Float, currentHeight: Float, isLine: Boolean, onConfirm: (width: Float, height: Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@Composable fun ColorPickerDialog( currentColor: Color, secondaryColor: Color = Color.Black, history: List&lt;Color&gt;, onSelectColor: (Color) -&gt; Unit, onSelectSecondaryColor: (Color) -&gt; Unit = {}, onSwapColors: () -&gt; Unit = {}, onDismiss: () -&gt; Unit, strings: AppStrings, savedPalette: List&lt;Color&gt; = emptyList(), onSavePaletteColor: (Color) -&gt; Unit = {}, onRemovePaletteColor: (Color) -&gt; Unit = {}, )</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@Composable fun SizePickerDialog( currentSize: Float, onSizeChange: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // The active azphalt stamp brush, for a real BrushPreview stroke at the size being dragged -- // null for the plain (non-stamp) round brush, which renders through a different pipeline // (DrawingEngine's drawStrokeDynamic) that BrushPreview can't stand in for, so that case falls // back to an accurate single dab (radius + [brushFeathering] falloff) instead, mirroring // BrushSizePad's own rail preview. previewBrush: AzphaltBrush? = null, brushColor: Color = Color.White, secondaryColor: Color = Color.Black, brushFeathering: Float = 0f, )</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@Composable private fun ColorWheel( hue: Float, saturation: Float, brightness: Float, modifier: Modifier = Modifier, // Harmony partners of the current hue, drawn as secondary rings. Picking near one snaps to it // exactly, so a relationship you chose stays the relationship you get. markerHues: List&lt;Float&gt; = emptyList(), onHueSaturationChanged: (hue: Float, saturation: Float) -&gt; Unit )</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@Composable private fun PalettesTab( savedPalette: List&lt;Color&gt;, history: List&lt;Color&gt;, working: Color, onPick: (Color) -&gt; Unit, onSave: () -&gt; Unit, onRemove: (Color) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@Composable private fun PickerChip(text: String, selected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:SketchToolsDialog.kt$@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable private fun Swatch( color: Color, selected: Boolean, onClick: () -&gt; Unit, onLongClick: (() -&gt; Unit)? = null, )</ID>
+    <ID>FunctionNaming:StatusOverlay.kt$@Composable fun StatusOverlay( qualityWarning: String?, arState: ArState, isPlanesDetected: Boolean, isTargetCreated: Boolean, modifier: Modifier )</ID>
+    <ID>FunctionNaming:StoreChooserDialog.kt$@Composable fun StoreChooserDialog( storeAppInstalled: Boolean, onWeb: () -&gt; Unit, onAndroid: () -&gt; Unit, onCancel: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable fun StoreWindow( initialTab: StoreTab, // Installed tab. installed: List&lt;InstalledExtension&gt;, /** Installed extension id -&gt; a newer version the azphalt Repository API reports, if any * (spec/repository-api.md § 6 `POST /updates`). Absent = no known update. Shared with the * Browse tab's own per-card "Update" affordance — the same map either side reads by id. */ updatesAvailable: Map&lt;String, String&gt; = emptyMap(), /** Extension ids currently mid-update/install, for a busy indicator on that card's button — * shared between both tabs, since installing from Browse and updating from Installed are the * same underlying call. */ installingIds: Set&lt;String&gt; = emptySet(), onUpdate: (InstalledExtension) -&gt; Unit = {}, onUninstall: (String) -&gt; Unit, // Browse tab. query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun BrowseTab( query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, installedIds: Set&lt;String&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun InstalledExtensionCard( extension: InstalledExtension, updateVersion: String? = null, updating: Boolean = false, onUpdate: () -&gt; Unit = {}, onUninstall: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun InstalledTab( installed: List&lt;InstalledExtension&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onUpdate: (InstalledExtension) -&gt; Unit, onUninstall: (InstalledExtension) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun PackageCard( pkg: PackageSummary, installed: Boolean, updateVersion: String?, installing: Boolean, onInstall: () -&gt; Unit, onBuy: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun SignatureBadge(status: SignatureStatus)</ID>
+    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun StoreTabChip(text: String, selected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:TextEditDialog.kt$@Composable fun TextEditDialog( initialText: String, initialFontName: String, initialSizeDp: Float, initialKerningEm: Float, initialColorArgb: Int, initialBold: Boolean, initialItalic: Boolean, initialHasOutline: Boolean, initialHasDropShadow: Boolean, onTextChange: (String) -&gt; Unit, onFontChange: (String) -&gt; Unit, onSizeChange: (Float) -&gt; Unit, // Brackets one drag of the size/kerning sliders (undo + persist) — see // EditorViewModel.onLayerEditStart/onLayerEditEnd. Without these, resizing text here reverted // on relaunch and couldn't be undone, unlike every other control in this dialog (each of which // is a single tap, not a drag, so it can push history and save inline). onSizeStart: () -&gt; Unit, onSizeCommit: () -&gt; Unit, onKerningChange: (Float) -&gt; Unit, onKerningStart: () -&gt; Unit, onKerningCommit: () -&gt; Unit, onColorChange: (Int) -&gt; Unit, onStyleChange: (bold: Boolean, italic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean) -&gt; Unit, onAlign: (AlignMode) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ToolOptionsWindow.kt$@Composable fun ToolOptionsWindow( stabilizerLevel: Int, onSetStabilizerLevel: (Int) -&gt; Unit, stabilizerAlgorithm: StabilizerAlgorithm, onSetStabilizerAlgorithm: (StabilizerAlgorithm) -&gt; Unit, magicWandTolerance: Int?, onSetMagicWandTolerance: (Int) -&gt; Unit, selectionFeatherPx: Float?, onSetSelectionFeather: (Float) -&gt; Unit, brushFlow: Float?, onSetBrushFlow: (Float) -&gt; Unit, brushOpacity: Float?, onSetBrushOpacity: (Float) -&gt; Unit, // The active azphalt stamp brush, for the live preview strip -- null whenever the plain // (non-stamp) round brush is active, since that's a different render pipeline entirely // (DrawingEngine's drawStrokeDynamic, not BrushStamps/StampBrushRenderer) that this preview // can't accurately stand in for; see its own use below. previewBrush: AzphaltBrush?, brushColor: Color, secondaryColor: Color = Color.Black, // Decoded runtime assets for [previewBrush] when it's an installed brush with a custom tip/ // grain/masked secondary tip, so the preview matches what will actually paint instead of // always falling back to a generated gradient oval. Null for built-in/generated brushes. previewStampShape: Bitmap? = null, previewStampGrain: Bitmap? = null, previewStampMaskShape: Bitmap? = null, colorSmudgeSettings: ColorSmudgeEngine.Settings?, onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -&gt; Unit, onSetColorSmudgeRate: (Float) -&gt; Unit, onSetColorSmudgeColorRate: (Float) -&gt; Unit, onSetColorSmudgeChargeDecayRate: (Float) -&gt; Unit, onSetColorSmudgeDilution: (Float) -&gt; Unit, onSetColorSmudgePickupRate: (Float) -&gt; Unit, onSetColorSmudgeMixingModel: (MaterialMixingModel) -&gt; Unit, onSetColorSmudgeRadius: (Float) -&gt; Unit, onSetColorSmudgeOpacity: (Float) -&gt; Unit, onSetColorSmudgeAlphaCarry: (Boolean) -&gt; Unit, onSetColorSmudgeSampleMerged: (Boolean) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:TransformPanel.kt$@Composable fun TransformPanel( activeLayer: Layer?, actions: EditorViewModel, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:TransformPanel.kt$@Composable private fun NumberField( label: String, initial: String, onValue: (Float) -&gt; Unit, modifier: Modifier = Modifier, allowNegative: Boolean = false, )</ID>
+    <ID>FunctionNaming:VectorStrokeDialog.kt$@Composable fun VectorStrokeDialog( currentWidth: Float, onApply: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:WarpHandles.kt$@Composable fun WarpHandles( handles: List&lt;Offset&gt;, gridSize: Int, onHandleMoved: (Int, Offset) -&gt; Unit, onRelease: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionOnlyReturningConstant:EditorViewModel.kt$internal fun gpuCompatibleStampBrush( brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, shape: Bitmap?, grain: Bitmap?, maskShape: Bitmap?, ): Boolean</ID>
+    <ID>LargeClass:DrawingEngine.kt$DrawingEngine</ID>
+    <ID>LargeClass:EditorViewModel.kt$EditorViewModel : ViewModelEditorActions</ID>
+    <ID>LargeClass:ImageProcessor.kt$ImageProcessor</ID>
+    <ID>LongMethod:AnimationWindow.kt$@Composable fun AnimationWindow( frameCount: Int, activeFrameIndex: Int, isPlaying: Boolean, onionSkinEnabled: Boolean, onionSkinPastCount: Int, onionSkinFutureCount: Int, loopMode: AnimationLoopMode, frameDurationMs: Int, // The playback range, already resolved to real frame numbers (see // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields. rangeStart: Int, rangeEnd: Int, // The RAW animationRangeEnd (may be -1), separate from the resolved [rangeEnd] above. The Start // slider must round-trip this, not [rangeEnd] -- passing the resolved value back through // onSetRange on every Start drag would silently pin the end to "whatever the last frame happens // to be right now", destroying the -1 sentinel's whole point (tracking new frames as they're // added) the very first time the user touches Start without ever having touched End. rawRangeEnd: Int, currentFrameHoldCount: Int, isTimeLapseRecording: Boolean, previewIsRendering: Boolean, previewIsReady: Boolean, previewRenderedFrames: Int, previewTotalFrames: Int, previewError: String?, onTogglePlayback: () -&gt; Unit, onPreviousFrame: () -&gt; Unit, onNextFrame: () -&gt; Unit, onSeekFrame: (Int) -&gt; Unit, onAddFrame: () -&gt; Unit, onToggleOnionSkin: () -&gt; Unit, onSetOnionSkinPastCount: (Int) -&gt; Unit, onSetOnionSkinFutureCount: (Int) -&gt; Unit, onSetLoopMode: (AnimationLoopMode) -&gt; Unit, onSetFrameDurationMs: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, onRenderPreview: () -&gt; Unit, onSetFrameHoldCount: (Int) -&gt; Unit, onExport: () -&gt; Unit, onToggleTimeLapse: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:AnimationWindow.kt$@Composable private fun PlaybackRuler( frameCount: Int, activeFrameIndex: Int, rangeStart: Int, rangeEnd: Int, onSeekFrame: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, )</ID>
+    <ID>LongMethod:BrushStudioWindow.kt$@Composable fun BrushPreview( brush: AzphaltBrush, color: Color, secondaryColor: Color, height: androidx.compose.ui.unit.Dp = 72.dp, // Flow is a per-session paint setting (EditorUiState.brushFlow), not stored on AzphaltBrush // itself, so it isn't reflected by `brush` alone -- callers previewing a live Flow slider // (ToolOptionsWindow) pass the current value here; everyone else keeps the default, which // matches flow's own default of fully-opaque (StampBrushRenderer.paintDabs' `baseFlow`). flow: Float = 1f, // The dab diameter this preview strokes with is normally derived from the strip's own // height (canvasHeight / 3f) purely so the S-curve reads at a sensible scale regardless of // brush size -- accurate for Brush Studio/My Brushes, where no single "current size" exists // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here // instead, so the preview shows the brush at the size it's actually about to paint at. sizeOverridePx: Float? = null, // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip. // When present, each dab is stamped from the real tip bitmap (used as an alpha mask, tinted // with the resolved dab color) with the grain composited on top, instead of a generated // gradient oval. stampShape: Bitmap? = null, stampGrain: Bitmap? = null, stampMaskShape: Bitmap? = null, )</ID>
+    <ID>LongMethod:BrushStudioWindow.kt$@Composable fun BrushStudioWindow( draft: AzphaltBrush, brushColor: Color, secondaryColor: Color = Color.Black, isSaved: Boolean, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, onSave: () -&gt; Unit, onDelete: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun dull( pixels: IntArray, readSource: IntArray, width: Int, height: Int, path: List&lt;DabPoint&gt;, kernel: BrushKernel, settings: Settings, strokeStartUptimeMillis: Long, strokeSeed: Long, step: Float, wetnessField: PersistentWetnessField?, wetnessClip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>LongMethod:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun smear( pixels: IntArray, readSource: IntArray, width: Int, height: Int, path: List&lt;DabPoint&gt;, kernel: BrushKernel, settings: Settings, strokeStartUptimeMillis: Long, strokeSeed: Long, step: Float, wetnessField: PersistentWetnessField?, wetnessClip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>LongMethod:CurvesAdjustment.kt$@Composable fun CurvesAdjustment( points: List&lt;Offset&gt;, onPointsChanged: (List&lt;Offset&gt;) -&gt; Unit, onDragEnd: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:DrawingCanvas.kt$@Composable fun DrawingCanvas( activeTool: Tool, brushSize: Float, activeColor: Color, layerBitmapKey: Any?, gate: StrokeGate, modifier: Modifier = Modifier, onStrokeStart: (BrushSample, IntSize) -&gt; Unit, onStrokePoint: (BrushSample) -&gt; Unit, onStrokeEnd: () -&gt; Unit, onStrokeCancel: () -&gt; Unit, onFillTap: (Offset, IntSize) -&gt; Unit, pickingCloneSource: Boolean = false, onPickCloneSource: (Offset) -&gt; Unit = {}, onEyedropStart: (IntSize) -&gt; Unit, onEyedropSample: (Offset) -&gt; Unit, onEyedropEnd: (commit: Boolean) -&gt; Unit, /** * Optional physical brush definition for the cursor. Existing callers remain compatible; null * falls back to the historical round/elliptical footprint. When supplied, hover uses the same * morphology, bristle population and device-pose model as the mechanics layer. */ activeBrushPreview: AzphaltBrush? = null, /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */ onPredictionRanked: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, /** TEMPORARY: this canvas's prediction tournament is being discarded. */ onPredictionSessionEnd: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, )</ID>
+    <ID>LongMethod:DrawingEngine.kt$DrawingEngine$private suspend fun applyTool( bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, ): Bitmap</ID>
+    <ID>LongMethod:DrawingEngineImpastoTest.kt$DrawingEngineImpastoTest$@Test fun `impasto v2 sequential commit and full replay match pixels height and wetness`()</ID>
+    <ID>LongMethod:EditorReducer.kt$EditorReducer$private fun reduceBrushSettings(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>LongMethod:EditorReducer.kt$EditorReducer$private fun reduceEditorSettings(state: EditorUiState, intent: EditorIntent): EditorUiState?</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable fun EditorScreen( vm: EditorViewModel, modifier: Modifier = Modifier, // Non-null when the HOST owns the Procreate history gestures. The host installs the observer // above the whole app (see MainActivity) so two- and three-finger taps also register over the // nav rail, the floating panels and the onscreen chrome — none of which live inside this // screen's subtree, and all of which used to swallow the gesture entirely. This screen then // only feeds the shared gate from its drawing surfaces. Null = standalone: it owns both, and // the gestures are canvas-only. hostStrokeGate: StrokeGate? = null, )</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable private fun BoxScope.Rulers( zoom: Float, offset: Offset, rotationDeg: Float, imperial: Boolean, spacing: Float = 48f, )</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable private fun LayerStackNode( node: LayerNode, // A Compose State, not the live LiveStroke value itself: reading `.value` only inside the // derivedStateOf below (not here, at this composable's own top level) is what keeps a stroke's // ~60/sec updates from recomposing every layer in the stack instead of just the one being // painted — see LiveStroke's doc comment for the recomposition-storm this replaced. liveStroke: androidx.compose.runtime.State&lt;com.hereliesaz.graffitixr.common.model.LiveStroke&gt;, modifier: Modifier = Modifier, // Animation Assist's per-frame opacity override, applied on top of the layer's own opacity. // Only ever non-1 at the top level (a frame), because a GROUP frame's graphicsLayer alpha // already covers its whole subtree — recursive calls take the 1f default so it isn't squared. frameAlpha: Float = 1f, )</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable private fun PenCanvas( color: Color, strokeWidthPx: Float, gate: StrokeGate, onCommit: (points: List&lt;Offset&gt;, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable private fun SelectionHandles( activeLayer: Layer, viewportOffset: Offset, viewportZoom: Float, viewportRotation: Float, onGestureStart: () -&gt; Unit, onResize: (zoom: Float) -&gt; Unit, onRotate: (degrees: Float) -&gt; Unit, onMove: (delta: Offset) -&gt; Unit, onGestureEnd: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:EditorUi.kt$@Composable fun EditorUi( actions: EditorViewModel, uiState: EditorUiState, isTouchLocked: Boolean, showUnlockInstructions: Boolean, strings: AppStrings, isCapturingTarget: Boolean = false )</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun applySpectatorOp(op: Op)</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun clearTransientStrokeState()</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun commitStampStroke( state: EditorUiState, layer: Layer, layerId: String, points: List&lt;Offset&gt;, brushSamples: List&lt;BrushSample&gt;, canvasW: Int, canvasH: Int, scale: Float, offset: Offset, rotationZ: Float, brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, stampShape: Bitmap?, stampGrain: Bitmap?, stampMaskShape: Bitmap?, // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke // state the moment this returns, while the rasterization below runs later on a background // dispatcher and would otherwise find it already null. selection: com.hereliesaz.graffitixr.common.model.Selection?, )</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun enqueueBasicLiveDabs( canvas: Canvas, paint: Paint, dabs: List&lt;BrushDab&gt;, targetBitmap: Bitmap, )</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false)</ID>
+    <ID>LongMethod:ExportManager.kt$ExportManager$private fun drawShape(canvas: Canvas, shape: VectorShape, cx: Float, cy: Float, paint: Paint)</ID>
+    <ID>LongMethod:ExtensionParamsPanel.kt$@Composable private fun ControlRow( control: UiControl, params: Map&lt;String, ParamValue&gt;, onParamChanged: (String, ParamValue) -&gt; Unit, onRun: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ExtensionsPanel.kt$@Composable fun ExtensionsPanel( extensions: List&lt;InstalledExtension&gt;, activeExtension: InstalledExtension?, contributionsOf: (InstalledExtension) -&gt; List&lt;Pair&lt;String, Contribution&gt;&gt;, onSelect: (String) -&gt; Unit, onSelectContribution: (String, Contribution) -&gt; Unit, onBack: () -&gt; Unit, onClose: () -&gt; Unit, )</ID>
+    <ID>LongMethod:FigmaWindow.kt$@Composable fun FigmaWindow( state: EditorViewModel.FigmaUiState, onTokenSubmit: (String) -&gt; Unit, onDisconnect: () -&gt; Unit, onFileInputChanged: (String) -&gt; Unit, onLoadFile: () -&gt; Unit, onToggleFrame: (String) -&gt; Unit, onImport: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:GalleryWindow.kt$@Composable private fun GalleryCard( project: GraffitiProject, isCurrent: Boolean, onOpen: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ImageProcessor.kt$ImageProcessor$suspend fun applyToolToBitmap( originalBitmap: Bitmap, stroke: List&lt;Offset&gt;, tool: Tool, brushSize: Float = 50f, brushColor: Int = Color.BLACK, intensity: Float = 0.5f, mutateInPlace: Boolean = false, feathering: Float = 0f, wrapAroundMode: Boolean = false, // Alpha Lock confines paint to existing alpha (SRC_ATOP). alphaLock: Boolean = false, // Bitmap-space lasso selection, if one is active: every tool in the switch // below is confined to it. Built by SelectionMask so the live paint, the // commit and the history replay all clip to the identical boundary. // Tool.LIQUIFY never reaches this function — it warps through the native // pass — but it is confined to the selection all the same, by compositing // its baked result back through SelectionMask.feather in // DrawingEngine.applyLiquify. clipPath: android.graphics.Path? = null, // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it // copies. Passed in rather than derived here because it is fixed at the // moment the stroke starts and recorded onto the command, which is what // makes a clone stroke replay identically on undo/redo. cloneOffset: Offset? = null, // Tool.BRUSH only: whole-stroke opacity ceiling (0..1). Ignored by every other tool. opacity: Float = 1f, // Tool.BRUSH only: per-point pressure (0..1, aligned 1:1 with `stroke`), fed into // BrushDynamics alongside speed. Empty (the default) reads as full pressure throughout. pressures: List&lt;Float&gt; = emptyList(), ): Bitmap</ID>
+    <ID>LongMethod:MaterialStateCodec.kt$MaterialStateCodec$fun decode(bytes: ByteArray): Snapshot?</ID>
+    <ID>LongMethod:MaterialStateCodec.kt$MaterialStateCodec$fun encode(snapshot: Snapshot): ByteArray</ID>
+    <ID>LongMethod:ModelWindow.kt$@Composable fun ModelWindow( state: ModelUiState, onPickModel: () -&gt; Unit, onDismiss: () -&gt; Unit, onPaintChanged: () -&gt; Unit = {}, onAddToCanvas: (android.graphics.Bitmap) -&gt; Unit = {}, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, )</ID>
+    <ID>LongMethod:OpenProjectWindow.kt$@Composable fun OpenProjectWindow( state: OpenScreenState, currentProjectId: String?, onOpenProject: (String) -&gt; Unit, onOpenFile: (Uri) -&gt; Unit, onNew: () -&gt; Unit, onChooseLocation: () -&gt; Unit, onDelete: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:OpenProjectWindow.kt$@Composable private fun OpenCard( name: String, location: String, isCurrent: Boolean, thumbnailKey: String?, loadThumbnail: () -&gt; android.graphics.Bitmap?, onOpen: () -&gt; Unit, onDelete: (() -&gt; Unit)?, )</ID>
+    <ID>LongMethod:PathEditOverlay.kt$@Composable fun PathEditOverlay( layer: Layer, uiState: EditorUiState, onEditStart: () -&gt; Unit, onMoveNode: (index: Int, dx: Float, dy: Float) -&gt; Unit, onMoveHandle: (index: Int, outgoing: Boolean, x: Float, y: Float) -&gt; Unit, onEditEnd: () -&gt; Unit, onSelectNode: (Int?) -&gt; Unit, onInsertNode: (segmentIndex: Int, t: Float) -&gt; Unit, onToggleCornerSmooth: (Int) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:SelectionCanvas.kt$@Composable fun SelectionCanvas( selection: Selection?, shape: SelectionShape, op: SelectionOp, gate: StrokeGate, modifier: Modifier = Modifier, onSelectionEnd: (List&lt;Offset&gt;, IntSize) -&gt; Unit, onSelectionMove: (Offset) -&gt; Unit, onAutoSelect: (Offset, IntSize) -&gt; Unit, onClearSelection: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SketchToolsDialog.kt$@Composable fun ColorPickerDialog( currentColor: Color, secondaryColor: Color = Color.Black, history: List&lt;Color&gt;, onSelectColor: (Color) -&gt; Unit, onSelectSecondaryColor: (Color) -&gt; Unit = {}, onSwapColors: () -&gt; Unit = {}, onDismiss: () -&gt; Unit, strings: AppStrings, savedPalette: List&lt;Color&gt; = emptyList(), onSavePaletteColor: (Color) -&gt; Unit = {}, onRemovePaletteColor: (Color) -&gt; Unit = {}, )</ID>
+    <ID>LongMethod:SketchToolsDialog.kt$@Composable private fun ColorWheel( hue: Float, saturation: Float, brightness: Float, modifier: Modifier = Modifier, // Harmony partners of the current hue, drawn as secondary rings. Picking near one snaps to it // exactly, so a relationship you chose stays the relationship you get. markerHues: List&lt;Float&gt; = emptyList(), onHueSaturationChanged: (hue: Float, saturation: Float) -&gt; Unit )</ID>
+    <ID>LongMethod:StampBrushRenderer.kt$StampBrushRenderer$private fun paintMaskedDabs( destination: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, baseColor: Int, secondaryColor: Int, flow: Float, stamp: Bitmap?, grain: Bitmap?, maskStamp: Bitmap?, seed: Long, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongMethod:StampBrushRenderer.kt$StampBrushRenderer$private fun paintRoundDabsMaxCombined( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, secondaryColorArgb: Int, flow: Float, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongMethod:StoreWindow.kt$@Composable private fun BrowseTab( query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, installedIds: Set&lt;String&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, )</ID>
+    <ID>LongMethod:StoreWindow.kt$@Composable private fun PackageCard( pkg: PackageSummary, installed: Boolean, updateVersion: String?, installing: Boolean, onInstall: () -&gt; Unit, onBuy: () -&gt; Unit, )</ID>
+    <ID>LongMethod:TextEditDialog.kt$@Composable fun TextEditDialog( initialText: String, initialFontName: String, initialSizeDp: Float, initialKerningEm: Float, initialColorArgb: Int, initialBold: Boolean, initialItalic: Boolean, initialHasOutline: Boolean, initialHasDropShadow: Boolean, onTextChange: (String) -&gt; Unit, onFontChange: (String) -&gt; Unit, onSizeChange: (Float) -&gt; Unit, // Brackets one drag of the size/kerning sliders (undo + persist) — see // EditorViewModel.onLayerEditStart/onLayerEditEnd. Without these, resizing text here reverted // on relaunch and couldn't be undone, unlike every other control in this dialog (each of which // is a single tap, not a drag, so it can push history and save inline). onSizeStart: () -&gt; Unit, onSizeCommit: () -&gt; Unit, onKerningChange: (Float) -&gt; Unit, onKerningStart: () -&gt; Unit, onKerningCommit: () -&gt; Unit, onColorChange: (Int) -&gt; Unit, onStyleChange: (bold: Boolean, italic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean) -&gt; Unit, onAlign: (AlignMode) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ToolOptionsWindow.kt$@Composable fun ToolOptionsWindow( stabilizerLevel: Int, onSetStabilizerLevel: (Int) -&gt; Unit, stabilizerAlgorithm: StabilizerAlgorithm, onSetStabilizerAlgorithm: (StabilizerAlgorithm) -&gt; Unit, magicWandTolerance: Int?, onSetMagicWandTolerance: (Int) -&gt; Unit, selectionFeatherPx: Float?, onSetSelectionFeather: (Float) -&gt; Unit, brushFlow: Float?, onSetBrushFlow: (Float) -&gt; Unit, brushOpacity: Float?, onSetBrushOpacity: (Float) -&gt; Unit, // The active azphalt stamp brush, for the live preview strip -- null whenever the plain // (non-stamp) round brush is active, since that's a different render pipeline entirely // (DrawingEngine's drawStrokeDynamic, not BrushStamps/StampBrushRenderer) that this preview // can't accurately stand in for; see its own use below. previewBrush: AzphaltBrush?, brushColor: Color, secondaryColor: Color = Color.Black, // Decoded runtime assets for [previewBrush] when it's an installed brush with a custom tip/ // grain/masked secondary tip, so the preview matches what will actually paint instead of // always falling back to a generated gradient oval. Null for built-in/generated brushes. previewStampShape: Bitmap? = null, previewStampGrain: Bitmap? = null, previewStampMaskShape: Bitmap? = null, colorSmudgeSettings: ColorSmudgeEngine.Settings?, onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -&gt; Unit, onSetColorSmudgeRate: (Float) -&gt; Unit, onSetColorSmudgeColorRate: (Float) -&gt; Unit, onSetColorSmudgeChargeDecayRate: (Float) -&gt; Unit, onSetColorSmudgeDilution: (Float) -&gt; Unit, onSetColorSmudgePickupRate: (Float) -&gt; Unit, onSetColorSmudgeMixingModel: (MaterialMixingModel) -&gt; Unit, onSetColorSmudgeRadius: (Float) -&gt; Unit, onSetColorSmudgeOpacity: (Float) -&gt; Unit, onSetColorSmudgeAlphaCarry: (Boolean) -&gt; Unit, onSetColorSmudgeSampleMerged: (Boolean) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:TransformPanel.kt$@Composable fun TransformPanel( activeLayer: Layer?, actions: EditorViewModel, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:AddContentDialog.kt$( onAddText: () -&gt; Unit, onAddRectangle: () -&gt; Unit, onAddEllipse: () -&gt; Unit, onAddLine: () -&gt; Unit, onAddTriangle: () -&gt; Unit, onAddPentagon: () -&gt; Unit, onAddHexagon: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:AnimationGifWriter.kt$AnimationGifWriter$( file: File, range: IntRange, frameDurationMs: Int, loopMode: AnimationLoopMode, holdCountAt: (Int) -&gt; Int = { 1 }, frameAt: (Int) -&gt; Bitmap?, )</ID>
+    <ID>LongParameterList:AnimationWindow.kt$( frameCount: Int, activeFrameIndex: Int, isPlaying: Boolean, onionSkinEnabled: Boolean, onionSkinPastCount: Int, onionSkinFutureCount: Int, loopMode: AnimationLoopMode, frameDurationMs: Int, // The playback range, already resolved to real frame numbers (see // EditorViewModel.resolvedPlaybackRange) rather than the raw -1-for-"last frame" state fields. rangeStart: Int, rangeEnd: Int, // The RAW animationRangeEnd (may be -1), separate from the resolved [rangeEnd] above. The Start // slider must round-trip this, not [rangeEnd] -- passing the resolved value back through // onSetRange on every Start drag would silently pin the end to "whatever the last frame happens // to be right now", destroying the -1 sentinel's whole point (tracking new frames as they're // added) the very first time the user touches Start without ever having touched End. rawRangeEnd: Int, currentFrameHoldCount: Int, isTimeLapseRecording: Boolean, previewIsRendering: Boolean, previewIsReady: Boolean, previewRenderedFrames: Int, previewTotalFrames: Int, previewError: String?, onTogglePlayback: () -&gt; Unit, onPreviousFrame: () -&gt; Unit, onNextFrame: () -&gt; Unit, onSeekFrame: (Int) -&gt; Unit, onAddFrame: () -&gt; Unit, onToggleOnionSkin: () -&gt; Unit, onSetOnionSkinPastCount: (Int) -&gt; Unit, onSetOnionSkinFutureCount: (Int) -&gt; Unit, onSetLoopMode: (AnimationLoopMode) -&gt; Unit, onSetFrameDurationMs: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, onRenderPreview: () -&gt; Unit, onSetFrameHoldCount: (Int) -&gt; Unit, onExport: () -&gt; Unit, onToggleTimeLapse: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:AnimationWindow.kt$( frameCount: Int, activeFrameIndex: Int, rangeStart: Int, rangeEnd: Int, onSeekFrame: (Int) -&gt; Unit, onSetRange: (start: Int, end: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:BrushStudioWindow.kt$( brush: AzphaltBrush, color: Color, secondaryColor: Color, height: androidx.compose.ui.unit.Dp = 72.dp, // Flow is a per-session paint setting (EditorUiState.brushFlow), not stored on AzphaltBrush // itself, so it isn't reflected by `brush` alone -- callers previewing a live Flow slider // (ToolOptionsWindow) pass the current value here; everyone else keeps the default, which // matches flow's own default of fully-opaque (StampBrushRenderer.paintDabs' `baseFlow`). flow: Float = 1f, // The dab diameter this preview strokes with is normally derived from the strip's own // height (canvasHeight / 3f) purely so the S-curve reads at a sensible scale regardless of // brush size -- accurate for Brush Studio/My Brushes, where no single "current size" exists // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here // instead, so the preview shows the brush at the size it's actually about to paint at. sizeOverridePx: Float? = null, // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip. // When present, each dab is stamped from the real tip bitmap (used as an alpha mask, tinted // with the resolved dab color) with the grain composited on top, instead of a generated // gradient oval. stampShape: Bitmap? = null, stampGrain: Bitmap? = null, stampMaskShape: Bitmap? = null, )</ID>
+    <ID>LongParameterList:BrushStudioWindow.kt$( draft: AzphaltBrush, brushColor: Color, secondaryColor: Color = Color.Black, isSaved: Boolean, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, onSave: () -&gt; Unit, onDelete: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:BrushStudioWindow.kt$( label: String, brush: AzphaltBrush, defaultBinding: BrushSensorBinding, inputRange: ClosedFloatingPointRange&lt;Float&gt; = defaultBinding.inputMin..defaultBinding.inputMax, inputUnit: String? = null, outputRange: ClosedFloatingPointRange&lt;Float&gt;, outputUnit: String? = null, onEdit: ((AzphaltBrush) -&gt; AzphaltBrush) -&gt; Unit, )</ID>
+    <ID>LongParameterList:BrushStudioWindow.kt$( label: String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, asFraction: Boolean = false, unit: String? = null, onChange: (Float) -&gt; Unit, )</ID>
+    <ID>LongParameterList:CanvasHitTest.kt$CanvasHitTest$( layer: Layer, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, )</ID>
+    <ID>LongParameterList:CanvasHitTest.kt$CanvasHitTest$( layer: Layer, local: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, )</ID>
+    <ID>LongParameterList:CanvasHitTest.kt$CanvasHitTest$( layer: Layer, point: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, )</ID>
+    <ID>LongParameterList:CanvasHitTest.kt$CanvasHitTest$( layers: List&lt;Layer&gt;, tap: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, )</ID>
+    <ID>LongParameterList:CanvasHitTestTest.kt$CanvasHitTestTest$( id: String, w: Float = 400f, h: Float = 400f, offset: Offset = Offset.Zero, scale: Float = 1f, rotationZ: Float = 0f, visible: Boolean = true, )</ID>
+    <ID>LongParameterList:ColorMatrixUtils.kt$( saturation: Float, contrast: Float, brightness: Float, colorBalanceR: Float, colorBalanceG: Float, colorBalanceB: Float, isInverted: Boolean = false )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( field: PersistentWetnessField?, x: Int, y: Int, width: Int, height: Int, wrapAround: Boolean, amount: Float, clip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( pixels: IntArray, readSource: IntArray, width: Int, height: Int, path: List&lt;DabPoint&gt;, kernel: BrushKernel, settings: Settings, strokeStartUptimeMillis: Long, strokeSeed: Long, step: Float, wetnessField: PersistentWetnessField?, wetnessClip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( pixels: IntArray, width: Int, height: Int, cx: Int, cy: Int, radius: Int, wrapAround: Boolean, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( pixels: IntArray, width: Int, height: Int, stroke: List&lt;Offset&gt;, settings: Settings, samples: List&lt;BrushSample&gt; = emptyList(), strokeSeed: Long = 0L, sampleSource: IntArray? = null, wetnessField: PersistentWetnessField? = null, wetnessClip: ((x: Int, y: Int) -&gt; Boolean)? = null, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( pixels: IntArray, width: Int, height: Int, stroke: List&lt;Offset&gt;, settings: Settings, samples: List&lt;BrushSample&gt;, strokeSeed: Long, sampleSource: IntArray?, wetnessField: PersistentWetnessField?, wetnessClip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( settings: Settings, sample: BrushSample?, strokeStartUptimeMillis: Long, strokeSeed: Long, dabIndex: Int, distancePx: Float, reservoirOverride: BrushReservoirState? = null, )</ID>
+    <ID>LongParameterList:ColorSmudgeEngine.kt$ColorSmudgeEngine$( stroke: List&lt;Offset&gt;, width: Int, height: Int, settings: Settings, samples: List&lt;BrushSample&gt; = emptyList(), strokeSeed: Long = 0L, )</ID>
+    <ID>LongParameterList:CustomBrushesWindow.kt$( brushes: List&lt;CustomBrush&gt;, activeBrushName: String?, brushColor: Color, secondaryColor: Color = Color.Black, onSelect: (String) -&gt; Unit, onEdit: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, onNew: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:CustomBrushesWindow.kt$( custom: CustomBrush, isActive: Boolean, brushColor: Color, secondaryColor: Color, onSelect: () -&gt; Unit, onEdit: () -&gt; Unit, onDeleteRequest: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:DrawingCanvas.kt$( activeTool: Tool, brushSize: Float, activeColor: Color, layerBitmapKey: Any?, gate: StrokeGate, modifier: Modifier = Modifier, onStrokeStart: (BrushSample, IntSize) -&gt; Unit, onStrokePoint: (BrushSample) -&gt; Unit, onStrokeEnd: () -&gt; Unit, onStrokeCancel: () -&gt; Unit, onFillTap: (Offset, IntSize) -&gt; Unit, pickingCloneSource: Boolean = false, onPickCloneSource: (Offset) -&gt; Unit = {}, onEyedropStart: (IntSize) -&gt; Unit, onEyedropSample: (Offset) -&gt; Unit, onEyedropEnd: (commit: Boolean) -&gt; Unit, /** * Optional physical brush definition for the cursor. Existing callers remain compatible; null * falls back to the historical round/elliptical footprint. When supplied, hover uses the same * morphology, bristle population and device-pose model as the mechanics layer. */ activeBrushPreview: AzphaltBrush? = null, /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */ onPredictionRanked: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, /** TEMPORARY: this canvas's prediction tournament is being discarded. */ onPredictionSessionEnd: (report: String, refreshRateHz: Float) -&gt; Unit = { _, _ -&gt; }, )</ID>
+    <ID>LongParameterList:DrawingEngine.kt$DrawingEngine$( base: Bitmap, command: StrokeCommand, otherLayers: List&lt;Layer&gt; = emptyList(), heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, )</ID>
+    <ID>LongParameterList:DrawingEngine.kt$DrawingEngine$( base: Bitmap, strokes: List&lt;StrokeCommand&gt;, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, )</ID>
+    <ID>LongParameterList:DrawingEngine.kt$DrawingEngine$( bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, )</ID>
+    <ID>LongParameterList:DrawingEngine.kt$DrawingEngine$( target: Bitmap, heightMap: FloatArray, touched: DirtyRegion?, wetness: PersistentWetnessField?, medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium?, rawColorPixels: IntArray? = null, mediumAt: ((x: Int, y: Int) -&gt; com.hereliesaz.graffitixr.common.azphalt.PaintMedium)? = null, )</ID>
+    <ID>LongParameterList:EditorScreen.kt$( activeLayer: Layer, viewportOffset: Offset, viewportZoom: Float, viewportRotation: Float, onGestureStart: () -&gt; Unit, onResize: (zoom: Float) -&gt; Unit, onRotate: (degrees: Float) -&gt; Unit, onMove: (delta: Offset) -&gt; Unit, onGestureEnd: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:EditorScreen.kt$( color: Color, strokeWidthPx: Float, gate: StrokeGate, onCommit: (points: List&lt;Offset&gt;, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:EditorScreen.kt$( zoom: Float, offset: Offset, rotationDeg: Float, modifier: Modifier = Modifier, spacing: Float = 48f, color: Color = Color(0x33808080), )</ID>
+    <ID>LongParameterList:EditorUi.kt$( actions: EditorViewModel, uiState: EditorUiState, isTouchLocked: Boolean, showUnlockInstructions: Boolean, strings: AppStrings, isCapturingTarget: Boolean = false )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$( work: Bitmap, reference: Bitmap, mapped: List&lt;Offset&gt;, brushSizePx: Float, feathering: Float, wrapAroundMode: Boolean, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( canvas: Canvas, paint: Paint, bitmapWidth: Int, bitmapHeight: Int, wrapAroundMode: Boolean, point: Offset, width: Float, targetBitmap: Bitmap, generation: Long? = null, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( canvas: Canvas, paint: Paint, run: FloatArray, bitmapWidth: Int, bitmapHeight: Int, wrapAroundMode: Boolean, targetBitmap: Bitmap, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( layerId: String, tileDeltas: List&lt;com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot&gt;, canvasWidth: Int, canvasHeight: Int, useAfter: Boolean, emitOp: Boolean, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( private val projectRepository: ProjectRepository, private val settingsRepository: SettingsRepository, private val projectManager: ProjectManager, private val exportManager: ExportManager, @ApplicationContext private val context: Context, internal val slamManager: SlamManager, private val dispatchers: DispatcherProvider, private val opEmitter: OpEmitter, private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository, private val repositoryApiClient: com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient, private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository, private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository, private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner, // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it. private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( state: EditorUiState, layer: Layer, layerId: String, points: List&lt;Offset&gt;, brushSamples: List&lt;BrushSample&gt;, canvasW: Int, canvasH: Int, scale: Float, offset: Offset, rotationZ: Float, brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, stampShape: Bitmap?, stampGrain: Bitmap?, stampMaskShape: Bitmap?, // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke // state the moment this returns, while the rasterization below runs later on a background // dispatcher and would otherwise find it already null. selection: com.hereliesaz.graffitixr.common.model.Selection?, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f)</ID>
+    <ID>LongParameterList:ExportManager.kt$ExportManager$( anchorBitmap: Bitmap, anchorScale: Float, anchorOffset: Offset, anchorRotationZ: Float, otherLayers: List&lt;Layer&gt;, screenWidth: Int, screenHeight: Int, )</ID>
+    <ID>LongParameterList:ExportManager.kt$ExportManager$( layers: List&lt;Layer&gt;, canvasW: Int, canvasH: Int, docW: Int, docH: Int, backgroundBitmap: Bitmap? = null, backgroundColor: Int = android.graphics.Color.TRANSPARENT, )</ID>
+    <ID>LongParameterList:ExtensionParamsPanel.kt$( contributionName: String, schema: UiSchema, params: Map&lt;String, ParamValue&gt;, onParamChanged: (key: String, value: ParamValue) -&gt; Unit, onRun: () -&gt; Unit, onBack: () -&gt; Unit, onClose: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ExtensionsPanel.kt$( extensions: List&lt;InstalledExtension&gt;, activeExtension: InstalledExtension?, contributionsOf: (InstalledExtension) -&gt; List&lt;Pair&lt;String, Contribution&gt;&gt;, onSelect: (String) -&gt; Unit, onSelectContribution: (String, Contribution) -&gt; Unit, onBack: () -&gt; Unit, onClose: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:FigmaWindow.kt$( state: EditorViewModel.FigmaUiState, onTokenSubmit: (String) -&gt; Unit, onDisconnect: () -&gt; Unit, onFileInputChanged: (String) -&gt; Unit, onLoadFile: () -&gt; Unit, onToggleFrame: (String) -&gt; Unit, onImport: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:GalleryWindow.kt$( projects: List&lt;GraffitiProject&gt;, currentProjectId: String?, onOpen: (String) -&gt; Unit, onNew: () -&gt; Unit, onDelete: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( bitmap: Bitmap, x: Int, y: Int, fillColor: Int, tolerance: Int = 32, // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline // fill, so containment is tested per pixel instead — the fill spreads only // within the selection, and a seed tapped outside it fills nothing. clipRegion: android.graphics.Region? = null, )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( canvas: Canvas, stroke: List&lt;Offset&gt;, paint: Paint, baseWidth: Float, wrapAroundMode: Boolean = false, pressures: List&lt;Float&gt; = emptyList(), )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( originalBitmap: Bitmap, stroke: List&lt;Offset&gt;, tool: Tool, brushSize: Float = 50f, brushColor: Int = Color.BLACK, intensity: Float = 0.5f, mutateInPlace: Boolean = false, feathering: Float = 0f, wrapAroundMode: Boolean = false, // Alpha Lock confines paint to existing alpha (SRC_ATOP). alphaLock: Boolean = false, // Bitmap-space lasso selection, if one is active: every tool in the switch // below is confined to it. Built by SelectionMask so the live paint, the // commit and the history replay all clip to the identical boundary. // Tool.LIQUIFY never reaches this function — it warps through the native // pass — but it is confined to the selection all the same, by compositing // its baked result back through SelectionMask.feather in // DrawingEngine.applyLiquify. clipPath: android.graphics.Path? = null, // Tool.CLONE only: the bitmap-space vector from the stroke to the pixels it // copies. Passed in rather than derived here because it is fixed at the // moment the stroke starts and recorded onto the command, which is what // makes a clone stroke replay identically on undo/redo. cloneOffset: Offset? = null, // Tool.BRUSH only: whole-stroke opacity ceiling (0..1). Ignored by every other tool. opacity: Float = 1f, // Tool.BRUSH only: per-point pressure (0..1, aligned 1:1 with `stroke`), fed into // BrushDynamics alongside speed. Empty (the default) reads as full pressure throughout. pressures: List&lt;Float&gt; = emptyList(), )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( points: List&lt;Offset&gt;, screenWidth: Int, screenHeight: Int, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float = 1f, layerOffset: Offset = Offset.Zero, layerRotationZ: Float = 0f, )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( px: IntArray, w: Int, h: Int, stroke: List&lt;Offset&gt;, radius: Float, rate: Float, feathering: Float, wrapAround: Boolean, )</ID>
+    <ID>LongParameterList:ImageProcessor.kt$ImageProcessor$( stroke: List&lt;Offset&gt;, screenWidth: Int, screenHeight: Int, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float = 1f, layerOffset: Offset = Offset.Zero, layerRotationZ: Float = 0f )</ID>
+    <ID>LongParameterList:LayerOptionsDialog.kt$( overlay: Layer, navStrings: NavStrings, onEditText: () -&gt; Unit, onInvert: () -&gt; Unit, onShapeSize: () -&gt; Unit, onStrokeWidth: () -&gt; Unit, onCornerRadius: () -&gt; Unit, onPolygonSides: () -&gt; Unit, onToggleFill: () -&gt; Unit, // Brackets a slider's drag so each drag pushes one undo checkpoint and persists on release — // see EditorViewModel.onLayerEditStart/onLayerEditEnd. A stock Material Slider has no drag-start // callback, so the flag below detects it manually. onEditStart: () -&gt; Unit, onEditCommit: () -&gt; Unit, /** * Auto-layout gap, non-null only when this layer actually has children to space out. It moved * here from a rail slider: it is a property of this layer, and this is the window that holds * this layer's properties. The rail had it filed under a separate "Layout" group that only * appeared under the same condition. */ autoLayoutGap: Float?, onGapChange: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:MaterialStateCodec.kt$MaterialStateCodec$( input: DataInputStream, values: FloatArray, width: Int, left: Int, top: Int, right: Int, bottom: Int, )</ID>
+    <ID>LongParameterList:MaterialStateCodec.kt$MaterialStateCodec$( input: DataInputStream, values: IntArray, width: Int, left: Int, top: Int, right: Int, bottom: Int, )</ID>
+    <ID>LongParameterList:MaterialStateCodec.kt$MaterialStateCodec$( out: DataOutputStream, values: FloatArray, width: Int, left: Int, top: Int, right: Int, bottom: Int, )</ID>
+    <ID>LongParameterList:MaterialStateCodec.kt$MaterialStateCodec$( out: DataOutputStream, values: IntArray, width: Int, left: Int, top: Int, right: Int, bottom: Int, )</ID>
+    <ID>LongParameterList:MaterialStateCodec.kt$MaterialStateCodec$( values: FloatArray, width: Int, left: Int, top: Int, right: Int, bottom: Int, )</ID>
+    <ID>LongParameterList:ModelView.kt$( mesh: Mesh, texture: PaintableTexture, camera: OrbitCamera, point: Offset, viewportWidth: Float, viewportHeight: Float, lastUv: Pair&lt;Float, Float&gt;?, colorArgb: Int, brushRadiusPx: Float, )</ID>
+    <ID>LongParameterList:ModelView.kt$( mesh: Mesh?, modifier: Modifier = Modifier, texture: PaintableTexture? = null, paintEnabled: Boolean = false, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, onPaintChanged: () -&gt; Unit = {}, captureRequest: Int = 0, onCaptured: (android.graphics.Bitmap?) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:ModelWindow.kt$( state: ModelUiState, onPickModel: () -&gt; Unit, onDismiss: () -&gt; Unit, onPaintChanged: () -&gt; Unit = {}, onAddToCanvas: (android.graphics.Bitmap) -&gt; Unit = {}, paintColor: Color = Color.White, brushRadiusPx: Float = 24f, )</ID>
+    <ID>LongParameterList:OpenProjectWindow.kt$( name: String, location: String, isCurrent: Boolean, thumbnailKey: String?, loadThumbnail: () -&gt; android.graphics.Bitmap?, onOpen: () -&gt; Unit, onDelete: (() -&gt; Unit)?, )</ID>
+    <ID>LongParameterList:OpenProjectWindow.kt$( state: OpenScreenState, currentProjectId: String?, onOpenProject: (String) -&gt; Unit, onOpenFile: (Uri) -&gt; Unit, onNew: () -&gt; Unit, onChooseLocation: () -&gt; Unit, onDelete: (String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:PathEditOverlay.kt$( layer: Layer, uiState: EditorUiState, onEditStart: () -&gt; Unit, onMoveNode: (index: Int, dx: Float, dy: Float) -&gt; Unit, onMoveHandle: (index: Int, outgoing: Boolean, x: Float, y: Float) -&gt; Unit, onEditEnd: () -&gt; Unit, onSelectNode: (Int?) -&gt; Unit, onInsertNode: (segmentIndex: Int, t: Float) -&gt; Unit, onToggleCornerSmooth: (Int) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:QuickMenu.kt$( center: Offset, outer: Float, inner: Float, actions: List&lt;QuickAction&gt;, highlighted: Int?, measurer: TextMeasurer, )</ID>
+    <ID>LongParameterList:SelectionCanvas.kt$( points: List&lt;Offset&gt;, color: Color, width: Float, closed: Boolean, dash: FloatArray? = null, phase: Float = 0f, offset: Offset = Offset.Zero, )</ID>
+    <ID>LongParameterList:SelectionCanvas.kt$( selection: Selection?, shape: SelectionShape, op: SelectionOp, gate: StrokeGate, modifier: Modifier = Modifier, onSelectionEnd: (List&lt;Offset&gt;, IntSize) -&gt; Unit, onSelectionMove: (Offset) -&gt; Unit, onAutoSelect: (Offset, IntSize) -&gt; Unit, onClearSelection: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SelectionMask.kt$SelectionMask$( delta: Offset, canvasWidth: Int, canvasHeight: Int, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float, layerOffset: Offset, layerRotationZ: Float, )</ID>
+    <ID>LongParameterList:SelectionMask.kt$SelectionMask$( selection: Selection?, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float = 1f, layerOffset: Offset = Offset.Zero, layerRotationZ: Float = 0f, )</ID>
+    <ID>LongParameterList:SketchToolsDialog.kt$( currentColor: Color, secondaryColor: Color = Color.Black, history: List&lt;Color&gt;, onSelectColor: (Color) -&gt; Unit, onSelectSecondaryColor: (Color) -&gt; Unit = {}, onSwapColors: () -&gt; Unit = {}, onDismiss: () -&gt; Unit, strings: AppStrings, savedPalette: List&lt;Color&gt; = emptyList(), onSavePaletteColor: (Color) -&gt; Unit = {}, onRemovePaletteColor: (Color) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:SketchToolsDialog.kt$( currentSize: Float, onSizeChange: (Float) -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // The active azphalt stamp brush, for a real BrushPreview stroke at the size being dragged -- // null for the plain (non-stamp) round brush, which renders through a different pipeline // (DrawingEngine's drawStrokeDynamic) that BrushPreview can't stand in for, so that case falls // back to an accurate single dab (radius + [brushFeathering] falloff) instead, mirroring // BrushSizePad's own rail preview. previewBrush: AzphaltBrush? = null, brushColor: Color = Color.White, secondaryColor: Color = Color.Black, brushFeathering: Float = 0f, )</ID>
+    <ID>LongParameterList:SketchToolsDialog.kt$( hue: Float, saturation: Float, brightness: Float, modifier: Modifier = Modifier, // Harmony partners of the current hue, drawn as secondary rings. Picking near one snaps to it // exactly, so a relationship you chose stays the relationship you get. markerHues: List&lt;Float&gt; = emptyList(), onHueSaturationChanged: (hue: Float, saturation: Float) -&gt; Unit )</ID>
+    <ID>LongParameterList:SketchToolsDialog.kt$( savedPalette: List&lt;Color&gt;, history: List&lt;Color&gt;, working: Color, onPick: (Color) -&gt; Unit, onSave: () -&gt; Unit, onRemove: (Color) -&gt; Unit, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, baseBitmap: Bitmap, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, flow: Float, secondaryColorArgb: Int = colorArgb, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, flow: Float, stamp: Bitmap? = null, grain: Bitmap? = null, maskStamp: Bitmap? = null, seed: Long = 0L, secondaryColorArgb: Int = colorArgb, // True for Airbrush's held-still dabs (AirbrushEngine.heldDabs): those represent genuinely // separate time-based paint deposits at (roughly) the same spot -- "hold longer, get more // opaque" -- and must keep compositing the old way (sequential SRC_OVER, each dab building on // whatever the previous one left) or Airbrush stops building up at all. False (default) for // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead -- // see that function's doc comment for why movement dabs must NOT use this same build-up. allowBuildUp: Boolean = false, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, secondaryColorArgb: Int, flow: Float, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, secondaryColorArgb: Int, flow: Float, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, mask: Bitmap, centerX: Float, centerY: Float, angleDeg: Float, paint: Paint, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, points: List&lt;Float&gt;, brush: AzphaltBrush, colorArgb: Int, diameterPx: Float, flow: Float, seed: Long, stamp: Bitmap? = null, grain: Bitmap? = null, maskStamp: Bitmap? = null, secondaryColorArgb: Int = colorArgb, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( canvas: Canvas, samples: List&lt;BrushSample&gt;, brush: AzphaltBrush, colorArgb: Int, diameterPx: Float, flow: Float, seed: Long, stamp: Bitmap? = null, grain: Bitmap? = null, maskStamp: Bitmap? = null, secondaryColorArgb: Int = colorArgb, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( destination: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, baseColor: Int, secondaryColor: Int, flow: Float, stamp: Bitmap?, grain: Bitmap?, maskStamp: Bitmap?, seed: Long, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( mask: Bitmap, grain: Bitmap, behavior: GrainBehavior, scale: Float, globalLeft: Int, globalTop: Int, phaseX: Float, phaseY: Float, )</ID>
+    <ID>LongParameterList:StampBrushRenderer.kt$StampBrushRenderer$( mask: Bitmap, substrate: SubstrateRenderContext, dab: Dab, globalLeft: Int, globalTop: Int, canvasWidth: Int, canvasHeight: Int, )</ID>
+    <ID>LongParameterList:StoreWindow.kt$( initialTab: StoreTab, // Installed tab. installed: List&lt;InstalledExtension&gt;, /** Installed extension id -&gt; a newer version the azphalt Repository API reports, if any * (spec/repository-api.md § 6 `POST /updates`). Absent = no known update. Shared with the * Browse tab's own per-card "Update" affordance — the same map either side reads by id. */ updatesAvailable: Map&lt;String, String&gt; = emptyMap(), /** Extension ids currently mid-update/install, for a busy indicator on that card's button — * shared between both tabs, since installing from Browse and updating from Installed are the * same underlying call. */ installingIds: Set&lt;String&gt; = emptySet(), onUpdate: (InstalledExtension) -&gt; Unit = {}, onUninstall: (String) -&gt; Unit, // Browse tab. query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:StoreWindow.kt$( pkg: PackageSummary, installed: Boolean, updateVersion: String?, installing: Boolean, onInstall: () -&gt; Unit, onBuy: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:StoreWindow.kt$( query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, installedIds: Set&lt;String&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:TextEditDialog.kt$( initialText: String, initialFontName: String, initialSizeDp: Float, initialKerningEm: Float, initialColorArgb: Int, initialBold: Boolean, initialItalic: Boolean, initialHasOutline: Boolean, initialHasDropShadow: Boolean, onTextChange: (String) -&gt; Unit, onFontChange: (String) -&gt; Unit, onSizeChange: (Float) -&gt; Unit, // Brackets one drag of the size/kerning sliders (undo + persist) — see // EditorViewModel.onLayerEditStart/onLayerEditEnd. Without these, resizing text here reverted // on relaunch and couldn't be undone, unlike every other control in this dialog (each of which // is a single tap, not a drag, so it can push history and save inline). onSizeStart: () -&gt; Unit, onSizeCommit: () -&gt; Unit, onKerningChange: (Float) -&gt; Unit, onKerningStart: () -&gt; Unit, onKerningCommit: () -&gt; Unit, onColorChange: (Int) -&gt; Unit, onStyleChange: (bold: Boolean, italic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean) -&gt; Unit, onAlign: (AlignMode) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:ToolOptionsWindow.kt$( stabilizerLevel: Int, onSetStabilizerLevel: (Int) -&gt; Unit, stabilizerAlgorithm: StabilizerAlgorithm, onSetStabilizerAlgorithm: (StabilizerAlgorithm) -&gt; Unit, magicWandTolerance: Int?, onSetMagicWandTolerance: (Int) -&gt; Unit, selectionFeatherPx: Float?, onSetSelectionFeather: (Float) -&gt; Unit, brushFlow: Float?, onSetBrushFlow: (Float) -&gt; Unit, brushOpacity: Float?, onSetBrushOpacity: (Float) -&gt; Unit, // The active azphalt stamp brush, for the live preview strip -- null whenever the plain // (non-stamp) round brush is active, since that's a different render pipeline entirely // (DrawingEngine's drawStrokeDynamic, not BrushStamps/StampBrushRenderer) that this preview // can't accurately stand in for; see its own use below. previewBrush: AzphaltBrush?, brushColor: Color, secondaryColor: Color = Color.Black, // Decoded runtime assets for [previewBrush] when it's an installed brush with a custom tip/ // grain/masked secondary tip, so the preview matches what will actually paint instead of // always falling back to a generated gradient oval. Null for built-in/generated brushes. previewStampShape: Bitmap? = null, previewStampGrain: Bitmap? = null, previewStampMaskShape: Bitmap? = null, colorSmudgeSettings: ColorSmudgeEngine.Settings?, onSetColorSmudgeMode: (ColorSmudgeEngine.Mode) -&gt; Unit, onSetColorSmudgeRate: (Float) -&gt; Unit, onSetColorSmudgeColorRate: (Float) -&gt; Unit, onSetColorSmudgeChargeDecayRate: (Float) -&gt; Unit, onSetColorSmudgeDilution: (Float) -&gt; Unit, onSetColorSmudgePickupRate: (Float) -&gt; Unit, onSetColorSmudgeMixingModel: (MaterialMixingModel) -&gt; Unit, onSetColorSmudgeRadius: (Float) -&gt; Unit, onSetColorSmudgeOpacity: (Float) -&gt; Unit, onSetColorSmudgeAlphaCarry: (Boolean) -&gt; Unit, onSetColorSmudgeSampleMerged: (Boolean) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:WetnessReplayState.kt$WetnessReplayState$( pixels: IntArray, deltaSeconds: Float, dryingRate: Float, wetnessTransportRate: Float, pigmentTransportRate: Float, dryingRateAt: ((x: Int, y: Int) -&gt; Float)?, )</ID>
+    <ID>LongParameterList:WetnessReplayState.kt$WetnessReplayState$( pixels: IntArray, uptimeMillis: Long?, dryingRate: Float = DEFAULT_DRYING_RATE, wetnessTransportRate: Float = DEFAULT_TRANSPORT_RATE, pigmentTransportRate: Float = DEFAULT_PIGMENT_TRANSPORT_RATE, dryingRateAt: ((x: Int, y: Int) -&gt; Float)? = null, )</ID>
+    <ID>LoopWithTooManyJumpStatements:CanvasHitTest.kt$CanvasHitTest$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ColorSmudgeEngine.kt$ColorSmudgeEngine$for</ID>
+    <ID>LoopWithTooManyJumpStatements:DrawingCanvas.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:EditorScreen.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:EditorViewModel.kt$EditorViewModel$for</ID>
+    <ID>LoopWithTooManyJumpStatements:EditorViewModel.kt$EditorViewModel$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ImageProcessor.kt$ImageProcessor$for</ID>
+    <ID>LoopWithTooManyJumpStatements:PathEditOverlay.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:QuickMenu.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SelectionCanvas.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SelectionCanvas.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SelectionMask.kt$SelectionMask$for</ID>
+    <ID>LoopWithTooManyJumpStatements:WarpHandles.kt$while</ID>
+    <ID>MagicNumber:AddContentDialog.kt$3</ID>
+    <ID>MagicNumber:AlignOps.kt$AlignOps$3</ID>
+    <ID>MagicNumber:AnimationWindow.kt$0.18f</ID>
+    <ID>MagicNumber:AnimationWindow.kt$0.35f</ID>
+    <ID>MagicNumber:AnimationWindow.kt$0.58f</ID>
+    <ID>MagicNumber:AnimationWindow.kt$0.68f</ID>
+    <ID>MagicNumber:AnimationWindow.kt$12</ID>
+    <ID>MagicNumber:AnimationWindow.kt$24</ID>
+    <ID>MagicNumber:AnimationWindow.kt$5f</ID>
+    <ID>MagicNumber:AnimationWindow.kt$7f</ID>
+    <ID>MagicNumber:AzphaltLatencyTracker.kt$AzphaltLatencyTracker.Stats$1_000_000.0</ID>
+    <ID>MagicNumber:AzphaltLatencyTracker.kt$AzphaltLatencyTracker.Stats.Companion$0.50</ID>
+    <ID>MagicNumber:AzphaltLatencyTracker.kt$AzphaltLatencyTracker.Stats.Companion$0.95</ID>
+    <ID>MagicNumber:AzphaltRenderCadence.kt$AzphaltRenderCadence$1000L</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF0D1B2A</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF12261E</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF1E1E1E</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF2A1A2E</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF808080</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF9E9E9E</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFFCFCFCF</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFFD0D0D0</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$0xFFFDF6E3</ID>
+    <ID>MagicNumber:BackgroundColorDialog.kt$9f</ID>
+    <ID>MagicNumber:BrushPerformanceTierResolver.kt$BrushPerformanceTierResolver$256</ID>
+    <ID>MagicNumber:BrushPerformanceTierResolver.kt$BrushPerformanceTierResolver$512</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.001f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.01f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.05f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.1f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.5f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.999f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$0.9f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$100</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$100f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$10f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$16f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$180f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$2000f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$3f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$40f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$4f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$5f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$600f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$60f</ID>
+    <ID>MagicNumber:BrushStudioWindow.kt$8f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$0.0722f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$0.2126f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$0.5f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$0.7152f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$0x00FFFFFF</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$1000f</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$24</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$255</ID>
+    <ID>MagicNumber:BrushTipMaskCache.kt$BrushTipMaskCache$255f</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$0.001f</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$180.0</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$1e-4f</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$1e-6f</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$3</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$360.0</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$4</ID>
+    <ID>MagicNumber:CanvasHitTest.kt$CanvasHitTest$4f</ID>
+    <ID>MagicNumber:ColorMatrixUtils.kt$128f</ID>
+    <ID>MagicNumber:ColorMatrixUtils.kt$255f</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$0.05f</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$0xFF</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$16</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$24</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$255</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$255.0</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine$8</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine.BrushKernel$0.25f</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine.BrushKernel$0.7f</ID>
+    <ID>MagicNumber:ColorSmudgeEngine.kt$ColorSmudgeEngine.BrushKernel$3f</ID>
+    <ID>MagicNumber:CornerRadiusDialog.kt$0.5f</ID>
+    <ID>MagicNumber:CornerRadiusDialog.kt$200f</ID>
+    <ID>MagicNumber:CurvesUtil.kt$0xFF</ID>
+    <ID>MagicNumber:CurvesUtil.kt$16</ID>
+    <ID>MagicNumber:CurvesUtil.kt$24</ID>
+    <ID>MagicNumber:CurvesUtil.kt$8</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$1e-5f</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$255</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$255f</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$256</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$2f</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$3f</ID>
+    <ID>MagicNumber:CurvesUtil.kt$CurvesUtil$9f</ID>
+    <ID>MagicNumber:DeviceAttitudeTracker.kt$3</ID>
+    <ID>MagicNumber:DeviceAttitudeTracker.kt$9</ID>
+    <ID>MagicNumber:DocumentPresets.kt$1080</ID>
+    <ID>MagicNumber:DocumentPresets.kt$1350</ID>
+    <ID>MagicNumber:DocumentPresets.kt$1620</ID>
+    <ID>MagicNumber:DocumentPresets.kt$1920</ID>
+    <ID>MagicNumber:DocumentPresets.kt$2480</ID>
+    <ID>MagicNumber:DocumentPresets.kt$3508</ID>
+    <ID>MagicNumber:DocumentSizeDialog.kt$5</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$0.08f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$0.12f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$0.38f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$0.55f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$1000f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$2.5f</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$34L</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$4L</ID>
+    <ID>MagicNumber:DrawingCanvas.kt$60f</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$0.5f</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$0xFF</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$16</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$24</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$255</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$255f</ID>
+    <ID>MagicNumber:DrawingEngine.kt$DrawingEngine$8</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$0.1f</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$0.25f</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$100</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$10f</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$20</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$2000</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$200f</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$240</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$255</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$5</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$60</ID>
+    <ID>MagicNumber:EditorReducer.kt$EditorReducer$8192</ID>
+    <ID>MagicNumber:EditorScreen.kt$0x33808080</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xB0</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xCC1A1A1A</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFF00E5FF</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFF2B2B2B</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFF9E9E9E</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFFB0B0B0</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFFCFCFCF</ID>
+    <ID>MagicNumber:EditorScreen.kt$0xFFFF3D7F</ID>
+    <ID>MagicNumber:EditorScreen.kt$1.5f</ID>
+    <ID>MagicNumber:EditorScreen.kt$1000</ID>
+    <ID>MagicNumber:EditorScreen.kt$16f</ID>
+    <ID>MagicNumber:EditorScreen.kt$180f</ID>
+    <ID>MagicNumber:EditorScreen.kt$1e-4f</ID>
+    <ID>MagicNumber:EditorScreen.kt$1e-6f</ID>
+    <ID>MagicNumber:EditorScreen.kt$2.54f</ID>
+    <ID>MagicNumber:EditorScreen.kt$2000f</ID>
+    <ID>MagicNumber:EditorScreen.kt$3</ID>
+    <ID>MagicNumber:EditorScreen.kt$3f</ID>
+    <ID>MagicNumber:EditorScreen.kt$4</ID>
+    <ID>MagicNumber:EditorScreen.kt$5</ID>
+    <ID>MagicNumber:EditorScreen.kt$6f</ID>
+    <ID>MagicNumber:EditorScreen.kt$90f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0.01f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0.4f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0.5f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0x00FFFFFF</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0xFF</ID>
+    <ID>MagicNumber:EditorViewModel.kt$0xFF000000L</ID>
+    <ID>MagicNumber:EditorViewModel.kt$1.6f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$1024</ID>
+    <ID>MagicNumber:EditorViewModel.kt$127</ID>
+    <ID>MagicNumber:EditorViewModel.kt$16</ID>
+    <ID>MagicNumber:EditorViewModel.kt$183</ID>
+    <ID>MagicNumber:EditorViewModel.kt$19</ID>
+    <ID>MagicNumber:EditorViewModel.kt$24</ID>
+    <ID>MagicNumber:EditorViewModel.kt$255</ID>
+    <ID>MagicNumber:EditorViewModel.kt$255f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$4L</ID>
+    <ID>MagicNumber:EditorViewModel.kt$54</ID>
+    <ID>MagicNumber:EditorViewModel.kt$64</ID>
+    <ID>MagicNumber:EditorViewModel.kt$8</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.01f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.05f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.16f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.1f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.25f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.2f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.3f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.5f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.8f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0.9f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0x00FFFFFF</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0x00FFFFFFL</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0xFF</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$0xFFFFFFFFL</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$100</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1000L</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$100f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1024</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1080</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$10f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$128</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$12f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1500</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$150f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$15_000</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$16</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$17</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$192</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1920</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$200</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$2000</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$2048f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$20f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$24</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$24f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$255</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$299</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$3</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$300f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$30_000</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$31</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$36</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$36f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$3f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$4</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$4096</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$5.0f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$512</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$56</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$5_000</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$6</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$700</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$72f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$8</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$800</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$8192f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$8f</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$9</ID>
+    <ID>MagicNumber:ExportManager.kt$ExportManager$255</ID>
+    <ID>MagicNumber:ExportManager.kt$ExportManager$3</ID>
+    <ID>MagicNumber:ExportManager.kt$ExportManager$4</ID>
+    <ID>MagicNumber:GesturePrediction.kt$AccelerationGesturePredictor$0.5f</ID>
+    <ID>MagicNumber:GesturePrediction.kt$AccelerationGesturePredictor$3</ID>
+    <ID>MagicNumber:GesturePrediction.kt$PredictionTournament$8</ID>
+    <ID>MagicNumber:GoogleFontCache.kt$GoogleFontCache$32</ID>
+    <ID>MagicNumber:GoogleFontCache.kt$GoogleFontCache$400</ID>
+    <ID>MagicNumber:GoogleFontCache.kt$GoogleFontCache$700</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.0001f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.25f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.35f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.3f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.4f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.5f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.6f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0.7f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0xFF</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$0xFF000000L</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$1.6f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$128</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$12f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$16</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$1e-4f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$24</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$255</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$255f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$3f</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$8</ID>
+    <ID>MagicNumber:ImageWarp.kt$ImageWarp$3</ID>
+    <ID>MagicNumber:ImageWarp.kt$ImageWarp$4</ID>
+    <ID>MagicNumber:ImageWarp.kt$ImageWarp$8</ID>
+    <ID>MagicNumber:KritaPresetMapper.kt$KritaPresetMapper$100f</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0x0A</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0x1A</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0x47</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0x4E</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0x50</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$0xFF</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$16</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$24</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$3</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$4</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$4096</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$4L</ID>
+    <ID>MagicNumber:KritaPresetParser.kt$KritaPresetParser$8</ID>
+    <ID>MagicNumber:MagicWand.kt$MagicWand$0xFF</ID>
+    <ID>MagicNumber:MagicWand.kt$MagicWand$16</ID>
+    <ID>MagicNumber:MagicWand.kt$MagicWand$24</ID>
+    <ID>MagicNumber:MagicWand.kt$MagicWand$8</ID>
+    <ID>MagicNumber:MaterialStateCodec.kt$MaterialStateCodec$0xFF</ID>
+    <ID>MagicNumber:MaterialStateCodec.kt$MaterialStateCodec$16</ID>
+    <ID>MagicNumber:MaterialStateCodec.kt$MaterialStateCodec$32</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$0.82f</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$0.84f</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$0.88f</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$16</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$3</ID>
+    <ID>MagicNumber:ModelRenderer.kt$ModelRenderer$4</ID>
+    <ID>MagicNumber:ModelView.kt$16</ID>
+    <ID>MagicNumber:ModelView.kt$8</ID>
+    <ID>MagicNumber:MultiFingerTaps.kt$1.5f</ID>
+    <ID>MagicNumber:MultiFingerTaps.kt$MultiFingerRecognizer$3</ID>
+    <ID>MagicNumber:MultiFingerTaps.kt$MultiFingerRecognizer$4</ID>
+    <ID>MagicNumber:PaintableTexture.kt$PaintableTexture$0.5f</ID>
+    <ID>MagicNumber:PathEditOverlay.kt$0xFF18A0FB</ID>
+    <ID>MagicNumber:PathEditOverlay.kt$0xFF9B9B9B</ID>
+    <ID>MagicNumber:PathEditOverlay.kt$0xFFFF6B00</ID>
+    <ID>MagicNumber:PolygonSidesDialog.kt$12</ID>
+    <ID>MagicNumber:PolygonSidesDialog.kt$3</ID>
+    <ID>MagicNumber:QuickMenu.kt$0.6f</ID>
+    <ID>MagicNumber:QuickMenu.kt$1.2f</ID>
+    <ID>MagicNumber:QuickMenu.kt$360f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$0.035f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$0.16f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$0.18f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$10f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$120f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$16f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$24f</ID>
+    <ID>MagicNumber:QuickShape.kt$QuickShape$8</ID>
+    <ID>MagicNumber:SelectionMask.kt$SelectionMask$0xFF</ID>
+    <ID>MagicNumber:SelectionMask.kt$SelectionMask$24</ID>
+    <ID>MagicNumber:SelectionMask.kt$SelectionMask$3</ID>
+    <ID>MagicNumber:ShapeSizeDialog.kt$4</ID>
+    <ID>MagicNumber:SketchToolsDialog.kt$1.5f</ID>
+    <ID>MagicNumber:SketchToolsDialog.kt$255</ID>
+    <ID>MagicNumber:SketchToolsDialog.kt$3</ID>
+    <ID>MagicNumber:SketchToolsDialog.kt$360</ID>
+    <ID>MagicNumber:SketchToolsDialog.kt$360f</ID>
+    <ID>MagicNumber:SnapEngine.kt$SnapEngine$0.5f</ID>
+    <ID>MagicNumber:SnapEngine.kt$SnapEngine$3</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$0.05f</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$0.5f</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$0.999f</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$0x00FFFFFF</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$24</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$255</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$255f</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$3</ID>
+    <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$360f</ID>
+    <ID>MagicNumber:StatusOverlay.kt$0.5f</ID>
+    <ID>MagicNumber:StatusOverlay.kt$0.8f</ID>
+    <ID>MagicNumber:StoreWindow.kt$0xFF4CAF50</ID>
+    <ID>MagicNumber:StoreWindow.kt$0xFFE53935</ID>
+    <ID>MagicNumber:StoreWindow.kt$0xFFFFA726</ID>
+    <ID>MagicNumber:StoreWindow.kt$16f</ID>
+    <ID>MagicNumber:StoreWindow.kt$9f</ID>
+    <ID>MagicNumber:TextEditDialog.kt$0.2f</ID>
+    <ID>MagicNumber:TextEditDialog.kt$0xFF00E5FF</ID>
+    <ID>MagicNumber:TextEditDialog.kt$0xFFFF9800</ID>
+    <ID>MagicNumber:TextEditDialog.kt$300f</ID>
+    <ID>MagicNumber:TextEditDialog.kt$8f</ID>
+    <ID>MagicNumber:ToolOptionsWindow.kt$100</ID>
+    <ID>MagicNumber:ToolOptionsWindow.kt$255f</ID>
+    <ID>MagicNumber:TransformPanel.kt$0.01f</ID>
+    <ID>MagicNumber:TransformPanel.kt$100f</ID>
+    <ID>MagicNumber:TransformPanel.kt$7</ID>
+    <ID>MagicNumber:VectorStrokeDialog.kt$0.5f</ID>
+    <ID>MagicNumber:VectorStrokeDialog.kt$100f</ID>
+    <ID>MagicNumber:WarpHandles.kt$2.5f</ID>
+    <ID>MagicNumber:WarpHandles.kt$4</ID>
+    <ID>MatchingDeclarationName:DocumentPresets.kt$DocumentPreset</ID>
+    <ID>MatchingDeclarationName:ModelWindow.kt$ModelUiState</ID>
+    <ID>MatchingDeclarationName:OpenProjectWindow.kt$OpenScreenState</ID>
+    <ID>MatchingDeclarationName:QuickMenu.kt$QuickAction</ID>
+    <ID>MatchingDeclarationName:SketchToolsDialog.kt$ColorPickerMode</ID>
+    <ID>MatchingDeclarationName:StoreWindow.kt$StoreTab</ID>
+    <ID>MaxLineLength:AnimationFramesTest.kt$AnimationFramesTest$assertEquals(1, EditorReducer.reduce(s, EditorIntent.SetFrameHoldCount("a", 0)).layers.first { it.id == "a" }.frameHoldCount)</ID>
+    <ID>MaxLineLength:AnimationFramesTest.kt$AnimationFramesTest$assertEquals(60, EditorReducer.reduce(s, EditorIntent.SetFrameHoldCount("a", 999)).layers.first { it.id == "a" }.frameHoldCount)</ID>
+    <ID>MaxLineLength:BrushDynamicsTest.kt$BrushDynamicsTest$val withFullPressures = BrushDynamics.segmentWidths(points, baseWidth = 40f, pressures = List(points.size) { 1f })</ID>
+    <ID>MaxLineLength:BrushStudioTest.kt$PathEditModeTest$val state = EditorUiState(layers = listOf(pathLayer("a"), pathLayer("b")), pathEditLayerId = "a", selectedNodeIndex = 1)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Combine", MaskedBrushBlendMode.entries, mask.blendMode) { value -&gt; onEdit { it.copy(maskedBrush = mask.copy(blendMode = value)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Mode", GrainBlendMode.entries, draft.grainBlendMode) { value -&gt; onEdit { it.copy(grainBlendMode = value) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Movement", GrainBehavior.entries, draft.grainBehavior) { value -&gt; onEdit { it.copy(grainBehavior = value) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask flow", mask.flow, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(flow = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask hardness", mask.hardness, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(hardness = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask opacity", mask.opacity, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(opacity = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask ratio", mask.tipRatio, 0.05f..1f, asFraction = true) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(tipRatio = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask scatter", mask.scatter, 0f..2f, asFraction = true) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(scatter = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask size", mask.sizeRatio, 0.1f..8f, asFraction = true) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(sizeRatio = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Min opacity", taper.minOpacity, 0f..1f) { v -&gt; onEdit { it.copy(taper = taper.copy(minOpacity = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Min size", taper.minSize, 0f..1f) { v -&gt; onEdit { it.copy(taper = taper.copy(minSize = v)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Scale", draft.grainScale, 0.1f..16f, asFraction = true) { v -&gt; onEdit { it.copy(grainScale = v) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Spin per px", draft.rotationPerPx, -10f..10f, unit = "°") { v -&gt; onEdit { it.copy(rotationPerPx = v) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Tip ratio", draft.tipRatio, 0.05f..1f, asFraction = true) { v -&gt; onEdit { it.copy(tipRatio = v) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$Text("A second generated tip can mask the primary tip. Brush packages may replace it with an image tip.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$Text("Each dab samples the foreground→background ramp from its own deterministic random stream.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$Text("Each mapping can be enabled independently, then tuned by input window and output range. Response curves remain stored on the binding and are preserved while these values change.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$Text("No grain asset in this brush. Installed brush packages can provide one.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$Text("Plain preserves the historical foreground colour exactly.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.MIX, outputMin = 0f, outputMax = 1f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.OPACITY, outputMin = 0.1f, outputMax = 1f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SIZE, outputMin = 0.2f, outputMax = 1f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SIZE, inputMin = 0f, inputMax = 2f, outputMin = 1f, outputMax = 0.45f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.SPEED, BrushParameter.SPACING, inputMin = 0f, inputMax = 2f, outputMin = 0.65f, outputMax = 1.8f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$defaultBinding = BrushSensorBinding(BrushSensor.TILT, BrushParameter.ROTATION, inputMin = 0f, inputMax = HALF_PI_F, outputMin = 0f, outputMax = 180f)</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$onClick = { onEdit { it.copy(taper = taper.copy(liftOffSynthesizesPressure = !taper.liftOffSynthesizesPressure)) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$text = if (draft.grainRandomOffsetPerStroke) "Random phase per stroke ✓" else "Random phase per stroke"</ID>
+    <ID>MaxLineLength:BrushTipMaskCache.kt$BrushTipMaskCache$val created = if (source == null) generatedTip(width, height, hardness) else scaledSource(source, width, height, hardness)</ID>
+    <ID>MaxLineLength:ColorSmudgeDynamicsTest.kt$ColorSmudgeDynamicsTest$BrushSample(p.x, p.y, uptimeMillis = i * 8L, pressure = pressure, distancePx = i.toFloat(), speedPxPerMs = 0.125f)</ID>
+    <ID>MaxLineLength:ColorSmudgeWetMixTest.kt$ColorSmudgeWetMixTest$val settingsFlat = ColorSmudgeEngine.Settings(radiusPx = 5f, smudgeRate = 0f, colorRate = 1f, paintColor = Color.BLUE)</ID>
+    <ID>MaxLineLength:ColorSourceMixTest.kt$ColorSourceMixTest$val brush = AzphaltBrush(name = "gradient", hardness = 1f, colorSource = BrushColorSource.GRADIENT, colorMix = 1f)</ID>
+    <ID>MaxLineLength:CommitPathRoutingTest.kt$CommitPathRoutingTest$assertTrue("no built-in brushes -- a fresh install still has nothing to paint with", vm.builtInBrushes.isNotEmpty())</ID>
+    <ID>MaxLineLength:DeviceAttitudeTracker.kt$&lt;no name provided&gt;$tiltConfidence = if (source == BrushDeviceAttitudeSource.GAME_ROTATION_VECTOR) 0.95f else 0.9f</ID>
+    <ID>MaxLineLength:DeviceAttitudeTracker.kt$&lt;no name provided&gt;$yawConfidence = if (source == BrushDeviceAttitudeSource.GAME_ROTATION_VECTOR) 0.82f else 0.78f</ID>
+    <ID>MaxLineLength:DrawingEngine.kt$DrawingEngine$if</ID>
+    <ID>MaxLineLength:DrawingEngineImpastoTest.kt$DrawingEngineImpastoTest$val samples = List(6) { com.hereliesaz.graffitixr.common.azphalt.BrushSample(x = 10f + it * 3f, y = 20f, uptimeMillis = it * 20L, pressure = 1f) }</ID>
+    <ID>MaxLineLength:DrawingEngineTest.kt$DrawingEngineTest$coVerify(exactly = 0) { ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any()) }</ID>
+    <ID>MaxLineLength:DynamicStampReplayTest.kt$DynamicStampReplayTest$assertTrue("low-pressure start should cover less area than a full-size static brush", dynamicPainted &lt; staticPainted)</ID>
+    <ID>MaxLineLength:EditorActions.kt$EditorActions$fun onTextStyleChanged(layerId: String, isBold: Boolean, isItalic: Boolean, hasOutline: Boolean, hasDropShadow: Boolean)</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent$SetLayerTransform : EditorIntent</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent$SetLayerTransformById : EditorIntent</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent$SetStabilizerAlgorithm : EditorIntent</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent.AddLayer$data</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent.GroupLayers$data</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent.SetEyedrop$data</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent.SetLayerShapes$data</ID>
+    <ID>MaxLineLength:EditorIntent.kt$EditorIntent.SetPathShape$data</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$activeLayerId = if (state.activeLayerId == intent.id) remaining.firstDrawableId() else state.activeLayerId</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.RenderTextLayer -&gt; state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(bitmap = intent.bitmap, textParams = intent.params) })</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.ReplaceLayers -&gt; state.copy(layers = intent.layers, activeLayerId = intent.activeId, activeTool = Tool.NONE)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.SetAnimationFrameDurationMs -&gt; state.copy(animationFrameDurationMs = intent.ms.coerceIn(20, 2000))</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.SetLayerShapes -&gt; state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(shapes = intent.shapes) })</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.SetRotationX -&gt; state.mapActive { it.copy(rotationX = intent.value) }.copy(activeRotationAxis = RotationAxis.X)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.SetRotationY -&gt; state.mapActive { it.copy(rotationY = intent.value) }.copy(activeRotationAxis = RotationAxis.Y)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$is EditorIntent.SetRotationZ -&gt; state.mapActive { it.copy(rotationZ = intent.value) }.copy(activeRotationAxis = RotationAxis.Z)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$it.copy(scale = intent.scale, offset = intent.offset, rotationX = intent.rx, rotationY = intent.ry, rotationZ = intent.rz)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(clipToLayerBelow = !it.clipToLayerBelow) }</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(isPinnedAcrossFrames = !it.isPinnedAcrossFrames) }</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$state.copy(activePanel = if (state.activePanel == EditorPanel.ADJUST) EditorPanel.NONE else EditorPanel.ADJUST)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$state.copy(activePanel = if (state.activePanel == EditorPanel.COLOR) EditorPanel.NONE else EditorPanel.COLOR)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$state.copy(activePanel = if (state.activePanel == EditorPanel.EXTENSIONS) EditorPanel.NONE else EditorPanel.EXTENSIONS)</ID>
+    <ID>MaxLineLength:EditorReducer.kt$EditorReducer$state.copy(activePanel = if (state.activePanel == EditorPanel.TRANSFORM) EditorPanel.NONE else EditorPanel.TRANSFORM)</ID>
+    <ID>MaxLineLength:EditorReducerTest.kt$EditorReducerTest$assertEquals(EditorPanel.ADJUST, reduce(s, EditorIntent.AddLayer(lyr("b"), resetActivePanel = false)).activePanel)</ID>
+    <ID>MaxLineLength:EditorReducerTest.kt$EditorReducerTest$assertEquals(listOf("c", "a", "b"), reduce(s, EditorIntent.ReorderLayers(listOf("c", "a", "b"))).layers.map { it.id })</ID>
+    <ID>MaxLineLength:EditorReducerTest.kt$EditorReducerTest$val out = reduce(s, EditorIntent.SetLayerTransformById("a", scale = 2f, offset = Offset(5f, 6f), rx = 10f, ry = 20f, rz = 30f))</ID>
+    <ID>MaxLineLength:EditorScreen.kt$drawCircle(Color.White.copy(alpha = 0.9f), radius = r, center = center, style = Stroke(width = 1.5.dp.toPx()))</ID>
+    <ID>MaxLineLength:EditorScreen.kt$if (shape.hasStroke) drawOval(Color(shape.strokeArgb.toInt()), topLeft, sz, style = Stroke(shape.strokeWidth))</ID>
+    <ID>MaxLineLength:EditorScreen.kt$if (shape.hasStroke) drawRoundRect(Color(shape.strokeArgb.toInt()), topLeft, sz, radius, style = Stroke(shape.strokeWidth))</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$"LayerBitmapReplace: skipping op for layer $layerId (decode returned null; bytes=${op.png.size})"</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$*</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Couldn't load that filter — it may be missing or corrupt", Toast.LENGTH_SHORT).show()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Couldn't save the new layer — storage may be full", Toast.LENGTH_LONG).show()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Move needs a paint layer — vector shapes move via Transform", Toast.LENGTH_SHORT).show()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_liveStroke.update { s -&gt; if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_uiState.update { state -&gt; state.copy(layers = state.layers.map { if (it.id in groupIds) transform(it) else it }) }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_uiState.value.layers.find { it.id == layerId }?.let { opEmitter.emit(Op.LayerPropsChange(layerId, it.toLayerProps())) }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$alpha = (android.graphics.Color.alpha(argbColor) * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$com.hereliesaz.graffitixr.common.model.VectorShape(kind = kind, fillArgb = 0xFF888888L, strokeWidth = 0f)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$com.hereliesaz.graffitixr.common.model.VectorShape(kind = kind, strokeArgb = 0xFFFFFFFFL, strokeWidth = 6f)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$else</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$fun</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$if (_uiState.value.layers.none { it.isVisible &amp;&amp; (it.bitmap != null || it.shapes.isNotEmpty()) }) return@launch</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$if (feathering &gt; 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$kotlinx.coroutines.flow.MutableStateFlow&lt;Map&lt;String, com.hereliesaz.graffitixr.common.azphalt.ParamValue&gt;&gt;(emptyMap())</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$kotlinx.coroutines.flow.MutableStateFlow&lt;Pair&lt;String, com.hereliesaz.graffitixr.common.azphalt.Contribution&gt;?&gt;(null)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$layer.copy(scale = layer.scale * zoom, offset = layer.offset + pan, rotationX = rx, rotationY = ry, rotationZ = rz)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$override</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$private</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$sparse.copyInto(full, destinationOffset = start, startIndex = start, endIndex = y * snapshot.width + right)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$stampGpuGrainCanvasLocked = stampBrush.grainBehavior == com.hereliesaz.graffitixr.common.azphalt.GrainBehavior.CANVAS_LOCKED</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$updateActiveLayer { it.copy(scale = scale, offset = Offset.Zero, rotationX = 0f, rotationY = 0f, rotationZ = 0f) }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val applied = discretePathEdit { com.hereliesaz.graffitixr.common.model.PathEditing.insertNode(it, segmentIndex, t) }</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val createdGpuEngine = if (strokeDynamics != null) createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) else null</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val stabilizedStartPressure = strokeStabilizer.stabilizePressure(pressure, state.stabilizerLevel, state.stabilizerAlgorithm)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val typeface = GoogleFontCache.getTypeface(context, defaultParams.fontName, defaultParams.isBold, defaultParams.isItalic)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val updated = params.copy(isBold = isBold, isItalic = isItalic, hasOutline = hasOutline, hasDropShadow = hasDropShadow)</ID>
+    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$val widths = BrushDynamics.segmentWidths(mapped, state.effectivePaintBrushSize() * brushScale, pressures)</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$coEvery { com.hereliesaz.graffitixr.common.util.ImageUtils.getBitmapDimensions(any(), any()) } returns Pair(100, 100)</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$coEvery { com.hereliesaz.graffitixr.common.util.ImageUtils.loadBitmapAsync(any(), any(), any()) } returns mockBitmap</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$fun</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository = mockk(relaxed = true)</ID>
+    <ID>MaxLineLength:ExportManager.kt$ExportManager$paint.style = Paint.Style.STROKE</ID>
+    <ID>MaxLineLength:ExportManager.kt$ExportManager$private</ID>
+    <ID>MaxLineLength:ExportManagerSampleMergedTest.kt$ExportManagerSampleMergedTest$assertEquals("anchor-local (15,$y) should show the other layer's red half", Color.RED, result.getPixel(15, y))</ID>
+    <ID>MaxLineLength:FigmaWindow.kt$Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)</ID>
+    <ID>MaxLineLength:ImageProcessor.kt$ImageProcessor$if (feathering &gt; 0f) maskFilter = BlurMaskFilter(brushSize * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)</ID>
+    <ID>MaxLineLength:ImageProcessor.kt$ImageProcessor$maskCanvas.drawBitmap(blurred, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })</ID>
+    <ID>MaxLineLength:KritaPresetParser.kt$KritaPresetParser$/** Parses a `.kpp` file's raw bytes. Throws [ParseException] if there's no "preset" text chunk or the XML is malformed. */</ID>
+    <ID>MaxLineLength:KritaPresetParser.kt$KritaPresetParser$/** Walks PNG chunks looking for a `tEXt`/`iTXt` chunk with the given keyword. Returns null if absent or the file isn't a PNG. */</ID>
+    <ID>MaxLineLength:MaterialStateCodec.kt$MaterialStateCodec$writeFloatTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right, bottom)</ID>
+    <ID>MaxLineLength:ProcreateParityTest.kt$ProcreateParityTest$EditorIntent.SetEyedrop(active = true, color = androidx.compose.ui.graphics.Color.Red, position = Offset(5f, 6f))</ID>
+    <ID>MaxLineLength:ResolveGrainTileAndPhaseTest.kt$ResolveGrainTileAndPhaseTest$assertTrue("random component should shift the phase away from the fixed offset alone", a.phaseX != 1f || a.phaseY != 1f)</ID>
+    <ID>MaxLineLength:SavedSelectionNamingTest.kt$SavedSelectionNamingTest$EditorIntent.SetLayers(listOf(Layer(id = "L", name = "L", bitmap = RenderTestBase.filled(48, 48, Color.WHITE))))</ID>
+    <ID>MaxLineLength:SavedSelectionNamingTest.kt$SavedSelectionNamingTest$assertTrue("the new one must get a free name; got $names", names.any { it !in setOf("Selection 1", "Selection 3") })</ID>
+    <ID>MaxLineLength:SelectionTest.kt$SelectionTest$fun rate(hz: Int)</ID>
+    <ID>MaxLineLength:SelectionTest.kt$SelectionTest$fun scale(v: Float)</ID>
+    <ID>MaxLineLength:SketchToolsDialog.kt$AzButton(text = strings.common.done, onClick = onDismiss, modifier = Modifier.padding(top = 16.dp), shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:SnapEngineTest.kt$SnapEngineTest$val r = SnapEngine.snap(box(100f, 0f, 200f, 100f), targetsX = listOf(105f), targetsY = emptyList(), threshold = 10f)</ID>
+    <ID>MaxLineLength:StampBrushRendererTest.kt$StampBrushRendererTest$dabs = listOf(Dab(x = 100f, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f, hardness = soft.hardness))</ID>
+    <ID>MaxLineLength:StatusOverlay.kt$Text(txt, color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$AzButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$AzButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$onClick = { hasDropShadow = !hasDropShadow; onStyleChange(bold, italic, hasOutline, hasDropShadow) }</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Caps how solid the stroke can get, even where it crosses itself.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Dilution ${(smudge.dilution * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("How far from the tapped colour still counts as the same colour.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Pickup ${(smudge.pickupRate * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Sample radius ${"%.2f".format(smudge.smudgeRadius)}×", style = MaterialTheme.typography.bodySmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Smooths jitter out of a drag before it becomes a stroke.", style = MaterialTheme.typography.labelSmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Smudge opacity ${(smudge.opacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)</ID>
+    <ID>MaxLineLength:ToolOptionsWindow.kt$Text("Threshold ${(magicWandTolerance / 255f * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)</ID>
+    <ID>MaxLineLength:UndoRaceRegressionTest.kt$UndoRaceRegressionTest$fun</ID>
+    <ID>NestedBlockDepth:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun weightedWetness( field: PersistentWetnessField, cx: Int, cy: Int, radius: Int, wrapAround: Boolean, ): Float</ID>
+    <ID>NestedBlockDepth:DrawingEngine.kt$DrawingEngine$private suspend fun applyTool( bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, ): Bitmap</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$private fun extractProcreateComposite(bytes: ByteArray): Bitmap?</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$private fun renderPdfFirstPage(bytes: ByteArray): Bitmap?</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$private suspend fun copyToDownloads( file: File, mimeType: String, successMessage: String, failurePrefix: String, )</ID>
+    <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean</ID>
+    <ID>NestedBlockDepth:ExportManager.kt$ExportManager$private fun drawShape(canvas: Canvas, shape: VectorShape, cx: Float, cy: Float, paint: Paint)</ID>
+    <ID>NestedBlockDepth:ImageProcessor.kt$ImageProcessor$fun floodFill( bitmap: Bitmap, x: Int, y: Int, fillColor: Int, tolerance: Int = 32, // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline // fill, so containment is tested per pixel instead — the fill spreads only // within the selection, and a seed tapped outside it fills nothing. clipRegion: android.graphics.Region? = null, )</ID>
+    <ID>NestedBlockDepth:ImageProcessor.kt$ImageProcessor$internal fun drawStroke(canvas: Canvas, stroke: List&lt;Offset&gt;, paint: Paint, wrapAroundMode: Boolean = false)</ID>
+    <ID>NestedBlockDepth:ImageProcessor.kt$ImageProcessor$private fun drawDab( canvas: Canvas, center: Offset, radius: Float, paint: Paint, wrapAroundMode: Boolean, )</ID>
+    <ID>NestedBlockDepth:ImageProcessor.kt$ImageProcessor$private fun smudgeAlong( px: IntArray, w: Int, h: Int, stroke: List&lt;Offset&gt;, radius: Float, rate: Float, feathering: Float, wrapAround: Boolean, )</ID>
+    <ID>NestedBlockDepth:KritaPresetParser.kt$KritaPresetParser$private fun readCompressedTextChunk(data: ByteArray, keyword: String): String?</ID>
+    <ID>NestedBlockDepth:MagicWand.kt$MagicWand$fun mask(bitmap: Bitmap, x: Int, y: Int, tolerance: Int = 32): BooleanArray?</ID>
+    <ID>NestedBlockDepth:MaterialStateCodec.kt$MaterialStateCodec$fun encode(snapshot: Snapshot): ByteArray</ID>
+    <ID>NestedBlockDepth:StampBrushRenderer.kt$StampBrushRenderer$private fun paintMaskedDabs( destination: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, baseColor: Int, secondaryColor: Int, flow: Float, stamp: Bitmap?, grain: Bitmap?, maskStamp: Bitmap?, seed: Long, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>NestedBlockDepth:StampBrushRenderer.kt$StampBrushRenderer$private fun paintRoundDabsMaxCombined( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, secondaryColorArgb: Int, flow: Float, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>NewLineAtEndOfFile:BlendModeExt.kt$com.hereliesaz.graffitixr.feature.editor.BlendModeExt.kt</ID>
+    <ID>NewLineAtEndOfFile:CanvasNavigationTest.kt$com.hereliesaz.graffitixr.feature.editor.CanvasNavigationTest.kt</ID>
+    <ID>NewLineAtEndOfFile:ColorSmudgeEngineTest.kt$com.hereliesaz.graffitixr.feature.editor.ColorSmudgeEngineTest.kt</ID>
+    <ID>NewLineAtEndOfFile:CommitPathRoutingTest.kt$com.hereliesaz.graffitixr.feature.editor.CommitPathRoutingTest.kt</ID>
+    <ID>NewLineAtEndOfFile:CurvesDialog.kt$com.hereliesaz.graffitixr.feature.editor.CurvesDialog.kt</ID>
+    <ID>NewLineAtEndOfFile:CurvesUtil.kt$com.hereliesaz.graffitixr.feature.editor.CurvesUtil.kt</ID>
+    <ID>NewLineAtEndOfFile:DrawingEngine.kt$com.hereliesaz.graffitixr.feature.editor.DrawingEngine.kt</ID>
+    <ID>NewLineAtEndOfFile:EditorReducerTest.kt$com.hereliesaz.graffitixr.feature.editor.EditorReducerTest.kt</ID>
+    <ID>NewLineAtEndOfFile:EditorViewModelExt.kt$com.hereliesaz.graffitixr.feature.editor.EditorViewModelExt.kt</ID>
+    <ID>NewLineAtEndOfFile:ExportManager.kt$com.hereliesaz.graffitixr.feature.editor.export.ExportManager.kt</ID>
+    <ID>NewLineAtEndOfFile:GestureFeedback.kt$com.hereliesaz.graffitixr.feature.editor.ui.GestureFeedback.kt</ID>
+    <ID>ReturnCount:AndroidXMotionGesturePredictor.kt$AndroidXMotionGesturePredictor$override fun predict(targetUptimeMillis: Long): GesturePrediction?</ID>
+    <ID>ReturnCount:AnimationFrames.kt$AnimationFrames$fun drawableLayerForFrame(layers: List&lt;Layer&gt;, index: Int): String?</ID>
+    <ID>ReturnCount:AnimationFrames.kt$AnimationFrames$fun frameIndexForLayer(layers: List&lt;Layer&gt;, layerId: String?): Int</ID>
+    <ID>ReturnCount:AnimationFrames.kt$AnimationFrames$private fun findNode(nodes: List&lt;LayerNode&gt;, id: String): LayerNode?</ID>
+    <ID>ReturnCount:AnimationGifWriter.kt$AnimationGifWriter$fun write( file: File, range: IntRange, frameDurationMs: Int, loopMode: AnimationLoopMode, holdCountAt: (Int) -&gt; Int = { 1 }, frameAt: (Int) -&gt; Bitmap?, ): Int</ID>
+    <ID>ReturnCount:AzphaltGpuDisplay.kt$AzphaltGpuDisplay.Companion$fun tryCreate(engine: VulkanStampEngine): AzphaltGpuDisplay?</ID>
+    <ID>ReturnCount:AzphaltRenderCadence.kt$AzphaltRenderCadence$fun shouldRender(nowMs: Long, rateHz: Int): Boolean</ID>
+    <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun layerScreenCorners( layer: Layer, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, ): List&lt;Offset&gt;?</ID>
+    <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun nearBoxEdge(corners: List&lt;Offset&gt;, p: Offset, tolerancePx: Float): Boolean</ID>
+    <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun rotationHandlePos(corners: List&lt;Offset&gt;, distancePx: Float): Offset?</ID>
+    <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$fun topHit( layers: List&lt;Layer&gt;, tap: Offset, canvasWidth: Float, canvasHeight: Float, viewportOffset: Offset = Offset.Zero, viewportZoom: Float = 1f, viewportRotation: Float = 0f, ): String?</ID>
+    <ID>ReturnCount:CanvasHitTest.kt$CanvasHitTest$private fun localHalfExtents(layer: Layer, canvasWidth: Float, canvasHeight: Float): Pair&lt;Float, Float&gt;?</ID>
+    <ID>ReturnCount:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun depositWetness( field: PersistentWetnessField?, x: Int, y: Int, width: Int, height: Int, wrapAround: Boolean, amount: Float, clip: ((x: Int, y: Int) -&gt; Boolean)?, )</ID>
+    <ID>ReturnCount:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun pickupIntoReservoir( state: BrushReservoirState, sampledArgb: Int, settings: Settings, sampledWetness: Float? = null, ): BrushReservoirState</ID>
+    <ID>ReturnCount:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun resampleWithTelemetry( stroke: List&lt;Offset&gt;, samples: List&lt;BrushSample&gt;, step: Float, ): List&lt;DabPoint&gt;</ID>
+    <ID>ReturnCount:ColorSmudgeEngine.kt$ColorSmudgeEngine$private fun weightedAverage( pixels: IntArray, width: Int, height: Int, cx: Int, cy: Int, radius: Int, wrapAround: Boolean, ): Int</ID>
+    <ID>ReturnCount:DrawingEngine.kt$DrawingEngine$private suspend fun applyTool( bitmap: Bitmap, stroke: StrokeCommand, replaceExisting: Boolean, otherLayers: () -&gt; List&lt;Layer&gt; = { emptyList() }, heightMap: FloatArray? = null, substrate: SubstrateRenderContext? = null, wetnessState: WetnessReplayState? = null, impastoMaterialState: ImpastoMaterialReplayState? = null, ): Bitmap</ID>
+    <ID>ReturnCount:EditorScreen.kt$private fun pathFigure(shape: VectorShape, cx: Float, cy: Float): Path?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun alignActiveLayer(mode: AlignMode)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onApplyWarp()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onCanvasSizeChanged(size: IntSize)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onClearLayer()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onColorFillSelection()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onCopySelection(showToast: Boolean = true): Boolean</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onFillTap(position: Offset, canvasSize: IntSize)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onGroupWithLayerAbove(layerId: String)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onMakeComponent()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onMergeDown(layerId: String)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onSelectionMove(delta: Offset)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onSetTransformMode(mode: TransformMode)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onUpdateTextStyleToActive(styleId: String)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onWarpHandleReleased()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun applyTileDeltaFastPath( layerId: String, tileDeltas: List&lt;com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot&gt;, canvasWidth: Int, canvasHeight: Int, useAfter: Boolean, emitOp: Boolean, ): Boolean</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun cloneOffsetFor(state: EditorUiState, points: List&lt;Offset&gt;): Offset?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -&gt; com.hereliesaz.graffitixr.common.model.VectorShape): Boolean</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun enqueueBasicLiveDabs( canvas: Canvas, paint: Paint, dabs: List&lt;BrushDab&gt;, targetBitmap: Bitmap, )</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun loadInstalledBrushRuntime(extensionId: String, assetIndex: Int): InstalledBrushRuntime?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun loadMaterialState( projectId: String, layerId: String, width: Int, height: Int, ): MaterialStateCodec.Snapshot?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun maybeBakeOldStrokes(layerId: String)</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun restoredRawColor( bitmap: Bitmap, snapshot: MaterialStateCodec.Snapshot, ): IntArray</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean</ID>
+    <ID>ReturnCount:EditorViewModelExt.kt$fun EditorViewModel.applyStrokeToActiveLayer(stroke: List&lt;Offset&gt;, canvasSize: IntSize)</ID>
+    <ID>ReturnCount:ExportManager.kt$ExportManager$fun compositeToLayerSpace( anchor: Layer, linkedLayers: List&lt;Layer&gt;, screenWidth: Int, screenHeight: Int, maxDim: Int? = 2048, ): Bitmap</ID>
+    <ID>ReturnCount:ExportManager.kt$ExportManager$private fun drawNode(canvas: Canvas, node: LayerNode, w: Int, h: Int)</ID>
+    <ID>ReturnCount:GesturePrediction.kt$AccelerationGesturePredictor$override fun predict(targetUptimeMillis: Long): GesturePrediction?</ID>
+    <ID>ReturnCount:GesturePrediction.kt$LinearGesturePredictor$override fun predict(targetUptimeMillis: Long): GesturePrediction?</ID>
+    <ID>ReturnCount:ImageProcessor.kt$ImageProcessor$fun floodFill( bitmap: Bitmap, x: Int, y: Int, fillColor: Int, tolerance: Int = 32, // Lasso selection as a Region, if active. A Canvas clip can't reach a scanline // fill, so containment is tested per pixel instead — the fill spreads only // within the selection, and a seed tapped outside it fills nothing. clipRegion: android.graphics.Region? = null, )</ID>
+    <ID>ReturnCount:ImageWarp.kt$ImageWarp$fun warp(source: Bitmap, destination: List&lt;Offset&gt;): Bitmap?</ID>
+    <ID>ReturnCount:KritaPresetParser.kt$KritaPresetParser$internal fun readTextChunk(bytes: ByteArray, keyword: String): String?</ID>
+    <ID>ReturnCount:KritaPresetParser.kt$KritaPresetParser$private fun readCompressedTextChunk(data: ByteArray, keyword: String): String?</ID>
+    <ID>ReturnCount:KritaPresetParser.kt$KritaPresetParser$private fun readInternationalTextChunk(data: ByteArray, keyword: String): String?</ID>
+    <ID>ReturnCount:KritaPresetParser.kt$KritaPresetParser$private fun readLatin1TextChunk(data: ByteArray, keyword: String): String?</ID>
+    <ID>ReturnCount:LayerListOps.kt$LayerListOps$fun group(layers: List&lt;Layer&gt;, aId: String, bId: String, newGroupId: String, groupName: String): List&lt;Layer&gt;</ID>
+    <ID>ReturnCount:LayerListOps.kt$LayerListOps$fun reorderSubset(layers: List&lt;Layer&gt;, newSubOrder: List&lt;String&gt;): List&lt;Layer&gt;</ID>
+    <ID>ReturnCount:LayerStore.kt$LayerStore$fun takeOldestStrokes(layerId: String, count: Int): List&lt;StrokeCommand&gt;</ID>
+    <ID>ReturnCount:MagicWand.kt$MagicWand$fun mask(bitmap: Bitmap, x: Int, y: Int, tolerance: Int = 32): BooleanArray?</ID>
+    <ID>ReturnCount:ModelView.kt$private fun paintAt( mesh: Mesh, texture: PaintableTexture, camera: OrbitCamera, point: Offset, viewportWidth: Float, viewportHeight: Float, lastUv: Pair&lt;Float, Float&gt;?, colorArgb: Int, brushRadiusPx: Float, ): Pair&lt;Float, Float&gt;?</ID>
+    <ID>ReturnCount:MultiFingerTaps.kt$MultiFingerRecognizer$fun onEvent(pressed: List&lt;TouchPoint&gt;, uptimeMs: Long, suppressed: Boolean): GestureSlot?</ID>
+    <ID>ReturnCount:MultiFingerTaps.kt$MultiFingerRecognizer$fun onIdleTick(nowMs: Long, suppressed: Boolean): GestureSlot?</ID>
+    <ID>ReturnCount:QuickShape.kt$QuickShape$private fun recognizeEllipse(points: List&lt;Offset&gt;): Ellipse?</ID>
+    <ID>ReturnCount:QuickShape.kt$QuickShape$private fun recognizeLine(points: List&lt;Offset&gt;): Line?</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun bitmapPath( selection: Selection?, bitmapWidth: Int, bitmapHeight: Int, layerScale: Float = 1f, layerOffset: Offset = Offset.Zero, layerRotationZ: Float = 0f, ): Path?</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun confine( base: android.graphics.Bitmap, produced: android.graphics.Bitmap, clipPath: Path?, radiusPx: Float, ): android.graphics.Bitmap</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun feather( base: android.graphics.Bitmap, painted: android.graphics.Bitmap, clipPath: Path?, radiusPx: Float, ): android.graphics.Bitmap</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun featherMask(clipPath: Path?, bitmapWidth: Int, bitmapHeight: Int, radiusPx: Float): android.graphics.Bitmap?</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun lift(source: android.graphics.Bitmap, clipPath: Path?, featherRadius: Float): android.graphics.Bitmap?</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$fun moveRegion( source: android.graphics.Bitmap, clipPath: Path, dx: Float, dy: Float, /** Feather radius in bitmap px; 0 for the hard-edged move. */ featherRadius: Float = 0f, ): android.graphics.Bitmap</ID>
+    <ID>ReturnCount:SelectionMask.kt$SelectionMask$private fun moveRegionSoft( source: android.graphics.Bitmap, mask: android.graphics.Bitmap, dx: Float, dy: Float, ): android.graphics.Bitmap</ID>
+    <ID>ReturnCount:StampBrushRenderer.kt$StampBrushRenderer$fun paintDabs( canvas: Canvas, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, flow: Float, stamp: Bitmap? = null, grain: Bitmap? = null, maskStamp: Bitmap? = null, seed: Long = 0L, secondaryColorArgb: Int = colorArgb, // True for Airbrush's held-still dabs (AirbrushEngine.heldDabs): those represent genuinely // separate time-based paint deposits at (roughly) the same spot -- "hold longer, get more // opaque" -- and must keep compositing the old way (sequential SRC_OVER, each dab building on // whatever the previous one left) or Airbrush stops building up at all. False (default) for // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead -- // see that function's doc comment for why movement dabs must NOT use this same build-up. allowBuildUp: Boolean = false, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>ReturnCount:StampBrushRenderer.kt$StampBrushRenderer$fun repaintRoundStrokeFromBase( canvas: Canvas, baseBitmap: Bitmap, dabs: List&lt;Dab&gt;, brush: AzphaltBrush, colorArgb: Int, flow: Float, secondaryColorArgb: Int = colorArgb, substrate: SubstrateRenderContext? = null, )</ID>
+    <ID>ReturnCount:SubstrateRenderContext.kt$SubstrateRenderContext$private fun paintHeightAt( canvasX: Float, canvasY: Float, canvasWidth: Int, canvasHeight: Int, ): Float</ID>
+    <ID>ReturnCount:TimeLapseRecorder.kt$TimeLapseRecorder$fun captureFrame(frame: Bitmap, nowMs: Long): Boolean</ID>
+    <ID>ReturnCount:TimeLapseRecorder.kt$TimeLapseRecorder$fun start(file: File): Boolean</ID>
+    <ID>SwallowedException:EditorViewModel.kt$EditorViewModel$e: Exception</ID>
+    <ID>SwallowedException:EditorViewModel.kt$EditorViewModel$e: Throwable</ID>
+    <ID>SwallowedException:EditorViewModel.kt$EditorViewModel$oom: OutOfMemoryError</ID>
+    <ID>SwallowedException:GoogleFontCache.kt$GoogleFontCache$e: Exception</ID>
+    <ID>SwallowedException:ImageProcessor.kt$ImageProcessor$e: OutOfMemoryError</ID>
+    <ID>SwallowedException:KritaPresetParser.kt$KritaPresetParser$e: Exception</ID>
+    <ID>SwallowedException:TimeLapseRecorder.kt$TimeLapseRecorder$e: IOException</ID>
+    <ID>ThrowsCount:KritaPresetParser.kt$KritaPresetParser$internal fun parsePresetXml(xml: String): Preset</ID>
+    <ID>ThrowsCount:KritaPresetParser.kt$KritaPresetParser$private fun readCompressedTextChunk(data: ByteArray, keyword: String): String?</ID>
+    <ID>TooGenericExceptionCaught:EditorViewModel.kt$EditorViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EditorViewModel.kt$EditorViewModel$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:EditorViewModel.kt$EditorViewModel$error: Exception</ID>
+    <ID>TooGenericExceptionCaught:GoogleFontCache.kt$GoogleFontCache$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KritaPresetParser.kt$KritaPresetParser$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ModelRenderer.kt$ModelRenderer$e: Throwable</ID>
+    <ID>TooGenericExceptionThrown:ModelRenderer.kt$ModelRenderer$throw RuntimeException("Failed to compile 3D shader: $log")</ID>
+    <ID>TooGenericExceptionThrown:ModelRenderer.kt$ModelRenderer$throw RuntimeException("Failed to link 3D shader program: $log")</ID>
+    <ID>TooManyFunctions:CanvasHitTest.kt$CanvasHitTest</ID>
+    <ID>TooManyFunctions:ColorSmudgeEngine.kt$ColorSmudgeEngine</ID>
+    <ID>TooManyFunctions:EditorActions.kt$EditorActions</ID>
+    <ID>TooManyFunctions:EditorReducer.kt$EditorReducer</ID>
+    <ID>TooManyFunctions:EditorScreen.kt$com.hereliesaz.graffitixr.feature.editor.EditorScreen.kt</ID>
+    <ID>TooManyFunctions:EditorViewModel.kt$EditorViewModel : ViewModelEditorActions</ID>
+    <ID>TooManyFunctions:EditorViewModel.kt$EditorViewModel$&lt;no name provided&gt; : AzphaltSandboxHost</ID>
+    <ID>TooManyFunctions:ImageProcessor.kt$ImageProcessor</ID>
+    <ID>TooManyFunctions:LayerStore.kt$LayerStore</ID>
+    <ID>TooManyFunctions:MaterialStateCodec.kt$MaterialStateCodec</ID>
+    <ID>TooManyFunctions:ModelRenderer.kt$ModelRenderer : Renderer</ID>
+    <ID>TooManyFunctions:SelectionMask.kt$SelectionMask</ID>
+    <ID>TooManyFunctions:StampBrushRenderer.kt$StampBrushRenderer</ID>
+    <ID>UnusedParameter:BrushStudioWindow.kt$stampMaskShape: Bitmap? = null</ID>
+    <ID>UnusedParameter:EditorUi.kt$showUnlockInstructions: Boolean</ID>
+    <ID>UnusedParameter:EditorViewModel.kt$EditorViewModel$layerId: String</ID>
+    <ID>UnusedParameter:EditorViewModel.kt$brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush</ID>
+    <ID>UnusedParameter:EditorViewModel.kt$grain: Bitmap?</ID>
+    <ID>UnusedParameter:EditorViewModel.kt$maskShape: Bitmap?</ID>
+    <ID>UnusedParameter:EditorViewModel.kt$shape: Bitmap?</ID>
+    <ID>UnusedPrivateMember:EditorViewModel.kt$EditorViewModel$private fun fitActiveLayerToAnchor(halfW: Float, halfH: Float)</ID>
+    <ID>UnusedPrivateMember:EditorViewModel.kt$EditorViewModel$private fun updateLayerUri(id: String, uri: Uri)</ID>
+    <ID>UnusedPrivateProperty:LayerStoreTest.kt$LayerStoreTest$s</ID>
+    <ID>UnusedPrivateProperty:MaterialStateCodec.kt$MaterialStateCodec$x</ID>
+    <ID>UseCheckOrError:DrawingEngine.kt$DrawingEngine$throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")</ID>
+    <ID>VariableNaming:CanvasHitTestTest.kt$CanvasHitTestTest$private val H = 1000f</ID>
+    <ID>VariableNaming:CanvasHitTestTest.kt$CanvasHitTestTest$private val W = 1000f</ID>
+    <ID>WildcardImport:CurvesAdjustment.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:DrawingCanvas.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:EditorUi.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:EditorUi.kt$import com.hereliesaz.graffitixr.common.model.*</ID>
+    <ID>WildcardImport:EditorViewModel.kt$import com.hereliesaz.graffitixr.common.model.*</ID>
+    <ID>WildcardImport:EditorViewModelTest.kt$import io.mockk.*</ID>
+    <ID>WildcardImport:ExtensionParamsPanel.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ExtensionsPanel.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SketchToolsDialog.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SketchToolsDialog.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:SketchToolsDialog.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:SketchToolsDialog.kt$import kotlin.math.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

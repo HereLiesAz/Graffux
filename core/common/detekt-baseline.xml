@@ -1,0 +1,302 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:CrashReporter.kt$CrashReporter.Companion$t.stackTrace.any { (it.className == "android.hardware.camera2.CameraManager" &amp;&amp; it.methodName == "getCameraCharacteristics") || // CameraX capture-session teardown path — the SecurityException variant // surfaces from Camera2's CaptureSession or CameraDeviceImpl when ARCore // evicts CameraX mid-pipeline. (it.className.startsWith("android.hardware.camera2.") &amp;&amp; (it.methodName == "submitCaptureRequest" || it.methodName == "close" || it.methodName == "checkIfCameraClosedOrInError")) }</ID>
+    <ID>ComplexCondition:ImportedDocument.kt$ImportedLayer$x &lt; 0 || y &lt; 0 || x &gt;= width || y &gt;= height</ID>
+    <ID>ComplexCondition:PathEditing.kt$PathEditing$a.outDx == 0f &amp;&amp; a.outDy == 0f &amp;&amp; b.inDx == 0f &amp;&amp; b.inDy == 0f</ID>
+    <ID>ComplexCondition:PsdReader.kt$PsdReader$wLong &lt;= 0 || hLong &lt;= 0 || wLong &gt; MAX_DIMENSION || hLong &gt; MAX_DIMENSION</ID>
+    <ID>ComplexCondition:PsdReader.kt$PsdReader$width &lt;= 0 || height &lt;= 0 || width &gt; MAX_DIMENSION || height &gt; MAX_DIMENSION</ID>
+    <ID>CyclomaticComplexMethod:CatmullRom.kt$CatmullRom$fun segments(points: List&lt;Float&gt;, samplesPerSegment: Int = 8): List&lt;FloatArray&gt;</ID>
+    <ID>CyclomaticComplexMethod:ContourTrace.kt$ContourTrace$fun contours(mask: BooleanArray, width: Int, height: Int): List&lt;SelectionRing&gt;</ID>
+    <ID>CyclomaticComplexMethod:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
+    <ID>CyclomaticComplexMethod:ImageExt.kt$fun Bitmap.isolateMarkings(tapPos: Pair&lt;Float, Float&gt;? = null): Bitmap</ID>
+    <ID>CyclomaticComplexMethod:MatSerializer.kt$MatSerializer$override fun deserialize(decoder: Decoder): Mat</ID>
+    <ID>CyclomaticComplexMethod:Parcelers.kt$BlendModeParceler$override fun BlendMode.write(parcel: Parcel, flags: Int)</ID>
+    <ID>CyclomaticComplexMethod:Parcelers.kt$BlendModeParceler$override fun create(parcel: Parcel): BlendMode</ID>
+    <ID>CyclomaticComplexMethod:PsdReader.kt$PsdReader$internal fun blendKeyToMode(key: String): BlendMode</ID>
+    <ID>CyclomaticComplexMethod:Serializers.kt$BlendModeSerializer$override fun deserialize(decoder: Decoder): BlendMode</ID>
+    <ID>CyclomaticComplexMethod:Serializers.kt$BlendModeSerializer$override fun serialize(encoder: Encoder, value: BlendMode)</ID>
+    <ID>ExplicitGarbageCollectionCall:SafeBitmap.kt$SafeBitmap$gc()</ID>
+    <ID>LongMethod:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
+    <ID>LongMethod:ImageExt.kt$fun Bitmap.isolateMarkings(tapPos: Pair&lt;Float, Float&gt;? = null): Bitmap</ID>
+    <ID>LongMethod:ImpastoEngineTest.kt$ImpastoEngineTest$@Test fun `material presentation can be removed before deterministic reshading`()</ID>
+    <ID>LongParameterList:Fingerprint.kt$Fingerprint.Companion$( keypoints: List&lt;KeyPoint&gt;, points3d: List&lt;Float&gt;, descriptorsData: ByteArray, descriptorsRows: Int, descriptorsCols: Int, descriptorsType: Int, patchData: ByteArray, markCenterLocal: List&lt;Float&gt;, )</ID>
+    <ID>LongParameterList:ImportedDocument.kt$ImportedLayer$( val name: String, val argb: IntArray, val width: Int, val height: Int, val left: Int = 0, val top: Int = 0, val opacity: Float = 1f, val isVisible: Boolean = true, val blendMode: BlendMode = BlendMode.SrcOver, /** Editable vector outlines (from a PSD vector mask / shape layer), in document pixels. Empty for * a plain raster layer. Lets the importer preserve real vectors instead of only their pixels. */ val vectorPaths: List&lt;ImportedPath&gt; = emptyList(), )</ID>
+    <ID>LongParameterList:LayoutOps.kt$LayoutOps$( anchor: ConstraintAnchor, pos: Float, size: Float, oldOrigin: Float, oldExtent: Float, newOrigin: Float, newExtent: Float, )</ID>
+    <ID>LongParameterList:LayoutOpsTest.kt$LayoutOpsTest$( id: String, parent: String, x: Float, y: Float, w: Float = 100f, h: Float = 50f, constraints: Constraints = Constraints(), visible: Boolean = true, )</ID>
+    <ID>LongParameterList:MeshPicker.kt$MeshPicker$( mesh: Mesh, screenX: Float, screenY: Float, viewportWidth: Float, viewportHeight: Float, view: FloatArray, projection: FloatArray, )</ID>
+    <ID>LongParameterList:MeshPicker.kt$MeshPicker$( screenX: Float, screenY: Float, viewportWidth: Float, viewportHeight: Float, view: FloatArray, projection: FloatArray, )</ID>
+    <ID>LongParameterList:ObjParser.kt$ObjParser$( corner: String, positions: List&lt;Float&gt;, uvs: List&lt;Float&gt;, normals: List&lt;Float&gt;, emitted: HashMap&lt;Triple&lt;Int, Int, Int&gt;, Int&gt;, out: ArrayList&lt;Float&gt;, )</ID>
+    <ID>LongParameterList:PathEditing.kt$PathEditing$( shape: VectorShape, index: Int, outgoing: Boolean, x: Float, y: Float, mirror: Boolean = true, )</ID>
+    <ID>LongParameterList:PathSimplify.kt$PathSimplify$(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float)</ID>
+    <ID>LongParameterList:PsdReader.kt$PsdReader.LayerRecord$( val name: String, val top: Int, val left: Int, val bottom: Int, val right: Int, val channels: List&lt;ChannelInfo&gt;, val opacity: Float, val isVisible: Boolean, val blendMode: BlendMode, val vectorMaskBytes: ByteArray? = null, )</ID>
+    <ID>LongParameterList:PsdReaderTest.kt$PsdReaderTest$( name: String, top: Int, left: Int, bottom: Int, right: Int, channelIds: List&lt;Int&gt;, channelLen: Int, blendKey: String = "norm", opacity: Int = 255, flags: Int = 0, )</ID>
+    <ID>LongParameterList:TexturePaint.kt$TexturePaint$( fromU: Float, fromV: Float, toU: Float, toV: Float, width: Int, height: Int, spacingPx: Float, )</ID>
+    <ID>LoopWithTooManyJumpStatements:ContourTrace.kt$ContourTrace$while</ID>
+    <ID>LoopWithTooManyJumpStatements:MeshPicker.kt$MeshPicker$while</ID>
+    <ID>LoopWithTooManyJumpStatements:PsdReader.kt$PsdReader$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SelectionGeometry.kt$SelectionGeometry$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ToolUsage.kt$ToolUsageCodec$for</ID>
+    <ID>MagicNumber:AutoTune.kt$0.114</ID>
+    <ID>MagicNumber:AutoTune.kt$0.15f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.25f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.299</ID>
+    <ID>MagicNumber:AutoTune.kt$0.2f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.587</ID>
+    <ID>MagicNumber:AutoTune.kt$0.5f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.6f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.85f</ID>
+    <ID>MagicNumber:AutoTune.kt$0.9f</ID>
+    <ID>MagicNumber:AutoTune.kt$0xFF</ID>
+    <ID>MagicNumber:AutoTune.kt$1.15f</ID>
+    <ID>MagicNumber:AutoTune.kt$1.1f</ID>
+    <ID>MagicNumber:AutoTune.kt$1.25f</ID>
+    <ID>MagicNumber:AutoTune.kt$1.3f</ID>
+    <ID>MagicNumber:AutoTune.kt$128f</ID>
+    <ID>MagicNumber:AutoTune.kt$16</ID>
+    <ID>MagicNumber:AutoTune.kt$24</ID>
+    <ID>MagicNumber:AutoTune.kt$255f</ID>
+    <ID>MagicNumber:AutoTune.kt$3f</ID>
+    <ID>MagicNumber:AutoTune.kt$60f</ID>
+    <ID>MagicNumber:AutoTune.kt$64f</ID>
+    <ID>MagicNumber:AutoTune.kt$8</ID>
+    <ID>MagicNumber:BitmapDecode.kt$30</ID>
+    <ID>MagicNumber:CaptureUtils.kt$100</ID>
+    <ID>MagicNumber:CatmullRom.kt$CatmullRom$0.5f</ID>
+    <ID>MagicNumber:CatmullRom.kt$CatmullRom$3f</ID>
+    <ID>MagicNumber:CatmullRom.kt$CatmullRom$4f</ID>
+    <ID>MagicNumber:CatmullRom.kt$CatmullRom$5f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$120f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$150f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$180f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$210f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$240f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$30f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$360f</ID>
+    <ID>MagicNumber:ColorHarmony.kt$ColorHarmony$60f</ID>
+    <ID>MagicNumber:ContourTrace.kt$ContourTrace$1e-3f</ID>
+    <ID>MagicNumber:ContourTrace.kt$ContourTrace$3</ID>
+    <ID>MagicNumber:ContourTrace.kt$ContourTrace$4</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x03</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x04</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x05</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x06</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x07</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x08</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x89</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0xD8</ID>
+    <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0xFF</ID>
+    <ID>MagicNumber:Fingerprint.kt$31</ID>
+    <ID>MagicNumber:Fingerprint.kt$Fingerprint$3</ID>
+    <ID>MagicNumber:ImageExt.kt$0.114</ID>
+    <ID>MagicNumber:ImageExt.kt$0.299</ID>
+    <ID>MagicNumber:ImageExt.kt$0.587</ID>
+    <ID>MagicNumber:ImageExt.kt$0xFF</ID>
+    <ID>MagicNumber:ImageExt.kt$0xFFFF</ID>
+    <ID>MagicNumber:ImageExt.kt$16</ID>
+    <ID>MagicNumber:ImageExt.kt$25</ID>
+    <ID>MagicNumber:ImageExt.kt$3f</ID>
+    <ID>MagicNumber:ImageExt.kt$8</ID>
+    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$3</ID>
+    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$4</ID>
+    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$5</ID>
+    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$6</ID>
+    <ID>MagicNumber:LocationTracker.kt$LocationTracker$10000</ID>
+    <ID>MagicNumber:LocationTracker.kt$LocationTracker$5000</ID>
+    <ID>MagicNumber:MatSerializer.kt$MatSerializer$3</ID>
+    <ID>MagicNumber:MatSerializer.kt$MatSerializer$32768</ID>
+    <ID>MagicNumber:Mesh.kt$Mesh$1e-4f</ID>
+    <ID>MagicNumber:Mesh.kt$Mesh$3</ID>
+    <ID>MagicNumber:Mesh.kt$Mesh$4</ID>
+    <ID>MagicNumber:Mesh.kt$Mesh$5</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$10</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$11</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$12</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$13</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$14</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$15</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$16</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$1e-12f</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$1e-9f</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$3</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$4</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$5</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$6</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$7</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$8</ID>
+    <ID>MagicNumber:MeshPicker.kt$MeshPicker$9</ID>
+    <ID>MagicNumber:ObjParser.kt$ObjParser$1e-6f</ID>
+    <ID>MagicNumber:ObjParser.kt$ObjParser$3</ID>
+    <ID>MagicNumber:OrbitCamera.kt$OrbitCamera$1e-3f</ID>
+    <ID>MagicNumber:OrbitCamera.kt$OrbitCamera$360f</ID>
+    <ID>MagicNumber:OrbitCamera.kt$OrbitCamera.Companion$0.01f</ID>
+    <ID>MagicNumber:OrbitCamera.kt$OrbitCamera.Companion$1e-6f</ID>
+    <ID>MagicNumber:OrbitCamera.kt$OrbitCamera.Companion$360f</ID>
+    <ID>MagicNumber:PackBits.kt$PackBits$128</ID>
+    <ID>MagicNumber:PaletteCodec.kt$PaletteCodec$16</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$10</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$11</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$12</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$13</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$14</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$15</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$16</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$17</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$18</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$19</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$20</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$21</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$22</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$23</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$24</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$25</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$26</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$27</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$28</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$3</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$4</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$5</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$6</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$7</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$8</ID>
+    <ID>MagicNumber:Parcelers.kt$BlendModeParceler$9</ID>
+    <ID>MagicNumber:PathEditing.kt$PathEditing$3f</ID>
+    <ID>MagicNumber:PathSimplify.kt$PathSimplify$3</ID>
+    <ID>MagicNumber:PerformanceMonitor.kt$PerformanceMonitor$1024</ID>
+    <ID>MagicNumber:PerformanceMonitor.kt$PerformanceMonitor$1_000_000_000L</ID>
+    <ID>MagicNumber:PerformanceMonitor.kt$PerformanceMonitor$1_000_000f</ID>
+    <ID>MagicNumber:PerspectiveProcessor.kt$PerspectiveProcessor$0.1</ID>
+    <ID>MagicNumber:PerspectiveProcessor.kt$PerspectiveProcessor$3</ID>
+    <ID>MagicNumber:PerspectiveProcessor.kt$PerspectiveProcessor$4</ID>
+    <ID>MagicNumber:PerspectiveProcessor.kt$PerspectiveProcessor$5</ID>
+    <ID>MagicNumber:ProjectFile.kt$ProjectFile$0x20</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$0xFF</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$12</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$16</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$24</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$3</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$4</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$4096</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$6</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader$8</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader.Cursor$0xFF</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader.Cursor$16</ID>
+    <ID>MagicNumber:PsdReader.kt$PsdReader.Cursor$8</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$0xFF</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$10</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$14</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$16</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$24</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$3</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$4</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$5</ID>
+    <ID>MagicNumber:PsdVectorMask.kt$PsdVectorMask$8</ID>
+    <ID>MagicNumber:RadialMenuGeometry.kt$RadialMenuGeometry$360f</ID>
+    <ID>MagicNumber:RadialMenuGeometry.kt$RadialMenuGeometry$90f</ID>
+    <ID>MagicNumber:Selection.kt$SelectionRing$3</ID>
+    <ID>MagicNumber:Selection.kt$TransformMode$4</ID>
+    <ID>MagicNumber:SelectionGeometry.kt$SelectionGeometry$3</ID>
+    <ID>MagicNumber:StrokeStabilizer.kt$StrokeStabilizer$100</ID>
+    <ID>MagicNumber:StrokeStabilizer.kt$StrokeStabilizer$100f</ID>
+    <ID>MagicNumber:StrokeStabilizer.kt$StrokeStabilizer$20</ID>
+    <ID>MagicNumber:TexturePaint.kt$TexturePaint$0.5f</ID>
+    <ID>MagicNumber:ToolUsage.kt$ToolUsageCodec$3</ID>
+    <ID>MagicNumber:Utils.kt$1024</ID>
+    <ID>MagicNumber:VectorPaths.kt$VectorPaths$3</ID>
+    <ID>MagicNumber:VectorShape.kt$VectorShape$24</ID>
+    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$16</ID>
+    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$3</ID>
+    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$4</ID>
+    <ID>MagicNumber:XrealGlassProvider.kt$XrealGlassProvider$0x0483</ID>
+    <ID>MagicNumber:XrealGlassProvider.kt$XrealGlassProvider$0x3318</ID>
+    <ID>MatchingDeclarationName:LayerTree.kt$LayerNode</ID>
+    <ID>MatchingDeclarationName:Releasable.kt$GlReleasable</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val dabs = AirbrushEngine.heldDabs(samples, 20f, plainBrush, dabsPerSecond = 0f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val dabs = AirbrushEngine.heldDabs(samples, 20f, plainBrush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val highDabs = AirbrushEngine.heldDabs(highPressure, 20f, brush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val inside = AirbrushEngine.heldDabs(insideSamples, 20f, plainBrush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val lowDabs = AirbrushEngine.heldDabs(lowPressure, 20f, brush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val outside = AirbrushEngine.heldDabs(outsideSamples, 20f, plainBrush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
+    <ID>MaxLineLength:AzphaltBrushTest.kt$AzphaltBrushTest$"""{"flowByPressure":true,"dynamics":[{"sensor":"pressure","parameter":"flow","outputMin":0.4,"outputMax":0.8}]}"""</ID>
+    <ID>MaxLineLength:AzphaltBrushTest.kt$AzphaltBrushTest$"""{"impastoMaterial":{"version":2,"enabled":true,"initialLoad":0.7,"wetness":0.8,"pickupRate":0.4,"levelingRate":0.3,"viscosity":0.6,"yieldLikeStrength":0.5,"substrateResponse":0.9,"baseRoughness":0.35,"wetSpecularStrength":0.75}}"""</ID>
+    <ID>MaxLineLength:AzphaltBrushTest.kt$AzphaltBrushTest$"""{"taper":{"startLengthPx":40,"endLengthPx":80,"minSize":0.2,"minOpacity":0.3,"liftOffSynthesizesPressure":true}}"""</ID>
+    <ID>MaxLineLength:AzphaltBrushTest.kt$AzphaltBrushTest$params("""{"spacing":0.03,"opacity":0.8,"hardness":0.5,"sizeJitter":0.2,"scatter":1.5,"followStroke":true}""")</ID>
+    <ID>MaxLineLength:AzphaltBrushTest.kt$AzphaltBrushTest$private fun params(json: String)</ID>
+    <ID>MaxLineLength:BitmapStats.kt$Bitmap.createScaledBitmap(this, (width * s).toInt().coerceAtLeast(1), (height * s).toInt().coerceAtLeast(1), true)</ID>
+    <ID>MaxLineLength:BrushTaperTest.kt$BrushTaperTest$taper = BrushTaper(startLengthPx = 40f, endLengthPx = 40f, minSize = 0.2f, minOpacity = 0.2f, liftOffSynthesizesPressure = true)</ID>
+    <ID>MaxLineLength:CameraCapabilitiesTest.kt$CameraCapabilitiesTest$every { context.getSystemService(Context.CAMERA_SERVICE) } throws RuntimeException("Camera service not available")</ID>
+    <ID>MaxLineLength:CrashReporter.kt$CrashReporter$process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}"))</ID>
+    <ID>MaxLineLength:CrashReporter.kt$CrashReporter.Companion$Regex("""(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth)\s*[=:]\s*[A-Za-z0-9\-_.]{6,}""") to "$1=[REDACTED]"</ID>
+    <ID>MaxLineLength:CubeLutTest.kt$CubeLutTest$val lut = parseCubeLut("# a comment\n\nLUT_3D_SIZE 2\n" + "0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1")</ID>
+    <ID>MaxLineLength:Fingerprint.kt$Fingerprint$"descriptor row stride (${descriptorsData.size / descriptorsRows}) must be a multiple of descriptorsCols ($descriptorsCols)"</ID>
+    <ID>MaxLineLength:ImpastoEngineTest.kt$ImpastoEngineTest$val shaded = ImpastoEngine.shade(colors, flatHeight, w, h, lightAzimuthDeg = 45f, lightElevationDeg = 30f, strength = 5f)</ID>
+    <ID>MaxLineLength:ImpastoEngineTest.kt$ImpastoEngineTest$val shaded = ImpastoEngine.shade(colors, height, w, h, lightAzimuthDeg = 0f, lightElevationDeg = 20f, strength = 4f)</ID>
+    <ID>MaxLineLength:LayoutOpsTest.kt$LayoutOpsTest$child("a", "F", x = 20f, y = 0f, w = 360f, constraints = Constraints(horizontal = ConstraintAnchor.STRETCH))</ID>
+    <ID>MaxLineLength:LayoutOpsTest.kt$LayoutOpsTest$listOf(frame("F", padded), child("a", "F", 0f, 0f, w = 100f, h = 50f), child("b", "F", 0f, 0f, w = 60f, h = 30f))</ID>
+    <ID>MaxLineLength:LocationTracker.kt$LocationTracker$private var fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)</ID>
+    <ID>MaxLineLength:MaskedBrushScatterRotationTest.kt$MaskedBrushScatterRotationTest$straight</ID>
+    <ID>MaxLineLength:MatSerializer.kt$MatSerializer$3 -&gt; data = decodeSerializableElement(descriptor, 3, kotlinx.serialization.builtins.ByteArraySerializer())</ID>
+    <ID>MaxLineLength:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Invalid Mat dimensions or type: rows=${value.rows()}, cols=${value.cols()}, type=${value.type()}")</ID>
+    <ID>MaxLineLength:NativeLibLoader.kt$NativeLibLoader$Log.w("NativeLibLoader", "Direct load failed (${e.message} / ${e2.message}), trying OpenCVLoader fallback...")</ID>
+    <ID>MaxLineLength:StrokeStabilizerTest.kt$StrokeStabilizerTest$repeat(100) { last = s.stabilize(Offset(50f, 0f), level = 80, algorithm = StabilizerAlgorithm.MOTION_FILTERING) }</ID>
+    <ID>NestedBlockDepth:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
+    <ID>NestedBlockDepth:ImageExt.kt$fun Bitmap.isolateMarkings(tapPos: Pair&lt;Float, Float&gt;? = null): Bitmap</ID>
+    <ID>NestedBlockDepth:ObjParser.kt$ObjParser$fun parse(text: String): Mesh</ID>
+    <ID>NewLineAtEndOfFile:ArState.kt$com.hereliesaz.graffitixr.common.model.ArState.kt</ID>
+    <ID>NewLineAtEndOfFile:BlendModeSerializer.kt$com.hereliesaz.graffitixr.common.serialization.BlendModeSerializer.kt</ID>
+    <ID>NewLineAtEndOfFile:Fingerprint.kt$com.hereliesaz.graffitixr.common.model.Fingerprint.kt</ID>
+    <ID>NewLineAtEndOfFile:FingerprintSerializer.kt$com.hereliesaz.graffitixr.common.serialization.FingerprintSerializer.kt</ID>
+    <ID>NewLineAtEndOfFile:ImageExt.kt$com.hereliesaz.graffitixr.common.util.ImageExt.kt</ID>
+    <ID>NewLineAtEndOfFile:OffsetSerializer.kt$com.hereliesaz.graffitixr.common.serialization.OffsetSerializer.kt</ID>
+    <ID>NewLineAtEndOfFile:OverlayLayer.kt$com.hereliesaz.graffitixr.common.model.OverlayLayer.kt</ID>
+    <ID>NewLineAtEndOfFile:Parcelers.kt$com.hereliesaz.graffitixr.common.Parcelers.kt</ID>
+    <ID>NewLineAtEndOfFile:RefinementPath.kt$com.hereliesaz.graffitixr.common.model.RefinementPath.kt</ID>
+    <ID>NewLineAtEndOfFile:RefinementPathSerializer.kt$com.hereliesaz.graffitixr.common.serialization.RefinementPathSerializer.kt</ID>
+    <ID>ReturnCount:BitmapDecode.kt$fun decodeBoundedBitmap(bytes: ByteArray, maxDimPx: Int): Bitmap?</ID>
+    <ID>ReturnCount:BitmapDecode.kt$fun decodeBoundedBitmap(path: String, maxDimPx: Int): Bitmap?</ID>
+    <ID>ReturnCount:ComponentOps.kt$ComponentOps$fun makeComponent( layers: List&lt;Layer&gt;, layerId: String, componentId: String = UUID.randomUUID().toString(), ): List&lt;Layer&gt;</ID>
+    <ID>ReturnCount:ContourTrace.kt$ContourTrace$fun contours(mask: BooleanArray, width: Int, height: Int): List&lt;SelectionRing&gt;</ID>
+    <ID>ReturnCount:DocumentImporter.kt$DocumentImporter$private fun starts(h: ByteArray, vararg magic: Int): Boolean</ID>
+    <ID>ReturnCount:Fingerprint.kt$private fun keypointsValueEqual(a: List&lt;KeyPoint&gt;, b: List&lt;KeyPoint&gt;): Boolean</ID>
+    <ID>ReturnCount:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
+    <ID>ReturnCount:LayoutOps.kt$LayoutOps$fun applyAutoLayout(layers: List&lt;Layer&gt;, frameId: String, frame: Rect): List&lt;Layer&gt;</ID>
+    <ID>ReturnCount:LayoutOps.kt$LayoutOps$fun applyResize( layers: List&lt;Layer&gt;, frameId: String, old: Rect, new: Rect, ): List&lt;Layer&gt;</ID>
+    <ID>ReturnCount:LayoutOps.kt$LayoutOps$fun hugContentsSize(layers: List&lt;Layer&gt;, frameId: String): Pair&lt;Float, Float&gt;?</ID>
+    <ID>ReturnCount:MeshPicker.kt$MeshPicker$fun unproject( screenX: Float, screenY: Float, viewportWidth: Float, viewportHeight: Float, view: FloatArray, projection: FloatArray, ): Ray?</ID>
+    <ID>ReturnCount:ObjParser.kt$ObjParser$private fun resolve(token: String?, count: Int): Int</ID>
+    <ID>ReturnCount:PathEditing.kt$PathEditing$fun hitTest(shape: VectorShape, x: Float, y: Float, radius: Float): Hit?</ID>
+    <ID>ReturnCount:PathEditing.kt$PathEditing$fun insertNode(shape: VectorShape, segmentIndex: Int, t: Float): VectorShape</ID>
+    <ID>ReturnCount:PathEditing.kt$PathEditing$fun makeSmooth(shape: VectorShape, index: Int): VectorShape</ID>
+    <ID>ReturnCount:PsdReader.kt$PsdReader$fun read(bytes: ByteArray): ImportedDocument</ID>
+    <ID>ReturnCount:RadialMenuGeometry.kt$RadialMenuGeometry$fun slotAt(center: Offset, point: Offset, slots: Int = 6, deadZonePx: Float = DEAD_ZONE_PX): Int?</ID>
+    <ID>ReturnCount:TexturePaint.kt$TexturePaint$fun stamps( fromU: Float, fromV: Float, toU: Float, toV: Float, width: Int, height: Int, spacingPx: Float, ): List&lt;Stamp&gt;</ID>
+    <ID>ReturnCount:Utils.kt$fun resizeBitmapForArCore(bitmap: Bitmap): Bitmap</ID>
+    <ID>SwallowedException:PsdReader.kt$PsdReader$e: IndexOutOfBoundsException</ID>
+    <ID>SwallowedException:PsdReader.kt$PsdReader$e: OutOfMemoryError</ID>
+    <ID>SwallowedException:PsdReaderTest.kt$PsdReaderTest$e: PsdFormatException</ID>
+    <ID>SwallowedException:SafeBitmap.kt$SafeBitmap$first: OutOfMemoryError</ID>
+    <ID>ThrowsCount:PsdReader.kt$PsdReader$fun read(bytes: ByteArray): ImportedDocument</ID>
+    <ID>TooGenericExceptionCaught:CameraCapabilities.kt$CameraCapabilities$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:CaptureUtils.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:CrashReporter.kt$CrashReporter$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ImageUtils.kt$ImageUtils$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PerspectiveProcessor.kt$PerspectiveProcessor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PsdReader.kt$PsdReader$e: IndexOutOfBoundsException</ID>
+    <ID>TooGenericExceptionThrown:NativeLibLoader.kt$NativeLibLoader$throw RuntimeException("$errorMsg ${e.message}", e)</ID>
+    <ID>TooGenericExceptionThrown:NativeLibLoader.kt$NativeLibLoader$throw RuntimeException(errorMsg)</ID>
+    <ID>TooManyFunctions:PathEditing.kt$PathEditing</ID>
+    <ID>TooManyFunctions:PsdReader.kt$PsdReader</ID>
+    <ID>UnusedPrivateProperty:BrushScatterRotationTest.kt$BrushScatterRotationTest$private val straightSamples = listOf( BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 1f), BrushSample(100f, 0f, uptimeMillis = 100L, speedPxPerMs = 1f), )</ID>
+    <ID>UnusedPrivateProperty:MaskedBrushScatterRotationTest.kt$MaskedBrushScatterRotationTest$private val straightSamples = listOf( BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 1f), BrushSample(100f, 0f, uptimeMillis = 100L, speedPxPerMs = 1f), )</ID>
+    <ID>UseRequire:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Data size mismatch: expected $expectedSize, got ${data.size}")</ID>
+    <ID>UseRequire:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Invalid Mat dimensions or type: rows=${value.rows()}, cols=${value.cols()}, type=${value.type()}")</ID>
+    <ID>UseRequire:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Invalid Mat dimensions: rows=$rows, cols=$cols")</ID>
+    <ID>UseRequire:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Mat byte size too large")</ID>
+    <ID>UseRequire:MatSerializer.kt$MatSerializer$throw IllegalArgumentException("Mat dimensions too large (max 32768): rows=$rows, cols=$cols")</ID>
+    <ID>VariableNaming:PsdVectorMaskTest.kt$PsdVectorMaskTest$private val HALF = 0x00800000 // 0.5 in 8.24 fixed point</ID>
+    <ID>VariableNaming:PsdVectorMaskTest.kt$PsdVectorMaskTest$private val QUARTER = 0x00400000 // 0.25</ID>
+    <ID>VariableNaming:PsdVectorMaskTest.kt$PsdVectorMaskTest$private val THREE_Q = 0x00C00000 // 0.75</ID>
+    <ID>VariableNaming:Utils.kt$val MAX_DIMENSION = 1024</ID>
+  </CurrentIssues>
+</SmellBaseline>

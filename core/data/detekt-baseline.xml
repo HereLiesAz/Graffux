@@ -1,0 +1,148 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ConstructorParameterNaming:GithubRelease.kt$GithubAsset$val browser_download_url: String</ID>
+    <ID>ConstructorParameterNaming:GithubRelease.kt$GithubRelease$val created_at: String</ID>
+    <ID>ConstructorParameterNaming:GithubRelease.kt$GithubRelease$val html_url: String</ID>
+    <ID>ConstructorParameterNaming:GithubRelease.kt$GithubRelease$val tag_name: String</ID>
+    <ID>CyclomaticComplexMethod:AzpInstaller.kt$AzpInstaller$fun install( input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false, // Checked before anything is written to disk — deliberately not left to the caller to check // on the returned InstalledExtension, which by then already destructively swapped a same-id // package into place (see the swap-and-delete-backup comment below): a caller that rejected // an unsupported kind only after install() returned was, in practice, deleting a previously- // working install of that id and replacing it with nothing, since install()'s own backup is // already gone by the time it returns successfully. unsupportedKinds: Set&lt;ExtensionKind&gt; = emptySet(), ): InstalledExtension</ID>
+    <ID>CyclomaticComplexMethod:FigmaBundle.kt$fun figmaBlendMode(mode: BlendMode): String</ID>
+    <ID>CyclomaticComplexMethod:JsSandbox.kt$JsSandbox$private fun bindHostCall(grantedCapabilities: Set&lt;String&gt;)</ID>
+    <ID>CyclomaticComplexMethod:ProjectManager.kt$ProjectManager$private fun ComposeBlendMode.toModelBlendMode(): ModelBlendMode</ID>
+    <ID>CyclomaticComplexMethod:ProjectManager.kt$ProjectManager$suspend fun importProjectFromUri(context: Context, uri: Uri): GraffitiProject?</ID>
+    <ID>CyclomaticComplexMethod:ProjectManager.kt$ProjectManager$suspend fun loadAsSpectator(bytes: ByteArray)</ID>
+    <ID>CyclomaticComplexMethod:ProjectManager.kt$ProjectManager$suspend fun saveProject(context: Context, projectData: GraffitiProject, targetImages: List&lt;Bitmap&gt;? = null, thumbnail: Bitmap? = null)</ID>
+    <ID>InstanceOfCheckForException:ExtensionRepository.kt$ExtensionRepository$t !is kotlinx.coroutines.CancellationException</ID>
+    <ID>LongMethod:AzpInstaller.kt$AzpInstaller$fun install( input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false, // Checked before anything is written to disk — deliberately not left to the caller to check // on the returned InstalledExtension, which by then already destructively swapped a same-id // package into place (see the swap-and-delete-backup comment below): a caller that rejected // an unsupported kind only after install() returned was, in practice, deleting a previously- // working install of that id and replacing it with nothing, since install()'s own backup is // already gone by the time it returns successfully. unsupportedKinds: Set&lt;ExtensionKind&gt; = emptySet(), ): InstalledExtension</ID>
+    <ID>LongMethod:JsSandbox.kt$JsSandbox$private fun bindHostCall(grantedCapabilities: Set&lt;String&gt;)</ID>
+    <ID>LongMethod:ProjectManager.kt$ProjectManager$suspend fun importProjectFromUri(context: Context, uri: Uri): GraffitiProject?</ID>
+    <ID>LongMethod:ProjectManager.kt$ProjectManager$suspend fun loadAsSpectator(bytes: ByteArray)</ID>
+    <ID>LongMethod:WasmSandbox.kt$WasmSandbox$private fun bindCapabilities(grantedCapabilities: Set&lt;String&gt;)</ID>
+    <ID>LongParameterList:FigmaLinksTest.kt$FigmaLinksTest$( id: String, name: String, type: String, children: List&lt;FigmaNode&gt; = emptyList(), w: Float = 100f, h: Float = 100f, )</ID>
+    <ID>LongParameterList:RepositoryApiClient.kt$RepositoryApiClient$( baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL, query: String? = null, kind: List&lt;String&gt; = emptyList(), types: List&lt;String&gt; = emptyList(), tags: List&lt;String&gt; = emptyList(), mediaDomains: List&lt;String&gt; = emptyList(), sort: String? = null, appId: String? = null, )</ID>
+    <ID>LoopWithTooManyJumpStatements:ProjectFileScanner.kt$ProjectFileScanner$while</ID>
+    <ID>MagicNumber:AzpInstaller.kt$AzpInstaller$1024</ID>
+    <ID>MagicNumber:AzpInstaller.kt$AzpInstaller$64</ID>
+    <ID>MagicNumber:CustomBrushRepository.kt$CustomBrushRepository$128</ID>
+    <ID>MagicNumber:ExtensionRepository.kt$ExtensionRepository$1024</ID>
+    <ID>MagicNumber:ExtensionRepository.kt$ExtensionRepository$10_000</ID>
+    <ID>MagicNumber:ExtensionRepository.kt$ExtensionRepository$200</ID>
+    <ID>MagicNumber:ExtensionRepository.kt$ExtensionRepository$299</ID>
+    <ID>MagicNumber:ExtensionRepository.kt$ExtensionRepository$64</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$1024</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$15_000</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$16</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$200</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$299</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$30_000</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$403</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$404</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$429</ID>
+    <ID>MagicNumber:FigmaRepository.kt$FigmaRepository$60_000</ID>
+    <ID>MagicNumber:JsSandbox.kt$JsSandbox$0xFF</ID>
+    <ID>MagicNumber:JsSandbox.kt$JsSandbox$0xFFFFFFFFL</ID>
+    <ID>MagicNumber:JsSandbox.kt$JsSandbox$3</ID>
+    <ID>MagicNumber:JsSandbox.kt$JsSandbox$4</ID>
+    <ID>MagicNumber:ProjectFileScanner.kt$ProjectFileScanner$1024</ID>
+    <ID>MagicNumber:ProjectFileScanner.kt$ProjectFileScanner$32</ID>
+    <ID>MagicNumber:ProjectManager.kt$ProjectManager$100</ID>
+    <ID>MagicNumber:ProjectManager.kt$ProjectManager$1024</ID>
+    <ID>MagicNumber:ProjectManager.kt$ProjectManager$128</ID>
+    <ID>MagicNumber:ProjectManager.kt$ProjectManager$64</ID>
+    <ID>MagicNumber:ProjectManager.kt$ProjectManager$80</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$1024</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$10_000</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$15_000</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$16</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$200</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$206</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$299</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$30_000</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$401</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$402</ID>
+    <ID>MagicNumber:RepositoryApiClient.kt$RepositoryApiClient$404</ID>
+    <ID>MagicNumber:SandboxExecution.kt$1_000L</ID>
+    <ID>MagicNumber:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$0.25f</ID>
+    <ID>MagicNumber:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$240</ID>
+    <ID>MagicNumber:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$4.0f</ID>
+    <ID>MagicNumber:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$60</ID>
+    <ID>MagicNumber:WasmSandbox.kt$WasmSandbox$3</ID>
+    <ID>MaxLineLength:AzpConformanceFixturesTest.kt$AzpConformanceFixturesTest$if (gotSigValid != wantSigValid) failures += "$name: signatureValid expected $wantSigValid, host said $gotSigValid"</ID>
+    <ID>MaxLineLength:AzpConformanceFixturesTest.kt$AzpConformanceFixturesTest$if (gotTrusted != wantTrusted) failures += "$name: trust.trusted expected $wantTrusted, host said $gotTrusted"</ID>
+    <ID>MaxLineLength:AzpInstaller.kt$AzpInstaller$"This host does not install unknown extensions; '${manifest.id}' is kind=${manifest.kind.name.lowercase()}"</ID>
+    <ID>MaxLineLength:ExtensionInventorySeedTest.kt$ExtensionInventorySeedTest$assertEquals("the version on disk is reported", "2.1.0", inventory.first { it.id == "com.example.brush" }.version)</ID>
+    <ID>MaxLineLength:ExtensionRepository.kt$ExtensionRepository$if (ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.CODE &amp;&amp; ext.manifest.kind != com.hereliesaz.graffitixr.common.azphalt.ExtensionKind.MIXED) return</ID>
+    <ID>MaxLineLength:JsSandbox.kt$JsSandbox$FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32))</ID>
+    <ID>MaxLineLength:ProjectManager.kt$ProjectManager$suspend</ID>
+    <ID>MaxLineLength:ProjectManagerTest.kt$ProjectManagerTest$val projectRepositoryProvider = mockk&lt;javax.inject.Provider&lt;com.hereliesaz.graffitixr.domain.repository.ProjectRepository&gt;&gt;(relaxed = true)</ID>
+    <ID>MaxLineLength:ProjectRepositoryImpl.kt$ProjectRepositoryImpl$override suspend</ID>
+    <ID>MaxLineLength:ProjectRepositoryImpl.kt$ProjectRepositoryImpl$updateProject { current -&gt; if (current.id == projectId) current.copy(targetFingerprintPath = path) else current }</ID>
+    <ID>MaxLineLength:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }</ID>
+    <ID>NestedBlockDepth:AzpInstaller.kt$AzpInstaller$fun install( input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false, // Checked before anything is written to disk — deliberately not left to the caller to check // on the returned InstalledExtension, which by then already destructively swapped a same-id // package into place (see the swap-and-delete-backup comment below): a caller that rejected // an unsupported kind only after install() returned was, in practice, deleting a previously- // working install of that id and replacing it with nothing, since install()'s own backup is // already gone by the time it returns successfully. unsupportedKinds: Set&lt;ExtensionKind&gt; = emptySet(), ): InstalledExtension</ID>
+    <ID>NestedBlockDepth:ProjectFileScanner.kt$ProjectFileScanner$private fun scanMediaStore(): List&lt;DiscoveredProjectFile&gt;</ID>
+    <ID>NewLineAtEndOfFile:ProjectManager.kt$com.hereliesaz.graffitixr.data.ProjectManager.kt</ID>
+    <ID>NewLineAtEndOfFile:ProjectManagerTest.kt$com.hereliesaz.graffitixr.data.ProjectManagerTest.kt</ID>
+    <ID>ReturnCount:AzpInstaller.kt$AzpInstaller$private fun enforcePublisherContinuity(id: String, newSignatureJson: String?, allow: Boolean)</ID>
+    <ID>ReturnCount:AzphaltStoreHandoff.kt$AzphaltStoreHandoff$fun packageUris(intent: Intent?): List&lt;Uri&gt;</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$fun assetFilePath(id: String, relative: String): String?</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$fun executeCodeExtension( id: String, host: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost, entryPath: String? = null, )</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$fun loadBrush(id: String, assetIndex: Int = 0): AzphaltBrush?</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$fun loadLut(id: String): CubeLut?</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$fun uiSchemaFor(id: String, uiPath: String?): com.hereliesaz.graffitixr.common.azphalt.UiSchema?</ID>
+    <ID>ReturnCount:ExtensionRepository.kt$ExtensionRepository$private fun refreshTrustStore()</ID>
+    <ID>ReturnCount:FigmaLinks.kt$FigmaLinks$fun fileKey(input: String): String?</ID>
+    <ID>ReturnCount:JsSandbox.kt$JsSandbox$private fun jsValueAsString(handle: Int): String?</ID>
+    <ID>ReturnCount:ProjectFileScanner.kt$ProjectFileScanner$private fun walk(dir: File, depth: Int): List&lt;File&gt;</ID>
+    <ID>ReturnCount:ProjectManager.kt$ProjectManager$fun serializeCurrentProject(): ByteArray</ID>
+    <ID>ReturnCount:SecureTokenStore.kt$SecureTokenStore$fun load(key: String): String?</ID>
+    <ID>SwallowedException:AzpInstaller.kt$AzpInstaller$t: Throwable</ID>
+    <ID>SwallowedException:ProjectFileScanner.kt$ProjectFileScanner$e: Exception</ID>
+    <ID>SwallowedException:ProjectFileScanner.kt$ProjectFileScanner$e: SecurityException</ID>
+    <ID>SwallowedException:ProjectManager.kt$ProjectManager$e: Exception</ID>
+    <ID>ThrowsCount:AzpInstaller.kt$AzpInstaller$fun install( input: InputStream, nowMs: Long, allowPublisherChange: Boolean = false, // Checked before anything is written to disk — deliberately not left to the caller to check // on the returned InstalledExtension, which by then already destructively swapped a same-id // package into place (see the swap-and-delete-backup comment below): a caller that rejected // an unsupported kind only after install() returned was, in practice, deleting a previously- // working install of that id and replacing it with nothing, since install()'s own backup is // already gone by the time it returns successfully. unsupportedKinds: Set&lt;ExtensionKind&gt; = emptySet(), ): InstalledExtension</ID>
+    <ID>ThrowsCount:RepositoryApiClient.kt$RepositoryApiClient$fun download( id: String, version: String, entitlementToken: String? = null, baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL, ): DownloadResult</ID>
+    <ID>TooGenericExceptionCaught:AzpInstaller.kt$AzpInstaller$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ExtensionRepository.kt$ExtensionRepository$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ExtensionStateStore.kt$ExtensionStateStore$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ProjectFileScanner.kt$ProjectFileScanner$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ProjectManager.kt$ProjectManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SandboxExecution.kt$t: Throwable</ID>
+    <ID>TooGenericExceptionThrown:JsSandbox.kt$JsSandbox$throw RuntimeException("JavaScript execution failed inside QuickJS sandbox.")</ID>
+    <ID>TooManyFunctions:AzphaltSandboxHost.kt$AzphaltSandboxHost</ID>
+    <ID>TooManyFunctions:ExtensionRepository.kt$ExtensionRepository</ID>
+    <ID>TooManyFunctions:JsSandbox.kt$JsSandbox</ID>
+    <ID>TooManyFunctions:ProjectManager.kt$ProjectManager</ID>
+    <ID>TooManyFunctions:ProjectRepositoryImpl.kt$ProjectRepositoryImpl : ProjectRepository</ID>
+    <ID>TooManyFunctions:RepositoryApiClient.kt$RepositoryApiClient</ID>
+    <ID>TooManyFunctions:SettingsRepositoryImpl.kt$SettingsRepositoryImpl : SettingsRepository</ID>
+    <ID>UnusedPrivateProperty:ProjectRepositoryImpl.kt$ProjectRepositoryImpl$val updated = _currentProject.updateAndGet { current -&gt; current?.let(transform) } ?: return</ID>
+    <ID>UnusedPrivateProperty:ProjectRepositoryImplTest.kt$ProjectRepositoryImplTest$private val dispatcherProvider = object : DispatcherProvider { override val main: CoroutineDispatcher = testDispatcher override val io: CoroutineDispatcher = testDispatcher override val default: CoroutineDispatcher = testDispatcher override val unconfined: CoroutineDispatcher = testDispatcher }</ID>
+    <ID>UseCheckOrError:JsSandbox.kt$JsSandbox$throw IllegalStateException("Failed to initialize QuickJS WASM runtime")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$// Key intentionally renamed from "stereo_capability": the probe's meaning changed from "stereo // tracks" to "dual lenses actually triangulate depth", so pre-existing verdicts must be discarded // and re-probed under the stricter test. Reading the new key returns -1 (unprobed) on old installs. private val STEREO_CAPABILITY = intPreferencesKey("depth_triangulation_capability")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val ADAPTIVE_RATE_ENABLED = booleanPreferencesKey("adaptive_rate_enabled")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val AR_SCAN_MODE = stringPreferencesKey("ar_scan_mode")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val BACKGROUND_COLOR = intPreferencesKey("background_color")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val CAMERA_TARGET_FPS = intPreferencesKey("camera_target_fps")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val FAVORITE_TOOLS = stringPreferencesKey("favorite_tools")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val FORCED_STEREO_UNSTABLE = booleanPreferencesKey("forced_stereo_unstable")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val IS_RIGHT_HANDED = booleanPreferencesKey("is_right_handed")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val LANGUAGE = stringPreferencesKey("language")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val MURAL_METHOD = stringPreferencesKey("mural_method")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val PARALLAX_MIN_DEG = floatPreferencesKey("parallax_min_degrees")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val SAVED_PALETTE = stringPreferencesKey("saved_palette")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val SHOW_ANCHOR_BOUNDARY = booleanPreferencesKey("show_anchor_boundary")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val THROTTLE_ON_LAG = booleanPreferencesKey("throttle_on_lag")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val THROTTLE_ON_LOW_BATTERY = booleanPreferencesKey("throttle_on_low_battery")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val THROTTLE_ON_POWER_SAVE = booleanPreferencesKey("throttle_on_power_save")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val THROTTLE_ON_THERMAL = booleanPreferencesKey("throttle_on_thermal")</ID>
+    <ID>VariableNaming:SettingsRepositoryImpl.kt$SettingsRepositoryImpl$private val TOOL_USAGE = stringPreferencesKey("tool_usage")</ID>
+    <ID>WildcardImport:ProjectManager.kt$import com.hereliesaz.graffitixr.common.model.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

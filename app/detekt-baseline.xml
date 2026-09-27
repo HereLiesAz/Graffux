@@ -1,0 +1,115 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
+    <ID>CyclomaticComplexMethod:MainActivity.kt$internal fun activeRailClassifiers( uiState: EditorUiState, brushes: List&lt;Pair&lt;String, String&gt;&gt;, customBrushes: List&lt;CustomBrush&gt;, // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other // floating window's. It is here at all because an item that opens a window has to light up while // that window is open, or the rail says nothing about a panel sitting over the artwork. modelWindowOpen: Boolean, /** Whether the Tool Options window is open — same reasoning as [modelWindowOpen]. */ toolOptionsOpen: Boolean, ): Set&lt;String&gt;</ID>
+    <ID>CyclomaticComplexMethod:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:MainActivity.kt$private fun AzNavHostScope.renderLayerRailItem( layer: Layer, uiState: EditorUiState, hostId: String, vm: EditorViewModel, activeColor: Color, navItemColor: Color, strings: AppStrings, onBlendMode: () -&gt; Unit, onEditClicked: () -&gt; Unit, onCurves: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:MainActivity.kt$private fun HiddenMenuScope.renderLayerLayoutMenu( layer: Layer, uiState: EditorUiState, vm: EditorViewModel, on: (() -&gt; Unit) -&gt; () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:MainActivity.kt$@Composable private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings)</ID>
+    <ID>FunctionNaming:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
+    <ID>FunctionNaming:MainActivity.kt$@Composable private fun PaletteSwatch(color: Color)</ID>
+    <ID>FunctionNaming:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable fun SettingsScreen( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun &lt;T&gt; ChoiceRow( title: String, subtitle: String, options: List&lt;T&gt;, selected: T, label: (T) -&gt; String, onSelect: (T) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ActionRow(title: String, subtitle: String, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun OpenSourceNotices(onDismiss: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SwitchRow( title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ShortcutsSheet.kt$@Composable internal fun ShortcutsSheet( activeTool: Tool, usage: ToolUsage, favorites: List&lt;String&gt;, onPickTool: (Tool) -&gt; Unit, onToggleFavorite: (Tool) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ShortcutsSheet.kt$@Composable private fun TabLabel(text: String, selected: Boolean, onClick: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:ShortcutsSheet.kt$@OptIn(ExperimentalFoundationApi::class) @Composable private fun ToolChip( tool: Tool, isActive: Boolean, isFavorite: Boolean, onPick: () -&gt; Unit, onToggleFavorite: () -&gt; Unit, )</ID>
+    <ID>LongMethod:MainActivity.kt$@Composable private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings)</ID>
+    <ID>LongMethod:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
+    <ID>LongMethod:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, )</ID>
+    <ID>LongMethod:MainActivity.kt$private fun AzNavHostScope.renderLayerRailItem( layer: Layer, uiState: EditorUiState, hostId: String, vm: EditorViewModel, activeColor: Color, navItemColor: Color, strings: AppStrings, onBlendMode: () -&gt; Unit, onEditClicked: () -&gt; Unit, onCurves: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable fun SettingsScreen( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:MainActivity.kt$( layer: Layer, uiState: EditorUiState, hostId: String, vm: EditorViewModel, activeColor: Color, navItemColor: Color, strings: AppStrings, onBlendMode: () -&gt; Unit, onEditClicked: () -&gt; Unit, onCurves: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:MainActivity.kt$( vm: EditorViewModel, uiState: EditorUiState, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SettingsScreen.kt$( title: String, subtitle: String, options: List&lt;T&gt;, selected: T, label: (T) -&gt; String, onSelect: (T) -&gt; Unit, )</ID>
+    <ID>LongParameterList:SettingsScreen.kt$( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:ShortcutsSheet.kt$( activeTool: Tool, usage: ToolUsage, favorites: List&lt;String&gt;, onPickTool: (Tool) -&gt; Unit, onToggleFavorite: (Tool) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>MagicNumber:MainActivity.kt$0.005f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.05f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.06f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.07f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.085f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.08f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.09f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.10f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.16f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.18f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.23f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.28f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.29f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.30f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.31f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.34f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.42f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.43f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.51f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.52f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.54f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.55f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.56f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.59f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.5f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.61f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.62f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.63f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.64f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.66f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.67f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.68f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.72f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.78f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.80f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.82f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.84f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.88f</ID>
+    <ID>MagicNumber:MainActivity.kt$0.94f</ID>
+    <ID>MagicNumber:MainActivity.kt$0xFFFF2DAA</ID>
+    <ID>MagicNumber:MainActivity.kt$0xFFFFB300</ID>
+    <ID>MagicNumber:MainActivity.kt$0xFFFFC107</ID>
+    <ID>MagicNumber:MainActivity.kt$1.35f</ID>
+    <ID>MagicNumber:MainActivity.kt$1.5f</ID>
+    <ID>MagicNumber:MainActivity.kt$100f</ID>
+    <ID>MagicNumber:MainActivity.kt$120f</ID>
+    <ID>MagicNumber:MainActivity.kt$3</ID>
+    <ID>MagicNumber:MainActivity.kt$5</ID>
+    <ID>MagicNumber:MainActivity.kt$6</ID>
+    <ID>MagicNumber:SettingsScreen.kt$0.25f</ID>
+    <ID>MagicNumber:SettingsScreen.kt$0.5f</ID>
+    <ID>MagicNumber:SettingsScreen.kt$0.75f</ID>
+    <ID>MagicNumber:SettingsScreen.kt$120</ID>
+    <ID>MagicNumber:SettingsScreen.kt$30</ID>
+    <ID>MagicNumber:SettingsScreen.kt$60</ID>
+    <ID>MagicNumber:SettingsScreen.kt$90</ID>
+    <ID>MagicNumber:SettingsViewModel.kt$SettingsViewModel$5_000</ID>
+    <ID>MagicNumber:SettingsViewModel.kt$SettingsViewModel$60</ID>
+    <ID>MatchingDeclarationName:ToolCatalog.kt$ToolEntry</ID>
+    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCopySelection() })</ID>
+    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCutSelection() })</ID>
+    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onColorFillSelection() })</ID>
+    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onPasteSelection() })</ID>
+    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })</ID>
+    <ID>MaxLineLength:MainActivity.kt$fun</ID>
+    <ID>MaxLineLength:MainActivity.kt$listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }</ID>
+    <ID>MaxLineLength:MainActivity.kt$listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }</ID>
+    <ID>MaxLineLength:MainActivity.kt$referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))</ID>
+    <ID>MaxLineLength:MainActivity.kt$stateSubItem(id, hostId, text, content) { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) }</ID>
+    <ID>MaxLineLength:RailHelp.kt$"stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. A dial that is missing is "</ID>
+    <ID>ReturnCount:MainActivity.kt$private fun azphaltInstallUrl(intent: Intent?): String?</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$t: Throwable</ID>
+    <ID>TooManyFunctions:MainActivity.kt$com.hereliesaz.graffux.MainActivity.kt</ID>
+    <ID>UnusedParameter:MainActivity.kt$onAddClicked: () -&gt; Unit</ID>
+    <ID>UnusedParameter:MainActivity.kt$onModelClicked: () -&gt; Unit</ID>
+    <ID>UnusedPrivateProperty:MainActivity.kt$/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */ private const val MIN_BRUSH_ALPHA = 0.05f</ID>
+    <ID>UnusedPrivateProperty:MainActivity.kt$val density = LocalDensity.current</ID>
+    <ID>UnusedPrivateProperty:MainActivity.kt$val documentPicker = rememberLauncherForActivityResult( ActivityResultContracts.OpenDocument() ) { uri -&gt; uri?.let { vm.onImportDocument(it) } }</ID>
+    <ID>UnusedPrivateProperty:MainActivity.kt$val photoPicker = rememberLauncherForActivityResult( ActivityResultContracts.PickVisualMedia() ) { uri -&gt; uri?.let { vm.onAddLayer(it) } }</ID>
+    <ID>WildcardImport:MainActivity.kt$import com.hereliesaz.aznavrail.*</ID>
+    <ID>WildcardImport:MainActivity.kt$import com.hereliesaz.aznavrail.model.*</ID>
+  </CurrentIssues>
+</SmellBaseline>
