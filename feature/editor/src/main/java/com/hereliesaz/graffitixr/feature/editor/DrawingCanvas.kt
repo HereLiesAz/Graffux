@@ -333,7 +333,11 @@ fun DrawingCanvas(
                 // After the ACTION_DOWN reset above, so the new stroke's history starts with its down.
                 if (activeTool == Tool.BRUSH && androidXRunning) androidXPredictor.recordMotionEvent(event)
             }
-            .pointerInput(activeTool, nextFrameMs, pickingCloneSource) {
+            // predictionTournament is a key because recordRealPoint captures it: it is rebuilt
+            // whenever Settings changes the solo model or Ink profile, and without restarting here
+            // the gesture loop kept feeding the discarded one while every report read the new,
+            // empty one -- "f1: no data" on every horizon (#470-#476).
+            .pointerInput(activeTool, nextFrameMs, pickingCloneSource, predictionTournament) {
                 gate.strokeActive = false
                 if (activeTool == Tool.NONE) return@pointerInput
                 val slop = viewConfiguration.touchSlop

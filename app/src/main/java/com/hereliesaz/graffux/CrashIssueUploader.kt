@@ -75,7 +75,7 @@ class CrashIssueUploader(
         val am = context.getSystemService(ActivityManager::class.java) ?: return
         val exits = runCatching { am.getHistoricalProcessExitReasons(null, 0, MAX_EXITS) }
             .getOrNull().orEmpty()
-            .filter { it.timestamp > since && it.reason in REPORTED_REASONS }
+            .filter { it.timestamp > since && shouldReportExit(it.reason, it.importance) }
             .sortedBy { it.timestamp }
         for (exit in exits) {
             val kind = reasonName(exit.reason)
@@ -128,6 +128,21 @@ class CrashIssueUploader(
     }
 
     companion object {
+        /**
+         * Whether an exit record is worth an issue. Crashes, native crashes and ANRs always are. A
+         * low-memory kill only is when the process was foreground or visible ([importance] at most
+         * IMPORTANCE_VISIBLE, 200): Android reclaiming a cached/background process (e.g. 400, #469)
+         * is normal lifecycle, not a crash, while a foreground LMK does mean memory trouble.
+         */
+        fun shouldReportExit(reason: Int, importance: Int): Boolean = when (reason) {
+            ApplicationExitInfo.REASON_CRASH,
+            ApplicationExitInfo.REASON_CRASH_NATIVE,
+            ApplicationExitInfo.REASON_ANR -> true
+            ApplicationExitInfo.REASON_LOW_MEMORY ->
+                importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
+            else -> false
+        }
+
         const val JVM_CRASH_FILE = "last_crash.txt"
         const val NATIVE_CRASH_FILE = "native_crash.txt"
         private const val TAG = "CrashIssueUploader"
@@ -137,11 +152,5 @@ class CrashIssueUploader(
         private const val HEADLINE_CHARS = 120
         // GitHub caps an issue body at 65,536 characters; leave room for the header.
         private const val MAX_BODY_CHARS = 60_000
-        private val REPORTED_REASONS = setOf(
-            ApplicationExitInfo.REASON_CRASH,
-            ApplicationExitInfo.REASON_CRASH_NATIVE,
-            ApplicationExitInfo.REASON_ANR,
-            ApplicationExitInfo.REASON_LOW_MEMORY,
-        )
     }
 }
