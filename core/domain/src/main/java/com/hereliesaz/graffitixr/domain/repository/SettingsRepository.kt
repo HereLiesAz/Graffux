@@ -84,6 +84,16 @@ interface SettingsRepository {
     suspend fun setBrushSizeFixedOnScreen(fixed: Boolean)
 
     /**
+     * Whether the round Brush draws through Jetpack Ink (`androidx.ink`) instead of the editor's own
+     * live-stroke engine. Off by default; off means the editor behaves exactly as it always has.
+     * On, the live stroke is Ink's front-buffered `InProgressStrokesView` and the committed pixels
+     * are Ink's `CanvasStrokeRenderer`, with the Ink `Stroke` kept alongside them in memory.
+     */
+    val jetpackInkBrush: Flow<Boolean>
+
+    suspend fun setJetpackInkBrush(enabled: Boolean)
+
+    /**
      * Installed brush-tip ids the user has hidden from pickers (the brush rail, the brush group) --
      * an extension can bundle many brushes, and not every one belongs in a strip reached for
      * mid-painting. Each id is `"<extensionId>::<assetIndex>"`, matching

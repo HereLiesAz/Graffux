@@ -161,4 +161,17 @@ class SettingsRepositoryImplTest {
         repo.setBrushTipHidden("ext::0", hidden = false)
         assertEquals(setOf("ext::1"), repo.hiddenBrushTipIds.first())
     }
+
+    @Test
+    fun `jetpackInkBrush defaults off and round trips`() = runTest {
+        // Default OFF is the contract: with the toggle untouched the editor must paint exactly as
+        // before Jetpack Ink existed. No other test in this file touches this key.
+        assertFalse(repo.jetpackInkBrush.first())
+
+        repo.setJetpackInkBrush(true)
+        assertTrue(repo.jetpackInkBrush.first())
+
+        repo.setJetpackInkBrush(false)
+        assertFalse(repo.jetpackInkBrush.first())
+    }
 }

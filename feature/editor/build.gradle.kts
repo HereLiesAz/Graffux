@@ -69,7 +69,13 @@ dependencies {
     implementation(libs.mlkit.subject.segmentation)
 
     implementation(libs.hilt.android)
+    // Jetpack Ink: the opt-in live-stroke engine for the round Brush (Settings > Jetpack Ink
+    // brush). minSdk 23, below this module's 26, so no runtime gate is needed.
+    implementation(libs.androidx.ink.authoring)
     implementation(libs.androidx.ink.brush)
+    implementation(libs.androidx.ink.geometry)
+    implementation(libs.androidx.ink.rendering)
+    implementation(libs.androidx.ink.strokes)
     ksp(libs.hilt.compiler)
 
     implementation(libs.az.nav.rail)

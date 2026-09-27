@@ -1,5 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.Companion.ENGINE_AZPHALT
+import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.Companion.ENGINE_JETPACK_INK
 import kotlin.math.max
 
 /**
@@ -20,6 +22,8 @@ class StrokeFeelMeter {
     private val delivery = Series()
     private val firstDab = Series()
     private val stabilizerLag = Series()
+    private val inkTouchToPaint = Series()
+    private val inkFirstDab = Series()
     private var firstDabPending = false
 
     /** A stroke started: the next [onFirstDabPresented] belongs to it. */
@@ -48,12 +52,33 @@ class StrokeFeelMeter {
     fun onStabilized(lagPx: Float) = stabilizerLag.add(lagPx.toDouble())
 
     /**
-     * Report lines. [touchToPaint] is the tracker snapshot; [context] describes the canvas/brush
-     * load the numbers were measured under.
+     * Jetpack Ink path: one input's touch-to-paint, from Ink's own `LatencyData` — the OS event
+     * timestamp to Ink's estimated pixel-presentation time for the frame that drew it. [strokeStart]
+     * marks the stroke's first input (ACTION_DOWN), whose latency is also the Ink first dab, so it
+     * measures what [onFirstDabPresented] does for the azphalt engine: pen lands -> ink visible.
+     * Kept apart from the azphalt series so a session that flips the toggle never mixes the two.
      */
     @Synchronized
-    fun report(touchToPaint: AzphaltLatencyTracker.Snapshot, context: String): String = buildString {
+    fun onInkPresented(latencyMs: Double, strokeStart: Boolean) {
+        if (latencyMs < 0.0 || latencyMs > MAX_PLAUSIBLE_MS) return
+        inkTouchToPaint.add(latencyMs)
+        if (strokeStart) inkFirstDab.add(latencyMs)
+    }
+
+    /**
+     * Report lines. [touchToPaint] is the tracker snapshot; [context] describes the canvas/brush
+     * load the numbers were measured under. [engine] picks whose numbers are reported: the azphalt
+     * engine's tracker/first-dab/stabilizer series, or the Jetpack Ink series — and is printed on
+     * the first line either way, so every report says which engine drew its strokes.
+     */
+    @Synchronized
+    fun report(
+        touchToPaint: AzphaltLatencyTracker.Snapshot,
+        context: String,
+        engine: String = ENGINE_AZPHALT,
+    ): String = if (engine == ENGINE_JETPACK_INK) inkReport(context) else buildString {
         appendLine("feel ($context)")
+        appendLine("  engine: $engine")
         val t = touchToPaint
         if (t.total.count > 0) {
             appendLine(
@@ -68,6 +93,17 @@ class StrokeFeelMeter {
         appendLine("  input delivery: ${delivery.describe("ms")}")
         appendLine("  first dab: ${firstDab.describe("ms")}")
         append("  stabilizer lag: ${stabilizerLag.describe("px")}")
+    }
+
+    private fun inkReport(context: String): String = buildString {
+        appendLine("feel ($context)")
+        appendLine("  engine: $ENGINE_JETPACK_INK")
+        appendLine("  touch->paint: ${inkTouchToPaint.describe("ms")} (Ink LatencyData: OS event -> estimated pixel presentation)")
+        appendLine("  input delivery: ${delivery.describe("ms")}")
+        appendLine("  first dab: ${inkFirstDab.describe("ms")} (ACTION_DOWN -> first Ink frame presented)")
+        // Not measured on this path, said so rather than printed as "no data" that reads like a bug:
+        // Ink does its own input smoothing, and the editor's stabilizer never sees these samples.
+        append("  stabilizer lag: n/a (the editor stabilizer is not applied to Ink strokes)")
     }
 
     private fun ms(v: Double) = "%.1fms".format(v)
@@ -99,6 +135,9 @@ class StrokeFeelMeter {
     private companion object {
         const val RESERVOIR = 512
         const val P95 = 0.95
+        // Ink's presentation time is an estimate; anything past a second is a clock mismatch or a
+        // stroke parked in the background, not a latency, and would swamp the mean.
+        const val MAX_PLAUSIBLE_MS = 1000.0
     }
 }
 

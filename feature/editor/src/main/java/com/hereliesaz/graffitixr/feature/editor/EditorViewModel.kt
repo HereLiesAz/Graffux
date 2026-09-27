@@ -171,6 +171,14 @@ data class StrokeCommand(
     // Recorded rather than baked into the base so the deformation undoes by replay like everything
     // else — and so it replays *after* the strokes beneath it, which is the order it was applied in.
     val warpHandles: List<Offset>? = null,
+    // Set only on a Tool.BRUSH stroke drawn with the Jetpack Ink brush (Settings > Jetpack Ink
+    // brush): the finished Ink stroke, in the same world coordinates as [path]. DrawingEngine
+    // renders THIS, through Ink's CanvasStrokeRenderer, instead of the round/stamp brush — on the
+    // live commit and on every undo/redo/bake replay alike, which is what makes an Ink stroke an
+    // ordinary replayable command. [path]/[pressures] still carry its inputs for anything that only
+    // reads points. Ink strokes are immutable, so sharing one between the command and the
+    // InkStrokeLedger is safe.
+    val inkStroke: androidx.ink.strokes.Stroke? = null,
 )
 
 /**
@@ -9075,10 +9083,19 @@ class EditorViewModel @Inject constructor(
         )
     }
 
-    /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
-    fun onPredictionBrushStroke(predictionReport: String, refreshRateHz: Float) {
-        val report = predictionReport + "\n" + feelReport()
-        predictionRankingReporter.onBrushStroke(report, refreshRateHz)
+    /**
+     * A Brush stroke ended; [report] is the tournament's current per-horizon ranking. [engine] is
+     * which live-stroke engine drew it ([PredictionRankingReporter.ENGINE_AZPHALT] from
+     * DrawingCanvas, [PredictionRankingReporter.ENGINE_JETPACK_INK] from InkBrushCanvas) and tags
+     * both the feel numbers and the filed issue.
+     */
+    fun onPredictionBrushStroke(
+        predictionReport: String,
+        refreshRateHz: Float,
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ) {
+        val report = predictionReport + "\n" + feelReport(engine)
+        predictionRankingReporter.onBrushStroke(report, refreshRateHz, engine)
         if (predictionReports == null) return
         val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
         viewModelScope.launch(dispatchers.io) {
@@ -9094,18 +9111,23 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
-    fun onPredictionSessionEnd(predictionReport: String, refreshRateHz: Float) =
-        predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
+    fun onPredictionSessionEnd(
+        predictionReport: String,
+        refreshRateHz: Float,
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ) = predictionRankingReporter.flush(predictionReport + "\n" + feelReport(engine), refreshRateHz)
 
     /** Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer). */
-    private fun feelReport(): String {
+    private fun feelReport(
+        engine: String = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_AZPHALT,
+    ): String {
         val s = _uiState.value
         val canvas = s.layers.firstOrNull { it.id == s.activeLayerId }?.bitmap
             ?.let { "${it.width}x${it.height}" } ?: "?"
         val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
             "${s.stabilizerLevel}"
-        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context)
+        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
     }
 
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
