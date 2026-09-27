@@ -5,6 +5,9 @@ import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuDabs
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuLibrary
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuStampEngine
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
 
 /**
  * The desktop canvas's GPU path: the wgpu stamp engine (core/wgpu-engine, the same engine the
@@ -12,50 +15,95 @@ import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuStampEngine
  * CPU's [compositeTileParallel]/`RoundStampCompositor`, then read back into a straight-ARGB pixel
  * array for a `BufferedImage`/Skia bitmap. Zero-copy display is out of scope for now.
  *
- * One engine per canvas size, created lazily. [renderStroke] returns null whenever the GPU path is
- * unavailable -- the library did not load, no adapter with compute support exists (e.g. a machine
- * with no GPU driver at all), a call failed, or `-Dgraffux.gpu=false` -- and the caller then keeps
- * using the CPU compositor. A failed size is not retried, so a GPU-less machine pays for the probe
- * once, not per frame.
+ * A stroke is re-rendered from its pre-stroke base every frame (the dab list is not prefix-stable:
+ * taper depends on the stroke's total length), but only the rows the previous frame touched are
+ * restored, read back and converted, so a frame costs the stroke's extent, not the canvas's.
  *
- * Not thread-safe; the canvas calls it from its single gesture coroutine.
+ * One engine per canvas size, created lazily. [beginStroke]/[renderStroke] return false/null
+ * whenever the GPU path is unavailable -- the library did not load, no adapter with compute support
+ * exists (e.g. no GPU driver at all), a call failed, or `-Dgraffux.gpu=false` -- and the caller then
+ * keeps using the CPU compositor. A failed size is not retried, so a GPU-less machine pays for the
+ * probe once, not per frame. Not thread-safe; the canvas calls it from its one gesture coroutine.
  */
 class GpuStrokeRenderer {
     private var engine: WgpuStampEngine? = null
     private var failedSize: Pair<Int, Int>? = null
-    private var readbackBuffer = ByteArray(0)
 
-    /** What the canvas is painting with, for logs and the UI: adapter or reason for the CPU path. */
+    private var baseRgba = ByteArray(0)
+    private var readback = ByteArray(0)
+    private var frame = IntArray(0)
+    private var firstFrame = true
+    private var touchedRows: IntRange = IntRange.EMPTY
+
+    /** What the canvas is painting with, for logs: the adapter, or why it is on the CPU. */
     var description: String = "CPU (GPU not probed yet)"
         private set
 
-    /** Premultiplied RGBA of [base], the pre-stroke canvas; reuse it for every frame of a stroke. */
-    fun strokeBase(baseArgb: IntArray): ByteArray = WgpuDabs.premultipliedRgba(baseArgb)
+    /** Starts a stroke over [baseArgb] (straight ARGB, the pre-stroke canvas). False = use the CPU. */
+    fun beginStroke(baseArgb: IntArray, width: Int, height: Int): Boolean {
+        if (engineFor(width, height) == null) return false
+        baseRgba = WgpuDabs.premultipliedRgba(baseArgb, if (baseRgba.size == baseArgb.size * 4) baseRgba else ByteArray(baseArgb.size * 4))
+        if (readback.size != baseRgba.size) readback = ByteArray(baseRgba.size)
+        frame = baseArgb.copyOf()
+        firstFrame = true
+        touchedRows = IntRange.EMPTY
+        return true
+    }
 
     /**
-     * Composites [dabs] over [baseRgba] (from [strokeBase]) and returns the frame as straight ARGB,
-     * or null to fall back to the CPU path.
+     * The whole stroke so far ([dabs]) over the base from [beginStroke], as straight ARGB -- the
+     * renderer's own buffer, valid until the next call. Null = fall back to the CPU path.
      */
-    @Suppress("LongParameterList", "ReturnCount")
+    @Suppress("ReturnCount")
     fun renderStroke(
-        baseRgba: ByteArray,
-        width: Int,
-        height: Int,
         dabs: List<Dab>,
         colorArgb: Int,
         secondaryColorArgb: Int,
         colorSource: BrushColorSource,
         flow: Float,
     ): IntArray? {
-        val e = engineFor(width, height) ?: return null
-        if (!e.upload(baseRgba)) return fail("upload failed")
-        if (dabs.isNotEmpty()) {
+        val e = engine ?: return null
+        val restore = touchedRows
+        val restored = if (firstFrame) {
+            e.upload(baseRgba)
+        } else {
+            restore.isEmpty() || e.uploadRows(baseRgba, restore.first, restore.last - restore.first + 1)
+        }
+        if (!restored) return fail("upload failed")
+        val stamped = rowsOf(dabs, e.height)
+        if (!stamped.isEmpty()) {
             val packed = WgpuDabs.resolvedRound(dabs, colorArgb, secondaryColorArgb, colorSource, flow)
             if (!e.stampDabs(packed, colorArgb, hardness = 1f)) return fail("stampDabs failed")
         }
-        if (readbackBuffer.size != width * height * 4) readbackBuffer = ByteArray(width * height * 4)
-        if (!e.readback(readbackBuffer)) return fail("readback failed")
-        return WgpuDabs.straightArgb(readbackBuffer)
+        if (!e.readback(readback)) return fail("readback failed")
+        val convert = if (firstFrame) 0 until e.height else union(restore, stamped)
+        if (!convert.isEmpty()) {
+            WgpuDabs.straightArgb(readback, frame, convert.first * e.width, (convert.last + 1) * e.width)
+        }
+        firstFrame = false
+        touchedRows = stamped
+        return frame
+    }
+
+    private fun rowsOf(dabs: List<Dab>, height: Int): IntRange {
+        if (dabs.isEmpty()) return IntRange.EMPTY
+        var top = Float.MAX_VALUE
+        var bottom = -Float.MAX_VALUE
+        for (d in dabs) {
+            val r = max(d.radius, 0.5f)
+            top = minOf(top, d.y - r)
+            bottom = maxOf(bottom, d.y + r)
+        }
+        // Same bounds as the engine's dispatch region (floor / ceil + 1), clamped to the layer.
+        val first = floor(top).toInt().coerceAtLeast(0)
+        val last = (ceil(bottom).toInt()).coerceAtMost(height - 1)
+        return if (first > last) IntRange.EMPTY else first..last
+    }
+
+    private fun union(a: IntRange, b: IntRange): IntRange = when {
+        a.isEmpty() -> b
+        b.isEmpty() -> a
+        else -> minOf(a.first, b.first)..maxOf(a.last, b.last)
     }
 
     private fun engineFor(width: Int, height: Int): WgpuStampEngine? {

@@ -917,6 +917,32 @@ impl Engine {
         self.ok()
     }
 
+    /// Replaces rows `y..y+rows` of the layer with the same rows of `rgba` (a full
+    /// width*height*4 image). Not in `StampEngine.h`: the desktop canvas re-renders a stroke from
+    /// its pre-stroke base every frame and only needs to restore the rows the previous frame
+    /// touched. Unlike [`Engine::upload`] it does not start a new stroke.
+    pub fn upload_rows(&mut self, rgba: &[u8], y: i32, rows: i32) -> bool {
+        if rgba.len() < self.layer_bytes() as usize {
+            return false;
+        }
+        let y0 = y.clamp(0, self.height);
+        let y1 = (y.saturating_add(rows)).clamp(0, self.height);
+        if y1 <= y0 {
+            return self.ok();
+        }
+        let row_bytes = self.width as usize * 4;
+        let (start, end) = (y0 as usize * row_bytes, y1 as usize * row_bytes);
+        self.queue
+            .write_buffer(&self.layer, start as u64, &rgba[start..end]);
+        self.dirty = self.dirty.union(Rect {
+            x: 0,
+            y: y0,
+            w: self.width,
+            h: y1 - y0,
+        });
+        self.ok()
+    }
+
     /// `StampEngine::uploadSubstrateHeight`: an R8 tooth tile, wrapped (REPEAT) by the shaders.
     pub fn upload_substrate_height(&mut self, height_r8: &[u8], width: i32, height: i32) -> bool {
         if width <= 0 || height <= 0 || height_r8.len() < (width * height) as usize {

@@ -113,20 +113,24 @@ fun DesktopStampCanvas(
                 var strokeSeed = 0L
                 var lastRenderedFrame: BufferedImage? = null
 
-                var strokeBaseRgba: ByteArray? = null
+                var gpuStroke: Boolean? = null
 
                 suspend fun renderStroke(base: BufferedImage) {
                     val dabs = BrushStamps.dynamicDabs(samples, brushRadiusPx * 2f, brush, strokeSeed)
                     // GPU first (wgpu, see GpuStrokeRenderer), off the UI thread: every JNI call
                     // blocks until the GPU is done. Null = no usable GPU, keep the CPU path.
                     val gpuPixels = withContext(Dispatchers.Default) {
-                        val baseRgba = strokeBaseRgba ?: gpu.strokeBase(
+                        val started = gpuStroke ?: gpu.beginStroke(
                             base.getRGB(0, 0, base.width, base.height, null, 0, base.width),
-                        ).also { strokeBaseRgba = it }
-                        gpu.renderStroke(
-                            baseRgba, base.width, base.height, dabs,
-                            colorArgb, colorArgb, BrushColorSource.PLAIN, flow,
-                        )
+                            base.width,
+                            base.height,
+                        ).also { gpuStroke = it }
+                        if (started) {
+                            gpu.renderStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)
+                                .also { if (it == null) gpuStroke = false }
+                        } else {
+                            null
+                        }
                     }
                     val pixels = gpuPixels ?: run {
                         val tiles = compositeTileParallel(
@@ -157,7 +161,7 @@ fun DesktopStampCanvas(
                                 createGraphics().apply { drawImage(base, 0, 0, null); dispose() }
                             }
                             samples.clear()
-                            strokeBaseRgba = null
+                            gpuStroke = null
                             strokeSeed = Random.nextLong()
                             samples.add(
                                 sampleBuilder.add(

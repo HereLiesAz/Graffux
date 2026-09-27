@@ -48,8 +48,14 @@ class GpuStrokeParityTest {
         return out
     }
 
-    private fun gpu(renderer: GpuStrokeRenderer, base: IntArray, dabs: List<Dab>, color: Int, flow: Float): IntArray? =
-        renderer.renderStroke(renderer.strokeBase(base), w, h, dabs, color, color, BrushColorSource.PLAIN, flow)
+    private fun gpu(renderer: GpuStrokeRenderer, base: IntArray, dabs: List<Dab>, color: Int, flow: Float): IntArray? {
+        if (!renderer.beginStroke(base, w, h)) return null
+        // Grow the stroke over several frames, like a drag: exercises the per-frame row restore.
+        for (n in listOf(dabs.size / 3, dabs.size / 2, (dabs.size - 5).coerceAtLeast(0))) {
+            renderer.renderStroke(dabs.take(n), color xor 0x00FFFFFF, color, BrushColorSource.PLAIN, flow) ?: return null
+        }
+        return renderer.renderStroke(dabs, color, color, BrushColorSource.PLAIN, flow)?.copyOf()
+    }
 
     private fun channels(c: Int) = intArrayOf(ArgbColor.alpha(c), ArgbColor.red(c), ArgbColor.green(c), ArgbColor.blue(c))
 

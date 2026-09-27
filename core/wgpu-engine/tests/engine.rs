@@ -292,3 +292,32 @@ fn substrate_wrap_agrees_across_backends() {
     }
     assert_eq!(diff(&outs[0], &outs[1]), (0, 0));
 }
+
+/// upload_rows restores only the given rows and leaves the rest of the layer (and the stroke) alone.
+#[test]
+fn upload_rows_restores_a_band() {
+    for (name, mut e) in engines() {
+        let base = seed(&mut Rng(11));
+        assert!(e.upload(&base));
+        let d = GpuDab::legacy(40.0, 35.0, 30.0, 1.0, 0.0);
+        assert!(e.stamp_dabs(
+            &[d],
+            0xFF00FF00,
+            1.0,
+            false,
+            SubstrateParams::default(),
+            false
+        ));
+        let painted = e.read_all().unwrap();
+        assert!(e.upload_rows(&base, 20, 10));
+        let got = e.read_all().unwrap();
+        let row = (W * 4) as usize;
+        assert_eq!(
+            &got[20 * row..30 * row],
+            &base[20 * row..30 * row],
+            "{name}"
+        );
+        assert_eq!(&got[..20 * row], &painted[..20 * row], "{name}");
+        assert_eq!(&got[30 * row..], &painted[30 * row..], "{name}");
+    }
+}

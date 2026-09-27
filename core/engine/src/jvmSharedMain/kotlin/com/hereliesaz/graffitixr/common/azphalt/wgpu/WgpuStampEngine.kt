@@ -57,6 +57,13 @@ class WgpuStampEngine private constructor(
     @Synchronized fun upload(rgbaPremultiplied: ByteArray): Boolean =
         handle != 0L && WgpuNative.nativeUpload(handle, rgbaPremultiplied)
 
+    /**
+     * Restores rows `y until y + rows` from [rgbaPremultiplied] (a full layer image) without starting
+     * a new stroke -- for re-rendering a stroke over its base frame by frame. Not in StampEngine.h.
+     */
+    @Synchronized fun uploadRows(rgbaPremultiplied: ByteArray, y: Int, rows: Int): Boolean =
+        handle != 0L && WgpuNative.nativeUploadRows(handle, rgbaPremultiplied, y, rows)
+
     @Synchronized fun uploadSubstrateHeight(heightR8: ByteArray, width: Int, height: Int): Boolean =
         handle != 0L && WgpuNative.nativeUploadSubstrateHeight(handle, heightR8, width, height)
 

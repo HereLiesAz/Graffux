@@ -14,6 +14,7 @@ internal object WgpuNative {
     @JvmStatic external fun nativeDestroy(handle: Long)
     @JvmStatic external fun nativeClear(handle: Long): Boolean
     @JvmStatic external fun nativeUpload(handle: Long, rgba: ByteArray): Boolean
+    @JvmStatic external fun nativeUploadRows(handle: Long, rgba: ByteArray, y: Int, rows: Int): Boolean
     @JvmStatic external fun nativeUploadSubstrateHeight(handle: Long, data: ByteArray, width: Int, height: Int): Boolean
     @JvmStatic external fun nativeUploadPaintHeight(handle: Long, data: FloatArray, width: Int, height: Int): Boolean
 

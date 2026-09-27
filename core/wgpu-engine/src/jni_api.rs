@@ -125,6 +125,31 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadRows(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    rgba: JByteArray,
+    y: jint,
+    rows: jint,
+) -> jboolean {
+    guard(|| {
+        let Some(e) = (unsafe { engine(handle) }) else {
+            return false;
+        };
+        if rgba.is_null() {
+            return false;
+        }
+        // SAFETY: no other JNI call happens while the elements are borrowed.
+        let Ok(elements) = (unsafe { env.get_array_elements(&rgba, ReleaseMode::NoCopyBack) })
+        else {
+            return false;
+        };
+        e.upload_rows(bytemuck::cast_slice(&elements), y, rows)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadSubstrateHeight(
     mut env: JNIEnv,
     _class: JClass,

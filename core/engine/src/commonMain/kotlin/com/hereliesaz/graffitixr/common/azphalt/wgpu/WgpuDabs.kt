@@ -69,9 +69,14 @@ object WgpuDabs {
         return out
     }
 
-    /** Premultiplied RGBA8 bytes -> straight ARGB ints. */
-    fun straightArgb(rgba: ByteArray, out: IntArray = IntArray(rgba.size / 4)): IntArray {
-        for (i in out.indices) {
+    /** Premultiplied RGBA8 bytes -> straight ARGB ints, for pixels `from until to` (default: all). */
+    fun straightArgb(
+        rgba: ByteArray,
+        out: IntArray = IntArray(rgba.size / 4),
+        from: Int = 0,
+        to: Int = out.size,
+    ): IntArray {
+        for (i in from until to) {
             val o = i * 4
             val a = rgba[o + 3].toInt() and 0xFF
             out[i] = if (a == 0) {
