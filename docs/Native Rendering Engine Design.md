@@ -187,6 +187,67 @@ evaluated.
 - **Not yet measured:** on-device speed of either backend against the other. The feel reports
   answer that.
 
+### 2b. Third backend and long-term single engine: wgpu
+
+**Decision.** wgpu (`core/wgpu-engine`, Rust, WGSL compute shaders) is the long-term single brush
+engine for both the Android app and the desktop app. Vulkan and GLES stay selectable for now, for
+comparison and as fallbacks, and are not being deleted yet. Direct display (§3) stays raw Vulkan
+through interop.
+
+Why wgpu rather than consolidating on Vulkan alone:
+
+- **The desktop app.** A Vulkan-only engine does not run where Vulkan is missing, and the NDK C++
+  engines do not build for desktop at all. wgpu picks Vulkan, DX12, Metal or GL per machine, so
+  one engine serves Linux, Windows and Android. Before this, the desktop canvas composited on the
+  CPU.
+- **Automatic synchronization.** wgpu inserts barriers between dispatches and tracks resource
+  state itself. Color Smudge's ordered phases (up to four dispatches per dab) need no hand-written
+  compute-to-compute barriers, and there are no descriptor pools or command-buffer fences to manage.
+- **One shader language.** WGSL replaces two GLSL dialects and the `port_from_vulkan.py` step.
+  naga compiles it to SPIR-V, GLSL, HLSL or MSL as each backend needs.
+- **Reach.** The same engine and shaders can run on WebGPU in a browser later.
+
+**How it plugs in.**
+
+- **Android.** `WgpuStampEngine.cpp` implements `StampEngine` over the crate's C ABI
+  (`core/wgpu-engine/include/graffux_wgpu.h`), so every existing JNI entry point and Kotlin caller
+  works unchanged. `StampEngineFactory` maps backend id 2 to it. Settings → GPU engine offers
+  "wgpu" next to Vulkan and OpenGL ES; the default stays Vulkan. `libgraffux_wgpu.so` is
+  `dlopen`ed on first use, so a build without it still links and runs: `init()` returns false and
+  the stroke uses the CPU path. Gradle (`:core:nativebridge:cargoBuildWgpuAndroid`) cross-compiles
+  it for arm64-v8a with cargo and the NDK clang. armeabi-v7a devices fall back to the CPU.
+- **Desktop.** `:desktop` builds the crate for the host and bundles it as a classpath resource. The
+  JNI wrapper `WgpuStampEngine` lives in `core:engine`'s `jvmShared` source set, the same class on
+  Android and desktop. The canvas uses it whenever an adapter exists and keeps the tile-parallel CPU
+  compositor as the fallback.
+- **No AHardwareBuffer output (yet).** `initWithHardwareBuffer()` returns false. With wgpu selected,
+  direct display is ineligible and strokes display through readback. `AzphaltGpuDisplay`'s
+  zero-copy path is likewise unavailable to it.
+
+**Shader port.** `stamp.wgsl`, `stamp_masked.wgsl` and `color_smudge.wgsl` port the GLSL statement
+for statement. Layout decisions come from the GLES port: the layer is a storage buffer of packed
+premultiplied RGBA8 words, and push constants are a uniform buffer (dynamic offsets for the smudge
+phases). One deliberate change: substrate wrapping uses an explicit floored modulo instead of
+`((c % s) + s) % s`. A remainder with a negative operand is undefined in GLSL, and naga's GL output
+passes `%` through; on llvmpipe that sampled the wrong substrate texel.
+
+**Verified on host (Mesa 25.2.8, no GPU).** `tools/stamp-engine-diff/run.sh` now runs all 26
+scenarios through the wgpu engine on wgpu's Vulkan backend (lavapipe) and GL backend (llvmpipe):
+
+| pair | worst byte difference | bytes that differ (of 112,684) |
+|---|---|---|
+| wgpu (GL) vs GlesStampEngine | 0 | 0 in every scenario |
+| wgpu (Vulkan) vs VulkanStampEngine | 1 | at most 10, smudge and max-combine only |
+| wgpu (both backends), paint height, vs GLES | 0 | 0 |
+
+`cargo test` checks the round-tip shader against a scalar Rust port of `stamp.comp` (exact on both
+backends), and `:desktop:test` compares the desktop GPU path with `RoundStampCompositor` through JNI
+(alpha within 1 level, premultiplied colour within 2).
+
+**Not verified:** anything on a real GPU or an Android device. That covers speed against the
+Vulkan and GLES engines, driver quirks on Adreno/Mali/PowerVR, and whether wgpu's GL backend on
+Android picks up EGL correctly.
+
 ## 3. Front-buffer / low-latency presentation
 
 **Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
