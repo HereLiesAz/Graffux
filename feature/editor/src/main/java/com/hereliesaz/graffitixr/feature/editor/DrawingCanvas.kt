@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,13 +43,10 @@ import kotlin.math.roundToLong
 private const val EYEDROP_HOLD_MS = 500L
 private const val NANOS_PER_SECOND = 1_000_000_000f
 
-private const val DEFAULT_STAMP_SPACING = 0.1f
-private const val MAX_STAMPS = 96
 private const val MIN_STAMP_RADIUS_PX = 0.5f
-/** Floor on stamp spacing (fraction of diameter) so a 0-spacing brush can't flood the overlay. */
-private const val MIN_STAMP_SPACING = 0.02f
-/** Hardness 1 would make a zero-width gradient ramp; cap just below it. */
-private const val MAX_STAMP_EDGE = 0.999f
+/** Blur radius, as a fraction of the brush radius, at hardness 0 (a fully soft edge). */
+private const val SOFT_EDGE_BLUR = 0.5f
+private const val ALPHA_MAX = 255f
 /**
  * Provisional ink gives way to real paint; if that signal never comes (a brush path that doesn't
  * report it), it still clears after this long rather than lingering over the stroke.
@@ -55,53 +54,38 @@ private const val MAX_STAMP_EDGE = 0.999f
 private const val PROVISIONAL_MAX_MS = 250L
 
 /**
- * Soft round stamps drawn like the active brush (edge falloff from the brush's hardness), spaced
- * along [path] at the brush's own spacing. Used for provisional ink.
- * Stamps go into one layer at full strength and the layer is composited at [color]'s alpha, so
- * overlapping stamps don't darken the way separate translucent circles would. Never committed;
- * redrawn every frame.
+ * Provisional ink: the path drawn as one round-capped stroke of the brush's diameter, its edge
+ * softened by a blur that grows as hardness drops. One primitive, so overlapping parts of the path
+ * never build up opacity (separate soft stamps did: they composited over each other and a soft
+ * brush read as hard), and a long path is drawn whole, with no stamp budget to run out of. Composited
+ * at [color]'s alpha. Never committed; redrawn every frame.
  */
-private fun DrawScope.drawBrushStamps(
-    path: List<Offset>,
-    color: Color,
-    diameter: Float,
-    hardness: Float,
-    spacing: Float,
-) {
+private fun DrawScope.drawProvisionalStroke(path: List<Offset>, color: Color, diameter: Float, hardness: Float) {
     if (path.isEmpty()) return
     val radius = (diameter / 2f).coerceAtLeast(MIN_STAMP_RADIUS_PX)
-    val step = (diameter * spacing.coerceAtLeast(MIN_STAMP_SPACING)).coerceAtLeast(1f)
-    val centers = ArrayList<Offset>()
-    for (i in 1 until path.size) {
-        val a = path[i - 1]
-        val b = path[i]
-        val length = (b - a).getDistance()
-        var d = 0f
-        while (d <= length && centers.size < MAX_STAMPS) {
-            centers += a + (b - a) * (if (length > 0f) d / length else 0f)
-            d += step
+    val softness = (1f - hardness.coerceIn(0f, 1f)) * radius * SOFT_EDGE_BLUR
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = color.copy(alpha = 1f).toArgb()
+        alpha = (color.alpha * ALPHA_MAX).toInt()
+        style = android.graphics.Paint.Style.STROKE
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        // The blur spreads the edge both ways; shrink the core so the soft edge ends at `radius`.
+        strokeWidth = (2f * radius - softness).coerceAtLeast(1f)
+        if (softness >= 1f) {
+            maskFilter = android.graphics.BlurMaskFilter(softness, android.graphics.BlurMaskFilter.Blur.NORMAL)
         }
     }
-    centers += path.last()
-    val solid = color.copy(alpha = 1f)
-    val edge = hardness.coerceIn(0f, MAX_STAMP_EDGE)
-    val layerPaint = androidx.compose.ui.graphics.Paint().apply { alpha = color.alpha }
-    val left = centers.minOf { it.x } - radius
-    val top = centers.minOf { it.y } - radius
-    val right = centers.maxOf { it.x } + radius
-    val bottom = centers.maxOf { it.y } + radius
-    drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(left, top, right, bottom), layerPaint)
-    for (c in centers) {
-        drawCircle(
-            brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                0f to solid, edge to solid, 1f to solid.copy(alpha = 0f),
-                center = c, radius = radius,
-            ),
-            radius = radius,
-            center = c,
-        )
+    val native = drawContext.canvas.nativeCanvas
+    if (path.size == 1) {
+        native.drawPoint(path[0].x, path[0].y, paint)
+        return
     }
-    drawContext.canvas.restore()
+    val line = android.graphics.Path().apply {
+        moveTo(path[0].x, path[0].y)
+        for (i in 1 until path.size) lineTo(path[i].x, path[i].y)
+    }
+    native.drawPath(line, paint)
 }
 
 @Composable
@@ -518,12 +502,11 @@ fun DrawingCanvas(
 
         if (activeTool == Tool.BRUSH) {
             provisionalInk?.let { path ->
-                drawBrushStamps(
+                drawProvisionalStroke(
                     path = path,
                     color = activeColor,
                     diameter = brushSize,
                     hardness = activeBrushPreview?.hardness ?: 1f,
-                    spacing = activeBrushPreview?.spacing ?: DEFAULT_STAMP_SPACING,
                 )
             }
         }
