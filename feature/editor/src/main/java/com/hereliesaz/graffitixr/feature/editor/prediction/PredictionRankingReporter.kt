@@ -24,6 +24,18 @@ class PredictionRankingReporter(
         if (unreported >= FLUSH_MIN_STROKES) emit(report, refreshRateHz)
     }
 
+    /**
+     * The issue [onBrushStroke] would file right now, or null when everything is reported. Saved
+     * to disk after every stroke so a crash before the next batch doesn't lose the ranking; the
+     * next launch files it (CrashIssueUploader).
+     */
+    fun pendingIssue(report: String, refreshRateHz: Float): Pair<String, String>? =
+        if (unreported == 0) {
+            null
+        } else {
+            issueTitle(device, totalStrokes) to issueBody(device, refreshRateHz, totalStrokes, report)
+        }
+
     private fun emit(report: String, refreshRateHz: Float) {
         unreported = 0
         send(issueTitle(device, totalStrokes), issueBody(device, refreshRateHz, totalStrokes, report))
@@ -32,6 +44,9 @@ class PredictionRankingReporter(
     companion object {
         const val REPORT_EVERY_STROKES = 25
         const val FLUSH_MIN_STROKES = 5
+
+        /** cacheDir file holding [pendingIssue]: title on the first line, body after. */
+        const val PENDING_FILE = "prediction_ranking_pending.txt"
 
         internal fun issueTitle(device: String, strokes: Int) =
             "[prediction-ranking] $device, $strokes strokes"

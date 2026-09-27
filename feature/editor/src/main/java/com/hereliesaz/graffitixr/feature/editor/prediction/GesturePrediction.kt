@@ -138,16 +138,24 @@ class PredictionTournament(
     suppliedPredictors: List<GesturePredictor>,
     private val errorSmoothing: Float = 0.2f,
     includeGoogleInk: Boolean = true,
-    /** Display frame length; Google Ink's predicted curve is sized to cover all [HORIZON_FRAMES]. */
-    frameMs: Long = DEFAULT_FRAME_MS,
+    /**
+     * Run only the predictor with this name (see [MODEL_NAMES]): it alone draws the tail and alone
+     * appears in the rankings. Null, or a name no predictor has, runs them all.
+     */
+    soloModel: String? = null,
 ) : RememberObserver {
-    private val predictors: List<GesturePredictor> = buildList {
-        addAll(suppliedPredictors)
-        if (includeGoogleInk) {
-            runCatching { GoogleInkGesturePredictor(predictionIntervalMs = frameMs * HORIZON_FRAMES) }
-                .getOrNull()?.let(::add)
-        }
-    }.distinctBy { it.name }
+    private val predictors: List<GesturePredictor> = run {
+        val all = buildList {
+            addAll(suppliedPredictors)
+            if (includeGoogleInk && (soloModel == null || soloModel == GOOGLE_INK)) {
+                runCatching { GoogleInkGesturePredictor() }.getOrNull()?.let(::add)
+            }
+        }.distinctBy { it.name }
+        all.filter { it.name == soloModel }.ifEmpty { all }
+    }
+
+    /** Names of the predictors actually running, for reports. */
+    val activeModels: List<String> get() = predictors.map { it.name }
 
     private class Pending(
         val prediction: GesturePrediction,
@@ -257,15 +265,17 @@ class PredictionTournament(
     }
 
     /** One line per horizon: `f1: google-ink 2.1px lead +0.4 (n=412) > linear 3.4px ...`. */
-    fun rankingReport(): String = rankings().entries.joinToString("\n") { (h, scores) ->
-        "f$h: " + if (scores.isEmpty()) {
-            "no data"
-        } else {
-            scores.joinToString(" > ") {
-                "${it.model} ${"%.1f".format(it.meanErrorPx)}px lead ${"%+.1f".format(it.meanLeadPx)} (n=${it.samples})"
+    fun rankingReport(): String = "models: ${activeModels.joinToString()}\n" +
+        rankings().entries.joinToString("\n") { (h, scores) ->
+            "f$h: " + if (scores.isEmpty()) {
+                "no data"
+            } else {
+                scores.joinToString(" > ") {
+                    "${it.model} ${"%.1f".format(it.meanErrorPx)}px " +
+                        "lead ${"%+.1f".format(it.meanLeadPx)} (n=${it.samples})"
+                }
             }
         }
-    }
 
     private fun score(entry: Pending, actual: Offset) {
         val prediction = entry.prediction
@@ -311,7 +321,14 @@ class PredictionTournament(
         /** Rankings entry for the tail actually drawn (winner after [tailDamping]). */
         const val DAMPED_TAIL = "tail(damped)"
 
-        const val DEFAULT_FRAME_MS = 16L
+        const val GOOGLE_INK = "google-ink"
+
+        /** Every predictor name, in the order Settings offers them for solo runs. */
+        val MODEL_NAMES = listOf(GOOGLE_INK, "androidx", "linear", "acceleration")
+
+        /** TEMPORARY: SharedPreferences file/key holding the solo model ("" = all). */
+        const val SOLO_PREFS = "stroke_prediction"
+        const val SOLO_KEY = "solo_model"
     }
 }
 

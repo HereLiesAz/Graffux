@@ -2,8 +2,8 @@ package com.hereliesaz.graffitixr.nativebridge
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,46 +12,36 @@ import org.junit.runner.RunWith
 class InkStrokePredictorInstrumentedTest {
 
     @Test
-    fun straightMotionProducesForwardPredictionAndSurvivesReset() {
+    fun straightMotionPredictsAheadOfThePenAndSurvivesReset() {
         InkStrokePredictor().use { predictor ->
             assertTrue(predictor.isAvailable)
 
+            // 1000 px/s along x, 10 ms samples.
             var t = 1_000L
-            for (i in 0..7) {
+            for (i in 0..11) {
                 assertTrue(predictor.record(i * 10f, 40f, t, 0.7f))
                 t += 10L
             }
+            val lastT = t - 10L
+            val lastX = 110f
 
-            val first = predictor.predict()
-            assertNotNull(first)
-            assertTrue(first!!.x > 70f)
-            assertTrue(first.uptimeMillis >= 1_070L)
-            assertTrue(first.pressure in 0f..1f)
+            val estimate = predictor.estimate()
+            assertNotNull(estimate)
+            assertEquals(lastT, estimate!!.uptimeMillis)
+            assertTrue("velocity ~1000 px/s, was ${estimate.vx}", estimate.vx in 800f..1200f)
+
+            // Ahead of the pen, not trailing it (the old StrokeModeler path lagged ~74 px).
+            val oneFrame = predictor.predictAt(lastT + 16L)!!
+            assertEquals(lastX + 16f, oneFrame.x, 4f)
+            assertEquals(40f, oneFrame.y, 2f)
+            val fourFrames = predictor.predictAt(lastT + 64L)!!
+            assertEquals(lastX + 64f, fourFrames.x, 10f)
 
             assertTrue(predictor.reset())
-            assertFalse(predictor.predict() != null)
-
+            assertNull(predictor.estimate())
             assertTrue(predictor.record(10f, 10f, 2_000L, 1f))
-            // Google's Kalman predictor intentionally withholds predictions until enough real
-            // samples make the estimate stable; one point must not invent a future.
-            assertTrue(predictor.predict() == null)
-        }
-    }
-
-    @Test
-    fun trajectoryIsOrderedAndEndsAtPredict() {
-        InkStrokePredictor().use { predictor ->
-            var t = 1_000L
-            for (i in 0..7) {
-                assertTrue(predictor.record(i * 10f, 40f, t, 0.7f))
-                t += 10L
-            }
-            val curve = predictor.predictTrajectory()
-            assertTrue(curve.isNotEmpty())
-            assertTrue(curve.zipWithNext().all { (a, b) -> b.uptimeMillis >= a.uptimeMillis })
-            val end = predictor.predict()!!
-            assertEquals(end.x, curve.last().x, 0.01f)
-            assertEquals(end.uptimeMillis, curve.last().uptimeMillis)
+            // Ink withholds an estimate until its Kalman filters are stable; one point is not enough.
+            assertNull(predictor.predictAt(2_016L))
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.hereliesaz.graffux
 
+import android.content.Context
+import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
@@ -224,6 +226,8 @@ fun SettingsScreen(
             HorizontalDivider()
             PredictionReportsRow(vm)
             HorizontalDivider()
+            PredictionSoloRow()
+            HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = { showNotices = true }) {
@@ -287,6 +291,32 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }
+}
+
+/**
+ * TEMPORARY. Runs one stroke predictor alone (it draws the tail and is the only one ranked), or all
+ * of them. Read by DrawingCanvas when the editor canvas is next composed.
+ */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun PredictionSoloRow() {
+    val context = LocalContext.current
+    val prefs = remember(context) {
+        context.getSharedPreferences(PredictionTournament.SOLO_PREFS, Context.MODE_PRIVATE)
+    }
+    var solo by remember { mutableStateOf(prefs.getString(PredictionTournament.SOLO_KEY, "").orEmpty()) }
+    ChoiceRow(
+        title = "Stroke predictors",
+        subtitle = "Which predictors run while you draw. Pick one to test it alone; takes effect " +
+            "next time the canvas opens.",
+        options = listOf("") + PredictionTournament.MODEL_NAMES,
+        selected = solo,
+        label = { it.ifEmpty { "All" } },
+        onSelect = {
+            solo = it
+            prefs.edit().putString(PredictionTournament.SOLO_KEY, it).apply()
+        },
+    )
 }
 
 /**

@@ -29,3 +29,16 @@ class PredictionRankingReporterTest {
         assertEquals(1, sent.size)
     }
 }
+
+class PredictionRankingReporterPendingTest {
+    @Test
+    fun pendingIssueTracksUnfiledStrokesAndClearsOnSend() {
+        val reporter = PredictionRankingReporter("Pixel") { _, _ -> }
+        assertEquals(null, reporter.pendingIssue("r", 60f))
+        reporter.onBrushStroke("r", 60f)
+        val pending = reporter.pendingIssue("r", 60f)!!
+        assertTrue(pending.first.contains("1 strokes"))
+        repeat(PredictionRankingReporter.REPORT_EVERY_STROKES - 1) { reporter.onBrushStroke("r", 60f) }
+        assertEquals(null, reporter.pendingIssue("r", 60f))
+    }
+}

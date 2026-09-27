@@ -1,76 +1,53 @@
 #include <jni.h>
-#include <algorithm>
 
 #include <memory>
-#include <vector>
 
+#include "ink_stroke_modeler/internal/prediction/kalman_predictor.h"
 #include "ink_stroke_modeler/params.h"
-#include "ink_stroke_modeler/stroke_modeler.h"
 #include "ink_stroke_modeler/types.h"
+
+// Google Ink Stroke Modeler's Kalman predictor, used directly.
+//
+// This used to drive the whole StrokeModeler and read its Predict() output. That output is built
+// for drawing a smoothed stroke, not for predicting the pen: it starts at the position modeler's
+// spring-mass state, which deliberately trails the pen, and joins it to the Kalman estimate with a
+// cubic "connector" before the real prediction begins. The next few frames fell on that connector,
+// so Ink measured ~74 px behind the pen even one frame ahead (issue #425).
+//
+// KalmanPredictor alone is Ink's actual predictor: per-axis Kalman filters over the raw input that
+// estimate position, velocity, acceleration and jerk at the latest sample (GetEstimatedState).
+// nativeEstimate hands that state to Kotlin, which evaluates Ink's own cubic
+// (p + v t + a t^2/2 + j t^3/6, kalman_predictor.cc EvaluateCubic) at any frame time.
 
 namespace {
 
-using ink::stroke_model::Duration;
-using ink::stroke_model::Input;
+using ink::stroke_model::KalmanPredictor;
 using ink::stroke_model::KalmanPredictorParams;
-using ink::stroke_model::Result;
-using ink::stroke_model::StrokeModelParams;
-using ink::stroke_model::StrokeModeler;
+using ink::stroke_model::SamplingParams;
 using ink::stroke_model::Time;
+using ink::stroke_model::Vec2;
 
 // Keep the model in roughly the unit range Google's own Kalman tests tune for: 100 screen pixels
 // become one model-space unit. Typical drawing motion of ~1000 px/s therefore arrives as ~10 u/s.
 constexpr float kPixelsPerModelUnit = 100.0f;
 
-StrokeModelParams MakeParams(double predictionIntervalSeconds) {
-    StrokeModelParams params;
-    params.wobble_smoother_params.is_enabled = true;
-    params.wobble_smoother_params.timeout = Duration(0.04);
-    // ink-stroke-modeler's own reference tuning derives these as 2%/3% of the expected drawing
-    // speed -- 0.2/0.3 u/s against this file's documented ~10 u/s baseline above. This used to read
-    // 1.31/1.44 (~6.5x too high) with no comment justifying the deviation and no other tuning
-    // constant in this function following that same multiple, which pulled any deliberate, careful
-    // stroke under ~144 px/s into jitter-only wobble smoothing meant for near-stationary input.
-    params.wobble_smoother_params.speed_floor = 0.2f;
-    params.wobble_smoother_params.speed_ceiling = 0.3f;
-
-    params.sampling_params.min_output_rate = 180.0;
-    params.sampling_params.end_of_stroke_stopping_distance = 0.001f;
-    params.sampling_params.end_of_stroke_max_iterations = 20;
-
+KalmanPredictorParams MakeKalmanParams() {
     KalmanPredictorParams kalman;
     kalman.process_noise = 0.00026458;
     kalman.measurement_noise = 0.026458;
     kalman.min_stable_iteration = 4;
     kalman.max_time_samples = 20;
     kalman.min_catchup_velocity = 0.01f;
+    // Ink's own damping toward linear motion, applied inside GetEstimatedState().
     kalman.acceleration_weight = 0.5f;
     kalman.jerk_weight = 0.1f;
-    // How far ahead the predicted curve reaches. The Kotlin side asks for several display frames
-    // (PredictionTournament.HORIZON_FRAMES x frame length) so each frame is read off the model's own
-    // curve rather than extrapolated past its end.
-    kalman.prediction_interval = Duration(predictionIntervalSeconds);
-    kalman.confidence_params.desired_number_of_samples = 20;
-    kalman.confidence_params.max_estimation_distance = 0.04f;
-    // Reference tuning: 5%/25% of the expected drawing speed -- 0.5/2.5 u/s against the ~10 u/s
-    // baseline above. Used to read 3.0/15.0 (~6x too high, same unexplained multiple as the
-    // wobble-smoother constants above), excluding normal careful/slow sketching speeds from full
-    // prediction confidence entirely.
-    kalman.confidence_params.min_travel_speed = 0.5f;
-    kalman.confidence_params.max_travel_speed = 2.5f;
-    kalman.confidence_params.max_linear_deviation = 0.2f;
-    kalman.confidence_params.baseline_linearity_confidence = 0.4f;
-    params.prediction_params = kalman;
-    return params;
+    return kalman;
 }
 
 struct Engine {
-    StrokeModeler modeler;
-    std::vector<Result> scratch;
-
-    explicit Engine(double predictionIntervalSeconds) {
-        modeler.Reset(MakeParams(predictionIntervalSeconds));
-    }
+    KalmanPredictor predictor{MakeKalmanParams(), SamplingParams{}};
+    double lastTimeSeconds = 0.0;
+    float lastPressure = 1.0f;
 };
 
 Engine* FromHandle(jlong handle) {
@@ -80,11 +57,8 @@ Engine* FromHandle(jlong handle) {
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(
-        JNIEnv*, jobject, jdouble predictionIntervalSeconds) {
-    // Bounded so a bad frame-rate reading can't ask the Kalman model for a silly horizon.
-    const double interval = std::clamp(static_cast<double>(predictionIntervalSeconds), 1.0 / 240.0, 0.25);
-    auto engine = std::make_unique<Engine>(interval);
+Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(JNIEnv*, jobject) {
+    auto engine = std::make_unique<Engine>();
     return reinterpret_cast<jlong>(engine.release());
 }
 
@@ -93,80 +67,51 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeReset(
         JNIEnv*, jobject, jlong handle) {
     auto* engine = FromHandle(handle);
     if (!engine) return JNI_FALSE;
-    engine->scratch.clear();
-    return engine->modeler.Reset().ok() ? JNI_TRUE : JNI_FALSE;
+    engine->predictor.Reset();
+    engine->lastTimeSeconds = 0.0;
+    engine->lastPressure = 1.0f;
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeRecord(
-        JNIEnv*, jobject, jlong handle, jfloat x, jfloat y, jlong uptimeMillis,
-        jfloat pressure, jboolean isDown) {
+        JNIEnv*, jobject, jlong handle, jfloat x, jfloat y, jlong uptimeMillis, jfloat pressure) {
     auto* engine = FromHandle(handle);
     if (!engine) return JNI_FALSE;
-
-    Input input;
-    input.event_type = isDown ? Input::EventType::kDown : Input::EventType::kMove;
-    input.position = {x / kPixelsPerModelUnit, y / kPixelsPerModelUnit};
-    input.time = Time(static_cast<double>(uptimeMillis) / 1000.0);
-    input.pressure = pressure;
-
-    engine->scratch.clear();
-    return engine->modeler.Update(input, engine->scratch).ok() ? JNI_TRUE : JNI_FALSE;
+    const double seconds = static_cast<double>(uptimeMillis) / 1000.0;
+    engine->predictor.Update(Vec2{x / kPixelsPerModelUnit, y / kPixelsPerModelUnit}, Time(seconds));
+    engine->lastTimeSeconds = seconds;
+    engine->lastPressure = pressure;
+    return JNI_TRUE;
 }
 
+// [x, y, vx, vy, ax, ay, jx, jy, timeMs, pressure] in pixels and seconds (velocity px/s, etc.),
+// estimated at the latest recorded sample; null until the Kalman filters are stable. Doubles so
+// uptime milliseconds survive exactly past ~4.6 h (a float would round them).
 extern "C" JNIEXPORT jdoubleArray JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredict(
+Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeEstimate(
         JNIEnv* env, jobject, jlong handle) {
     auto* engine = FromHandle(handle);
     if (!engine) return nullptr;
+    const auto state = engine->predictor.GetEstimatedState();
+    if (!state) return nullptr;
 
-    engine->scratch.clear();
-    if (!engine->modeler.Predict(engine->scratch).ok() || engine->scratch.empty()) {
-        return nullptr;
-    }
-
-    const Result& result = engine->scratch.back();
-    // A jfloat (32-bit) can only represent integers exactly up to 2^24 (~4.66 hours of
-    // uptimeMillis) -- past that, the predicted timestamp silently rounds to the nearest ~tens of
-    // ms, larger than the whole ~16ms prediction horizon this models. jdouble (53-bit mantissa)
-    // holds any real uptimeMillis value exactly; x/y/pressure lose nothing widening float->double.
-    const jdouble values[4] = {
-        static_cast<jdouble>(result.position.x * kPixelsPerModelUnit),
-        static_cast<jdouble>(result.position.y * kPixelsPerModelUnit),
-        result.time.Value() * 1000.0,
-        static_cast<jdouble>(result.pressure),
+    constexpr jsize kCount = 10;
+    const jdouble values[kCount] = {
+        state->position.x * kPixelsPerModelUnit,
+        state->position.y * kPixelsPerModelUnit,
+        state->velocity.x * kPixelsPerModelUnit,
+        state->velocity.y * kPixelsPerModelUnit,
+        state->acceleration.x * kPixelsPerModelUnit,
+        state->acceleration.y * kPixelsPerModelUnit,
+        state->jerk.x * kPixelsPerModelUnit,
+        state->jerk.y * kPixelsPerModelUnit,
+        engine->lastTimeSeconds * 1000.0,
+        engine->lastPressure,
     };
-    jdoubleArray output = env->NewDoubleArray(4);
+    jdoubleArray output = env->NewDoubleArray(kCount);
     if (!output) return nullptr;
-    env->SetDoubleArrayRegion(output, 0, 4, values);
-    return output;
-}
-
-// Whole predicted trajectory, not just its endpoint: [x, y, timeMs, pressure] per Result, in order.
-// Lets the Kotlin side read the model's position at each of the next several frames. Same unit and
-// double-precision conventions as nativePredict above.
-extern "C" JNIEXPORT jdoubleArray JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredictTrajectory(
-        JNIEnv* env, jobject, jlong handle) {
-    auto* engine = FromHandle(handle);
-    if (!engine) return nullptr;
-
-    engine->scratch.clear();
-    if (!engine->modeler.Predict(engine->scratch).ok() || engine->scratch.empty()) {
-        return nullptr;
-    }
-    const jsize count = static_cast<jsize>(engine->scratch.size()) * 4;
-    std::vector<jdouble> values;
-    values.reserve(static_cast<size_t>(count));
-    for (const Result& result : engine->scratch) {
-        values.push_back(static_cast<jdouble>(result.position.x * kPixelsPerModelUnit));
-        values.push_back(static_cast<jdouble>(result.position.y * kPixelsPerModelUnit));
-        values.push_back(result.time.Value() * 1000.0);
-        values.push_back(static_cast<jdouble>(result.pressure));
-    }
-    jdoubleArray output = env->NewDoubleArray(count);
-    if (!output) return nullptr;
-    env->SetDoubleArrayRegion(output, 0, count, values.data());
+    env->SetDoubleArrayRegion(output, 0, kCount, values);
     return output;
 }
 

@@ -94,14 +94,19 @@ fun DrawingCanvas(
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
     val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
-    val predictionTournament = remember(androidXPredictor, nextFrameMs) {
+    // TEMPORARY: Settings > Developer can pin one predictor to run alone (see PredictionTournament).
+    val soloModel = view.context
+        .getSharedPreferences(PredictionTournament.SOLO_PREFS, android.content.Context.MODE_PRIVATE)
+        .getString(PredictionTournament.SOLO_KEY, null)
+        ?.takeIf { it.isNotBlank() }
+    val predictionTournament = remember(androidXPredictor, soloModel) {
         PredictionTournament(
             listOf(
                 LinearGesturePredictor(),
                 AccelerationGesturePredictor(),
                 androidXPredictor,
             ),
-            frameMs = nextFrameMs,
+            soloModel = soloModel,
         )
     }
     val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
