@@ -63,6 +63,10 @@ fun DrawingCanvas(
      * morphology, bristle population and device-pose model as the mechanics layer.
      */
     activeBrushPreview: AzphaltBrush? = null,
+    /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */
+    onPredictionRanked: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
+    /** TEMPORARY: this canvas's prediction tournament is being discarded. */
+    onPredictionSessionEnd: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
 ) {
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -72,16 +76,6 @@ fun DrawingCanvas(
     val view = LocalView.current
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = activeTool == Tool.BRUSH)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
-    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
-    val predictionTournament = remember(androidXPredictor) {
-        PredictionTournament(
-            listOf(
-                LinearGesturePredictor(),
-                AccelerationGesturePredictor(),
-                androidXPredictor,
-            )
-        )
-    }
     val brushSampleBuilder = remember { BrushSampleBuilder() }
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
     var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
@@ -99,6 +93,21 @@ fun DrawingCanvas(
             ?: 60f
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
+    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
+    val predictionTournament = remember(androidXPredictor, nextFrameMs) {
+        PredictionTournament(
+            listOf(
+                LinearGesturePredictor(),
+                AccelerationGesturePredictor(),
+                androidXPredictor,
+            ),
+            frameMs = nextFrameMs,
+        )
+    }
+    val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
+    DisposableEffect(predictionTournament) {
+        onDispose { latestOnPredictionSessionEnd.value(predictionTournament.rankingReport(), refreshRate) }
+    }
     var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
 
     fun recordRealPoint(
@@ -201,6 +210,13 @@ fun DrawingCanvas(
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
                     predictionTail = null
+                    // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
+                    // `adb logcat -s StrokePrediction` to read it.
+                    if (activeTool == Tool.BRUSH) {
+                        val report = predictionTournament.rankingReport()
+                        android.util.Log.i("StrokePrediction", report)
+                        onPredictionRanked(report, refreshRate)
+                    }
                     if (latestInputTool == BrushInputTool.FINGER || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                         brushCursorPosition = null
                     }

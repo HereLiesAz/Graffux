@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -220,6 +222,8 @@ fun SettingsScreen(
                 },
             )
             HorizontalDivider()
+            PredictionReportsRow(vm)
+            HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = { showNotices = true }) {
@@ -234,6 +238,53 @@ fun SettingsScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+}
+
+/**
+ * TEMPORARY. Paste a GitHub token so the editor files stroke-prediction rankings as issues on
+ * HereLiesAz/Graffux (PredictionReportRepository). Stored encrypted on this device only.
+ */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun PredictionReportsRow(vm: SettingsViewModel) {
+    val connected by vm.predictionReportsConnected.collectAsStateWithLifecycle()
+    val status by vm.predictionReportsStatus.collectAsStateWithLifecycle()
+    var token by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Text("Prediction ranking reports", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            if (connected) {
+                "Filing rankings as GitHub issues on HereLiesAz/Graffux."
+            } else {
+                "Paste a fine-grained GitHub token (this repository only, Issues: read and write) " +
+                    "to file stroke-prediction rankings as issues."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (connected) {
+            TextButton(onClick = { vm.disconnectPredictionReports() }) { Text("Disconnect") }
+        } else {
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                label = { Text("GitHub token") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            TextButton(
+                onClick = {
+                    vm.connectPredictionReports(token)
+                    token = ""
+                },
+                enabled = token.isNotBlank(),
+            ) { Text("Connect") }
+        }
+        status?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

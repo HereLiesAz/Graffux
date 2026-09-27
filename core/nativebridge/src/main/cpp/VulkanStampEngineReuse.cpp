@@ -99,6 +99,7 @@ bool VulkanStampEngine::clear() {
     // A clear touches every pixel, so the next readback() must copy the whole layer regardless of
     // whatever narrower region a prior stampDabs()/stampMaskedDabs() call had left dirty.
     markLayerFullyDirty();
+    strokeStateDirty_ = true;  // A cleared layer seeds a new stroke; see upload().
     return true;
 }
 

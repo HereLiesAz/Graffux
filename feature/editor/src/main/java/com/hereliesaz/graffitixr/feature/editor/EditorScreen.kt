@@ -433,6 +433,8 @@ fun EditorScreen(
                 // preview. Converting here too would undo the camera twice.
                 onEyedropSample = { offset -> vm.onEyedropSample(offset) },
                 onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
+                onPredictionRanked = { report, hz -> vm.onPredictionBrushStroke(report, hz) },
+                onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
             )
         }
 

@@ -390,6 +390,36 @@ class VulkanStampEngineInstrumentedTest {
         )
     }
 
+    @Test
+    fun strokeMaxAcrossBatchesMatchesOneMaxCombinedCall() {
+        val engine = initializedEngine()
+        val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
+        val soft = ResolvedBrushDab(
+            x = SIZE / 2f - 4f, y = SIZE / 2f, radius = 12f, alpha = 0.6f, angleDeg = 0f,
+            colorArgb = COLOR_RED, flow = 1f, hardness = 0f,
+        )
+        val next = soft.copy(x = SIZE / 2f + 4f)
+
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.stampResolvedDabs(listOf(soft, next)))
+        val single = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(single))
+
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.stampResolvedDabs(listOf(soft), strokeMax = true))
+        assertTrue(engine.stampResolvedDabs(listOf(next), strokeMax = true))
+        val batched = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(batched))
+        assertTrue("stroke-max batches must not compound at the frame boundary", single.sameAs(batched))
+
+        // upload() starts a new stroke: the previous stroke's max must not suppress fresh dabs.
+        assertTrue(engine.upload(blank))
+        assertTrue(engine.stampResolvedDabs(listOf(soft), strokeMax = true))
+        val restarted = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        assertTrue(engine.readback(restarted))
+        assertNotEquals(0x00000000, restarted.getPixel(SIZE / 2 - 4, SIZE / 2))
+    }
+
     companion object {
         private const val SIZE = 64
         private const val COLOR_RED = 0xFFFF0000.toInt()

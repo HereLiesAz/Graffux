@@ -6,8 +6,10 @@ import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.model.DEFAULT_GESTURE_MAPPING
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
+import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -26,7 +28,29 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val dispatchers: DispatcherProvider,
+    // TEMPORARY: stroke-prediction ranking issues. Nullable so tests needn't supply it.
+    private val predictionReports: PredictionReportRepository? = null,
 ) : ViewModel() {
+
+    val predictionReportsConnected: StateFlow<Boolean> =
+        predictionReports?.isConnected ?: MutableStateFlow(false)
+
+    /** Result message of the last connect attempt, for the Settings row; null = none yet. */
+    private val _predictionReportsStatus = MutableStateFlow<String?>(null)
+    val predictionReportsStatus: StateFlow<String?> = _predictionReportsStatus
+
+    fun connectPredictionReports(token: String) = viewModelScope.launch {
+        val reports = predictionReports ?: return@launch
+        _predictionReportsStatus.value = reports.connect(token).fold(
+            onSuccess = { "Connected. Rankings are filed every 25 Brush strokes." },
+            onFailure = { it.message ?: "Couldn't connect" },
+        )
+    }
+
+    fun disconnectPredictionReports() {
+        predictionReports?.disconnect()
+        _predictionReportsStatus.value = null
+    }
 
     val isRightHanded: StateFlow<Boolean> =
         settings.isRightHanded.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)

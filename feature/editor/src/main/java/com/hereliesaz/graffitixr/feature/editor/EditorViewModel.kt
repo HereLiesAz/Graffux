@@ -576,6 +576,8 @@ class EditorViewModel @Inject constructor(
     private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository,
     private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository,
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
+    // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it.
+    private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null,
 ) : ViewModel(), EditorActions {
 
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
@@ -833,9 +835,12 @@ class EditorViewModel @Inject constructor(
     // same "live preview is presentation-only" gap every other tool here already has.
     private var resampleSeed: Long = 0L
 
-    // The selected azphalt stamp brush's parsed definition (null = built-in round brush). Set by
-    // selectBrushExtension; read at stroke-commit to route through StampBrushRenderer.
-    private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
+    // The selected azphalt stamp brush's parsed definition (null = legacy built-in round brush, no
+    // longer selectable from the UI). Starts on the bundled GPU Round so every brush, default
+    // included, shares one stamp pipeline. Set by selectBrushExtension/selectBuiltInBrush; read at
+    // stroke-commit to route through StampBrushRenderer.
+    private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? =
+        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
     // Decoded primary, grain, and secondary-mask assets for the active brush.
     private var activeStampShape: Bitmap? = null
     private var activeStampGrain: Bitmap? = null
@@ -4139,10 +4144,12 @@ class EditorViewModel @Inject constructor(
                         ),
                     )
                 } else null
-                val plainRoundMaxCpu = !stampBrush.buildUp &&
-                    stampShapeForStroke == null && stampGrainForStroke == null &&
-                    stampBrush.maskedBrush == null && stampBrush.tipRatio == 1f
-                val gpuEngine = if (gpuCompatibleBrush && !plainRoundMaxCpu) {
+                // Every stamp brush, plain rounds included, goes GPU-first so bundled, custom and
+                // imported brushes share one pipeline and one feel. Plain non-build-up rounds used
+                // to be pinned to the CPU because GPU max-combine reset at every frame batch; the
+                // strokeMax stamp mode (see VulkanStampEngine.stampResolvedDabs) now holds the max
+                // across the whole stroke.
+                val gpuEngine = if (gpuCompatibleBrush) {
                     createSeededGpuEngine(work.width, work.height, work)
                 } else null
                 val gpuReady = gpuEngine != null
@@ -4781,8 +4788,17 @@ class EditorViewModel @Inject constructor(
                 // Hoisted above the movement/held-specific branches below so Impasto (further down)
                 // can deposit/shade the exact same dabs those branches just painted, without
                 // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
-                val newDabs = if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList()
-                val newHeldDabs = if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList()
+                // Wrap-around tiles here, after slicing, so the stamped counters above stay in
+                // untiled-dab units; DrawingEngine's commit tiles the same way (wrapTiledDabs).
+                val tile: (List<Dab>) -> List<Dab> = { list ->
+                    if (strokeWrapAroundMode) wrapTiledDabs(list, work.width, work.height) else list
+                }
+                val newDabs = tile(
+                    if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList(),
+                )
+                val newHeldDabs = tile(
+                    if (hasNewHeldDabs) heldDabs.subList(stampHeldStampedCount, heldDabs.size).toList() else emptyList(),
+                )
                 // stampStampedCount/stampHeldStampedCount only ever depend on `dabs`/`heldDabs`,
                 // which are pure functions of stampMappedPoints/mappedSamples computed above on this
                 // (the calling) thread -- advancing them here, synchronously, is what lets the next
@@ -4965,7 +4981,7 @@ class EditorViewModel @Inject constructor(
                                 contactDepth = dab.contactDepth,
                             )
                             val gpuDabs = newDabs.map(::resolve)
-                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp) &&
+                            engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp, strokeMax = true) &&
                                 (usesZeroCopyDisplay || engine.readback(work))
                         }
                     }
@@ -5880,6 +5896,7 @@ class EditorViewModel @Inject constructor(
             stampGrain = stampGrain,
             stampMaskShape = stampMaskShape,
             selection = selection,
+            wrapAroundMode = strokeWrapAroundMode,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -8940,6 +8957,28 @@ class EditorViewModel @Inject constructor(
      * tool (which never touches the native stamp engine at all) and Brush Studio (which needs a
      * brush built before there's anything to paint with).
      */
+    // TEMPORARY: see PredictionRankingReporter / PredictionReportRepository.
+    private val predictionRankingReporter =
+        com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter(
+            device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
+                "Android ${android.os.Build.VERSION.RELEASE}",
+        ) { title, body ->
+            val reports = predictionReports ?: return@PredictionRankingReporter
+            viewModelScope.launch(dispatchers.io) {
+                reports.fileIssue(title, body).onFailure {
+                    android.util.Log.w("StrokePrediction", "ranking issue not filed", it)
+                }
+            }
+        }
+
+    /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
+    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) =
+        predictionRankingReporter.onBrushStroke(report, refreshRateHz)
+
+    /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
+    fun onPredictionSessionEnd(report: String, refreshRateHz: Float) =
+        predictionRankingReporter.flush(report, refreshRateHz)
+
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
 
@@ -9154,8 +9193,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the built-in
-     * round brush. The active-brush name drives the UI and switches the size control's second axis to flow.
+     * Select an installed azphalt stamp brush by extension [id], or pass null to return to the bundled
+     * GPU Round ([com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round]). The active-brush name drives the UI and switches the size control's second axis to flow.
      */
     /** [compositeId] is `"<extensionId>::<assetIndex>"` (see [BRUSH_ASSET_ID_SEPARATOR]) as produced
      *  by [installedBrushes]/[allInstalledBrushAssets] -- not a bare extension id, since one
@@ -9164,11 +9203,13 @@ class EditorViewModel @Inject constructor(
      *  uninstalled since the picker was drawn. */
     fun selectBrushExtension(compositeId: String?) {
         if (compositeId == null) {
-            activeStampBrush = null
+            activeStampBrush = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
             activeStampShape = null
             activeStampGrain = null
             activeStampMaskShape = null
-            dispatch(EditorIntent.SetActiveBrush(null))
+            dispatch(
+                EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME),
+            )
             return
         }
         val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)

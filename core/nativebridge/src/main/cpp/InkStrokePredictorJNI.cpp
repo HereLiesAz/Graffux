@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <algorithm>
 
 #include <memory>
 #include <vector>
@@ -21,7 +22,7 @@ using ink::stroke_model::Time;
 // become one model-space unit. Typical drawing motion of ~1000 px/s therefore arrives as ~10 u/s.
 constexpr float kPixelsPerModelUnit = 100.0f;
 
-StrokeModelParams MakeParams() {
+StrokeModelParams MakeParams(double predictionIntervalSeconds) {
     StrokeModelParams params;
     params.wobble_smoother_params.is_enabled = true;
     params.wobble_smoother_params.timeout = Duration(0.04);
@@ -45,7 +46,10 @@ StrokeModelParams MakeParams() {
     kalman.min_catchup_velocity = 0.01f;
     kalman.acceleration_weight = 0.5f;
     kalman.jerk_weight = 0.1f;
-    kalman.prediction_interval = Duration(1.0 / 60.0);
+    // How far ahead the predicted curve reaches. The Kotlin side asks for several display frames
+    // (PredictionTournament.HORIZON_FRAMES x frame length) so each frame is read off the model's own
+    // curve rather than extrapolated past its end.
+    kalman.prediction_interval = Duration(predictionIntervalSeconds);
     kalman.confidence_params.desired_number_of_samples = 20;
     kalman.confidence_params.max_estimation_distance = 0.04f;
     // Reference tuning: 5%/25% of the expected drawing speed -- 0.5/2.5 u/s against the ~10 u/s
@@ -64,8 +68,8 @@ struct Engine {
     StrokeModeler modeler;
     std::vector<Result> scratch;
 
-    Engine() {
-        modeler.Reset(MakeParams());
+    explicit Engine(double predictionIntervalSeconds) {
+        modeler.Reset(MakeParams(predictionIntervalSeconds));
     }
 };
 
@@ -77,8 +81,10 @@ Engine* FromHandle(jlong handle) {
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(
-        JNIEnv*, jobject) {
-    auto engine = std::make_unique<Engine>();
+        JNIEnv*, jobject, jdouble predictionIntervalSeconds) {
+    // Bounded so a bad frame-rate reading can't ask the Kalman model for a silly horizon.
+    const double interval = std::clamp(static_cast<double>(predictionIntervalSeconds), 1.0 / 240.0, 0.25);
+    auto engine = std::make_unique<Engine>(interval);
     return reinterpret_cast<jlong>(engine.release());
 }
 
@@ -133,6 +139,34 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredict(
     jdoubleArray output = env->NewDoubleArray(4);
     if (!output) return nullptr;
     env->SetDoubleArrayRegion(output, 0, 4, values);
+    return output;
+}
+
+// Whole predicted trajectory, not just its endpoint: [x, y, timeMs, pressure] per Result, in order.
+// Lets the Kotlin side read the model's position at each of the next several frames. Same unit and
+// double-precision conventions as nativePredict above.
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativePredictTrajectory(
+        JNIEnv* env, jobject, jlong handle) {
+    auto* engine = FromHandle(handle);
+    if (!engine) return nullptr;
+
+    engine->scratch.clear();
+    if (!engine->modeler.Predict(engine->scratch).ok() || engine->scratch.empty()) {
+        return nullptr;
+    }
+    const jsize count = static_cast<jsize>(engine->scratch.size()) * 4;
+    std::vector<jdouble> values;
+    values.reserve(static_cast<size_t>(count));
+    for (const Result& result : engine->scratch) {
+        values.push_back(static_cast<jdouble>(result.position.x * kPixelsPerModelUnit));
+        values.push_back(static_cast<jdouble>(result.position.y * kPixelsPerModelUnit));
+        values.push_back(result.time.Value() * 1000.0);
+        values.push_back(static_cast<jdouble>(result.pressure));
+    }
+    jdoubleArray output = env->NewDoubleArray(count);
+    if (!output) return nullptr;
+    env->SetDoubleArrayRegion(output, 0, count, values.data());
     return output;
 }
 

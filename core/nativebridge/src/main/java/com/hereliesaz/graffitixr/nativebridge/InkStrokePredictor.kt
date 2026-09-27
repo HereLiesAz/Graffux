@@ -7,12 +7,16 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
  * screen pixels and timestamps in Android uptime milliseconds; the native bridge normalizes pixels
  * before feeding the unit-agnostic model and converts its prediction back again.
  */
-class InkStrokePredictor : AutoCloseable {
+@Suppress("TooManyFunctions") // Mostly JNI declarations.
+class InkStrokePredictor(
+    /** How far ahead the predicted curve reaches (clamped natively to ~4-250 ms). */
+    predictionIntervalMs: Long = DEFAULT_PREDICTION_INTERVAL_MS,
+) : AutoCloseable {
     init {
         NativeLibLoader.loadAll()
     }
 
-    private var nativeHandle: Long = nativeCreate()
+    private var nativeHandle: Long = nativeCreate(predictionIntervalMs / MILLIS_PER_SECOND)
     private var hasInput = false
 
     val isAvailable: Boolean get() = nativeHandle != 0L
@@ -59,6 +63,24 @@ class InkStrokePredictor : AutoCloseable {
         )
     }
 
+    /**
+     * Every point of the model's predicted continuation, oldest first (the last one is what
+     * [predict] returns). Empty until the Kalman estimate is stable.
+     */
+    fun predictTrajectory(): List<Prediction> {
+        val values = if (nativeHandle != 0L && hasInput) nativePredictTrajectory(nativeHandle) else null
+        return List((values?.size ?: 0) / FIELDS_PER_POINT) { i ->
+            val o = i * FIELDS_PER_POINT
+            val v = requireNotNull(values)
+            Prediction(
+                x = v[o].toFloat(),
+                y = v[o + 1].toFloat(),
+                uptimeMillis = v[o + 2].toLong(),
+                pressure = v[o + 3].toFloat().takeIf { it.isFinite() && it >= 0f } ?: 1f,
+            )
+        }
+    }
+
     override fun close() {
         if (nativeHandle != 0L) {
             nativeDestroy(nativeHandle)
@@ -67,7 +89,7 @@ class InkStrokePredictor : AutoCloseable {
         }
     }
 
-    private external fun nativeCreate(): Long
+    private external fun nativeCreate(predictionIntervalSeconds: Double): Long
     private external fun nativeReset(handle: Long): Boolean
     private external fun nativeRecord(
         handle: Long,
@@ -78,5 +100,10 @@ class InkStrokePredictor : AutoCloseable {
         isDown: Boolean,
     ): Boolean
     private external fun nativePredict(handle: Long): DoubleArray?
+    private external fun nativePredictTrajectory(handle: Long): DoubleArray?
     private external fun nativeDestroy(handle: Long)
 }
+
+private const val FIELDS_PER_POINT = 4 // x, y, timeMs, pressure -- nativePredictTrajectory's layout
+private const val DEFAULT_PREDICTION_INTERVAL_MS = 17L // one 60 Hz frame, the historical default
+private const val MILLIS_PER_SECOND = 1000.0
