@@ -3309,7 +3309,8 @@ class EditorViewModel @Inject constructor(
     /**
      * The layer rail's relocate callback. [railOrder] is AzNavRail's raw `newOrder` (every item id
      * in the rail, top-first, `layer.`-prefixed); [parentId] is the dragged item's host — null for
-     * the top-level layers host, or the group's id for a group's nested rail. Only that host's own
+     * the top-level layers host, or the group's id for the reloc sub-items under a group's own rail
+     * host item (`layer.<groupId>`). Only that host's own
      * layers are kept, so the rail's other items can't make [LayerListOps.reorderSubset] refuse.
      */
     override fun onLayerRailRelocated(railOrder: List<String>, parentId: String?) {
