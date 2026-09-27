@@ -30,8 +30,6 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipGeometryConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipTopology
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.feature.editor.prediction.AccelerationGesturePredictor
-import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
 import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
@@ -93,21 +91,15 @@ fun DrawingCanvas(
             ?: 60f
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
-    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
     // TEMPORARY: Settings > Developer can pin one predictor to run alone (see PredictionTournament).
     val soloModel = view.context
         .getSharedPreferences(PredictionTournament.SOLO_PREFS, android.content.Context.MODE_PRIVATE)
         .getString(PredictionTournament.SOLO_KEY, null)
         ?.takeIf { it.isNotBlank() }
-    val predictionTournament = remember(androidXPredictor, soloModel) {
-        PredictionTournament(
-            listOf(
-                LinearGesturePredictor(),
-                AccelerationGesturePredictor(),
-                androidXPredictor,
-            ),
-            soloModel = soloModel,
-        )
+    // Google Ink draws the tail; linear only covers the first samples of a stroke (see
+    // PredictionTournament's doc for why the others were removed).
+    val predictionTournament = remember(view, soloModel) {
+        PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel)
     }
     val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
     DisposableEffect(predictionTournament) {
@@ -210,7 +202,6 @@ fun DrawingCanvas(
                     brushSampleBuilder.reset()
                     predictionTail = null
                 }
-                androidXPredictor.recordMotionEvent(event)
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
