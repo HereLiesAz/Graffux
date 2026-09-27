@@ -1016,6 +1016,17 @@ class EditorViewModel @Inject constructor(
     private val azphaltLatencyTracker = AzphaltLatencyTracker()
     private val basicLatencyTracker = AzphaltLatencyTracker()
     @Volatile private var stampLatestLatencySampleId: Long = -1L
+    // TEMPORARY: feel measurements appended to the prediction reports (see StrokeFeelMeter).
+    private val strokeFeelMeter = StrokeFeelMeter()
+    // Latency id of the current stroke's first stamp-brush sample, until its paint is presented.
+    @Volatile private var feelFirstLatencyId: Long = -1L
+
+    /**
+     * True once the current Brush stroke's first real paint is on screen. The canvas draws
+     * provisional ink from touch-down until then (see DrawingCanvas.provisionalInk).
+     */
+    @Volatile var strokePaintPresented: Boolean = false
+        private set
 
     /**
      * Median touch-to-paint latency of recent stamp-brush samples (input accepted -> preview
@@ -4004,6 +4015,11 @@ class EditorViewModel @Inject constructor(
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
         val state = _uiState.value
         if (state.activeTool == Tool.NONE) return
+        if (state.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onStrokeStart()
+            feelFirstLatencyId = -1L
+            strokePaintPresented = false
+        }
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
         val originalBitmap = layer.bitmap ?: return
@@ -4507,6 +4523,9 @@ class EditorViewModel @Inject constructor(
 
     /** Canonical input path used by DrawingCanvas. */
     fun onStrokePoint(sample: BrushSample) {
+        if (_uiState.value.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onSampleAccepted(sample.uptimeMillis, android.os.SystemClock.uptimeMillis())
+        }
         pendingStrokePointSample = sample
         try {
             onStrokePoint(Offset(sample.x, sample.y), sample.pressure)
@@ -4522,6 +4541,9 @@ class EditorViewModel @Inject constructor(
         val algorithm = _uiState.value.stabilizerAlgorithm
         val stabilizedPoint = strokeStabilizer.stabilize(currentPoint, _uiState.value.stabilizerLevel, algorithm)
         val stabilizedPressure = strokeStabilizer.stabilizePressure(pressure, _uiState.value.stabilizerLevel, algorithm)
+        if (_uiState.value.activeTool == Tool.BRUSH) {
+            strokeFeelMeter.onStabilized((currentPoint - stabilizedPoint).getDistance())
+        }
 
         // Engine 2 separates input fidelity from presentation cadence. Every BRUSH sample enters
         // the canonical stroke first; only the expensive preview work is rate-limited. The old
@@ -4537,6 +4559,7 @@ class EditorViewModel @Inject constructor(
             if (stampBrushForStroke != null) {
                 val latencyId = azphaltLatencyTracker.beginInput()
                 stampLatestLatencySampleId = latencyId
+                if (feelFirstLatencyId < 0L) feelFirstLatencyId = latencyId
                 stampAwaitingGenerationLatencyIds.append(latencyId)
             } else {
                 basicLatestLatencySampleId = basicLatencyTracker.beginInput()
@@ -5273,6 +5296,11 @@ class EditorViewModel @Inject constructor(
                         } ?: shadedBitmap ?: work
                         _liveStroke.update { it.copy(bitmap = publishedBitmap, version = it.version + 1) }
                         latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
+                        val firstId = feelFirstLatencyId
+                        if (firstId >= 0L && firstId in latencyIds) {
+                            strokePaintPresented = true
+                            azphaltLatencyTracker.presentedLatencyMs(firstId)?.let(strokeFeelMeter::onFirstDabPresented)
+                        }
                     }
                         }
                     }
@@ -8996,7 +9024,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
-    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) {
+    fun onPredictionBrushStroke(predictionReport: String, refreshRateHz: Float) {
+        val report = predictionReport + "\n" + feelReport()
         predictionRankingReporter.onBrushStroke(report, refreshRateHz)
         if (predictionReports == null) return
         val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
@@ -9013,8 +9042,19 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
-    fun onPredictionSessionEnd(report: String, refreshRateHz: Float) =
-        predictionRankingReporter.flush(report, refreshRateHz)
+    fun onPredictionSessionEnd(predictionReport: String, refreshRateHz: Float) =
+        predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
+
+    /** Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer). */
+    private fun feelReport(): String {
+        val s = _uiState.value
+        val canvas = s.layers.firstOrNull { it.id == s.activeLayerId }?.bitmap
+            ?.let { "${it.width}x${it.height}" } ?: "?"
+        val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
+            "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
+            "${s.stabilizerLevel}"
+        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context)
+    }
 
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
