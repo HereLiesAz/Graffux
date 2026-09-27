@@ -8971,9 +8971,30 @@ class EditorViewModel @Inject constructor(
             }
         }
 
+    /** Latest unfiled ranking, rewritten every stroke; filed on next launch if the app dies first. */
+    private val pendingRankingFile by lazy {
+        java.io.File(
+            context.cacheDir,
+            com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.PENDING_FILE,
+        )
+    }
+
     /** A Brush stroke ended; [report] is the tournament's current per-horizon ranking. */
-    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) =
+    fun onPredictionBrushStroke(report: String, refreshRateHz: Float) {
         predictionRankingReporter.onBrushStroke(report, refreshRateHz)
+        if (predictionReports == null) return
+        val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
+        viewModelScope.launch(dispatchers.io) {
+            runCatching {
+                if (pending == null) {
+                    pendingRankingFile.delete()
+                } else {
+                    // First line title, rest body -- CrashIssueUploader's format for this file.
+                    pendingRankingFile.writeText(pending.first + "\n" + pending.second)
+                }
+            }
+        }
+    }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
     fun onPredictionSessionEnd(report: String, refreshRateHz: Float) =

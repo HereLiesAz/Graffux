@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
+import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter
 import java.io.File
 
 /**
@@ -32,6 +33,7 @@ class CrashIssueUploader(
         }.getOrNull() ?: "?"
         uploadFile(File(context.cacheDir, JVM_CRASH_FILE), "JVM crash", version)
         uploadFile(File(context.cacheDir, NATIVE_CRASH_FILE), "native crash", version)
+        uploadPendingRanking(File(context.cacheDir, PredictionRankingReporter.PENDING_FILE))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) uploadExitInfo(version)
     }
 
@@ -49,6 +51,21 @@ class CrashIssueUploader(
         reports.fileIssue("[crash] $version: $headline", body(kind, version, text))
             .onSuccess { file.delete() }
             .onFailure { Log.w(TAG, "crash report not filed", it) }
+    }
+
+    /** The stroke-prediction ranking the last run saved but never filed (it died first). */
+    private suspend fun uploadPendingRanking(file: File) {
+        if (!file.exists()) return
+        val text = runCatching { file.readText() }.getOrNull().orEmpty()
+        val title = text.substringBefore('\n').trim()
+        val body = text.substringAfter('\n', "")
+        if (title.isBlank() || body.isBlank()) {
+            file.delete()
+            return
+        }
+        reports.fileIssue(title, body)
+            .onSuccess { file.delete() }
+            .onFailure { Log.w(TAG, "saved ranking not filed", it) }
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
