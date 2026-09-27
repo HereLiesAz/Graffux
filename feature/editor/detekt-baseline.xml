@@ -35,6 +35,7 @@
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onImportDocument(uri: Uri)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun renderStampLive(stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun commitStampStroke( state: EditorUiState, layer: Layer, layerId: String, points: List&lt;Offset&gt;, brushSamples: List&lt;BrushSample&gt;, canvasW: Int, canvasH: Int, scale: Float, offset: Offset, rotationZ: Float, brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, stampShape: Bitmap?, stampGrain: Bitmap?, stampMaskShape: Bitmap?, // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke // state the moment this returns, while the rasterization below runs later on a background // dispatcher and would otherwise find it already null. selection: com.hereliesaz.graffitixr.common.model.Selection?, )</ID>
@@ -163,6 +164,7 @@
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun applySpectatorOp(op: Op)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun renderStampLive(stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun clearTransientStrokeState()</ID>
