@@ -4,7 +4,7 @@ package com.hereliesaz.graffitixr.nativebridge
 import android.graphics.Bitmap
 
 /**
- * On-device proof that [VulkanStampEngine] actually works on the phone it's running on — the one
+ * On-device proof that [GpuStampEngine] actually works on the phone it's running on — the one
  * thing that could not be verified in the sandbox this engine was written in (compiling and
  * linking real Vulkan C++ against the NDK toolchain is verifiable there; a physical GPU driver
  * accepting the compute pipeline and producing correct pixels is not). Wired into Settings as
@@ -33,14 +33,14 @@ object VulkanStampEngineSelfTest {
      * so callers MUST invoke this off the main thread (e.g. `withContext(Dispatchers.Default)`).
      */
     fun run(): Result {
-        val engine = VulkanStampEngine()
+        val engine = GpuStampEngine()
         try {
             if (!engine.init(SIZE, SIZE)) {
                 return Result(
                     success = false,
                     message = "init() failed — no compute-capable Vulkan 1.1 device found, or the " +
                         "driver rejected this engine's storage-image/pipeline setup. Check logcat " +
-                        "tag VulkanStampEngine for the specific VkResult.",
+                        "tag GpuStampEngine for the specific VkResult.",
                     bitmap = null,
                 )
             }
@@ -56,7 +56,7 @@ object VulkanStampEngineSelfTest {
                 return Result(
                     success = false,
                     message = "stampDabs() failed after a successful init() — the dispatch itself " +
-                        "was rejected. Check logcat tag VulkanStampEngine.",
+                        "was rejected. Check logcat tag GpuStampEngine.",
                     bitmap = null,
                 )
             }
@@ -66,7 +66,7 @@ object VulkanStampEngineSelfTest {
                 return Result(
                     success = false,
                     message = "readback() failed after a successful stampDabs() — the GPU→CPU copy " +
-                        "didn't complete. Check logcat tag VulkanStampEngine.",
+                        "didn't complete. Check logcat tag GpuStampEngine.",
                     bitmap = null,
                 )
             }

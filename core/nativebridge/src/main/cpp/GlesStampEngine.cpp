@@ -1,5 +1,5 @@
-// FILE: core/nativebridge/src/main/cpp/GpuStampEngine.cpp
-#include "include/GpuStampEngine.h"
+// FILE: core/nativebridge/src/main/cpp/GlesStampEngine.cpp
+#include "include/GlesStampEngine.h"
 
 #include <EGL/eglext.h>
 #include <GLES2/gl2ext.h>
@@ -18,9 +18,9 @@
 #ifdef __ANDROID__
 #include <android/hardware_buffer.h>
 #include <android/log.h>
-#define GPU_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GpuStampEngine", __VA_ARGS__)
+#define GPU_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GlesStampEngine", __VA_ARGS__)
 #else
-#define GPU_LOGE(...) (std::fprintf(stderr, "GpuStampEngine: " __VA_ARGS__), std::fputc('\n', stderr))
+#define GPU_LOGE(...) (std::fprintf(stderr, "GlesStampEngine: " __VA_ARGS__), std::fputc('\n', stderr))
 #endif
 
 namespace graffux {
@@ -30,7 +30,7 @@ namespace graffux {
 // leaks its context into -- or steals one from -- the caller's thread.
 class ScopedCurrent {
 public:
-    explicit ScopedCurrent(GpuStampEngine& e) : engine_(e) {
+    explicit ScopedCurrent(GlesStampEngine& e) : engine_(e) {
         prevDisplay_ = eglGetCurrentDisplay();
         prevContext_ = eglGetCurrentContext();
         prevDraw_ = eglGetCurrentSurface(EGL_DRAW);
@@ -55,7 +55,7 @@ public:
     bool ok() const { return ok_; }
 
 private:
-    GpuStampEngine& engine_;
+    GlesStampEngine& engine_;
     EGLDisplay prevDisplay_;
     EGLContext prevContext_;
     EGLSurface prevDraw_;
@@ -252,9 +252,9 @@ Region dabRegion(const std::vector<GpuDab>& dabs, int width, int height) {
 
 }  // namespace
 
-GpuStampEngine::~GpuStampEngine() { destroy(); }
+GlesStampEngine::~GlesStampEngine() { destroy(); }
 
-bool GpuStampEngine::createContext() {
+bool GlesStampEngine::createContext() {
     display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display_ == EGL_NO_DISPLAY) return false;
     if (eglInitialize(display_, nullptr, nullptr) != EGL_TRUE) {
@@ -294,7 +294,7 @@ bool GpuStampEngine::createContext() {
     return true;
 }
 
-bool GpuStampEngine::createPrograms() {
+bool GlesStampEngine::createPrograms() {
     GLint major = 0, minor = 0;
     glGetIntegerv(GL_MAJOR_VERSION, &major);
     glGetIntegerv(GL_MINOR_VERSION, &minor);
@@ -334,7 +334,7 @@ bool GpuStampEngine::createPrograms() {
            glOk("createPrograms");
 }
 
-bool GpuStampEngine::fillZero(GLuint buffer, size_t words) {
+bool GlesStampEngine::fillZero(GLuint buffer, size_t words) {
     if (words == 0) return true;
     glUseProgram(fillProgram_);
     glUniform1ui(0, static_cast<GLuint>(words));
@@ -348,7 +348,7 @@ bool GpuStampEngine::fillZero(GLuint buffer, size_t words) {
     return glOk("fillZero");
 }
 
-bool GpuStampEngine::createLayer(int width, int height) {
+bool GlesStampEngine::createLayer(int width, int height) {
     width_ = width;
     height_ = height;
     glGenBuffers(1, &layerBuffer_);
@@ -359,7 +359,7 @@ bool GpuStampEngine::createLayer(int width, int height) {
     return fillZero(layerBuffer_, static_cast<size_t>(width) * height);
 }
 
-bool GpuStampEngine::init(int width, int height) {
+bool GlesStampEngine::init(int width, int height) {
     destroy();
     if (width <= 0 || height <= 0) return false;
     if (!createContext()) {
@@ -380,7 +380,7 @@ bool GpuStampEngine::init(int width, int height) {
     return true;
 }
 
-bool GpuStampEngine::initWithHardwareBuffer(int width, int height) {
+bool GlesStampEngine::initWithHardwareBuffer(int width, int height) {
 #ifdef __ANDROID__
     if (!init(width, height)) return false;
     ScopedCurrent current(*this);
@@ -425,7 +425,7 @@ bool GpuStampEngine::initWithHardwareBuffer(int width, int height) {
 #endif
 }
 
-bool GpuStampEngine::publishRegion(int32_t x, int32_t y, int32_t w, int32_t h) {
+bool GlesStampEngine::publishRegion(int32_t x, int32_t y, int32_t w, int32_t h) {
     if (hardwareBufferTex_ == 0 || w <= 0 || h <= 0) return true;
     // Compute writes -> pixel-unpack read of the same buffer.
     glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT);
@@ -444,7 +444,7 @@ bool GpuStampEngine::publishRegion(int32_t x, int32_t y, int32_t w, int32_t h) {
     return glOk("publishRegion");
 }
 
-void GpuStampEngine::expandDirtyRect(int32_t originX, int32_t originY, int32_t w, int32_t h) {
+void GlesStampEngine::expandDirtyRect(int32_t originX, int32_t originY, int32_t w, int32_t h) {
     if (w <= 0 || h <= 0) return;
     if (dirtyWidth_ <= 0 || dirtyHeight_ <= 0) {
         dirtyOriginX_ = originX;
@@ -463,14 +463,14 @@ void GpuStampEngine::expandDirtyRect(int32_t originX, int32_t originY, int32_t w
     dirtyHeight_ = y1 - y0;
 }
 
-void GpuStampEngine::markLayerFullyDirty() {
+void GlesStampEngine::markLayerFullyDirty() {
     dirtyOriginX_ = 0;
     dirtyOriginY_ = 0;
     dirtyWidth_ = width_;
     dirtyHeight_ = height_;
 }
 
-bool GpuStampEngine::clear() {
+bool GlesStampEngine::clear() {
     if (!isInitialized()) return false;
     ScopedCurrent current(*this);
     if (!current.ok() || !fillZero(layerBuffer_, static_cast<size_t>(width_) * height_)) return false;
@@ -479,7 +479,7 @@ bool GpuStampEngine::clear() {
     return publishRegion(0, 0, width_, height_);
 }
 
-bool GpuStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
+bool GlesStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     if (!isInitialized() || inRgba8 == nullptr) return false;
     const size_t bytes = static_cast<size_t>(width_) * height_ * 4;
     if (inSizeBytes < bytes) return false;
@@ -493,7 +493,7 @@ bool GpuStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
     return publishRegion(0, 0, width_, height_);
 }
 
-bool GpuStampEngine::ensureTexture(GLuint& tex, int& texW, int& texH, uint64_t& hash, int w, int h,
+bool GlesStampEngine::ensureTexture(GLuint& tex, int& texW, int& texH, uint64_t& hash, int w, int h,
                                    GLenum internalFormat, GLenum format, GLenum type,
                                    const void* data, size_t bytes, GLint filter, GLint wrap) {
     const uint64_t newHash = fnv1a(data, bytes);
@@ -520,7 +520,7 @@ bool GpuStampEngine::ensureTexture(GLuint& tex, int& texW, int& texH, uint64_t& 
     return glOk("ensureTexture");
 }
 
-bool GpuStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) {
+bool GlesStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) {
     if (!isInitialized() || heightR8 == nullptr || width <= 0 || height <= 0) return false;
     ScopedCurrent current(*this);
     return current.ok() &&
@@ -529,7 +529,7 @@ bool GpuStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width, i
                          static_cast<size_t>(width) * height, GL_NEAREST, GL_REPEAT);
 }
 
-bool GpuStampEngine::uploadPaintHeight(const float* heightMap, int width, int height) {
+bool GlesStampEngine::uploadPaintHeight(const float* heightMap, int width, int height) {
     if (!isInitialized() || heightMap == nullptr || width != width_ || height != height_) return false;
     ScopedCurrent current(*this);
     return current.ok() &&
@@ -539,7 +539,7 @@ bool GpuStampEngine::uploadPaintHeight(const float* heightMap, int width, int he
                          GL_CLAMP_TO_EDGE);
 }
 
-void GpuStampEngine::uploadDabs(GLuint& buffer, size_t& capacityBytes, const void* data, size_t bytes) {
+void GlesStampEngine::uploadDabs(GLuint& buffer, size_t& capacityBytes, const void* data, size_t bytes) {
     if (buffer == 0) glGenBuffers(1, &buffer);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
     if (bytes > capacityBytes) {
@@ -550,7 +550,7 @@ void GpuStampEngine::uploadDabs(GLuint& buffer, size_t& capacityBytes, const voi
     glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, static_cast<GLsizeiptr>(bytes), data);
 }
 
-bool GpuStampEngine::ensureStrokeState() {
+bool GlesStampEngine::ensureStrokeState() {
     if (strokeStateBuffer_ == 0) {
         glGenBuffers(1, &strokeStateBuffer_);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, strokeStateBuffer_);
@@ -571,7 +571,7 @@ bool GpuStampEngine::ensureStrokeState() {
     return true;
 }
 
-bool GpuStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
+bool GlesStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
                                bool buildUp, SubstrateStampParams substrate, bool strokeMax) {
     if (!isInitialized() || dabs.empty()) return false;
     ScopedCurrent current(*this);
@@ -626,7 +626,7 @@ bool GpuStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorAr
     return publishRegion(r.x, r.y, r.w, r.h);
 }
 
-bool GpuStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
+bool GlesStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
                                      float hardness, const uint8_t* maskAlpha8, int maskWidth,
                                      int maskHeight, const uint8_t* grainAlpha8, int grainWidth,
                                      int grainHeight, bool grainCanvasLocked, float grainScale,
@@ -726,7 +726,7 @@ bool GpuStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t c
     return publishRegion(r.x, r.y, r.w, r.h);
 }
 
-bool GpuStampEngine::ensureSmudgePrograms() {
+bool GlesStampEngine::ensureSmudgePrograms() {
     if (smudgeProgram8_ == 0) smudgeProgram8_ = compileProgram(kColorSmudgeCompSrc, 8);
     if (smudgeProgram16_ == 0 && stampTileSize_ >= 16) {
         smudgeProgram16_ = compileProgram(kColorSmudgeCompSrc, 16);
@@ -734,7 +734,7 @@ bool GpuStampEngine::ensureSmudgePrograms() {
     return smudgeProgram8_ != 0;
 }
 
-bool GpuStampEngine::runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs, int mode,
+bool GlesStampEngine::runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs, int mode,
                                         float radiusPx, float feathering, bool smearAlpha,
                                         uint32_t paintColorArgb, GLuint program, uint32_t tileSize,
                                         float dilution, bool hasSampleMerged) {
@@ -828,7 +828,7 @@ bool GpuStampEngine::runColorSmudgePlan(const std::vector<ColorSmudgeDab>& dabs,
     return glOk("colorSmudge");
 }
 
-bool GpuStampEngine::benchmarkColorSmudge(float radiusPx) {
+bool GlesStampEngine::benchmarkColorSmudge(float radiusPx) {
     if (smudgeBenchmark_.selectedTileSize != 0) return true;
     if (!ensureSmudgePrograms()) return false;
     const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
@@ -883,7 +883,7 @@ bool GpuStampEngine::benchmarkColorSmudge(float radiusPx) {
     return true;
 }
 
-bool GpuStampEngine::colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
+bool GlesStampEngine::colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
                                  float feathering, bool smearAlpha, uint32_t paintColorArgb,
                                  float dilution, const uint8_t* sampleSourceRgba8,
                                  int sampleSourceWidth, int sampleSourceHeight) {
@@ -914,7 +914,7 @@ bool GpuStampEngine::colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mo
     return publishRegion(0, 0, width_, height_);
 }
 
-bool GpuStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
+bool GlesStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     if (!isInitialized() || outRgba8 == nullptr) return false;
     if (outCapacityBytes < static_cast<size_t>(width_) * height_ * 4) return false;
     if (dirtyWidth_ <= 0 || dirtyHeight_ <= 0) return true;
@@ -945,7 +945,7 @@ bool GpuStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     return glOk("readback");
 }
 
-void GpuStampEngine::destroy() {
+void GlesStampEngine::destroy() {
     if (context_ != EGL_NO_CONTEXT) {
         {
             ScopedCurrent current(*this);

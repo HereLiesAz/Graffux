@@ -58,7 +58,7 @@ import com.hereliesaz.graffitixr.nativebridge.BrushDab
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -341,7 +341,7 @@ private const val MIN_LEAD_SAMPLES = 20
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /** Extracts [bitmap]'s alpha channel as a flat row-major byte buffer -- the R8 layout
- *  `VulkanStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
+ *  `GpuStampEngine.stampMaskedDabs()` expects for its tip-mask texture upload. */
 internal fun alphaChannelBytes(bitmap: Bitmap): ByteArray {
     val width = bitmap.width
     val height = bitmap.height
@@ -926,7 +926,7 @@ class EditorViewModel @Inject constructor(
     // [stampGpuMaskAlpha8]/[stampGpuMaskSize] hold the stroke's tip mask pre-rasterized once (at a
     // fixed reference resolution, independent of any individual dab's radius — the shader scales
     // per dab via its own tipRatio field) as an R8 byte buffer ready for
-    // `VulkanStampEngine.stampMaskedDabs()`.
+    // `GpuStampEngine.stampMaskedDabs()`.
     // Guards every touch of stampGpuEngine (and the paired stampGpuActive/etc config it's read
     // alongside) once onStrokePoint's GPU submit/readback moved off the main thread onto a
     // serialized background job -- see that job's own comment for the full race this closes.
@@ -962,7 +962,7 @@ class EditorViewModel @Inject constructor(
     private var stampAirbrushGenerator: IncrementalAirbrushGenerator? = null
     private val stampGeneratedHeldDabs = ArrayList<Dab>()
     private var stampAirbrushConsumedSampleCount: Int = 0
-    private var stampGpuEngine: VulkanStampEngine? = null
+    private var stampGpuEngine: GpuStampEngine? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
     private var stampGpuMaskAlpha8: ByteArray? = null
@@ -991,7 +991,7 @@ class EditorViewModel @Inject constructor(
     // target bitmap to read back into as an explicit parameter (rather than a class field like
     // stampLiveBitmap) since it's set once, early, by onStrokeStart's async setup — the same
     // `workBitmap` local that later becomes strokeWorkingBitmap.
-    private var strokeGpuEngine: VulkanStampEngine? = null
+    private var strokeGpuEngine: GpuStampEngine? = null
     private var strokeGpuActive: Boolean = false
     // Basic Brush uses the same hardware-buffer-backed live presentation as Azphalt when available.
     private var strokeGpuDisplay: AzphaltGpuDisplay? = null
@@ -1070,15 +1070,15 @@ class EditorViewModel @Inject constructor(
     @Volatile private var basicLatestLatencySampleId: Long = -1L
 
     /**
-     * Creates and initializes a [VulkanStampEngine] at [width]x[height], seeded with [seed]'s
+     * Creates and initializes a [GpuStampEngine] at [width]x[height], seeded with [seed]'s
      * current pixels. Tries the `AHardwareBuffer`-backed path first (docs/Native Rendering Engine
      * Design.md §2's zero-copy interop — real memory, not yet a zero-copy DISPLAY path here, since
      * this call site still reads it back into [seed] every frame same as the plain path would) and
      * falls back to plain device memory if that's unavailable. Returns null (nothing to clean up)
      * if every step fails — the caller stays on the CPU path for this stroke, same as always.
      */
-    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): VulkanStampEngine? {
-        // VulkanStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
+    private fun createSeededGpuEngine(width: Int, height: Int, seed: Bitmap): GpuStampEngine? {
+        // GpuStampEngine's constructor loads the native library (NativeLibLoader.loadAll()),
         // which THROWS — not returns false — when the .so can't be loaded at all: unit tests
         // (Robolectric has no native code), and in principle any device/build variant that
         // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
@@ -1086,7 +1086,7 @@ class EditorViewModel @Inject constructor(
         // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
         return try {
-            val engine = VulkanStampEngine()
+            val engine = GpuStampEngine()
             val ready = (engine.initHardwareBufferBacked(width, height) || engine.init(width, height)) &&
                 engine.upload(seed)
             if (!ready) {
@@ -4208,7 +4208,7 @@ class EditorViewModel @Inject constructor(
                 // Every stamp brush, plain rounds included, goes GPU-first so bundled, custom and
                 // imported brushes share one pipeline and one feel. Plain non-build-up rounds used
                 // to be pinned to the CPU because GPU max-combine reset at every frame batch; the
-                // strokeMax stamp mode (see VulkanStampEngine.stampResolvedDabs) now holds the max
+                // strokeMax stamp mode (see GpuStampEngine.stampResolvedDabs) now holds the max
                 // across the whole stroke.
                 val gpuEngine = if (gpuCompatibleBrush) {
                     createSeededGpuEngine(work.width, work.height, work)
@@ -4983,7 +4983,7 @@ class EditorViewModel @Inject constructor(
             val strokeLayerIdSnapshot = strokeLayerId
 
             // GPU submit + readback are both blocking native calls (a full command-buffer
-            // submit + vkWaitForFences round trip each -- see VulkanStampEngine.cpp) that used
+            // submit + vkWaitForFences round trip each -- see GpuStampEngine.cpp) that used
             // to run right here, synchronously, on the caller's thread -- which for every
             // DrawingCanvas sample is the main/UI thread. On a GPU slow enough to miss a frame
             // budget, that stalled the whole app: no new frame drew and no new touch events were
@@ -5040,7 +5040,7 @@ class EditorViewModel @Inject constructor(
                 // teardown below both replace/clear this whole group atomically, and a torn read
                 // across two of them (e.g. a stale `engine` paired with a fresh `usesMasked`)
                 // would dispatch to the wrong shader or read a freed mask buffer.
-                val engine: VulkanStampEngine?
+                val engine: GpuStampEngine?
                 val gpuActive: Boolean
                 val usesMasked: Boolean
                 val maskAlpha8: ByteArray?
@@ -9097,14 +9097,17 @@ class EditorViewModel @Inject constructor(
     fun onPredictionSessionEnd(predictionReport: String, refreshRateHz: Float) =
         predictionRankingReporter.flush(predictionReport + "\n" + feelReport(), refreshRateHz)
 
-    /** Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer). */
+    /**
+     * Feel numbers plus the load they were measured under (canvas, layers, brush, stabilizer, GPU
+     * backend -- the backend in use now; switching mid-session mixes both into the numbers).
+     */
     private fun feelReport(): String {
         val s = _uiState.value
         val canvas = s.layers.firstOrNull { it.id == s.activeLayerId }?.bitmap
             ?.let { "${it.width}x${it.height}" } ?: "?"
         val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
-            "${s.stabilizerLevel}"
+            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}"
         return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context)
     }
 

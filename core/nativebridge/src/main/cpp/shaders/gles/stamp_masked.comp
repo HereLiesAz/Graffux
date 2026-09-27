@@ -1,0 +1,204 @@
+#version 310 es
+// GENERATED from ../stamp_masked.comp by port_from_vulkan.py -- edit the Vulkan source and re-run it,
+// so the two backends can never drift apart. GlesStampEngine inserts TILE_SIZE after line 1.
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+#ifndef TILE_SIZE
+#define TILE_SIZE 16
+#endif
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE) in;
+
+// Same 64-byte/4×vec4 std430 layout as stamp.comp's Dab -- binary-identical to GpuDab in
+// VulkanStampEngine.h. paint1.w (`pad0` in the C++ struct) is repurposed here as `tipRatio`
+// (height/width of the tip, matching AzphaltBrush.tipRatio): 1.0 is a round/square tip, matching
+// stamp.comp's dabs exactly when this shader's mask happens to be a filled circle. A legacy caller
+// leaving that field at its C++ default of 0.0 would collapse the tip to zero height, so the host
+// side must always set it explicitly for this shader -- there is no meaningful "legacy" caller of
+// this entry point the way stamp.comp has one for `resolved`.
+struct Dab {
+    vec4 geometry; // x, y, radius, alpha
+    vec4 paint0;   // angleDeg, colorR, colorG, colorB
+    vec4 paint1;   // colorA, flow, resolved, tipRatio
+    vec4 material; // contactDepth, reservoirLoad, depositionRate, substrateResponse
+};
+
+layout(std430, binding = 0) readonly buffer DabBuffer { Dab dabs[]; };
+// Layer pixels: one packed RGBA8 word per pixel, row-major (premultiplied, byte order R,G,B,A --
+// identical to android.graphics.Bitmap ARGB_8888 memory). ES 3.1 forbids load+store on an rgba8
+// image, so this SSBO + unpack/packUnorm4x8 stands in for it with the same unorm conversion.
+layout(std430, binding = 1) buffer LayerBuffer { uint layerPx[]; };
+// Single-channel (R8_UNORM) alpha-only tip mask, sampled per-dab in the dab's own rotated/scaled
+// local space. White (1.0) = full coverage, matching stampCoverage()'s convention in stamp.comp.
+layout(binding = 2) uniform sampler2D tipMask;
+// Item 15's texture/grain follow-up: single-channel grain tile, pre-baked on the CPU
+// (BrushTipMaskCache.grainMask -- already folds in GrainBlendMode/grainStrength, so this shader
+// only ever *multiplies coverage down*, exactly like StampBrushRenderer.applyGrain's CPU math).
+// REPEAT wrap + NEAREST filter, matching applyGrain's explicit modulo/floor tiling. When a stroke
+// has no grain, the host binds a 1x1 all-white dummy texture here so this multiply is a no-op --
+// there is no separate "grain enabled" flag.
+layout(binding = 3) uniform sampler2D grainTex;
+
+// Item 15's masked/dual-brush follow-up: a second tip composited onto the primary one, the GPU
+// counterpart to StampBrushRenderer.paintMaskedDabs' secondary-tip DST_IN/DST_OUT compositing.
+// `secondaryDabs[i]` corresponds 1:1 with `dabs[i]` (same index) -- this is a per-STROKE feature
+// (AzphaltBrush.maskedBrush, not per-dab), so every dab in a stroke either has one or none do.
+// `keepInside` is pre-resolved on the host from MaskedBrushBlendMode+invert (see
+// EditorViewModel's `MaskedBrushBlendMode.MULTIPLY && !invert || SUBTRACT && invert` logic)
+// into a single float rather than re-deriving an enum+bool combination in the shader.
+struct SecondaryDab {
+    vec4 geometry; // x, y, radius, tipRatio
+    vec4 paint;    // alpha, angleDeg, flowMultiplier, keepInside (>0.5 = keep-inside/DST_IN, else DST_OUT)
+};
+layout(std430, binding = 5) readonly buffer SecondaryDabBuffer { SecondaryDab secondaryDabs[]; };
+layout(binding = 6) uniform sampler2D substrateTex;
+layout(binding = 7) uniform sampler2D paintHeightTex;
+// Single-channel tip mask for the secondary tip, same convention as `tipMask`. Only sampled when
+// `pc.hasSecondary > 0.5`; a stroke with no secondary tip binds a 1x1 dummy here (unread).
+layout(binding = 4) uniform sampler2D secondaryMask;
+
+layout(std140, binding = 0) uniform PushConstants {
+    uint dabCount;
+    float hardness; // unused by this shader -- the mask texture already encodes the tip's falloff.
+    float colorR;
+    float colorG;
+    float colorB;
+    float baseAlpha;
+    int originX;
+    int originY;
+    // Grain (item 15 follow-up). grainCanvasLocked > 0.5 selects GrainBehavior.CANVAS_LOCKED
+    // (absolute canvas pixel coordinates); otherwise GrainBehavior.MOVING (the dab's own local
+    // offset, unrotated -- matching StampBrushRenderer.applyGrain, which samples the scratch
+    // bitmap's own axis-aligned pixel grid rather than counter-rotating into tip-local space).
+    float grainCanvasLocked;
+    float grainScale;
+    float grainPhaseX;
+    float grainPhaseY;
+    // Masked/dual-brush (item 15 follow-up). > 0.5 means secondaryDabs[]/secondaryMask are
+    // populated for this dispatch; otherwise they're skipped entirely (and may hold stale/dummy
+    // data from a previous call).
+    float hasSecondary;
+    float hasSubstrate;
+    float hasPaintHeight;
+    float substrateBaseHeight;
+    float substrateHeightScale;
+    float substrateTextureScale;
+    float substrateOffsetX;
+    float substrateOffsetY;
+    int layerWidth;
+    int layerHeight;
+} pc;
+
+ivec2 layerSize() { return ivec2(pc.layerWidth, pc.layerHeight); }
+vec4 layerLoad(ivec2 p) { return unpackUnorm4x8(layerPx[p.y * pc.layerWidth + p.x]); }
+void layerStore(ivec2 p, vec4 c) { layerPx[p.y * pc.layerWidth + p.x] = packUnorm4x8(c); }
+
+float substrateDeposition(Dab d, vec2 canvasPoint) {
+    if (pc.hasSubstrate <= 0.5) return 1.0;
+    ivec2 size = textureSize(substrateTex, 0);
+    if (size.x <= 0 || size.y <= 0) return 1.0;
+    float scale = max(pc.substrateTextureScale, 0.05);
+    ivec2 cell = ivec2(floor(canvasPoint / scale + vec2(pc.substrateOffsetX, pc.substrateOffsetY)));
+    cell.x = cell.x - size.x * int(floor(float(cell.x) / float(size.x)));
+    cell.y = cell.y - size.y * int(floor(float(cell.y) / float(size.y)));
+    float tooth = texelFetch(substrateTex, cell, 0).r;
+    float substrateHeight = clamp(
+        clamp(pc.substrateBaseHeight, 0.0, 1.0) + tooth * clamp(pc.substrateHeightScale, 0.0, 1.0),
+        0.0, 1.0);
+    float localPaintHeight = 0.0;
+    if (pc.hasPaintHeight > 0.5) {
+        ivec2 paintSize = textureSize(paintHeightTex, 0);
+        ivec2 paintPixel = ivec2(floor(canvasPoint));
+        if (paintPixel.x >= 0 && paintPixel.y >= 0 && paintPixel.x < paintSize.x && paintPixel.y < paintSize.y) {
+            localPaintHeight = max(texelFetch(paintHeightTex, paintPixel, 0).r, 0.0);
+        }
+    }
+    float barrier = clamp(substrateHeight - localPaintHeight, 0.0, 1.0);
+    float contactDepth = clamp(d.material.x, 0.0, 1.0);
+    float response = clamp(d.material.w, 0.0, 1.0);
+    float penetrates = contactDepth >= barrier ? 1.0 : 0.0;
+    float gate = clamp((1.0 - response) + penetrates * response, 0.0, 1.0);
+    return clamp(d.material.y, 0.0, 1.0) * clamp(d.material.z, 0.0, 1.0) * gate;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy) + ivec2(pc.originX, pc.originY);
+    ivec2 size = layerSize();
+    if (pixel.x < 0 || pixel.y < 0 || pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec4 dst = layerLoad(pixel);
+    vec2 p = vec2(pixel) + vec2(0.5);
+
+    for (uint i = 0u; i < pc.dabCount; i++) {
+        Dab d = dabs[i];
+        vec2 center = d.geometry.xy;
+        float radius = max(d.geometry.z, 0.5);
+        float dabAlpha = d.geometry.w;
+        float tipRatio = clamp(d.paint1.w, 0.05, 1.0);
+        float halfW = radius;
+        float halfH = radius * tipRatio;
+
+        vec2 local = p - center;
+        float angleRad = radians(-d.paint0.x);
+        float ca = cos(angleRad);
+        float sa = sin(angleRad);
+        vec2 rotated = vec2(local.x * ca - local.y * sa, local.x * sa + local.y * ca);
+        if (abs(rotated.x) > halfW || abs(rotated.y) > halfH) continue;
+
+        vec2 uv = vec2(rotated.x / (2.0 * halfW) + 0.5, rotated.y / (2.0 * halfH) + 0.5);
+        float coverage = texture(tipMask, uv).r;
+        if (coverage <= 0.0) continue;
+
+        vec2 grainSize = vec2(textureSize(grainTex, 0));
+        vec2 grainSource = (pc.grainCanvasLocked > 0.5) ? p : local;
+        float grainScaleSafe = max(pc.grainScale, 0.05);
+        vec2 grainUv = vec2(
+            (grainSource.x / grainScaleSafe + pc.grainPhaseX) / grainSize.x,
+            (grainSource.y / grainScaleSafe + pc.grainPhaseY) / grainSize.y
+        );
+        coverage *= texture(grainTex, grainUv).r;
+        if (coverage <= 0.0) continue;
+
+        if (pc.hasSecondary > 0.5) {
+            SecondaryDab sd = secondaryDabs[i];
+            vec2 sCenter = sd.geometry.xy;
+            float sRadius = max(sd.geometry.z, 0.5);
+            float sTipRatio = clamp(sd.geometry.w, 0.05, 1.0);
+            float sAlpha = sd.paint.x;
+            float sAngleRad = radians(-sd.paint.y);
+            float sFlow = max(sd.paint.z, 0.0);
+            float sKeepInside = sd.paint.w;
+
+            vec2 sLocal = p - sCenter;
+            float sca = cos(sAngleRad);
+            float ssa = sin(sAngleRad);
+            vec2 sRotated = vec2(sLocal.x * sca - sLocal.y * ssa, sLocal.x * ssa + sLocal.y * sca);
+            float sHalfW = sRadius;
+            float sHalfH = sRadius * sTipRatio;
+
+            float secondaryCoverage = 0.0;
+            if (abs(sRotated.x) <= sHalfW && abs(sRotated.y) <= sHalfH) {
+                vec2 sUv = vec2(sRotated.x / (2.0 * sHalfW) + 0.5, sRotated.y / (2.0 * sHalfH) + 0.5);
+                secondaryCoverage = texture(secondaryMask, sUv).r;
+            }
+            float secondaryFactor = clamp(secondaryCoverage * sAlpha * sFlow, 0.0, 1.0);
+            coverage *= (sKeepInside > 0.5) ? secondaryFactor : (1.0 - secondaryFactor);
+            if (coverage <= 0.0) continue;
+        }
+
+        coverage *= substrateDeposition(d, p);
+        if (coverage <= 0.0) continue;
+
+        bool hasResolvedPaint = d.paint1.z >= 0.5;
+        vec3 srcRgb = hasResolvedPaint ? d.paint0.yzw : vec3(pc.colorR, pc.colorG, pc.colorB);
+        float baseAlpha = hasResolvedPaint ? d.paint1.x : pc.baseAlpha;
+        float dabFlow = hasResolvedPaint ? max(d.paint1.y, 0.0) : 1.0;
+        float srcA = baseAlpha * dabAlpha * dabFlow * coverage;
+        if (srcA <= 0.0) continue;
+
+        dst.rgb = srcRgb * srcA + dst.rgb * (1.0 - srcA);
+        dst.a = srcA + dst.a * (1.0 - srcA);
+        dst = round(dst * 255.0) / 255.0;
+    }
+    layerStore(pixel, dst);
+}

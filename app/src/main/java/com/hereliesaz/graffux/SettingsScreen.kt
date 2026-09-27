@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngineSelfTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -229,6 +230,8 @@ fun SettingsScreen(
             HorizontalDivider()
             PredictionSoloRow()
             HorizontalDivider()
+            GpuBackendRow()
+            HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = { showNotices = true }) {
@@ -336,6 +339,33 @@ private fun PredictionSoloRow() {
 }
 
 /**
+ * Which GPU backend paints the stamp brushes: Vulkan or OpenGL ES (same shaders, same pixels). A
+ * comparison switch: reports name the backend, and new strokes pick the change up immediately.
+ */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun GpuBackendRow() {
+    val context = LocalContext.current
+    val prefs = remember(context) {
+        context.getSharedPreferences(GpuStampEngine.Backend.PREFS, Context.MODE_PRIVATE)
+    }
+    var backend by remember { mutableStateOf(GpuStampEngine.Backend.preferred) }
+    ChoiceRow(
+        title = "GPU engine",
+        subtitle = "Which graphics API paints the brushes. Both produce the same pixels; switch to " +
+            "compare how drawing feels. Applies to the next stroke.",
+        options = GpuStampEngine.Backend.entries.toList(),
+        selected = backend,
+        label = { if (it == GpuStampEngine.Backend.VULKAN) "Vulkan" else "OpenGL ES" },
+        onSelect = {
+            backend = it
+            GpuStampEngine.Backend.preferred = it
+            prefs.edit().putString(GpuStampEngine.Backend.KEY, it.label).apply()
+        },
+    )
+}
+
+/**
  * Third-party attribution for the icon set.
  *
  * 88 of the 404 icons are Phosphor Icons drawings used as delivered, and Phosphor's MIT
@@ -370,7 +400,7 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
 }
 
 /** Shows [VulkanStampEngineSelfTest.run]'s outcome: the stamped bitmap on success, the failure
- *  reason (with a pointer to the `VulkanStampEngine` logcat tag for the underlying VkResult) on
+ *  reason (with a pointer to the `GpuStampEngine` logcat tag for the underlying VkResult) on
  *  failure. */
 @Composable
 private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -> Unit) {

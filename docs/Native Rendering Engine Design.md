@@ -161,6 +161,32 @@ the stored best re-composites base-over-best, which is identical to one max-comb
 whole stroke. Cost: width x height x 8 bytes, allocated on first use. Above
 `maxStorageBufferRange`, the call returns false and the stroke falls back to the CPU.
 
+### 2a. Second backend: OpenGL ES 3.1 (selectable)
+
+The stamp engine now has two interchangeable native backends behind one C++ interface
+(`include/StampEngine.h`): `VulkanStampEngine` (above) and `GlesStampEngine` (OpenGL ES 3.1
+compute). Settings → "GPU engine" picks which one new engines use (`GpuStampEngine.Backend`, Kotlin);
+the feel reports name it (`gpu vulkan` / `gpu gles`), so the two can be compared on a real device.
+Vulkan stays the default, and nothing is removed while a Vulkan/GLES hybrid and other options are
+evaluated.
+
+- **Shaders.** `shaders/gles/*.comp` are generated from the Vulkan GLSL by
+  `shaders/gles/port_from_vulkan.py`: same math, with the layer held in an SSBO of packed RGBA8
+  words, because ES 3.1 forbids load+store on an rgba8 image. `unpack/packUnorm4x8` does the same
+  unorm conversion. Edit the Vulkan source and re-run the script; the two can't drift apart.
+- **Context.** Private EGL context, surfaceless or a 1x1 pbuffer. Every call makes it current and
+  restores whatever the thread had current before (e.g. a GLSurfaceView's context).
+- **Zero-copy display.** `initWithHardwareBuffer` publishes each written region into an
+  AHardwareBuffer-backed texture, GPU-side via a pixel-unpack buffer, so `AzphaltGpuDisplay` works
+  unchanged.
+- **Verified on host.** `tools/stamp-engine-diff/run.sh` runs 26 scenarios through both backends on
+  Mesa. All are byte-identical except ±1–2 levels in a few dozen bytes: `round()` on exact halves,
+  which GLSL leaves implementation-defined. The comparison also found that the Vulkan engine
+  crashes on lavapipe in `uploadPaintHeight` (`vkUpdateDescriptorSets`). Whether real drivers hit
+  the same crash is unverified.
+- **Not yet measured:** on-device speed of either backend against the other. The feel reports
+  answer that.
+
 ## 3. Front-buffer / low-latency presentation
 
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is

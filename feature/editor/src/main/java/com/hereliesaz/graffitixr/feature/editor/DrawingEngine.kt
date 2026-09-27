@@ -17,7 +17,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
@@ -536,7 +536,7 @@ internal class DrawingEngine(
 
             // Sample Merged: composite the other visible layers into this layer's own pixel space
             // (exact resolution match, required by both ColorSmudgeEngine.apply's sampleSource
-            // contract and VulkanStampEngine.colorSmudge's sampleSource contract) so pickup reads
+            // contract and GpuStampEngine.colorSmudge's sampleSource contract) so pickup reads
             // what's actually visible underneath/around this layer instead of only this layer's own
             // paint. A mismatched/empty result degrades safely to each path's own single-layer
             // fallback. Computed once, ahead of the GPU attempt below, so the GPU and CPU paths read
@@ -564,7 +564,7 @@ internal class DrawingEngine(
             // Persistent wetness is still CPU-reference-only. Do not let Vulkan silently paint the
             // colour while skipping canonical wetness state; legacy/dry Smudge remains GPU eligible.
             val gpuPainted = if (persistentWetness != null) false else runCatching {
-                val engine = VulkanStampEngine()
+                val engine = GpuStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
                     val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1

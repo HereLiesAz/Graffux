@@ -1,4 +1,4 @@
-// FILE: core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/VulkanStampEngine.kt
+// FILE: core/nativebridge/src/main/java/com/hereliesaz/graffitixr/nativebridge/GpuStampEngine.kt
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
@@ -8,11 +8,38 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Kotlin bridge to the persistent Vulkan dab compositor. */
-class VulkanStampEngine {
+/**
+ * Kotlin bridge to the persistent GPU dab compositor. Two interchangeable native backends produce
+ * the same pixels -- Vulkan compute (VulkanStampEngine.cpp) and OpenGL ES 3.1 compute
+ * (GlesStampEngine.cpp) -- chosen per instance by [backend], by default [Backend.preferred]
+ * (a Settings choice, so the two can be compared on a real device).
+ */
+class GpuStampEngine(val backend: Backend = Backend.preferred) {
     init { NativeLibLoader.loadAll() }
 
-    private data class PoolKey(val width: Int, val height: Int, val hardwareBufferBacked: Boolean)
+    enum class Backend(val nativeId: Int, val label: String) {
+        VULKAN(0, "vulkan"),
+        GLES(1, "gles");
+
+        companion object {
+            /** Backend new engines use. Set from Settings at startup and whenever it changes. */
+            @Volatile
+            var preferred: Backend = VULKAN
+
+            fun fromLabel(label: String?): Backend = entries.firstOrNull { it.label == label } ?: VULKAN
+
+            /** SharedPreferences file/key holding the chosen backend's [label]. */
+            const val PREFS = "gpu_engine"
+            const val KEY = "backend"
+        }
+    }
+
+    private data class PoolKey(
+        val width: Int,
+        val height: Int,
+        val hardwareBufferBacked: Boolean,
+        val backend: Backend,
+    )
     private data class CachedHandle(val key: PoolKey, val handle: Long)
 
     companion object {
@@ -27,7 +54,7 @@ class VulkanStampEngine {
                 if (pooledHandles.isEmpty()) return
                 buildList { while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst().handle) }
             }
-            val destroyer = VulkanStampEngine()
+            val destroyer = GpuStampEngine()
             handles.forEach(destroyer::nativeDestroy)
         }
 
@@ -56,7 +83,7 @@ class VulkanStampEngine {
     // instance. A live stroke's background batch runs stamp/readback calls outside the editor's own
     // stampLiveLock, and stroke teardown (a fast lift, or the next stroke starting) destroys or
     // pools the engine from another thread. Unsynchronized, destroy() freed the mapped staging
-    // memory mid-readback: SIGSEGV in VulkanStampEngine::readback's memcpy at a page boundary
+    // memory mid-readback: SIGSEGV in GpuStampEngine::readback's memcpy at a page boundary
     // (issues #434, #438). Now destroy() waits for the in-flight call, and any call after it sees a
     // zero handle and returns false, which the batch already treats as "fall back to the CPU".
     @Volatile private var nativeHandle: Long = 0L
@@ -78,7 +105,7 @@ class VulkanStampEngine {
         destroy()
         substrateHeightUploaded = false
         paintHeightUploaded = false
-        val key = PoolKey(width, height, hardwareBufferBacked)
+        val key = PoolKey(width, height, hardwareBufferBacked, backend)
         val cached = takePooled(key)
         if (cached != 0L) {
             nativeHandle = cached
@@ -92,7 +119,11 @@ class VulkanStampEngine {
             healthy = false
         }
         nativeCreationCount.incrementAndGet()
-        val created = if (hardwareBufferBacked) nativeInitHardwareBuffer(width, height) else nativeInit(width, height)
+        val created = if (hardwareBufferBacked) {
+            nativeInitHardwareBuffer(width, height, backend.nativeId)
+        } else {
+            nativeInit(width, height, backend.nativeId)
+        }
         nativeHandle = created
         poolKey = if (created != 0L) key else null
         healthy = created != 0L
@@ -111,7 +142,7 @@ class VulkanStampEngine {
     @Synchronized
     fun upload(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
-        require(bitmap.config == Bitmap.Config.ARGB_8888) { "VulkanStampEngine.upload requires ARGB_8888, got ${bitmap.config}" }
+        require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.upload requires ARGB_8888, got ${bitmap.config}" }
         return nativeUpload(nativeHandle, bitmap).also { if (!it) healthy = false }
     }
 
@@ -402,7 +433,7 @@ class VulkanStampEngine {
         return ok
     }
 
-    /** Benchmark result chosen on this Vulkan physical device after the first Smudge call. */
+    /** Benchmark result chosen on this GPU after the first Smudge call (vendor/device ids are 0 on GLES). */
     @Synchronized
     fun colorSmudgeBenchmarkInfo(): ColorSmudgeBenchmarkInfo? {
         if (!isInitialized) return null
@@ -420,7 +451,7 @@ class VulkanStampEngine {
     @Synchronized
     fun readback(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
-        require(bitmap.config == Bitmap.Config.ARGB_8888) { "VulkanStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }
+        require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }
         return nativeReadback(nativeHandle, bitmap).also { if (!it) healthy = false }
     }
 
@@ -442,8 +473,8 @@ class VulkanStampEngine {
         if (evicted != 0L) nativeDestroy(evicted)
     }
 
-    private external fun nativeInit(width: Int, height: Int): Long
-    private external fun nativeInitHardwareBuffer(width: Int, height: Int): Long
+    private external fun nativeInit(width: Int, height: Int, backend: Int): Long
+    private external fun nativeInitHardwareBuffer(width: Int, height: Int, backend: Int): Long
     private external fun nativeClear(handle: Long): Boolean
     private external fun nativeGetHardwareBuffer(handle: Long): HardwareBuffer?
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
@@ -555,7 +586,7 @@ data class ResolvedBrushDab(
     val substrateResponse: Float = 0f,
 )
 
-/** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [VulkanStampEngine.stampMaskedDabs]. */
+/** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [GpuStampEngine.stampMaskedDabs]. */
 data class MaskedBrushDab(
     val x: Float,
     val y: Float,
@@ -572,7 +603,7 @@ data class MaskedBrushDab(
 )
 
 /**
- * Item 15's masked/dual-brush follow-up: the secondary tip [VulkanStampEngine.stampMaskedDabs]
+ * Item 15's masked/dual-brush follow-up: the secondary tip [GpuStampEngine.stampMaskedDabs]
  * composites onto a primary [MaskedBrushDab] at the same list index -- mirrors
  * `com.hereliesaz.graffitixr.common.azphalt.MaskDab`, the CPU-side equivalent, except
  * [keepInside] is pre-resolved from `MaskedBrushBlendMode` + `invert` into a single flag rather
