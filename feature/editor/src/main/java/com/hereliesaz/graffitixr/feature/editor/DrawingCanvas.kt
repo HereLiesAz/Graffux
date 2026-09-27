@@ -41,15 +41,13 @@ import kotlin.math.roundToLong
 private const val EYEDROP_HOLD_MS = 500L
 private const val NANOS_PER_SECOND = 1_000_000_000f
 
-/** Opacity of the whole prediction tail: clearly provisional next to real paint. */
-private const val TAIL_OPACITY = 0.45f
-private const val DEFAULT_TAIL_SPACING = 0.1f
-private const val MAX_TAIL_STAMPS = 96
-private const val MIN_TAIL_RADIUS_PX = 0.5f
-/** Floor on stamp spacing (fraction of diameter) so a 0-spacing brush can't flood the tail. */
-private const val MIN_TAIL_SPACING = 0.02f
+private const val DEFAULT_STAMP_SPACING = 0.1f
+private const val MAX_STAMPS = 96
+private const val MIN_STAMP_RADIUS_PX = 0.5f
+/** Floor on stamp spacing (fraction of diameter) so a 0-spacing brush can't flood the overlay. */
+private const val MIN_STAMP_SPACING = 0.02f
 /** Hardness 1 would make a zero-width gradient ramp; cap just below it. */
-private const val MAX_TAIL_EDGE = 0.999f
+private const val MAX_STAMP_EDGE = 0.999f
 /**
  * Provisional ink gives way to real paint; if that signal never comes (a brush path that doesn't
  * report it), it still clears after this long rather than lingering over the stroke.
@@ -58,7 +56,7 @@ private const val PROVISIONAL_MAX_MS = 250L
 
 /**
  * Soft round stamps drawn like the active brush (edge falloff from the brush's hardness), spaced
- * along [path] at the brush's own spacing. Used for the prediction tail and for provisional ink.
+ * along [path] at the brush's own spacing. Used for provisional ink.
  * Stamps go into one layer at full strength and the layer is composited at [color]'s alpha, so
  * overlapping stamps don't darken the way separate translucent circles would. Never committed;
  * redrawn every frame.
@@ -71,22 +69,22 @@ private fun DrawScope.drawBrushStamps(
     spacing: Float,
 ) {
     if (path.isEmpty()) return
-    val radius = (diameter / 2f).coerceAtLeast(MIN_TAIL_RADIUS_PX)
-    val step = (diameter * spacing.coerceAtLeast(MIN_TAIL_SPACING)).coerceAtLeast(1f)
+    val radius = (diameter / 2f).coerceAtLeast(MIN_STAMP_RADIUS_PX)
+    val step = (diameter * spacing.coerceAtLeast(MIN_STAMP_SPACING)).coerceAtLeast(1f)
     val centers = ArrayList<Offset>()
     for (i in 1 until path.size) {
         val a = path[i - 1]
         val b = path[i]
         val length = (b - a).getDistance()
         var d = 0f
-        while (d <= length && centers.size < MAX_TAIL_STAMPS) {
+        while (d <= length && centers.size < MAX_STAMPS) {
             centers += a + (b - a) * (if (length > 0f) d / length else 0f)
             d += step
         }
     }
     centers += path.last()
     val solid = color.copy(alpha = 1f)
-    val edge = hardness.coerceIn(0f, MAX_TAIL_EDGE)
+    val edge = hardness.coerceIn(0f, MAX_STAMP_EDGE)
     val layerPaint = androidx.compose.ui.graphics.Paint().apply { alpha = color.alpha }
     val left = centers.minOf { it.x } - radius
     val top = centers.minOf { it.y } - radius
@@ -223,8 +221,6 @@ fun DrawingCanvas(
     DisposableEffect(predictionTournament) {
         onDispose { latestOnPredictionSessionEnd.value(fullReport(), refreshRate) }
     }
-    // Pen position followed by the predicted path, in order. Presentation only.
-    var predictionTail by remember { mutableStateOf<List<Offset>?>(null) }
 
     fun recordRealPoint(
         position: Offset,
@@ -233,8 +229,8 @@ fun DrawingCanvas(
         contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
     ): BrushSample {
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
-        val tail = predictionTournament.predict(uptimeMillis + nextFrameMs, predictionLeadMs())
-        predictionTail = if (activeTool == Tool.BRUSH && tail != null) listOf(position) + tail.points else null
+        // Predictions are ranked (TEMPORARY reports) but no longer drawn.
+        predictionTournament.predict(uptimeMillis + nextFrameMs, predictionLeadMs())
         provisionalInk = provisionalInk?.plus(position)
         val sample = brushSampleBuilder.add(
             x = position.x,
@@ -265,7 +261,6 @@ fun DrawingCanvas(
     LaunchedEffect(activeTool) {
         liquifyPoints = emptyList()
         liquifyPending = emptyList()
-        predictionTail = null
         if (activeTool != Tool.BRUSH) brushCursorPosition = null
     }
 
@@ -317,7 +312,6 @@ fun DrawingCanvas(
                     brushStrokeDown = activeTool == Tool.BRUSH
                     predictionTournament.reset()
                     brushSampleBuilder.reset()
-                    predictionTail = null
                     // Ink under the finger/pen now, from the raw down event, before touch slop
                     // decides this is a stroke. Cleared if it turns into a hold, pinch or tap-off.
                     clearProvisionalInk()
@@ -330,7 +324,6 @@ fun DrawingCanvas(
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
-                    predictionTail = null
                     clearProvisionalInk()
                     brushStrokeDown = false
                     // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
@@ -376,7 +369,6 @@ fun DrawingCanvas(
                         }
 
                         if (event == null) {
-                            predictionTail = null
                             clearProvisionalInk()
                             eyedrop = true
                             onEyedropStart(canvasSize)
@@ -386,7 +378,6 @@ fun DrawingCanvas(
 
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
-                            predictionTail = null
                             clearProvisionalInk()
                             if (began) {
                                 gate.markCancelled()
@@ -413,7 +404,6 @@ fun DrawingCanvas(
                         }
 
                         if (!change.pressed) {
-                            predictionTail = null
                             when {
                                 pickingCloneSource -> onPickCloneSource(change.position)
                                 activeTool == Tool.FILL -> onFillTap(change.position, canvasSize)
@@ -426,7 +416,6 @@ fun DrawingCanvas(
                                             BrushContactPhase.LIFT_OFF,
                                         )
                                     )
-                                    predictionTail = null
                                     if (activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty()) {
                                         liquifyPending = liquifyPoints
                                         liquifyPoints = emptyList()
@@ -453,7 +442,6 @@ fun DrawingCanvas(
                                             BrushContactPhase.LIFT_OFF,
                                         )
                                     )
-                                    predictionTail = null
                                     gate.strokeActive = false
                                     onStrokeEnd()
                                 }
@@ -535,20 +523,9 @@ fun DrawingCanvas(
                     color = activeColor,
                     diameter = brushSize,
                     hardness = activeBrushPreview?.hardness ?: 1f,
-                    spacing = activeBrushPreview?.spacing ?: DEFAULT_TAIL_SPACING,
+                    spacing = activeBrushPreview?.spacing ?: DEFAULT_STAMP_SPACING,
                 )
             }
-        }
-
-        predictionTail?.let { path ->
-            if (path.size < 2) return@let
-            drawBrushStamps(
-                path = path,
-                color = activeColor.copy(alpha = activeColor.alpha * TAIL_OPACITY),
-                diameter = brushSize,
-                hardness = activeBrushPreview?.hardness ?: 1f,
-                spacing = activeBrushPreview?.spacing ?: DEFAULT_TAIL_SPACING,
-            )
         }
 
         if (activeTool == Tool.BRUSH) {

@@ -490,7 +490,9 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    (`EditorViewModel.strokePaintPresented`), capped at 250 ms. Ink appears on the next composed
    frame instead of after the engine round trip, finger or stylus. Cleared on hold-to-eyedrop,
    pinch and lift. It still waits for one Compose frame; front-buffer is what removes that.
-5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) already shipped;
+5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) shipped and was
+   later taken off screen at the user's call (the translucent run-ahead read as a taper); the
+   models still run and are ranked;
    what remains is the dab-substitution model itself (provisional predicted dabs, overwritten by
    ground truth), which needs `onStrokePoint`'s real-input-only invariant to grow a
    provisional/authoritative distinction first — independent of the GPU work, but a real design
