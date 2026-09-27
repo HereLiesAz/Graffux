@@ -1,3 +1,8 @@
 gen/
 out_vk/
 out_gl/
+out_wgpu_vk/
+out_wgpu_gl/
+out_gl_ph/
+out_wgpu_ph_vk/
+out_wgpu_ph_gl/

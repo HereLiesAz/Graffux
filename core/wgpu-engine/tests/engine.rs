@@ -262,3 +262,33 @@ fn masked_and_smudge_run_and_are_deterministic() {
         assert_eq!(a, b, "[{name}] not deterministic");
     }
 }
+
+/// Regression: substrate wrapping with a negative texture offset on a non-power-of-two tile. A
+/// plain `%` there hit GLSL's undefined negative remainder on wgpu's GL backend (Mesa llvmpipe).
+#[test]
+fn substrate_wrap_agrees_across_backends() {
+    let engines = engines();
+    if engines.len() < 2 {
+        eprintln!("needs both backends -- skipped");
+        return;
+    }
+    let mut outs = Vec::new();
+    for (_, mut e) in engines {
+        let tooth: Vec<u8> = (0..29 * 31).map(|i| ((i * 37 + 11) % 256) as u8).collect();
+        assert!(e.upload_substrate_height(&tooth, 29, 31));
+        let sp = SubstrateParams {
+            enabled: true,
+            height_scale: 1.0,
+            texture_scale: 1.3,
+            texture_offset_x: -13.3,
+            texture_offset_y: -40.2,
+            ..SubstrateParams::default()
+        };
+        let mut d = GpuDab::legacy(40.0, 30.0, 45.0, 1.0, 0.0);
+        d.contact_depth = 0.5;
+        d.substrate_response = 1.0;
+        assert!(e.stamp_dabs(&[d], 0xFFFFFFFF, 1.0, false, sp, false));
+        outs.push(e.read_all().unwrap());
+    }
+    assert_eq!(diff(&outs[0], &outs[1]), (0, 0));
+}

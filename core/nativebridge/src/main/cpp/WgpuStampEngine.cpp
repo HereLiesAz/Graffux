@@ -1,0 +1,196 @@
+// FILE: core/nativebridge/src/main/cpp/WgpuStampEngine.cpp
+#include "include/WgpuStampEngine.h"
+
+#include <dlfcn.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <mutex>
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#define WGPU_LOGW(...) __android_log_print(ANDROID_LOG_WARN, "WgpuStampEngine", __VA_ARGS__)
+#else
+#define WGPU_LOGW(...) (std::fprintf(stderr, "WgpuStampEngine: " __VA_ARGS__), std::fputc('\n', stderr))
+#endif
+
+// The C ABI (core/wgpu-engine/include/graffux_wgpu.h), resolved at runtime -- see the class doc.
+struct GfxWgpuSubstrate {
+    int32_t enabled;
+    int32_t hasPaintHeight;
+    float baseHeight;
+    float heightScale;
+    float textureScale;
+    float textureOffsetX;
+    float textureOffsetY;
+};
+
+namespace graffux {
+namespace {
+
+struct Api {
+    GfxWgpuEngine* (*create)(int32_t, int32_t, int32_t);
+    void (*destroy)(GfxWgpuEngine*);
+    bool (*clear)(GfxWgpuEngine*);
+    bool (*upload)(GfxWgpuEngine*, const uint8_t*, size_t);
+    bool (*uploadSubstrateHeight)(GfxWgpuEngine*, const uint8_t*, int32_t, int32_t);
+    bool (*uploadPaintHeight)(GfxWgpuEngine*, const float*, int32_t, int32_t);
+    bool (*stampDabs)(GfxWgpuEngine*, const void*, size_t, uint32_t, float, bool,
+                      const GfxWgpuSubstrate*, bool);
+    bool (*stampMaskedDabs)(GfxWgpuEngine*, const void*, size_t, uint32_t, float, const uint8_t*,
+                            int32_t, int32_t, const uint8_t*, int32_t, int32_t, bool, float, float,
+                            float, const void*, size_t, const uint8_t*, int32_t, int32_t,
+                            const GfxWgpuSubstrate*);
+    bool (*colorSmudge)(GfxWgpuEngine*, const void*, size_t, int32_t, float, float, bool, uint32_t,
+                        float, const uint8_t*, int32_t, int32_t);
+    void (*benchmarkInfo)(GfxWgpuEngine*, uint32_t*, uint64_t*);
+    bool (*readback)(GfxWgpuEngine*, uint8_t*, size_t);
+    size_t (*adapterDescription)(GfxWgpuEngine*, char*, size_t);
+};
+
+std::once_flag gLoadOnce;
+Api gApi{};
+bool gLoaded = false;
+
+template <class F>
+bool resolve(void* lib, const char* name, F& out) {
+    out = reinterpret_cast<F>(dlsym(lib, name));
+    if (out == nullptr) WGPU_LOGW("missing symbol %s", name);
+    return out != nullptr;
+}
+
+void load() {
+    // GRAFFUX_WGPU_LIB lets host tools (tools/stamp-engine-diff) point at a cargo build output.
+    const char* override = std::getenv("GRAFFUX_WGPU_LIB");
+    void* lib = dlopen(override != nullptr ? override : "libgraffux_wgpu.so", RTLD_NOW | RTLD_LOCAL);
+    if (lib == nullptr) {
+        WGPU_LOGW("libgraffux_wgpu.so unavailable: %s", dlerror());
+        return;
+    }
+    Api a{};
+    gLoaded = resolve(lib, "gfx_wgpu_create", a.create) && resolve(lib, "gfx_wgpu_destroy", a.destroy) &&
+              resolve(lib, "gfx_wgpu_clear", a.clear) && resolve(lib, "gfx_wgpu_upload", a.upload) &&
+              resolve(lib, "gfx_wgpu_upload_substrate_height", a.uploadSubstrateHeight) &&
+              resolve(lib, "gfx_wgpu_upload_paint_height", a.uploadPaintHeight) &&
+              resolve(lib, "gfx_wgpu_stamp_dabs", a.stampDabs) &&
+              resolve(lib, "gfx_wgpu_stamp_masked_dabs", a.stampMaskedDabs) &&
+              resolve(lib, "gfx_wgpu_color_smudge", a.colorSmudge) &&
+              resolve(lib, "gfx_wgpu_benchmark_info", a.benchmarkInfo) &&
+              resolve(lib, "gfx_wgpu_readback", a.readback) &&
+              resolve(lib, "gfx_wgpu_adapter_description", a.adapterDescription);
+    if (gLoaded) gApi = a;  // The library stays loaded for the process lifetime.
+}
+
+GfxWgpuSubstrate toC(const SubstrateStampParams& s) {
+    return GfxWgpuSubstrate{s.enabled ? 1 : 0, s.hasPaintHeight ? 1 : 0, s.baseHeight,
+                            s.heightScale, s.textureScale, s.textureOffsetX, s.textureOffsetY};
+}
+
+}  // namespace
+
+bool WgpuStampEngine::libraryAvailable() {
+    std::call_once(gLoadOnce, load);
+    return gLoaded;
+}
+
+WgpuStampEngine::~WgpuStampEngine() { destroy(); }
+
+bool WgpuStampEngine::init(int width, int height) {
+    destroy();
+    if (width <= 0 || height <= 0 || !libraryAvailable()) return false;
+    engine_ = gApi.create(width, height, 0);
+    if (engine_ == nullptr) {
+        WGPU_LOGW("no wgpu adapter with compute support");
+        return false;
+    }
+    width_ = width;
+    height_ = height;
+    char name[256] = {};
+    gApi.adapterDescription(engine_, name, sizeof(name));
+    WGPU_LOGW("wgpu engine %dx%d on %s", width, height, name);
+    return true;
+}
+
+bool WgpuStampEngine::initWithHardwareBuffer(int /*width*/, int /*height*/) {
+    // No AHardwareBuffer interop in the wgpu engine (yet): callers fall back to readback display.
+    destroy();
+    return false;
+}
+
+bool WgpuStampEngine::clear() { return engine_ != nullptr && gApi.clear(engine_); }
+
+bool WgpuStampEngine::upload(const uint8_t* inRgba8, size_t inSizeBytes) {
+    return engine_ != nullptr && inRgba8 != nullptr && gApi.upload(engine_, inRgba8, inSizeBytes);
+}
+
+bool WgpuStampEngine::uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) {
+    return engine_ != nullptr && gApi.uploadSubstrateHeight(engine_, heightR8, width, height);
+}
+
+bool WgpuStampEngine::uploadPaintHeight(const float* heightMap, int width, int height) {
+    return engine_ != nullptr && gApi.uploadPaintHeight(engine_, heightMap, width, height);
+}
+
+bool WgpuStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb, float hardness,
+                                bool buildUp, SubstrateStampParams substrate, bool strokeMax) {
+    if (engine_ == nullptr || dabs.empty()) return false;
+    const GfxWgpuSubstrate s = toC(substrate);
+    return gApi.stampDabs(engine_, dabs.data(), dabs.size(), colorArgb, hardness, buildUp, &s,
+                          strokeMax);
+}
+
+bool WgpuStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_t colorArgb,
+                                      float hardness, const uint8_t* maskAlpha8, int maskWidth,
+                                      int maskHeight, const uint8_t* grainAlpha8, int grainWidth,
+                                      int grainHeight, bool grainCanvasLocked, float grainScale,
+                                      float grainPhaseX, float grainPhaseY,
+                                      const std::vector<GpuSecondaryDab>& secondaryDabs,
+                                      const uint8_t* secondaryMaskAlpha8, int secondaryMaskWidth,
+                                      int secondaryMaskHeight, SubstrateStampParams substrate) {
+    if (engine_ == nullptr || dabs.empty()) return false;
+    const GfxWgpuSubstrate s = toC(substrate);
+    return gApi.stampMaskedDabs(engine_, dabs.data(), dabs.size(), colorArgb, hardness, maskAlpha8,
+                                maskWidth, maskHeight, grainAlpha8, grainWidth, grainHeight,
+                                grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
+                                secondaryDabs.empty() ? nullptr : secondaryDabs.data(),
+                                secondaryDabs.size(), secondaryMaskAlpha8, secondaryMaskWidth,
+                                secondaryMaskHeight, &s);
+}
+
+bool WgpuStampEngine::colorSmudge(const std::vector<ColorSmudgeDab>& dabs, int mode, float radiusPx,
+                                  float feathering, bool smearAlpha, uint32_t paintColorArgb,
+                                  float dilution, const uint8_t* sampleSourceRgba8,
+                                  int sampleSourceWidth, int sampleSourceHeight) {
+    static_assert(sizeof(ColorSmudgeDab) == 44, "ColorSmudgeDab must match the Rust record");
+    if (engine_ == nullptr || dabs.size() < 2) return false;
+    return gApi.colorSmudge(engine_, dabs.data(), dabs.size(), mode, radiusPx, feathering,
+                            smearAlpha, paintColorArgb, dilution, sampleSourceRgba8,
+                            sampleSourceWidth, sampleSourceHeight);
+}
+
+ColorSmudgeBenchmarkInfo WgpuStampEngine::colorSmudgeBenchmarkInfo() const {
+    ColorSmudgeBenchmarkInfo info{};
+    if (engine_ == nullptr) return info;
+    uint32_t ids[3] = {};
+    uint64_t nanos[2] = {};
+    gApi.benchmarkInfo(engine_, ids, nanos);
+    info.vendorId = ids[0];
+    info.deviceId = ids[1];
+    info.selectedTileSize = ids[2];
+    info.nanos8 = nanos[0];
+    info.nanos16 = nanos[1];
+    return info;
+}
+
+bool WgpuStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
+    return engine_ != nullptr && outRgba8 != nullptr &&
+           gApi.readback(engine_, outRgba8, outCapacityBytes);
+}
+
+void WgpuStampEngine::destroy() {
+    if (engine_ != nullptr) gApi.destroy(engine_);
+    engine_ = nullptr;
+    width_ = height_ = 0;
+}
+
+}  // namespace graffux

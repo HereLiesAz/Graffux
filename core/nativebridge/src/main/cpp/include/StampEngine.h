@@ -143,7 +143,8 @@ public:
 };
 
 // Backend ids shared with the Kotlin wrapper (GpuStampEngine.Backend.nativeId).
-enum class StampBackend : int { Vulkan = 0, Gles = 1 };
+// Wgpu = the Rust engine in core/wgpu-engine behind the WgpuStampEngine adapter.
+enum class StampBackend : int { Vulkan = 0, Gles = 1, Wgpu = 2 };
 
 // Allocates an uninitialized engine for `backend` (Vulkan for any unknown id).
 StampEngine* createStampEngine(int backend);

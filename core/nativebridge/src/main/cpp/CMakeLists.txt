@@ -125,6 +125,7 @@ add_library(graffitixr SHARED
     VulkanColorSmudgeJNI.cpp
     GlesStampEngine.cpp
     StampEngineFactory.cpp
+    WgpuStampEngine.cpp
     LiveStrokeOverlay.cpp
     InkStrokePredictorJNI.cpp
 )

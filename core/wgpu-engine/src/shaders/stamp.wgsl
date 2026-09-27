@@ -65,14 +65,23 @@ fn stamp_coverage(dist_from_center: f32, radius: f32, hardness: f32) -> f32 {
     return 1.0 - (t - hardness) / (1.0 - hardness);
 }
 
+// The GLSL's ((c % s) + s) % s, with only non-negative operands. A remainder with a negative
+// operand is undefined in GLSL, and naga's GL backend passes `%` straight through: on Mesa llvmpipe
+// that put negative texture offsets on the wrong substrate texel (a 38-level diff against the
+// GLES engine in tools/stamp-engine-diff). Same result as the original wherever it is defined.
+fn wrap(c: i32, s: i32) -> i32 {
+    if (c >= 0) { return c % s; }
+    return s - 1 - ((-c - 1) % s);
+}
+
 fn substrate_deposition(d: Dab, canvas_point: vec2<f32>) -> f32 {
     if (pc.has_substrate <= 0.5) { return 1.0; }
     let size = vec2<i32>(textureDimensions(substrate_tex, 0));
     if (size.x <= 0 || size.y <= 0) { return 1.0; }
     let scale = max(pc.substrate_texture_scale, 0.05);
     var cell = vec2<i32>(floor(canvas_point / scale + vec2<f32>(pc.substrate_offset_x, pc.substrate_offset_y)));
-    cell.x = ((cell.x % size.x) + size.x) % size.x;
-    cell.y = ((cell.y % size.y) + size.y) % size.y;
+    cell.x = wrap(cell.x, size.x);
+    cell.y = wrap(cell.y, size.y);
     let tooth = textureLoad(substrate_tex, cell, 0).r;
     let substrate_height = clamp(
         clamp(pc.substrate_base_height, 0.0, 1.0) + tooth * clamp(pc.substrate_height_scale, 0.0, 1.0),

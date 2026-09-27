@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Pixel-for-pixel comparison of the two GPU stamp backends on the host (no device needed):
-# VulkanStampEngine on Mesa lavapipe vs GlesStampEngine on Mesa llvmpipe, same scripted inputs.
-# Needs: g++, glslangValidator, python3 (+numpy for the paint-height reference),
+# Pixel-for-pixel comparison of the GPU stamp backends on the host (no device needed):
+# VulkanStampEngine on Mesa lavapipe, GlesStampEngine on Mesa llvmpipe, and the wgpu engine
+# (core/wgpu-engine, through the same WgpuStampEngine adapter Android uses) on both wgpu backends:
+# Vulkan/lavapipe and GL/llvmpipe. Same scripted inputs for all of them.
+# Needs: g++, glslangValidator, cargo, python3 (+numpy for the paint-height reference),
 #        libvulkan-dev mesa-vulkan-drivers libegl-dev libgles-dev.
 set -euo pipefail
 cd "$(dirname "$0")"
 C=../../core/nativebridge/src/main/cpp
-mkdir -p gen out_vk out_gl
+mkdir -p gen out_vk out_gl out_wgpu_vk out_wgpu_gl out_gl_ph out_wgpu_ph_vk out_wgpu_ph_gl
 spv() {  # source, header, tile, symbol -- same layout CMake's graffux_embed_shader writes
   glslangValidator -V --target-env vulkan1.1 -S comp -DTILE_SIZE="$3" -o "gen/$2.spv" "$C/shaders/$1" >/dev/null
   python3 - "$2" "$4" <<'PY'
@@ -30,12 +32,47 @@ PY
 sed -n '1,/^}  \/\/ namespace graffux/p' "$C/VulkanStampEngineReuse.cpp" | sed 's/#include <jni.h>//' > gen/reuse.cpp
 g++ -std=c++17 -O2 -I shim -I gen -I "$C" run_vk.cpp "$C/VulkanStampEngine.cpp" "$C/VulkanColorSmudge.cpp" -x c++ gen/reuse.cpp -lvulkan -o gen/run_vk
 g++ -std=c++17 -O2 -I gen -I "$C" run_gl.cpp "$C/GlesStampEngine.cpp" -lEGL -lGLESv2 -o gen/run_gl
-VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json gen/run_vk
-EGL_PLATFORM=surfaceless gen/run_gl
+g++ -std=c++17 -O2 -DWITH_PAINT_HEIGHT -DOUTDIR='"out_gl_ph"' -I gen -I "$C" run_gl.cpp "$C/GlesStampEngine.cpp" -lEGL -lGLESv2 -o gen/run_gl_ph
+cargo build --release --quiet --manifest-path ../../core/wgpu-engine/Cargo.toml
+WGPU_LIB="$(cd ../../core/wgpu-engine && pwd)/target/release/libgraffux_wgpu.so"
+for v in vk gl; do
+  g++ -std=c++17 -O2 -DOUTDIR="\"out_wgpu_$v\"" -I shim -I "$C" run_wgpu.cpp "$C/WgpuStampEngine.cpp" -ldl -o "gen/run_wgpu_$v"
+done
+for v in vk gl; do
+  g++ -std=c++17 -O2 -DWITH_PAINT_HEIGHT -DOUTDIR="\"out_wgpu_ph_$v\"" -I shim -I "$C" run_wgpu.cpp "$C/WgpuStampEngine.cpp" -ldl -o "gen/run_wgpu_ph_$v"
+done
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json EGL_PLATFORM=surfaceless GRAFFUX_WGPU_LIB="$WGPU_LIB"
+gen/run_vk
+gen/run_gl
+gen/run_gl_ph
+WGPU_BACKEND=vulkan gen/run_wgpu_vk
+WGPU_BACKEND=gl gen/run_wgpu_gl
+WGPU_BACKEND=vulkan gen/run_wgpu_ph_vk
+WGPU_BACKEND=gl gen/run_wgpu_ph_gl
 python3 - <<'PY'
 import os
+def cmp(a, b, f):
+    x = open(f"{a}/{f}", "rb").read(); y = open(f"{b}/{f}", "rb").read()
+    d = [abs(p - q) for p, q in zip(x, y)]
+    return sum(1 for v in d if v), max(d), len(x)
+pairs = [("out_vk", "out_gl", "vk-gl"), ("out_wgpu_vk", "out_vk", "wgpu(vk)-vk"),
+         ("out_wgpu_gl", "out_gl", "wgpu(gl)-gl"), ("out_wgpu_vk", "out_wgpu_gl", "wgpu vk-gl")]
+print(f"{'scenario':28s}" + "".join(f"{label:>18s}" for _, _, label in pairs) + "   (bytes differ / max level)")
+worst = {label: 0 for _, _, label in pairs}
 for f in sorted(os.listdir("out_vk")):
-    a = open("out_vk/" + f, "rb").read(); b = open("out_gl/" + f, "rb").read()
-    diffs = [abs(x - y) for x, y in zip(a, b)]
-    print(f"{f:32s} bytes differ {sum(1 for d in diffs if d):6d}/{len(a)}  max {max(diffs)}")
+    row = f"{f[:-4]:28s}"
+    for a, b, label in pairs:
+        n, m, total = cmp(a, b, f)
+        worst[label] = max(worst[label], m)
+        row += f"{f'{n}/{m}':>18s}"
+    print(row)
+# The Vulkan engine cannot run the paint-height build on lavapipe (see README), so those outputs
+# are compared against the GLES engine only.
+print("paint-height build (-DWITH_PAINT_HEIGHT) vs GLES:")
+for f in ("ph_out.raw", "s4_substrate.raw", "s4b_masked_substrate.raw"):
+    for v in ("vk", "gl"):
+        n, m, total = cmp(f"out_wgpu_ph_{v}", "out_gl_ph", f)
+        worst[f"wgpu({v})-gl paint height"] = max(worst.get(f"wgpu({v})-gl paint height", 0), m)
+        print(f"  {f[:-4]:24s} wgpu({v}) {n:6d}/{total}  max {m}")
+print("worst per pair:", worst)
 PY
