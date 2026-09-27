@@ -2,7 +2,8 @@
 
   python kaggle_upload.py DATA_DIR SCHEMA_MD
 
-DATA_DIR is the `stroke-data/` folder of the stroke-data branch (<device-model>/session-*.jsonl.gz).
+DATA_DIR is the `stroke-data/` folder of the stroke-data branch (<device-model>/session-*.jsonl.gz);
+files are published flat as <device-model>__session-*.jsonl.gz.
 Credentials come from KAGGLE_TOKEN: a Kaggle API token string, or kaggle.json contents. The dataset
 id is KAGGLE_DATASET, else "<username>/graffux-stroke-data". Creates the dataset (private) the first
 time, then adds a new version each run. The token is never printed.
@@ -55,9 +56,9 @@ def main() -> None:
 
     stage = Path(tempfile.mkdtemp())
     for f in sessions:
-        dest = stage / f.relative_to(data_dir)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(f, dest)
+        # Flat, "<device-model>__session-<ms>.jsonl.gz": Kaggle zips subfolders, which a plain
+        # download --unzip would leave nested and train.py's rglob would miss.
+        shutil.copy2(f, stage / "__".join(f.relative_to(data_dir).parts))
     shutil.copy2(schema, stage / "SCHEMA.md")
     (stage / "dataset-metadata.json").write_text(json.dumps({
         "title": "Graffux Stroke Data",
@@ -70,9 +71,9 @@ def main() -> None:
     exists = kaggle("datasets", "status", dataset, check=False).returncode == 0
     if exists:
         result = kaggle("datasets", "version", "-p", str(stage), "-m",
-                        f"{len(sessions)} sessions", "--dir-mode", "zip", check=False)
+                        f"{len(sessions)} sessions", "--dir-mode", "skip", check=False)
     else:
-        result = kaggle("datasets", "create", "-p", str(stage), "--dir-mode", "zip", check=False)
+        result = kaggle("datasets", "create", "-p", str(stage), "--dir-mode", "skip", check=False)
     print(result.stdout)
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
