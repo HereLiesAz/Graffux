@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import android.content.Context
+import com.hereliesaz.graffitixr.feature.editor.prediction.GoogleInkGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -315,6 +316,21 @@ private fun PredictionSoloRow() {
         onSelect = {
             solo = it
             prefs.edit().putString(PredictionTournament.SOLO_KEY, it).apply()
+        },
+    )
+    var inkProfile by remember {
+        mutableStateOf(prefs.getString(PredictionTournament.INK_PROFILE_KEY, null) ?: "standard")
+    }
+    ChoiceRow(
+        title = "Google Ink tuning",
+        subtitle = "Standard, steadier (less overshoot, more lag) or more responsive (follows turns, " +
+            "overshoots more). Reports name the tuning so they can be compared.",
+        options = GoogleInkGesturePredictor.Profile.entries.map { it.label },
+        selected = inkProfile,
+        label = { it.replaceFirstChar(Char::uppercase) },
+        onSelect = {
+            inkProfile = it
+            prefs.edit().putString(PredictionTournament.INK_PROFILE_KEY, it).apply()
         },
     )
 }

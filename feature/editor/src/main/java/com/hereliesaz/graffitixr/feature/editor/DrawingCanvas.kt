@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,14 +31,79 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipGeometryConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipTopology
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.feature.editor.prediction.AccelerationGesturePredictor
-import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
 import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
+import com.hereliesaz.graffitixr.feature.editor.prediction.GoogleInkGesturePredictor
 import kotlin.math.roundToLong
 
 private const val EYEDROP_HOLD_MS = 500L
+private const val NANOS_PER_SECOND = 1_000_000_000f
+
+/** Opacity of the whole prediction tail: clearly provisional next to real paint. */
+private const val TAIL_OPACITY = 0.45f
+private const val DEFAULT_TAIL_SPACING = 0.1f
+private const val MAX_TAIL_STAMPS = 96
+private const val MIN_TAIL_RADIUS_PX = 0.5f
+/** Floor on stamp spacing (fraction of diameter) so a 0-spacing brush can't flood the tail. */
+private const val MIN_TAIL_SPACING = 0.02f
+/** Hardness 1 would make a zero-width gradient ramp; cap just below it. */
+private const val MAX_TAIL_EDGE = 0.999f
+/**
+ * Provisional ink gives way to real paint; if that signal never comes (a brush path that doesn't
+ * report it), it still clears after this long rather than lingering over the stroke.
+ */
+private const val PROVISIONAL_MAX_MS = 250L
+
+/**
+ * Soft round stamps drawn like the active brush (edge falloff from the brush's hardness), spaced
+ * along [path] at the brush's own spacing. Used for the prediction tail and for provisional ink.
+ * Stamps go into one layer at full strength and the layer is composited at [color]'s alpha, so
+ * overlapping stamps don't darken the way separate translucent circles would. Never committed;
+ * redrawn every frame.
+ */
+private fun DrawScope.drawBrushStamps(
+    path: List<Offset>,
+    color: Color,
+    diameter: Float,
+    hardness: Float,
+    spacing: Float,
+) {
+    if (path.isEmpty()) return
+    val radius = (diameter / 2f).coerceAtLeast(MIN_TAIL_RADIUS_PX)
+    val step = (diameter * spacing.coerceAtLeast(MIN_TAIL_SPACING)).coerceAtLeast(1f)
+    val centers = ArrayList<Offset>()
+    for (i in 1 until path.size) {
+        val a = path[i - 1]
+        val b = path[i]
+        val length = (b - a).getDistance()
+        var d = 0f
+        while (d <= length && centers.size < MAX_TAIL_STAMPS) {
+            centers += a + (b - a) * (if (length > 0f) d / length else 0f)
+            d += step
+        }
+    }
+    centers += path.last()
+    val solid = color.copy(alpha = 1f)
+    val edge = hardness.coerceIn(0f, MAX_TAIL_EDGE)
+    val layerPaint = androidx.compose.ui.graphics.Paint().apply { alpha = color.alpha }
+    val left = centers.minOf { it.x } - radius
+    val top = centers.minOf { it.y } - radius
+    val right = centers.maxOf { it.x } + radius
+    val bottom = centers.maxOf { it.y } + radius
+    drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(left, top, right, bottom), layerPaint)
+    for (c in centers) {
+        drawCircle(
+            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                0f to solid, edge to solid, 1f to solid.copy(alpha = 0f),
+                center = c, radius = radius,
+            ),
+            radius = radius,
+            center = c,
+        )
+    }
+    drawContext.canvas.restore()
+}
 
 @Composable
 fun DrawingCanvas(
@@ -67,6 +133,17 @@ fun DrawingCanvas(
     onPredictionRanked: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
     /** TEMPORARY: this canvas's prediction tournament is being discarded. */
     onPredictionSessionEnd: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
+    /**
+     * Measured touch-to-paint lag in ms (null = not measured yet). The prediction tail reaches this
+     * far ahead of the pen so it covers the real gap; see PredictionTournament.predict.
+     */
+    predictionLeadMs: () -> Long? = { null },
+    /**
+     * True once the current Brush stroke's real paint is on screen. Until then the canvas draws
+     * provisional ink itself, starting at touch-down, so the dab appears on the next frame instead
+     * of after the whole engine round trip.
+     */
+    strokePaintPresented: () -> Boolean = { false },
 ) {
     var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -93,27 +170,54 @@ fun DrawingCanvas(
             ?: 60f
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
-    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
     // TEMPORARY: Settings > Developer can pin one predictor to run alone (see PredictionTournament).
-    val soloModel = view.context
+    val predictionPrefs = view.context
         .getSharedPreferences(PredictionTournament.SOLO_PREFS, android.content.Context.MODE_PRIVATE)
-        .getString(PredictionTournament.SOLO_KEY, null)
-        ?.takeIf { it.isNotBlank() }
-    val predictionTournament = remember(androidXPredictor, soloModel) {
-        PredictionTournament(
-            listOf(
-                LinearGesturePredictor(),
-                AccelerationGesturePredictor(),
-                androidXPredictor,
-            ),
-            soloModel = soloModel,
-        )
+    val soloModel = predictionPrefs.getString(PredictionTournament.SOLO_KEY, null)?.takeIf { it.isNotBlank() }
+    val inkProfile = predictionPrefs.getString(PredictionTournament.INK_PROFILE_KEY, null)
+        .let { saved -> GoogleInkGesturePredictor.Profile.entries.firstOrNull { it.label == saved } }
+        ?: GoogleInkGesturePredictor.Profile.STANDARD
+    // Google Ink draws the tail; linear only covers the first samples of a stroke (see
+    // PredictionTournament's doc for why the others were removed).
+    val predictionTournament = remember(view, soloModel, inkProfile) {
+        PredictionTournament(listOf(LinearGesturePredictor()), soloModel = soloModel, inkProfile = inkProfile)
     }
+    // Provisional ink: the real samples since touch-down, drawn here until the engine's own paint
+    // shows (or PROVISIONAL_MAX_MS passes). Presentation only.
+    var provisionalInk by remember { mutableStateOf<List<Offset>?>(null) }
+    var provisionalSinceMs by remember { mutableLongStateOf(0L) }
+    // The editor's "paint presented" flag belongs to the previous stroke until onStrokeStart runs
+    // for this one (after touch slop), so it's only trusted once this is set.
+    var provisionalArmed by remember { mutableStateOf(false) }
+    val latestStrokePaintPresented = rememberUpdatedState(strokePaintPresented)
+    fun clearProvisionalInk() {
+        provisionalInk = null
+        provisionalArmed = false
+    }
+    // TEMPORARY: UI frame pacing while a Brush stroke is down, appended to the reports.
+    val frameMeter = remember(refreshRate) { FrameIntervalMeter((NANOS_PER_SECOND / refreshRate).toLong()) }
+    var brushStrokeDown by remember { mutableStateOf(false) }
+    LaunchedEffect(brushStrokeDown) {
+        if (!brushStrokeDown) return@LaunchedEffect
+        var last = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (last != 0L) frameMeter.add(now - last)
+                last = now
+                if (provisionalInk != null) {
+                    val expired = android.os.SystemClock.uptimeMillis() - provisionalSinceMs > PROVISIONAL_MAX_MS
+                    if (expired || (provisionalArmed && latestStrokePaintPresented.value())) clearProvisionalInk()
+                }
+            }
+        }
+    }
+    fun fullReport() = predictionTournament.rankingReport() + "\n" + frameMeter.report()
     val latestOnPredictionSessionEnd = rememberUpdatedState(onPredictionSessionEnd)
     DisposableEffect(predictionTournament) {
-        onDispose { latestOnPredictionSessionEnd.value(predictionTournament.rankingReport(), refreshRate) }
+        onDispose { latestOnPredictionSessionEnd.value(fullReport(), refreshRate) }
     }
-    var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
+    // Pen position followed by the predicted path, in order. Presentation only.
+    var predictionTail by remember { mutableStateOf<List<Offset>?>(null) }
 
     fun recordRealPoint(
         position: Offset,
@@ -122,12 +226,9 @@ fun DrawingCanvas(
         contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
     ): BrushSample {
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
-        val prediction = predictionTournament.predict(uptimeMillis + nextFrameMs)
-        predictionTail = if (activeTool == Tool.BRUSH && prediction != null) {
-            position to prediction.position
-        } else {
-            null
-        }
+        val tail = predictionTournament.predict(uptimeMillis + nextFrameMs, predictionLeadMs())
+        predictionTail = if (activeTool == Tool.BRUSH && tail != null) listOf(position) + tail.points else null
+        provisionalInk = provisionalInk?.plus(position)
         val sample = brushSampleBuilder.add(
             x = position.x,
             y = position.y,
@@ -206,15 +307,25 @@ fun DrawingCanvas(
                     }
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    brushStrokeDown = activeTool == Tool.BRUSH
                     predictionTournament.reset()
                     brushSampleBuilder.reset()
                     predictionTail = null
+                    // Ink under the finger/pen now, from the raw down event, before touch slop
+                    // decides this is a stroke. Cleared if it turns into a hold, pinch or tap-off.
+                    clearProvisionalInk()
+                    if (activeTool == Tool.BRUSH && !pickingCloneSource) {
+                        val i = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                        provisionalInk = listOf(Offset(event.getX(i), event.getY(i)))
+                        provisionalSinceMs = event.eventTime
+                    }
                 }
-                androidXPredictor.recordMotionEvent(event)
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
                     predictionTail = null
+                    clearProvisionalInk()
+                    brushStrokeDown = false
                     // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
                     // `adb logcat -s StrokePrediction` to read it.
                     if (activeTool == Tool.BRUSH) {
@@ -224,7 +335,7 @@ fun DrawingCanvas(
                             val i = event.actionIndex.coerceIn(0, event.pointerCount - 1)
                             predictionTournament.endStroke(Offset(event.getX(i), event.getY(i)))
                         }
-                        val report = predictionTournament.rankingReport()
+                        val report = fullReport()
                         android.util.Log.i("StrokePrediction", report)
                         onPredictionRanked(report, refreshRate)
                     }
@@ -257,6 +368,7 @@ fun DrawingCanvas(
 
                         if (event == null) {
                             predictionTail = null
+                            clearProvisionalInk()
                             eyedrop = true
                             onEyedropStart(canvasSize)
                             onEyedropSample(last)
@@ -266,6 +378,7 @@ fun DrawingCanvas(
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
                             predictionTail = null
+                            clearProvisionalInk()
                             if (began) {
                                 gate.markCancelled()
                                 if (activeTool == Tool.LIQUIFY) {
@@ -356,6 +469,7 @@ fun DrawingCanvas(
                                 ),
                                 canvasSize,
                             )
+                            provisionalArmed = true
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
@@ -405,14 +519,26 @@ fun DrawingCanvas(
             )
         }
 
-        predictionTail?.let { (real, predicted) ->
-            drawLine(
-                color = activeColor.copy(alpha = activeColor.alpha * 0.45f),
-                start = real,
-                end = predicted,
-                strokeWidth = brushSize,
-                cap = StrokeCap.Round,
-                blendMode = BlendMode.SrcOver,
+        if (activeTool == Tool.BRUSH) {
+            provisionalInk?.let { path ->
+                drawBrushStamps(
+                    path = path,
+                    color = activeColor,
+                    diameter = brushSize,
+                    hardness = activeBrushPreview?.hardness ?: 1f,
+                    spacing = activeBrushPreview?.spacing ?: DEFAULT_TAIL_SPACING,
+                )
+            }
+        }
+
+        predictionTail?.let { path ->
+            if (path.size < 2) return@let
+            drawBrushStamps(
+                path = path,
+                color = activeColor.copy(alpha = activeColor.alpha * TAIL_OPACITY),
+                diameter = brushSize,
+                hardness = activeBrushPreview?.hardness ?: 1f,
+                spacing = activeBrushPreview?.spacing ?: DEFAULT_TAIL_SPACING,
             )
         }
 
