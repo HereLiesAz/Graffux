@@ -72,16 +72,6 @@ fun DrawingCanvas(
     val view = LocalView.current
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = activeTool == Tool.BRUSH)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
-    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
-    val predictionTournament = remember(androidXPredictor) {
-        PredictionTournament(
-            listOf(
-                LinearGesturePredictor(),
-                AccelerationGesturePredictor(),
-                androidXPredictor,
-            )
-        )
-    }
     val brushSampleBuilder = remember { BrushSampleBuilder() }
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
     var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
@@ -99,6 +89,17 @@ fun DrawingCanvas(
             ?: 60f
     }
     val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
+    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
+    val predictionTournament = remember(androidXPredictor, nextFrameMs) {
+        PredictionTournament(
+            listOf(
+                LinearGesturePredictor(),
+                AccelerationGesturePredictor(),
+                androidXPredictor,
+            ),
+            frameMs = nextFrameMs,
+        )
+    }
     var predictionTail by remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
 
     fun recordRealPoint(

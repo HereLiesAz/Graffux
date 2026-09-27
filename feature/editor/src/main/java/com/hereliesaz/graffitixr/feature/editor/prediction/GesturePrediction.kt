@@ -41,6 +41,8 @@ data class HorizonScore(
     val horizonFrames: Int,
     val meanErrorPx: Float,
     val samples: Int,
+    /** Mean signed error along the direction of travel: + = ran ahead of the pen (overshoot). */
+    val meanLeadPx: Float = 0f,
 )
 
 /** Cheap baseline: project the most recent velocity forward. */
@@ -118,7 +120,12 @@ class AccelerationGesturePredictor : GesturePredictor {
  * - Horizon 1 only feeds the per-stroke exponential average that picks the drawn tail. It resets
  *   every stroke, exactly as before.
  * - Every horizon feeds a session-long mean per (model, horizon) -- [rankings]/[rankingReport].
- *   This survives [reset], so it accumulates across strokes until [resetRankings].
+ *   This survives [reset], so it accumulates across strokes until [resetRankings]. Alongside the
+ *   distance it keeps the signed error along the direction of travel ("lead"): positive means the
+ *   model ran ahead of the pen, the overshoot that reads worst at stroke ends and turns.
+ *
+ * The tail actually drawn is the horizon-1 winner shortened by [tailDamping] when the pen is slowing
+ * or turning. It is scored too, under [DAMPED_TAIL], so the rankings show whether damping helps.
  *
  * Google Ink is opportunistic: on a real Android process its native model joins automatically; on
  * JVM/Robolectric (where the native .so deliberately does not exist) construction fails harmlessly
@@ -131,20 +138,31 @@ class PredictionTournament(
     suppliedPredictors: List<GesturePredictor>,
     private val errorSmoothing: Float = 0.2f,
     includeGoogleInk: Boolean = true,
+    /** Display frame length; Google Ink's predicted curve is sized to cover all [HORIZON_FRAMES]. */
+    frameMs: Long = DEFAULT_FRAME_MS,
 ) : RememberObserver {
     private val predictors: List<GesturePredictor> = buildList {
         addAll(suppliedPredictors)
-        if (includeGoogleInk) runCatching { GoogleInkGesturePredictor() }.getOrNull()?.let(::add)
+        if (includeGoogleInk) {
+            runCatching { GoogleInkGesturePredictor(predictionIntervalMs = frameMs * HORIZON_FRAMES) }
+                .getOrNull()?.let(::add)
+        }
     }.distinctBy { it.name }
 
-    private class Pending(val prediction: GesturePrediction, val horizonFrames: Int)
-    private class Accumulator(var sumPx: Double = 0.0, var count: Int = 0)
+    private class Pending(
+        val prediction: GesturePrediction,
+        val horizonFrames: Int,
+        /** Latest real position when predicted; direction of travel is anchor -> actual. */
+        val anchor: Offset?,
+    )
+    private class Accumulator(var sumPx: Double = 0.0, var sumLeadPx: Double = 0.0, var count: Int = 0)
 
     private val errors = predictors.associate { it.name to Float.POSITIVE_INFINITY }.toMutableMap()
     private val scoreCounts = predictors.associate { it.name to 0 }.toMutableMap()
     private val pending = ArrayDeque<Pending>()
     private val session = HashMap<Pair<String, Int>, Accumulator>()
     private var lastReal: GestureSample? = null
+    private val recentReal = ArrayDeque<GestureSample>(DAMPING_HISTORY)
 
     init {
         require(errorSmoothing in 0f..1f)
@@ -157,6 +175,7 @@ class PredictionTournament(
         scoreCounts.keys.forEach { scoreCounts[it] = 0 }
         pending.clear()
         lastReal = null
+        recentReal.clear()
     }
 
     fun resetRankings() = session.clear()
@@ -177,12 +196,15 @@ class PredictionTournament(
             pending.addAll(survivors)
         }
         predictors.forEach { it.record(sample) }
+        recentReal.addLast(sample)
+        while (recentReal.size > DAMPING_HISTORY) recentReal.removeFirst()
         lastReal = sample
     }
 
     /**
      * Predicts the next [HORIZON_FRAMES] frames, one frame apart, with [targetUptimeMillis] as frame
-     * 1. Returns horizon 1 from whichever model has the lowest recent horizon-1 error (the tail).
+     * 1. Returns the tail: horizon 1 from whichever model has the lowest recent horizon-1 error,
+     * shortened by [tailDamping].
      */
     fun predict(targetUptimeMillis: Long): GesturePrediction? {
         val anchor = lastReal
@@ -192,15 +214,13 @@ class PredictionTournament(
         val aligned = predictors.flatMap { predictor ->
             val trajectory = predictor.predictTrajectory(targets)
             targets.indices.mapNotNull { h ->
-                trajectory.getOrNull(h)?.let { alignTo(anchor, it, targets[h]) }?.let { Pending(it, h + 1) }
+                trajectory.getOrNull(h)?.let { alignTo(anchor, it, targets[h]) }
+                    ?.let { Pending(it, h + 1, anchor?.position) }
             }
         }
         pending.addAll(aligned)
         val nextFrame = aligned.filter { it.horizonFrames == 1 }.map { it.prediction }
-        while (pending.size > predictors.size * HORIZON_FRAMES * 8) pending.removeFirst()
-        if (nextFrame.isEmpty()) return null
-
-        return nextFrame.minByOrNull { prediction ->
+        val winner = nextFrame.minByOrNull { prediction ->
             val count = scoreCounts.getValue(prediction.model)
             val error = errors.getValue(prediction.model)
             when {
@@ -209,6 +229,15 @@ class PredictionTournament(
                 else -> error
             }
         }
+        val tail = if (winner != null && anchor != null) {
+            val factor = tailDamping(recentReal.toList(), winner.position)
+            winner.copy(position = anchor.position + (winner.position - anchor.position) * factor)
+                .also { pending.addLast(Pending(it.copy(model = DAMPED_TAIL), 1, anchor.position)) }
+        } else {
+            winner
+        }
+        while (pending.size > (predictors.size + 1) * HORIZON_FRAMES * 8) pending.removeFirst()
+        return tail
     }
 
     /** Horizon-1 per-stroke exponential average, best first (drives tail selection). */
@@ -218,30 +247,43 @@ class PredictionTournament(
 
     /** Session mean error per horizon (1..[HORIZON_FRAMES]), each list best first. */
     fun rankings(): Map<Int, List<HorizonScore>> = (1..HORIZON_FRAMES).associateWith { h ->
-        predictors.mapNotNull { predictor ->
-            session[predictor.name to h]?.takeIf { it.count > 0 }?.let {
-                HorizonScore(predictor.name, h, (it.sumPx / it.count).toFloat(), it.count)
+        (predictors.map { it.name } + DAMPED_TAIL).mapNotNull { model ->
+            session[model to h]?.takeIf { it.count > 0 }?.let {
+                HorizonScore(
+                    model, h, (it.sumPx / it.count).toFloat(), it.count, (it.sumLeadPx / it.count).toFloat(),
+                )
             }
         }.sortedBy { it.meanErrorPx }
     }
 
-    /** One line per horizon: `f1: google-ink 2.1px (n=412) > linear 3.4px (n=430) > ...`. */
+    /** One line per horizon: `f1: google-ink 2.1px lead +0.4 (n=412) > linear 3.4px ...`. */
     fun rankingReport(): String = rankings().entries.joinToString("\n") { (h, scores) ->
         "f$h: " + if (scores.isEmpty()) {
             "no data"
         } else {
-            scores.joinToString(" > ") { "${it.model} ${"%.1f".format(it.meanErrorPx)}px (n=${it.samples})" }
+            scores.joinToString(" > ") {
+                "${it.model} ${"%.1f".format(it.meanErrorPx)}px lead ${"%+.1f".format(it.meanLeadPx)} (n=${it.samples})"
+            }
         }
     }
 
     private fun score(entry: Pending, actual: Offset) {
         val prediction = entry.prediction
         val error = (prediction.position - actual).getDistance()
+        val travel = entry.anchor?.let { actual - it }
+        val travelLength = travel?.getDistance() ?: 0f
+        val lead = if (travel != null && travelLength > 0f) {
+            val miss = prediction.position - actual
+            (miss.x * travel.x + miss.y * travel.y) / travelLength
+        } else {
+            0f
+        }
         session.getOrPut(prediction.model to entry.horizonFrames) { Accumulator() }.apply {
             sumPx += error
+            sumLeadPx += lead
             count += 1
         }
-        if (entry.horizonFrames != 1) return
+        if (entry.horizonFrames != 1 || prediction.model !in errors) return
         val count = scoreCounts.getValue(prediction.model)
         val previous = errors.getValue(prediction.model)
         errors[prediction.model] = if (count == 0 || !previous.isFinite()) {
@@ -265,7 +307,38 @@ class PredictionTournament(
     companion object {
         /** Frames ahead every model is asked for and ranked at. */
         const val HORIZON_FRAMES = 4
+
+        /** Rankings entry for the tail actually drawn (winner after [tailDamping]). */
+        const val DAMPED_TAIL = "tail(damped)"
+
+        const val DEFAULT_FRAME_MS = 16L
     }
+}
+
+/**
+ * How much of the predicted tail to draw, 0..1, from the last three real samples ([recent], oldest
+ * first) and the predicted point. Slowing: the latest real speed over the one before it, capped at
+ * 1, so a pen braking to a stop draws a shrinking tail. Turning: (1 + cos) / 2 of the angle between
+ * the latest real segment and the predicted one, so straight keeps it all, a right angle keeps half
+ * and a reversal keeps none. The two multiply. Too little history keeps the full tail.
+ */
+internal fun tailDamping(recent: List<GestureSample>, predicted: Offset): Float {
+    if (recent.size < DAMPING_HISTORY) return 1f
+    val (a, b, c) = recent.takeLast(DAMPING_HISTORY)
+    val dt1 = b.uptimeMillis - a.uptimeMillis
+    val dt2 = c.uptimeMillis - b.uptimeMillis
+    val incoming = c.position - b.position
+    val outgoing = predicted - c.position
+    val speed1 = (b.position - a.position).getDistance() / dt1.coerceAtLeast(1L)
+    val speed2 = incoming.getDistance() / dt2.coerceAtLeast(1L)
+    val lengths = incoming.getDistance() * outgoing.getDistance()
+    val slowing = if (speed1 > 0f) (speed2 / speed1).coerceIn(0f, 1f) else 1f
+    val turning = if (lengths > 0f) {
+        (1f + ((incoming.x * outgoing.x + incoming.y * outgoing.y) / lengths).coerceIn(-1f, 1f)) / 2f
+    } else {
+        1f
+    }
+    return if (dt1 <= 0L || dt2 <= 0L) 1f else slowing * turning
 }
 
 /** True position at [time], linearly interpolated between the real samples around it. */
@@ -298,3 +371,6 @@ internal fun alignTo(anchor: GestureSample?, prediction: GesturePrediction, targ
         }
     }
 }
+
+/** Real samples [tailDamping] needs: two segments, for a speed ratio and a turn angle. */
+private const val DAMPING_HISTORY = 3

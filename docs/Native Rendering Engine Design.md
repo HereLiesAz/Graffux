@@ -213,8 +213,38 @@ prediction. Everyone is judged at the same instants against the true position, i
 between the real samples on either side. Horizon 1 still drives the drawn tail (per-stroke
 exponential average). All horizons feed a session-long mean per model and horizon, which survives
 across strokes and is logged at every Brush stroke end: `adb logcat -s StrokePrediction`, one line
-per frame ahead, best first. That ranking is the data for choosing the best model per frame; the
-tail itself is unchanged.
+per frame ahead, best first. That ranking is the data for choosing the best model per frame.
+
+Each score also carries **lead**: the signed error along the direction of travel. Positive means
+the model ran ahead of the pen (overshoot), which is what reads worst at stroke ends and turns.
+Google Ink's predicted curve is sized to the real display frame length times four
+(`PredictionTournament(frameMs = …)` → `InkStrokePredictor(predictionIntervalMs)`), so all four
+frames sit on its own curve instead of past its end.
+
+The drawn tail is the horizon-1 winner shortened by `tailDamping`: speed ratio of the last two real
+segments (braking shrinks it) times (1 + cos turn angle) / 2 (a right angle halves it, a reversal
+removes it). It's ranked as `tail(damped)`, so its benefit is measured, not assumed.
+
+#### Stroke prediction to-do
+
+Ordered by value for effort. Items 1-3 of the original list (measure, one shared horizon,
+overshoot damping) are done above.
+
+1. **Keep the winner between strokes.** Horizon-1 selection restarts at zero every stroke, so each
+   stroke re-learns from scratch. Seed it from the session ranking, ideally per input tool
+   (stylus vs finger).
+2. **Pick the best model per frame.** Once the ranking settles, draw a multi-frame tail using the
+   winner at each horizon rather than one model's line.
+3. **Make the tail look like the brush.** Replace the flat line with a few low-opacity stamps of
+   the active brush along the predicted path, still never committed.
+4. **Aim at measured latency, not one frame.** GPU paint lands on a background thread and can
+   trail by more than a frame. Size the horizon from `AzphaltLatencyTracker`'s touch-to-paint
+   measurement.
+5. **Tune Google Ink and move prediction off the UI thread.** Its constants were cut ~6x without
+   measurement; tune them against the ranking. Move the tournament to the input thread if it shows
+   in frame timing.
+6. **Train a Graffux model (later).** A small model on recorded Graffux strokes (pressure, tilt)
+   could beat all four; only worth it once the ranking proves the gap.
 
 Adopting the companion doc's actual substitution model — painting provisional predicted dabs and
 overwriting them once ground truth arrives — remains unimplemented and is a real, separate item

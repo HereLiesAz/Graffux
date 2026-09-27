@@ -84,7 +84,8 @@ class PredictionHorizonRankingTest {
         val rankings = t.rankings()
         assertEquals((1..PredictionTournament.HORIZON_FRAMES).toSet(), rankings.keys)
         rankings.forEach { (h, scores) ->
-            assertEquals("horizon $h", setOf("linear", "acceleration"), scores.map { it.model }.toSet())
+            val models = scores.map { it.model }.filter { it != PredictionTournament.DAMPED_TAIL }.toSet()
+            assertEquals("horizon $h", setOf("linear", "acceleration"), models)
             assertEquals("horizon $h linear is exact", 0f, scores.first { it.model == "linear" }.meanErrorPx, 0.01f)
         }
     }
@@ -98,7 +99,8 @@ class PredictionHorizonRankingTest {
             t.predict(time + 10L)
         }
         t.rankings().forEach { (h, scores) ->
-            assertEquals("horizon $h", "acceleration", scores.first().model)
+            val best = scores.first { it.model != PredictionTournament.DAMPED_TAIL }
+            assertEquals("horizon $h", "acceleration", best.model)
         }
         // Error grows with distance ahead for the model that ignores acceleration.
         val linear = t.rankings().mapValues { (_, s) -> s.first { it.model == "linear" }.meanErrorPx }
@@ -133,5 +135,55 @@ class PredictionHorizonRankingTest {
         val aligned = alignTo(anchor, own, 16L)
         assertEquals(16f, aligned!!.position.x, 0.001f)
         assertEquals(16L, aligned.targetUptimeMillis)
+    }
+}
+
+class TailDampingTest {
+    private fun s(x: Float, y: Float, t: Long) = GestureSample(Offset(x, y), t)
+
+    @Test
+    fun steadyStraightMotionKeepsFullTail() {
+        val f = tailDamping(listOf(s(0f, 0f, 0), s(10f, 0f, 10), s(20f, 0f, 20)), Offset(30f, 0f))
+        assertEquals(1f, f, 0.001f)
+    }
+
+    @Test
+    fun brakingShortensTailBySpeedRatio() {
+        val f = tailDamping(listOf(s(0f, 0f, 0), s(10f, 0f, 10), s(15f, 0f, 20)), Offset(20f, 0f))
+        assertEquals(0.5f, f, 0.001f)
+    }
+
+    @Test
+    fun rightAngleTurnHalvesAndReversalKillsTail() {
+        val history = listOf(s(0f, 0f, 0), s(10f, 0f, 10), s(20f, 0f, 20))
+        assertEquals(0.5f, tailDamping(history, Offset(20f, 10f)), 0.001f)
+        assertEquals(0f, tailDamping(history, Offset(10f, 0f)), 0.001f)
+    }
+
+    @Test
+    fun tooLittleHistoryKeepsFullTail() {
+        assertEquals(1f, tailDamping(listOf(s(0f, 0f, 0), s(10f, 0f, 10)), Offset(0f, 50f)), 0.001f)
+    }
+
+    @Test
+    fun leadIsPositiveWhenAModelRunsAheadAndDampedTailIsRanked() {
+        val t = PredictionTournament(
+            listOf(LinearGesturePredictor(), AccelerationGesturePredictor()),
+            includeGoogleInk = false,
+        )
+        // Fast then braking to a stop: linear keeps going, so it overshoots (+ lead).
+        val xs = listOf(0f, 20f, 40f, 60f, 80f, 95f, 105f, 110f, 112f, 113f, 113f, 113f)
+        xs.forEachIndexed { i, x ->
+            t.record(GestureSample(Offset(x, 0f), i * 10L))
+            t.predict(i * 10L + 10L)
+        }
+        val f1 = t.rankings().getValue(1)
+        assertTrue(f1.first { it.model == "linear" }.meanLeadPx > 0f)
+        assertTrue(f1.any { it.model == PredictionTournament.DAMPED_TAIL })
+        // Damping must not make the drawn tail worse than the undamped linear model here.
+        assertTrue(
+            f1.first { it.model == PredictionTournament.DAMPED_TAIL }.meanLeadPx <=
+                f1.first { it.model == "linear" }.meanLeadPx,
+        )
     }
 }

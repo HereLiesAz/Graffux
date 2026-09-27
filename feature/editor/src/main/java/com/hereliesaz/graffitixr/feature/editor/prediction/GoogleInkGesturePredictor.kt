@@ -4,9 +4,12 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.nativebridge.InkStrokePredictor
 
 /** Real Google Ink Stroke Modeler Kalman prediction, through core:nativebridge. */
-class GoogleInkGesturePredictor : GesturePredictor, AutoCloseable {
+class GoogleInkGesturePredictor(
+    /** Length of the predicted curve; PredictionTournament sizes it to cover every ranked frame. */
+    predictionIntervalMs: Long = 17L,
+) : GesturePredictor, AutoCloseable {
     override val name: String = "google-ink"
-    private val engine = InkStrokePredictor()
+    private val engine = InkStrokePredictor(predictionIntervalMs)
 
     private var latest: GestureSample? = null
 
