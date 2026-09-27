@@ -8,8 +8,9 @@ import java.util.Properties
 // commonTest suite on both targets. What's genuinely NEW here (not shared with Android): pointer
 // input with pen pressure via Compose Multiplatform's PointerType.Stylus, and a tile-parallel
 // compositor that spreads a stroke's dirty region across Dispatchers.Default workers to use the
-// multiple CPU cores a Surface Pro ships with. See DESKTOP.md at the repo root for what's verified
-// vs. deferred (a native GPU-accelerated engine is NOT part of this — see that doc for why).
+// multiple CPU cores a Surface Pro ships with. The canvas composites on the GPU through the wgpu
+// stamp engine (core/wgpu-engine, built below with cargo) when an adapter exists, and falls back to
+// that CPU compositor otherwise. See DESKTOP.md at the repo root for what's verified vs. deferred.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.jetbrains.kotlin.compose)
@@ -75,4 +76,70 @@ compose.desktop {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The wgpu stamp engine (core/wgpu-engine, Rust), built for the host with cargo and bundled as a
+// classpath resource at native/<os>-<arch>/, where WgpuLibrary (core:engine) extracts and loads it.
+// Optional: without cargo (or with -Pgraffux.wgpu.skip=true) the app builds and runs on the CPU
+// compositor alone; -Pgraffux.wgpu.require=true makes a missing library a build failure.
+// ---------------------------------------------------------------------------------------------
+val wgpuCrateDir = rootProject.file("core/wgpu-engine")
+val wgpuTargetDir = File(wgpuCrateDir, "target")
+val wgpuSkip = providers.gradleProperty("graffux.wgpu.skip").map { it.toBoolean() }.getOrElse(false)
+val wgpuRequire = providers.gradleProperty("graffux.wgpu.require").map { it.toBoolean() }.getOrElse(false)
+val cargoExecutable: File? = (
+    listOfNotNull(System.getenv("CARGO_HOME")?.let { File(it, "bin") }, File(System.getProperty("user.home"), ".cargo/bin")) +
+        (System.getenv("PATH") ?: "").split(File.pathSeparator).filter { it.isNotBlank() }.map(::File)
+    ).flatMap { listOf(File(it, "cargo"), File(it, "cargo.exe")) }.firstOrNull { it.canExecute() }
+val hostOs = System.getProperty("os.name").lowercase().let {
+    when {
+        it.startsWith("windows") -> "windows"
+        it.startsWith("mac") -> "macos"
+        else -> "linux"
+    }
+}
+val hostArch = when (val a = System.getProperty("os.arch").lowercase()) {
+    "amd64", "x86_64" -> "x86_64"
+    "aarch64", "arm64" -> "aarch64"
+    else -> a
+}
+val hostLibName = when (hostOs) {
+    "windows" -> "graffux_wgpu.dll"
+    "macos" -> "libgraffux_wgpu.dylib"
+    else -> "libgraffux_wgpu.so"
+}
+
+val cargoBuildWgpuHost = tasks.register<Exec>("cargoBuildWgpuHost") {
+    description = "Builds core/wgpu-engine for this host (skipped without cargo)."
+    group = "build"
+    val cargo = cargoExecutable
+    enabled = !wgpuSkip && cargo != null
+    inputs.dir(File(wgpuCrateDir, "src"))
+    inputs.file(File(wgpuCrateDir, "Cargo.toml"))
+    inputs.file(File(wgpuCrateDir, "Cargo.lock"))
+    outputs.file(File(wgpuTargetDir, "release/$hostLibName"))
+    workingDir = wgpuCrateDir
+    executable = cargo?.absolutePath ?: "cargo"
+    args("build", "--release", "--locked", "--target-dir", wgpuTargetDir.absolutePath)
+    isIgnoreExitValue = !wgpuRequire
+}
+
+val wgpuResourcesDir = layout.buildDirectory.dir("generated/wgpuResources")
+val stageWgpuHostLibrary = tasks.register<Sync>("stageWgpuHostLibrary") {
+    dependsOn(cargoBuildWgpuHost)
+    from(File(wgpuTargetDir, "release")) { include(hostLibName) }
+    into(wgpuResourcesDir.map { it.dir("native/$hostOs-$hostArch") })
+    val require = wgpuRequire
+    val skip = wgpuSkip || cargoExecutable == null
+    doLast {
+        if (!destinationDir.resolve(hostLibName).isFile && !skip) {
+            val message = "$hostLibName was not built; the desktop canvas will use the CPU compositor."
+            if (require) throw GradleException(message) else logger.warn("w: $message")
+        }
+    }
+}
+
+sourceSets.main {
+    resources.srcDir(files(wgpuResourcesDir).builtBy(stageWgpuHostLibrary))
 }

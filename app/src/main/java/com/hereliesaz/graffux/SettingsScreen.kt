@@ -373,8 +373,9 @@ private fun PredictionSoloRow() {
 }
 
 /**
- * Which GPU backend paints the stamp brushes: Vulkan or OpenGL ES (same shaders, same pixels). A
- * comparison switch: reports name the backend, and new strokes pick the change up immediately.
+ * Which GPU backend paints the stamp brushes: Vulkan, OpenGL ES or wgpu (same shader math, same
+ * pixels). A comparison switch: reports name the backend, and new strokes pick the change up
+ * immediately. The default stays Vulkan.
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
@@ -386,11 +387,18 @@ private fun GpuBackendRow(vm: SettingsViewModel) {
     var backend by remember { mutableStateOf(GpuStampEngine.Backend.preferred) }
     ChoiceRow(
         title = "GPU engine",
-        subtitle = "Which graphics API paints the brushes. Both produce the same pixels; switch to " +
-            "compare how drawing feels. Applies to the next stroke.",
+        subtitle = "Which graphics API paints the brushes. All three produce the same pixels; switch " +
+            "to compare how drawing feels. wgpu is the engine the desktop app shares; with it, " +
+            "direct display is off. Applies to the next stroke.",
         options = GpuStampEngine.Backend.entries.toList(),
         selected = backend,
-        label = { if (it == GpuStampEngine.Backend.VULKAN) "Vulkan" else "OpenGL ES" },
+        label = {
+            when (it) {
+                GpuStampEngine.Backend.VULKAN -> "Vulkan"
+                GpuStampEngine.Backend.GLES -> "OpenGL ES"
+                GpuStampEngine.Backend.WGPU -> "wgpu"
+            }
+        },
         onSelect = {
             backend = it
             GpuStampEngine.Backend.preferred = it
@@ -402,7 +410,7 @@ private fun GpuBackendRow(vm: SettingsViewModel) {
         title = "Direct display",
         subtitle = "Draws the stroke in progress straight to the screen through Vulkan, skipping " +
             "the app's own frame. Normal-blend layers with nothing visible above them; everything " +
-            "else draws as before. Takes effect next time the canvas opens.",
+            "else draws as before. Not with the wgpu engine. Takes effect next time the canvas opens.",
         options = listOf(false, true),
         selected = direct,
         label = { if (it) "On" else "Off" },

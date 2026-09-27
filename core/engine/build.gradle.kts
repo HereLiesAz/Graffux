@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 // The azphalt stamp-brush engine as a real Kotlin Multiplatform module: pure math and data classes
 // (BrushStamps, AzphaltBrush, BrushSensorDynamics, TileGrid, DirtyRegion, ...) with zero Android
@@ -45,6 +46,20 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+        }
+    }
+
+    // The default hierarchy plus one group: `jvmSharedMain`, JVM code shared by the Android and
+    // desktop targets but not by commonMain -- the JNI wrapper of the Rust wgpu stamp engine
+    // (core/wgpu-engine). `external` and System.load are JVM-only, and both targets load the very
+    // same libgraffux_wgpu JNI surface.
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common {
+            group("jvmShared") {
+                withJvm()
+                withCompilations { it.target.platformType == KotlinPlatformType.androidJvm }
+            }
         }
     }
 }

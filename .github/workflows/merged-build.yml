@@ -169,6 +169,12 @@ jobs:
           # download-and-submit), which failed the action before the build could start.
           dependency-graph: disabled
 
+      # The wgpu stamp engine (core/wgpu-engine) is cross-compiled by Gradle with cargo; the runner
+      # image ships rustup/cargo but not the Android target. Without it the APK still builds, just
+      # without libgraffux_wgpu.so (Settings -> GPU engine -> wgpu then falls back to the CPU).
+      - name: Add the Rust Android target
+        run: rustup target add aarch64-linux-android
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 

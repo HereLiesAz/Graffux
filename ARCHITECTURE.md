@@ -30,8 +30,9 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
-| `:core:nativebridge` | JNI bridge to the native (OpenCV/Vulkan) world used by Liquify, drawing, and GPU compositing. |
-| `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. |
+| `:core:nativebridge` | JNI bridge to the native (OpenCV/Vulkan) world used by Liquify, drawing, and GPU compositing. Hosts the three GPU stamp engines behind `StampEngine.h`: Vulkan, OpenGL ES, and the wgpu adapter. |
+| `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
+| `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. Its `jvmShared` source set (Android + desktop) holds the JNI wrapper of the wgpu engine. |
 | `:desktop` | The real Graffux desktop app (Linux/Windows, Compose Multiplatform) — not published from this table's other modules, but a third consumer of `:core:engine`'s shared math alongside Android Graffux and GraffitiXR. See `DESKTOP.md`. |
 
 `:core:*` and `:feature:editor` keep the `com.hereliesaz.graffitixr` namespace — they are the
@@ -142,3 +143,15 @@ codebase is deferred scope or a real gap in the install-report flow.
   whatever the *live* layer list is when decoding finishes, rather than replacing the whole
   list with the stale pre-decode snapshot — decoding a full-screen bitmap can take long enough
   for the user to have added, removed, or edited a layer in the meantime.
+- **wgpu is the long-term single brush engine, for Android and desktop.** The GPU stamp engine
+  exists three times today: `VulkanStampEngine` and `GlesStampEngine` (C++, Android only) and the
+  wgpu engine (`core/wgpu-engine`, Rust + WGSL). New brush work targets wgpu. Vulkan and GLES stay
+  selectable in Settings → GPU engine for now, for comparison and as fallbacks, and Vulkan is
+  still the default. Direct display (`LiveStrokeOverlay`) stays raw Vulkan through
+  AHardwareBuffer interop and is ineligible while wgpu is selected. wgpu was chosen over
+  consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
+  where the NDK engines cannot run at all), its automatic synchronization (no hand-written
+  barriers between the ordered smudge phases), one shader language (WGSL, compiled by naga,
+  instead of two GLSL dialects and a port script), and a path to WebGPU in the browser. Parity is
+  checked by `tools/stamp-engine-diff`, which runs every scenario through all engines on Mesa. See
+  `docs/Native Rendering Engine Design.md` §2b.

@@ -4300,8 +4300,10 @@ class EditorViewModel @Inject constructor(
                 val preStrokeBaseSeed = SafeBitmap.copy(work)
                 // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
                 // two full-layer GPU passes run here, off the main thread, before any dab lands.
-                // Never alongside Jetpack Ink: the two must not both draw one stroke.
-                val directDisplay = LiveStrokeOverlay.enabled && !jetpackInkBrush.value
+                // Never alongside Jetpack Ink: the two must not both draw one stroke. Never on an
+                // engine without AHardwareBuffer output (wgpu): the overlay samples that buffer.
+                val directDisplay = LiveStrokeOverlay.enabled && !jetpackInkBrush.value &&
+                    gpuEngine?.backend?.hardwareBufferOutput == true
                 val overlayMatrices = if (gpuDisplay != null && directDisplay && liveOverlay != null) {
                     withContext(dispatchers.main) { overlayMatricesFor(layerId) }
                 } else {

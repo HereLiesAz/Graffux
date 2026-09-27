@@ -17,11 +17,9 @@ private const val TILE_SIZE_PX = 192
 /**
  * Rasterizes [dabs] onto a canvas of [canvasWidth] x [canvasHeight], splitting the stroke's dirty
  * region into [TileGrid] tiles and compositing them concurrently on [kotlinx.coroutines.Dispatchers.Default]
- * (backed by a thread per CPU core). This is the CPU-side "engine" optimization this desktop app
- * makes for Surface Pro hardware: there is no cross-platform GPU compute path available to a plain
- * JVM Compose Desktop app (the Android build's native Vulkan stamp engine is Android-NDK-only — see
- * DESKTOP.md), so the real lever here is keeping every core busy instead of rasterizing a big stroke
- * single-threaded on the UI thread.
+ * (backed by a thread per CPU core). This is the desktop canvas's CPU path: the canvas prefers the
+ * wgpu GPU stamp engine ([GpuStrokeRenderer]) and lands here when no adapter exists, so the lever
+ * is keeping every core busy instead of rasterizing a big stroke single-threaded on the UI thread.
  *
  * Each tile's dab-overlap filter is a cheap bounding-box test, not a re-run of the full compositor,
  * so passing the whole (unfiltered) [dabs] list per tile is fine even for a few hundred tiles.

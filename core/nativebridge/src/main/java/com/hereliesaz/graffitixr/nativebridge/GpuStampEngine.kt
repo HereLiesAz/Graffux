@@ -9,17 +9,26 @@ import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Kotlin bridge to the persistent GPU dab compositor. Two interchangeable native backends produce
- * the same pixels -- Vulkan compute (VulkanStampEngine.cpp) and OpenGL ES 3.1 compute
- * (GlesStampEngine.cpp) -- chosen per instance by [backend], by default [Backend.preferred]
- * (a Settings choice, so the two can be compared on a real device).
+ * Kotlin bridge to the persistent GPU dab compositor. Three interchangeable native backends produce
+ * the same pixels -- Vulkan compute (VulkanStampEngine.cpp), OpenGL ES 3.1 compute
+ * (GlesStampEngine.cpp) and wgpu (core/wgpu-engine, the Rust engine shared with the desktop app,
+ * behind WgpuStampEngine.cpp) -- chosen per instance by [backend], by default [Backend.preferred]
+ * (a Settings choice, so they can be compared on a real device).
  */
 class GpuStampEngine(val backend: Backend = Backend.preferred) {
     init { NativeLibLoader.loadAll() }
 
-    enum class Backend(val nativeId: Int, val label: String) {
-        VULKAN(0, "vulkan"),
-        GLES(1, "gles");
+    /**
+     * [hardwareBufferOutput]: whether the backend can render into an AHardwareBuffer, which direct
+     * display (LiveStrokeOverlay, raw Vulkan interop) needs. wgpu cannot yet, so with wgpu selected
+     * direct display is simply ineligible and strokes display through readback.
+     */
+    enum class Backend(val nativeId: Int, val label: String, val hardwareBufferOutput: Boolean) {
+        VULKAN(0, "vulkan", true),
+        GLES(1, "gles", true),
+
+        /** The long-term single engine (ARCHITECTURE.md); needs libgraffux_wgpu.so in the APK. */
+        WGPU(2, "wgpu", false);
 
         companion object {
             /** Backend new engines use. Set from Settings at startup and whenever it changes. */
@@ -102,6 +111,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
 
     private fun initialize(width: Int, height: Int, hardwareBufferBacked: Boolean): Boolean {
         if (width <= 0 || height <= 0) { destroy(); return false }
+        if (hardwareBufferBacked && !backend.hardwareBufferOutput) { destroy(); return false }
         destroy()
         substrateHeightUploaded = false
         paintHeightUploaded = false

@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +27,8 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import java.awt.image.BufferedImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
 /**
@@ -33,8 +36,9 @@ import kotlin.random.Random
  * [BrushSample]s -> [BrushStamps.dynamicDabs] (the SAME shared entry point the Android app's
  * stroke pipeline uses -- arc-length placement, taper, first-touch blot, sensor-bound dynamics,
  * jitter, everything the brush preset declares, not a hand-rolled desktop-only pressure curve) ->
- * [compositeTileParallel] (the shared max-combine falloff compositor, spread across CPU cores) ->
- * blitted onto a [BufferedImage] canvas.
+ * the wgpu GPU stamp engine ([GpuStrokeRenderer], the engine Android offers as "wgpu") when an
+ * adapter exists, otherwise [compositeTileParallel] (the shared max-combine falloff compositor,
+ * spread across CPU cores) -> a [BufferedImage] canvas.
  *
  * Every pointer callback ([detectStampGestures]'s `onStart`/`onMove`/`onEnd`) is a suspend function
  * invoked directly from the single gesture-handling coroutine, and each one's own render is awaited
@@ -65,6 +69,8 @@ fun DesktopStampCanvas(
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var hoverPosition by remember { mutableStateOf<Offset?>(null) }
+    val gpu = remember { GpuStrokeRenderer() }
+    DisposableEffect(gpu) { onDispose { gpu.close() } }
 
     // The ONE place that ever creates or resizes `state.committed`'s backing bitmap, covering
     // three cases uniformly: the very first layout pass (`committed == null`), a live window
@@ -107,20 +113,40 @@ fun DesktopStampCanvas(
                 var strokeSeed = 0L
                 var lastRenderedFrame: BufferedImage? = null
 
+                var gpuStroke: Boolean? = null
+
                 suspend fun renderStroke(base: BufferedImage) {
                     val dabs = BrushStamps.dynamicDabs(samples, brushRadiusPx * 2f, brush, strokeSeed)
-                    val tiles = compositeTileParallel(
-                        dabs = dabs,
-                        canvasWidth = base.width,
-                        canvasHeight = base.height,
-                        colorArgb = colorArgb,
-                        secondaryColorArgb = colorArgb,
-                        colorSource = BrushColorSource.PLAIN,
-                        flow = flow,
-                    )
-                    val pixels = IntArray(base.width * base.height)
-                    base.getRGB(0, 0, base.width, base.height, pixels, 0, base.width)
-                    for (tile in tiles) blitSrcOver(pixels, base.width, base.height, tile)
+                    // GPU first (wgpu, see GpuStrokeRenderer), off the UI thread: every JNI call
+                    // blocks until the GPU is done. Null = no usable GPU, keep the CPU path.
+                    val gpuPixels = withContext(Dispatchers.Default) {
+                        val started = gpuStroke ?: gpu.beginStroke(
+                            base.getRGB(0, 0, base.width, base.height, null, 0, base.width),
+                            base.width,
+                            base.height,
+                        ).also { gpuStroke = it }
+                        if (started) {
+                            gpu.renderStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)
+                                .also { if (it == null) gpuStroke = false }
+                        } else {
+                            null
+                        }
+                    }
+                    val pixels = gpuPixels ?: run {
+                        val tiles = compositeTileParallel(
+                            dabs = dabs,
+                            canvasWidth = base.width,
+                            canvasHeight = base.height,
+                            colorArgb = colorArgb,
+                            secondaryColorArgb = colorArgb,
+                            colorSource = BrushColorSource.PLAIN,
+                            flow = flow,
+                        )
+                        val cpu = IntArray(base.width * base.height)
+                        base.getRGB(0, 0, base.width, base.height, cpu, 0, base.width)
+                        for (tile in tiles) blitSrcOver(cpu, base.width, base.height, tile)
+                        cpu
+                    }
                     val frame = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
                     frame.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
                     lastRenderedFrame = frame
@@ -135,6 +161,7 @@ fun DesktopStampCanvas(
                                 createGraphics().apply { drawImage(base, 0, 0, null); dispose() }
                             }
                             samples.clear()
+                            gpuStroke = null
                             strokeSeed = Random.nextLong()
                             samples.add(
                                 sampleBuilder.add(
