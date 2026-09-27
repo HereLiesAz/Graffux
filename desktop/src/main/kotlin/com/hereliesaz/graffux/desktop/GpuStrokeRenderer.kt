@@ -19,6 +19,13 @@ import kotlin.math.max
  * taper depends on the stroke's total length), but only the rows the previous frame touched are
  * restored, read back and converted, so a frame costs the stroke's extent, not the canvas's.
  *
+ * The canvas layer stays resident on the GPU between strokes (core/wgpu-engine's resident layers):
+ * [beginStroke] with the same `contentKey` (the committed image object) that [commitStroke] last
+ * recorded binds the resident copy instead of uploading the whole canvas, and every frame reads
+ * back and converts only the rectangle the engine reports as changed. Any other key -- undo/redo,
+ * a resize, a CPU-rendered stroke -- misses and uploads, exactly as before. Committed images are
+ * never mutated in place (CanvasState swaps whole images), so object identity is a safe key.
+ *
  * One engine per canvas size, created lazily. [beginStroke]/[renderStroke] return false/null
  * whenever the GPU path is unavailable -- the library did not load, no adapter with compute support
  * exists (e.g. no GPU driver at all), a call failed, or `-Dgraffux.gpu=false` -- and the caller then
@@ -35,21 +42,101 @@ class GpuStrokeRenderer {
     private var firstFrame = true
     private var touchedRows: IntRange = IntRange.EMPTY
 
+    // Resident layer state: the bind session of the current stroke (0 = not resident, plain
+    // upload path), what the resident copy holds, and whether the last frame came from the GPU.
+    private var session = 0L
+    private var residentContent: Any? = null
+    private var residentGeneration = 0L
+    private var nextGeneration = 1L
+    private var lastFrameFromGpu = false
+
+    /** Strokes that started on the resident copy vs. with a whole-canvas upload (diagnostics, tests). */
+    var residentHits = 0
+        private set
+    var residentUploads = 0
+        private set
+
     /** What the canvas is painting with, for logs: the adapter, or why it is on the CPU. */
     var description: String = "CPU (GPU not probed yet)"
         private set
 
-    /** Starts a stroke over [baseArgb] (straight ARGB, the pre-stroke canvas). False = use the CPU. */
-    fun beginStroke(baseArgb: IntArray, width: Int, height: Int): Boolean {
-        if (engineFor(width, height) == null) return false
+    /**
+     * Starts a stroke over [baseArgb] (straight ARGB, the pre-stroke canvas). [contentKey] names
+     * those pixels (the committed image object); null disables residency for this stroke. False =
+     * use the CPU.
+     */
+    fun beginStroke(baseArgb: IntArray, width: Int, height: Int, contentKey: Any? = null): Boolean {
+        val e = engineFor(width, height) ?: return false
         val bytes = baseArgb.size * BYTES_PER_PIXEL
         if (baseRgba.size != bytes) baseRgba = ByteArray(bytes)
         if (readback.size != bytes) readback = ByteArray(bytes)
         WgpuDabs.premultipliedRgba(baseArgb, baseRgba)
         frame = baseArgb.copyOf()
-        firstFrame = true
         touchedRows = IntRange.EMPTY
+        lastFrameFromGpu = false
+        session = if (contentKey == null) {
+            0L
+        } else {
+            startResident(e, contentKey)
+        }
+        // Resident: the engine already holds the base and nothing is dirty, so the readback buffer
+        // only has to hold the same pixels, and the frame starts as what a whole-layer readback
+        // would have converted (straight -> premultiplied -> straight is not the identity at low
+        // alpha, and frames must match the upload path exactly). CPU only; nothing crosses from the
+        // GPU. Otherwise the first frame uploads, as it always did.
+        if (session != 0L) {
+            baseRgba.copyInto(readback)
+            WgpuDabs.straightArgb(baseRgba, frame)
+        }
+        firstFrame = session == 0L
         return true
+    }
+
+    private fun startResident(e: WgpuStampEngine, contentKey: Any): Long {
+        if (contentKey === residentContent) {
+            val bound = e.bindLayer(LAYER_KEY, residentGeneration)
+            if (bound != 0L) {
+                residentHits++
+                return bound
+            }
+        }
+        residentContent = null
+        val generation = nextGeneration++
+        val uploaded = e.uploadLayer(LAYER_KEY, generation, baseRgba)
+        if (uploaded != 0L) {
+            residentUploads++
+            residentContent = contentKey
+            residentGeneration = generation
+        }
+        return uploaded
+    }
+
+    /**
+     * The stroke just ended and [contentKey] (a new image object) now holds the last frame
+     * [renderStroke] returned. Makes the resident copy match it exactly: the rows the stroke
+     * touched are refreshed from those pixels re-premultiplied, since straight ARGB does not always
+     * round-trip to the same premultiplied bytes at low alpha. If the stroke did not end on a GPU
+     * frame, the resident copy is simply forgotten.
+     */
+    fun commitStroke(contentKey: Any) {
+        val e = engine
+        val s = session
+        session = 0L
+        residentContent = null
+        if (e == null || s == 0L || !lastFrameFromGpu) return
+        WgpuDabs.premultipliedRgba(frame, baseRgba)
+        val generation = nextGeneration++
+        if (e.refreshLayer(LAYER_KEY, s, generation, baseRgba, WgpuStampEngine.PixelRect.EMPTY)) {
+            residentContent = contentKey
+            residentGeneration = generation
+        }
+    }
+
+    /** Forgets the resident canvas (e.g. the document was replaced). */
+    fun invalidate() {
+        residentContent = null
+        session = 0L
+        engine?.invalidateAllLayers()
     }
 
     /**
@@ -77,13 +164,19 @@ class GpuStrokeRenderer {
             val packed = WgpuDabs.resolvedRound(dabs, colorArgb, secondaryColorArgb, colorSource, flow)
             if (!e.stampDabs(packed, colorArgb, hardness = 1f)) return fail("stampDabs failed")
         }
-        if (!e.readback(readback)) return fail("readback failed")
-        val convert = if (firstFrame) 0 until e.height else union(restore, stamped)
-        if (!convert.isEmpty()) {
-            WgpuDabs.straightArgb(readback, frame, convert.first * e.width, (convert.last + 1) * e.width)
+        val copied = e.readbackRect(readback) ?: return fail("readback failed")
+        if (firstFrame) {
+            WgpuDabs.straightArgb(readback, frame, 0, e.width * e.height)
+        } else if (!copied.isEmpty) {
+            // Only the rectangle the engine reports changed (restored rows + this frame's dabs).
+            for (row in copied.y until copied.y + copied.height) {
+                val start = row * e.width + copied.x
+                WgpuDabs.straightArgb(readback, frame, start, start + copied.width)
+            }
         }
         firstFrame = false
         touchedRows = stamped
+        lastFrameFromGpu = true
         return frame
     }
 
@@ -140,16 +233,22 @@ class GpuStrokeRenderer {
         println("Graffux canvas: $description")
         engine?.let { failedSize = it.width to it.height }
         close()
+        lastFrameFromGpu = false
         return null
     }
 
     fun close() {
         engine?.close()
         engine = null
+        session = 0L
+        residentContent = null
     }
 
     private companion object {
         const val BYTES_PER_PIXEL = 4
+
+        /** The desktop canvas is one layer. */
+        const val LAYER_KEY = 1L
 
         /** The engines' own minimum dab radius (StampEngine.h dabRegion / stamp.comp). */
         const val MIN_DAB_RADIUS = 0.5f

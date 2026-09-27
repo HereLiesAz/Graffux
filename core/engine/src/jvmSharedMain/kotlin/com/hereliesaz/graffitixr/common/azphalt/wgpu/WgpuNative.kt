@@ -65,6 +65,26 @@ internal object WgpuNative {
     ): Boolean
 
     @JvmStatic external fun nativeReadback(handle: Long, out: ByteArray): Boolean
+    @JvmStatic external fun nativeReadbackRect(handle: Long, out: ByteArray, rect: IntArray): Boolean
+    @JvmStatic external fun nativeReadRegion(handle: Long, x: Int, y: Int, w: Int, h: Int, out: ByteArray): Boolean
+    @JvmStatic external fun nativeBindLayer(handle: Long, key: Long, generation: Long): Long
+    @JvmStatic external fun nativeUploadLayer(handle: Long, key: Long, generation: Long, rgba: ByteArray): Long
+    @JvmStatic external fun nativeCommitLayer(handle: Long, key: Long, session: Long, generation: Long): Boolean
+    @JvmStatic external fun nativeRefreshLayer(
+        handle: Long,
+        key: Long,
+        session: Long,
+        generation: Long,
+        rgba: ByteArray,
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+    ): Boolean
+    @JvmStatic external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
+    @JvmStatic external fun nativeInvalidateAllLayers(handle: Long)
+    @JvmStatic external fun nativeSetResidentBudget(handle: Long, bytes: Long)
+    @JvmStatic external fun nativeResidentStats(handle: Long): LongArray?
     @JvmStatic external fun nativeAdapterDescription(handle: Long): String
 }
 
