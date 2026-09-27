@@ -2240,9 +2240,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
     // paints first, underneath everything); declared here top-first (reversed) so the item at
     // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
-    // convention and Photoshop/Procreate's own. A group layer's children render inside its own
-    // nested rail (azRailRelocItem's nestedContent), a real recursive popup — not a flat
-    // indented stand-in — so reordering stays scoped to siblings at each level.
+    // convention and Photoshop/Procreate's own. A group layer is a rail host of its own
+    // (azRailSubHostItem under its parent's host) and its children are ordinary rail sub-items
+    // whose hostId is that group — never a nested rail — so reordering stays scoped to siblings
+    // at each level. See layerRailRows for the declaration order and why it matters.
     //
     // Unattached and pinned to the opposite side of the screen from the main rail, not a group
     // in the rail strip. Layers is the one host you keep reaching for *while* painting —
@@ -2286,11 +2287,12 @@ private fun AzNavHostScope.ConfigureRailItems(
             initiallyExpanded = railExpansion["grp.layers"] ?: false,
             onExpandedChange = { vm.onRailHostExpansionChanged("grp.layers", it) },
         )
-        uiState.layers.filter { it.parentId == null }.reversed().forEach { layer ->
-            renderLayerRailItem(
-                layer, uiState, "grp.layers", vm, activeColor, navItemColor, strings,
-                onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
-            )
+        val layerRailEnv = LayerRailEnv(
+            vm, navItemColor, strings, railExpansion,
+            onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
+        )
+        layerRailRows(uiState.layers).forEach { row ->
+            renderLayerRailItem(row, uiState, layerRailEnv)
         }
         // Always present, not just when the document has zero layers: with one layer already in
         // place, the only other way to add a blank one was a four-finger-hold radial menu whose
@@ -2481,31 +2483,47 @@ private fun AzNavHostScope.ConfigureRailItems(
 }
 
 /**
- * Renders one layer row under [hostId] and, if it's a [LayerType.GROUP], recurses into its own
- * nested rail for its children (their own host scope, so drag-reordering a group's contents never
- * touches a sibling group or the top level). onRelocate's newOrder comes back in this rail's own
- * top-first display order restricted to this host's items; reversed to bottom-first and applied via
- * [LayerListOps.reorderSubset], which — unlike the plain [LayerListOps.reorder] the rest of the
- * app's history assumed — only touches the named layers' own slots, since a scoped relocate no
- * longer covers the whole flat list the way the single flat "grp.layers" host used to.
+ * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host, so it
+ * drag-reorders among that host's other leaf layers. A [LayerType.GROUP] is an `azRailSubHostItem`
+ * under the row's host with id `layer.<groupId>`, and its children (declared by [layerRailRows] as
+ * rows of their own) are reloc sub-items with that id as their `hostId` — sub-items of a host,
+ * not a nested rail.
+ *
+ * Library limit: AzNavRail has no item that is both a reloc item and a host (`azRailRelocItem`
+ * takes no host flags; `azRailSubHostItem` takes no `onRelocate`), so a group itself can't be
+ * dragged, and — because a reloc cluster is a *contiguous* run of same-host reloc items — a group
+ * also bounds how far its leaf siblings can be dragged past it. Moving a whole group is done
+ * through the existing layer ops (Ungroup / Group with Above), not a drag.
+ *
+ * onRelocate's newOrder is every reloc id of the host, top-first; [EditorViewModel.onLayerRailRelocated]
+ * narrows it to the host's own layers and applies it via [LayerListOps.reorderSubset], which only
+ * touches the named layers' slots, so a group's untouched slot stays where it was.
  */
-private fun AzNavHostScope.renderLayerRailItem(
-    layer: Layer,
-    uiState: EditorUiState,
-    hostId: String,
-    vm: EditorViewModel,
-    activeColor: Color,
-    navItemColor: Color,
-    strings: AppStrings,
-    onBlendMode: () -> Unit,
-    onEditClicked: () -> Unit,
-    onCurves: () -> Unit,
-) {
-    val isGroup = layer.type == LayerType.GROUP
-    val children = if (isGroup) uiState.layers.filter { it.parentId == layer.id } else emptyList()
+private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: EditorUiState, env: LayerRailEnv) {
+    val vm = env.vm
+    val navItemColor = env.navItemColor
+    val layer = row.layer
+    val id = layerRailId(layer.id)
+    val menu: HiddenMenuScope.() -> Unit = {
+        renderLayerMenu(layer, uiState, env)
+    }
+    if (row.isGroup) {
+        azRailSubHostItem(
+            id = id, hostId = row.hostId, classifiers = setOf(id),
+            text = layer.name,
+            content = GraffuxIcons.LayerGroup,
+            // A group keeps a border at rest so it reads as a host, not a layer thumbnail.
+            shape = AzButtonShape.SQUARE,
+            color = navItemColor,
+            initiallyExpanded = env.railExpansion[id] ?: false,
+            onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
+            hiddenMenu = menu,
+        )
+        return
+    }
     azRailRelocItem(
-        id = "layer.${layer.id}", classifiers = setOf("layer.${layer.id}"),
-        hostId = hostId,
+        id = id, classifiers = setOf(id),
+        hostId = row.hostId,
         text = layer.name,
         // A raw android.graphics.Bitmap doesn't match any of AzNavRailButton's explicit content
         // branches (Color/Int-resource/String/ImageVector/Painter), so it fell through to Coil's
@@ -2513,100 +2531,102 @@ private fun AzNavHostScope.renderLayerRailItem(
         // mutated/recycled in place by this app's own paint pipeline out from under whatever Coil
         // cached. Wrapping it as a BitmapPainter hits AzNavRailButton's direct Painter branch instead
         // -- a synchronous Image(painter) draw, no async load or cache to go stale.
-        content = when {
-            isGroup -> GraffuxIcons.LayerGroup
-            layer.bitmap != null -> BitmapPainter(layer.bitmap!!.asImageBitmap())
-            else -> GraffuxIcons.LayerThumbnail
-        },
+        content = layer.bitmap?.let { BitmapPainter(it.asImageBitmap()) } ?: GraffuxIcons.LayerThumbnail,
         // Square, like the floating host these live in — and unlike a circular clip, it shows the
-        // layer's thumbnail whole instead of cropping its corners. A group layer hosts its children's
-        // nested rail, so it keeps a border at rest; a leaf layer stays borderless at rest and grows
-        // AzNavRailButton's active-state ring (11.19+) only while it's the active layer — that ring
-        // draws regardless of a borderless shape once a button is highlighted, so no shape-flipping
-        // hack is needed here the way earlier AzNavRail versions required.
-        shape = if (isGroup) AzButtonShape.SQUARE else AzButtonShape.NONE_SQUARE,
+        // layer's thumbnail whole instead of cropping its corners. Borderless at rest; it grows
+        // AzNavRailButton's active-state ring (11.19+) only while it's the active layer.
+        shape = AzButtonShape.NONE_SQUARE,
         color = navItemColor,
-        onClick = { if (!isGroup) vm.onLayerActivated(layer.id) },
-        onRelocate = { _, _, newOrder ->
-            val ids = newOrder.filter { it.startsWith("layer.") }.map { it.removePrefix("layer.") }
-            vm.onLayerReordered(ids.reversed())
-        },
-        keepNestedRailOpen = isGroup,
-        nestedContent = if (isGroup) {
-            {
-                children.reversed().forEach { child ->
-                    renderLayerRailItem(
-                        child, uiState, "group.${layer.id}", vm, activeColor, navItemColor, strings,
-                        onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
-                    )
-                }
-            }
-        } else null,
-    ) {
-        // The layer's own tools, on the layer whose menu you opened. Each one selects that layer
-        // first, so a tool never lands on whichever layer happened to be active a moment ago — which
-        // is what made these worth moving here rather than leaving them as rail buttons that act on
-        // "the active layer, wherever it is". Panels are opened, not drawn: a hidden menu is a list
-        // of rows (listItem / inputItem — see the AzNavRail guide), so the knobs stay in the panels
-        // they already live in and these are the way in to them.
-        fun on(action: () -> Unit): () -> Unit = { vm.onLayerActivated(layer.id); action() }
-
-        listItem(strings.nav.adjust, on { vm.onAdjustClicked() })
-        listItem("Balance", on { vm.onBalanceClicked() })
-        listItem("Blend Mode", on(onBlendMode))
-        listItem("Transform", on { vm.onTransformClicked() })
-        listItem("Layer Options", on(onEditClicked))
-
-        inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
-        listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
-        if (isGroup) {
-            listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
-            listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
-        } else {
-            // The one rule, shared with the quick menu. This used to allow anything that was not a
-            // group, so a vector layer offered a lock no stroke would ever consult.
-            if (layer.supportsAlphaLock) {
-                listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
-            }
-            listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
-            listItem("Curves", on(onCurves))
-            listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
-            listItem("Merge Down") { vm.onMergeDown(layer.id) }
-            listItem("Flatten All") { vm.onFlattenAllLayers() }
-            listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
-            listItem("Clear", on { vm.onClearLayer() })
-            listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
-        }
-
-        // Only a top-level layer can be a frame in the first place (see AnimationFrames' doc
-        // comment) -- offered regardless of isGroup, since a GROUP frame is exactly as valid a
-        // frame as a plain one, and this only makes sense for a layer that would otherwise BE one.
-        if (layer.parentId == null) {
-            listItem(if (layer.isPinnedAcrossFrames) "Pinned Across Frames ✓" else "Pin Across Frames") {
-                vm.onTogglePinnedAcrossFrames(layer.id)
-            }
-        }
-
-        // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks
-        // the contiguous run, and onTransformGesture already moves the whole linked group as one —
-        // but onToggleLinkLayer had no caller anywhere, so no layer could ever be linked and the
-        // group-move path was unreachable. The README advertised the feature all the same.
-        listItem(if (layer.isLinked) "Linked ✓" else "Link to Below") { vm.onToggleLinkLayer(layer.id) }
-
-        // Copy/paste the layer's *look* — opacity, the tone knobs, blend mode and the warp mesh —
-        // without touching its pixels. Both halves were implemented and neither had a caller.
-        listItem("Copy Adjustments") { vm.copyLayerModifications(layer.id) }
-        if (vm.hasCopiedLayerModifications) {
-            listItem("Paste Adjustments") { vm.pasteLayerModifications(layer.id) }
-        }
-
-        renderLayerStyleMenu(layer, uiState, vm, ::on)
-        renderLayerLayoutMenu(layer, uiState, vm, ::on)
-        renderLayerComponentMenu(layer, uiState, vm, ::on)
-    }
+        onClick = { vm.onLayerActivated(layer.id) },
+        // newOrder is every reloc id of this host, top-first; the ViewModel narrows it to the
+        // host's own layers (the group's children when parentId is a group's id).
+        onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
+        hiddenMenu = menu,
+    )
     if (layer.alphaLock) {
-        azItemState(id = "layer.${layer.id}", badge = "🔒", persistentBadge = true)
+        azItemState(id = id, badge = "🔒", persistentBadge = true)
     }
+}
+
+/** What every layer row in the layers rail needs from the screen around it. */
+private data class LayerRailEnv(
+    val vm: EditorViewModel,
+    val navItemColor: Color,
+    val strings: AppStrings,
+    val railExpansion: Map<String, Boolean>,
+    val onBlendMode: () -> Unit,
+    val onEditClicked: () -> Unit,
+    val onCurves: () -> Unit,
+)
+
+/** A layer's hidden menu: the same rows on a leaf layer's reloc item and on a group's host item. */
+private fun HiddenMenuScope.renderLayerMenu(layer: Layer, uiState: EditorUiState, env: LayerRailEnv) {
+    val vm = env.vm
+    val strings = env.strings
+    val onBlendMode = env.onBlendMode
+    val onEditClicked = env.onEditClicked
+    val onCurves = env.onCurves
+    val isGroup = layer.type == LayerType.GROUP
+    // The layer's own tools, on the layer whose menu you opened. Each one selects that layer
+    // first, so a tool never lands on whichever layer happened to be active a moment ago — which
+    // is what made these worth moving here rather than leaving them as rail buttons that act on
+    // "the active layer, wherever it is". Panels are opened, not drawn: a hidden menu is a list
+    // of rows (listItem / inputItem — see the AzNavRail guide), so the knobs stay in the panels
+    // they already live in and these are the way in to them.
+    fun on(action: () -> Unit): () -> Unit = { vm.onLayerActivated(layer.id); action() }
+
+    listItem(strings.nav.adjust, on { vm.onAdjustClicked() })
+    listItem("Balance", on { vm.onBalanceClicked() })
+    listItem("Blend Mode", on(onBlendMode))
+    listItem("Transform", on { vm.onTransformClicked() })
+    listItem("Layer Options", on(onEditClicked))
+
+    inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+    listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+    if (isGroup) {
+        listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
+        listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
+    } else {
+        // The one rule, shared with the quick menu. This used to allow anything that was not a
+        // group, so a vector layer offered a lock no stroke would ever consult.
+        if (layer.supportsAlphaLock) {
+            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
+        }
+        listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
+        listItem("Curves", on(onCurves))
+        listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
+        listItem("Merge Down") { vm.onMergeDown(layer.id) }
+        listItem("Flatten All") { vm.onFlattenAllLayers() }
+        listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
+        listItem("Clear", on { vm.onClearLayer() })
+        listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+    }
+
+    // Only a top-level layer can be a frame in the first place (see AnimationFrames' doc
+    // comment) -- offered regardless of isGroup, since a GROUP frame is exactly as valid a
+    // frame as a plain one, and this only makes sense for a layer that would otherwise BE one.
+    if (layer.parentId == null) {
+        listItem(if (layer.isPinnedAcrossFrames) "Pinned Across Frames ✓" else "Pin Across Frames") {
+            vm.onTogglePinnedAcrossFrames(layer.id)
+        }
+    }
+
+    // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks
+    // the contiguous run, and onTransformGesture already moves the whole linked group as one —
+    // but onToggleLinkLayer had no caller anywhere, so no layer could ever be linked and the
+    // group-move path was unreachable. The README advertised the feature all the same.
+    listItem(if (layer.isLinked) "Linked ✓" else "Link to Below") { vm.onToggleLinkLayer(layer.id) }
+
+    // Copy/paste the layer's *look* — opacity, the tone knobs, blend mode and the warp mesh —
+    // without touching its pixels. Both halves were implemented and neither had a caller.
+    listItem("Copy Adjustments") { vm.copyLayerModifications(layer.id) }
+    if (vm.hasCopiedLayerModifications) {
+        listItem("Paste Adjustments") { vm.pasteLayerModifications(layer.id) }
+    }
+
+    renderLayerStyleMenu(layer, uiState, vm, ::on)
+    renderLayerLayoutMenu(layer, uiState, vm, ::on)
+    renderLayerComponentMenu(layer, uiState, vm, ::on)
 }
 
 /**

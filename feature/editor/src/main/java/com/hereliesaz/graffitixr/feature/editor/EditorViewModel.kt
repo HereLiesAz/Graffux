@@ -3398,6 +3398,18 @@ class EditorViewModel @Inject constructor(
         textRasterizeJobs.remove(layerId)?.cancel()
     }
 
+    /**
+     * The layer rail's relocate callback. [railOrder] is AzNavRail's raw `newOrder` (every item id
+     * in the rail, top-first, `layer.`-prefixed); [parentId] is the dragged item's host — null for
+     * the top-level layers host, or the group's id for the reloc sub-items under a group's own rail
+     * host item (`layer.<groupId>`). Only that host's own
+     * layers are kept, so the rail's other items can't make [LayerListOps.reorderSubset] refuse.
+     */
+    override fun onLayerRailRelocated(railOrder: List<String>, parentId: String?) {
+        val siblings = _uiState.value.layers.filter { it.parentId == parentId }.map { it.id }
+        onLayerReordered(LayerListOps.railOrderToSubOrder(railOrder, siblings))
+    }
+
     override fun onLayerReordered(newOrder: List<String>) {
         val layers = _uiState.value.layers
         // Pre-check against reorderSubset's own refuse conditions (a duplicate id, an unknown id,

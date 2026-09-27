@@ -83,11 +83,13 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    `AzUnattachedRelocItemClickTest.kt`). This was never fixable from this repo —
    `dragModifier` isn't exposed through `azRailRelocItem`'s public API — so don't reintroduce
    the bug by downgrading the version pin below `11.18` for an unrelated reason.
-8. **A layer nested inside a `GROUP` loses its hidden menu.** Separate, also-confirmed
-   AzNavRail limitation: `NestedItemWrapper` (`NestedRail.kt`) never wires the long-press
-   gesture that opens a hidden menu, so Adjust/Rename/Delete/etc. are unreachable on a layer
-   while it's grouped. The only current workaround is Ungroup. See the "KNOWN LIBRARY
-   LIMITATION" comment in `MainActivity.kt`'s `renderLayerRailItem`.
+8. **Group layers are rail hosts, never nested rails.** In the `"grp.layers"` panel a `GROUP`
+   layer is an `azRailSubHostItem` (id `layer.<groupId>`) under its parent's host, and its
+   children are `azRailRelocItem`s whose `hostId` is that id — see `LayerRailPlan.kt`'s
+   `layerRailRows`. Do not use `azRailRelocItem`'s `nestedContent` / `keepNestedRailOpen` for
+   layers. AzNavRail has no item that is both a reloc item and a host, so a group itself can't be
+   dragged, and since a reloc cluster is a contiguous run of same-host reloc items, a group also
+   bounds how far its leaf siblings can be dragged past it.
 
 ---
 
