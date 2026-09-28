@@ -6,14 +6,17 @@
 //! * [`jni_api`] -- JNI for the Kotlin `WgpuNative`/`WgpuStampEngine` in core:engine.
 
 pub mod capi;
+pub mod draft;
 pub mod engine;
 pub mod jni_api;
+pub mod progress;
 pub mod reference;
 pub mod resident;
+pub mod scheduler;
 
 pub use wgpu;
 
 pub use engine::{
     BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams,
-    SubstrateParams,
+    MultipassConfig, MultipassStats, SubstrateParams,
 };
