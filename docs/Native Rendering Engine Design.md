@@ -192,8 +192,9 @@ evaluated.
 
 **Decision.** wgpu (`core/wgpu-engine`, Rust, WGSL compute shaders) is the long-term single brush
 engine for both the Android app and the desktop app. Vulkan and GLES stay selectable for now, for
-comparison and as fallbacks, and are not being deleted yet. Direct display (§3) stays raw Vulkan
-through interop.
+comparison and as fallbacks, and are not being deleted yet. Direct display (§3) for Vulkan/GLES
+stays raw Vulkan through AHardwareBuffer interop; wgpu presents its own (§3, "wgpu direct
+display").
 
 Why wgpu rather than consolidating on Vulkan alone:
 
@@ -221,9 +222,9 @@ Why wgpu rather than consolidating on Vulkan alone:
   JNI wrapper `WgpuStampEngine` lives in `core:engine`'s `jvmShared` source set, the same class on
   Android and desktop. The canvas uses it whenever an adapter exists and keeps the tile-parallel CPU
   compositor as the fallback.
-- **No AHardwareBuffer output (yet).** `initWithHardwareBuffer()` returns false. With wgpu selected,
-  direct display is ineligible and strokes display through readback. `AzphaltGpuDisplay`'s
-  zero-copy path is likewise unavailable to it.
+- **No AHardwareBuffer output.** `initWithHardwareBuffer()` returns false, so `LiveStrokeOverlay`
+  and `AzphaltGpuDisplay`'s zero-copy path never see a wgpu layer. Direct display for wgpu is its
+  own path instead (§3, "wgpu direct display").
 
 **Shader port.** `stamp.wgsl`, `stamp_masked.wgsl` and `color_smudge.wgsl` port the GLSL statement
 for statement. Layout decisions come from the GLES port: the layer is a storage buffer of packed
@@ -292,8 +293,8 @@ the whole layer).
   Dab batches reach the GPU in generation order. A commit's refresh is queued behind the stroke's
   own batches, which is the stroke-end flush. An invalidation from undo is queued behind whatever
   was in flight. `destroy()` from the main thread posts instead of blocking. The stroke workers
-  that call in were already off the main thread. Provisional ink, `strokePaintPresented` and live
-  overlay eligibility are untouched: wgpu was already overlay-ineligible.
+  that call in were already off the main thread. Provisional ink and `strokePaintPresented` are
+  untouched. (wgpu's direct display, added later, also runs every call on this thread; §3.)
 
 **Measured, host only.** These are software-renderer numbers from Mesa 25.2.8 lavapipe (Vulkan)
 and llvmpipe (GL) with no GPU. Only the before/after ratio means anything, and it says nothing
@@ -330,7 +331,8 @@ sequences with undos. Three checks cover it:
   land on the other engine and upload.
 - Wet-mix/impasto side state (paint height, wetness) is uploaded per stroke as before. Only the
   colour layer is resident.
-- No zero-copy display (AHardwareBuffer) for wgpu, so direct display stays ineligible (§3).
+- No zero-copy display (AHardwareBuffer) for wgpu. Direct display presents from the GPU instead
+  (§3, "wgpu direct display").
 
 #### Device tuning: hardware floor, telemetry, calibration tiers, thermal budget
 
@@ -611,9 +613,10 @@ steady load.
   behaviour, the tier numbers.
 - Real clarity levels between draft and final (see above).
 - A draft for Colour Smudge: smudge calls run at full quality immediately.
-- On Android the refinement shows through each batch's readback and the CPU commit replaces the
-  display at stroke end; while the pen rests mid-stroke, refinement continues but the bitmap only
-  updates on the next batch.
+- On Android with readback display, the refinement shows through each batch's readback and the
+  CPU commit replaces the display at stroke end; while the pen rests mid-stroke, refinement
+  continues but the bitmap only updates on the next batch. With wgpu direct display (§3) the ease
+  is presented after every refinement tick, pen resting or not, with no readback.
 - On a software renderer with a *cheap* brush, multipass costs more than it saves (the draft,
   composite and wider readback are fixed per-frame costs); it pays off where the full dab does not
   fit a frame.
@@ -635,12 +638,126 @@ steady load.
 - **Eligibility.** Only layers whose compositing the overlay reproduces exactly: SRC_OVER, full
   opacity, no colour adjustments, clip, 3D tilt or parent group, nothing visible above, no impasto
   shading. Anything else takes the Compose path as before. API 29+ (SurfaceControl NDK).
-- **Not with wgpu.** The wgpu engine keeps layers resident and reads back only dirty rectangles
-  (§2b), but it has no AHardwareBuffer output. The overlay stays Vulkan-only, and a wgpu stroke
-  displays through readback into the live bitmap.
+- **Not with wgpu.** The wgpu engine has no AHardwareBuffer output, so this overlay never sees a
+  wgpu layer. wgpu has its own direct display, below.
 - **Unverified on a device:** that importing another device's AHardwareBuffer preserves its
   contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
   per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
+
+### wgpu direct display (same Settings switch; wgpu engine only)
+
+Built so the wgpu engine gets the same path to the screen the Vulkan overlay gives Vulkan/GLES:
+new paint goes from the GPU to the compositor with no readback, no bitmap upload and no Compose
+frame. Code: `core/wgpu-engine/src/direct.rs` + `shaders/direct.wgsl` (engine), `gfx_wgpu_direct_*`
+(`graffux_wgpu.h`), `StampEngine::direct*` / `WgpuStampEngine.cpp`, `GpuStampEngine` JNI
+(`beginDirectDisplay`, `presentDirect`, `DirectSurface`) and `WgpuDirectDisplay.kt` (which handle
+owns the window).
+
+**Design choice: a wgpu surface on the overlay window, not AHardwareBuffer import.** Two options
+were weighed:
+
+1. *wgpu presents into an Android surface.* `Instance::create_surface_unsafe` on the overlay
+   SurfaceView's `ANativeWindow` (the SurfaceView the Vulkan overlay already parents its
+   SurfaceControl to), configured and presented with wgpu's public API.
+2. *Import the overlay's AHardwareBuffer into wgpu through wgpu-hal Vulkan interop*, and write the
+   front buffer from wgpu.
+
+Option 1 was chosen as the more robust:
+
+- It uses only wgpu's public, backend-neutral API. It works the same on wgpu's Vulkan and GL
+  backends. Option 2 is Vulkan-only, and wgpu's GL backend is the fallback on exactly the devices
+  most likely to need help.
+- Option 2 needs `VK_ANDROID_external_memory_android_hardware_buffer` (and its dependencies)
+  enabled on wgpu's device, which wgpu does not request. That means opening the device through
+  wgpu-hal with a custom extension list. It then needs `VK_QUEUE_FAMILY_FOREIGN_EXT` acquire and
+  release barriers around every access to the imported image, which wgpu's automatic resource
+  tracking has no way to express. The whole thing is `unsafe` hal code, tied to wgpu-hal internals
+  that change between wgpu releases (the crate is on wgpu 30).
+- Option 1 fails cleanly and early. Surface creation, `is_surface_supported`, the surface's
+  formats, alpha modes and usages are all checked at attach, before any stroke depends on them.
+  The failure is reported through capability bits, and the stroke falls back to readback.
+
+The cost is that a swapchain is not a front buffer. Each present queues an image, so there can
+be one more frame of latency than a front-buffered SurfaceControl buffer. The present mode is
+Mailbox where offered (a newer image replaces a queued one, and there is no tearing), else FIFO,
+with `desired_maximum_frame_latency = 1`. The Compose frame, bitmap upload and CPU readback that
+the readback display pays are all gone either way. If front-buffer latency turns out to matter,
+option 2 can be added later behind the same C ABI.
+
+**What is drawn.** `direct.wgsl` is the WGSL port of `live_overlay.comp`: the stroke's own
+contribution, `Sa = 1 - (1 - out.a) / (1 - base.a)`, `S = out - base * (1 - Sa)`, over a snapshot of
+the layer taken at stroke start (`gfx_wgpu_direct_begin_stroke`, one GPU buffer copy). The canvas
+underneath keeps the pre-stroke pixels, as with the Vulkan overlay, and the same eligibility applies
+(`overlayMatricesFor`: plain SRC_OVER, full opacity, and so on), plus no impasto shading. It is
+one full-surface fragment pass per present, a single triangle with no blending. Swapchain images
+are not persistent, so there are no incremental dirty regions. The fragment stage reads the
+layer's storage buffer directly. This needs `DownlevelFlags::FRAGMENT_STORAGE` and at least two
+storage buffers per stage; the `ADAPTER` capability bit reports whether the adapter has them.
+Linear RGBA8/BGRA8 targets are preferred. An sRGB-only surface works too: the shader decodes, so
+the stored bytes are unchanged. Premultiplied or Inherit alpha is preferred, and PostMultiplied
+alpha is un-premultiplied in the shader. An opaque-only surface is refused.
+
+**Multipass.** With multipass on, each present first runs every pending draft (never refinement:
+drafts are never delayed) and advances the display composite. It then draws from the multipass
+`display` buffer instead of the layer: the draft first, then the refinement ease, converging to
+exactly the layer. `MultipassRefiner`'s ticks re-present after each refinement call, so the ease
+keeps moving while the pen rests. That is something the readback display could not do (§2b,
+"Multipass drying"). A batch present counts as a displayed frame for the multipass cadence and
+duty-cycle measurements, just as a readback does.
+
+**Committed layer.** Nothing in `direct.rs` writes the layer. The only engine-side change outside
+it is that `mp_readback_rect`'s frame bookkeeping moved into `Multipass::begin_frame`, now shared
+with present. The Android commit is still the CPU commit.
+
+**Android flow.** `LiveStrokeOverlayHost` now always hosts the SurfaceView while Direct display is
+on. It hands the surface to both `LiveStrokeOverlay` (child SurfaceControl, Vulkan/GLES) and
+`GpuStampEngine.DirectSurface.set` (wgpu swapchain on the SurfaceView's own surface). At wgpu
+stroke start, after the layer is seeded or resident-bound, `beginDirectDisplay` attaches the
+engine and snapshots the base. A window has one producer, but the pool holds two wgpu handles, so
+`WgpuDirectDisplay` detaches the previous owner first. Each batch then skips the readback and calls
+`presentDirect`. On the first failure, direct display turns off for the rest of the stroke, and one
+catch-up readback brings `work` up to date. Nothing was read back while direct display ran, so the
+engine's dirty rectangle spans the whole stroke. The Compose path then takes over. If the engine
+itself fails, the batch replays the stroke on the CPU as the zero-copy path does. At commit, the
+surface is cleared two frames after the committed layer is published, as the Vulkan overlay is.
+`surfaceDestroyed` blocks until the swapchain has let go of the window.
+
+**Verified on host (Mesa 25.2.8 lavapipe and llvmpipe, no GPU, no window).** `cargo test`
+(`tests/direct.rs`) drives the whole present path into an offscreen target that follows the same
+format rules as a surface, on both backends:
+
+- the target shows exactly `stroke_contribution` of the layer over the base, to within one level;
+- the on-screen affine is honoured, and a singular affine is refused;
+- the committed layer is byte-identical with direct display on or off, with multipass on or off;
+- with multipass on, the draft shows on the first present with no refinement, and after a flush the
+  target shows the final layer's contribution;
+- stroke end clears the target, and detach and the capability bits behave.
+
+The unit tests cover format, alpha and present-mode selection and the scalar contribution math.
+`WgpuDirectDisplayTest` covers the ownership logic: the window moves between handles, a failure
+falls back for the rest of the stroke, surface loss and handle destruction are handled.
+`tools/stamp-engine-diff` gained a `-DDIRECT` build. On a host every direct entry point must be
+inert (no window), and its output must equal the plain run: 0 bytes differ on both backends.
+(The harness also gained `stamp_tuning.cpp`. Since per-device tuning moved `stampTuning()` into
+`StampEngineFactory.cpp`, it had stopped linking.)
+
+**Not verified (no device or real GPU here):**
+
+- Anything on a phone: that `create_surface_unsafe` on the overlay SurfaceView's window succeeds;
+  which formats, alpha modes and present modes Android drivers report for it; that Inherit really
+  composites as premultiplied there; and that the swapchain layer stacks correctly with the Vulkan
+  overlay's SurfaceControl child on the same SurfaceView.
+- wgpu's GL backend on Android presenting to that window (EGL surface on an instance created
+  without a display handle).
+- The latency: first paint and per-frame, against the readback display and against the Vulkan
+  front-buffered overlay. The feel reports still tag `display direct`.
+- The cost of the full-surface fragment pass at phone resolutions, and the blocking in
+  `get_current_texture` under FIFO.
+- `surfaceDestroyed` blocking on the render thread while a slow batch is queued.
+- The Android build of the Rust `cdylib` with the new symbols was type-checked
+  (`cargo check --target aarch64-linux-android`), and `WgpuStampEngine.cpp` and `GraffitiJNI.cpp`
+  were compiled `-fsyntax-only` with the NDK clang. The Gradle `assembleDebug` was killed for lack
+  of memory on the build host before its native steps, so no APK was produced with this change.
 
 ### Jetpack Ink brush (Settings → Jetpack Ink brush, off by default)
 

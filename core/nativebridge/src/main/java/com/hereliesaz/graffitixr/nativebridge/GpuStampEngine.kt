@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.nativebridge
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.HardwareBuffer
+import android.view.Surface
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassBudget
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
@@ -23,16 +24,23 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     init { NativeLibLoader.loadAll() }
 
     /**
-     * [hardwareBufferOutput]: whether the backend can render into an AHardwareBuffer, which direct
-     * display (LiveStrokeOverlay, raw Vulkan interop) needs. wgpu cannot yet, so with wgpu selected
-     * direct display is simply ineligible and strokes display through readback.
+     * [hardwareBufferOutput]: whether the backend can render into an AHardwareBuffer, which
+     * LiveStrokeOverlay (raw Vulkan interop) needs. [ownDirectDisplay]: whether the backend instead
+     * presents the live stroke itself (wgpu: a wgpu surface on the overlay window, see
+     * [beginDirectDisplay]). Either way, direct display is used only when it actually starts;
+     * otherwise strokes display through readback.
      */
-    enum class Backend(val nativeId: Int, val label: String, val hardwareBufferOutput: Boolean) {
+    enum class Backend(
+        val nativeId: Int,
+        val label: String,
+        val hardwareBufferOutput: Boolean,
+        val ownDirectDisplay: Boolean = false,
+    ) {
         VULKAN(0, "vulkan", true),
         GLES(1, "gles", true),
 
         /** The long-term single engine (ARCHITECTURE.md); needs libgraffux_wgpu.so in the APK. */
-        WGPU(2, "wgpu", false);
+        WGPU(2, "wgpu", false, ownDirectDisplay = true);
 
         companion object {
             /** Backend new engines use. Set from Settings at startup and whenever it changes. */
@@ -62,6 +70,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         private val nativeCreationCount = AtomicInteger(0)
 
         private const val RECT_INTS = 4
+        private const val AFFINE_FLOATS = 6
 
         /**
          * Every live wgpu native handle (checked out by an engine or pooled). Touched only on
@@ -122,7 +131,30 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         private val refiner = MultipassRefiner(
             post = GpuRenderThread::post,
             schedule = { delayMs, task -> refineTicker.schedule(task, delayMs, TimeUnit.MILLISECONDS) },
-        ) { handle -> if (handle in liveWgpuHandles) helper().nativeRefine(handle, 0f) else 0 }
+        ) { handle ->
+            if (handle in liveWgpuHandles) {
+                helper().nativeRefine(handle, 0f).also {
+                    // Direct display: the refinement ease reaches the screen with no readback
+                    // (and while the pen rests, when no new batch would present it).
+                    directDisplay.represent(handle)
+                }
+            } else {
+                0
+            }
+        }
+
+        /** wgpu direct display: which handle presents on the overlay window. Render thread only. */
+        private val directDisplay = WgpuDirectDisplay(object : WgpuDirectDisplay.Natives<Surface> {
+            override fun attach(handle: Long, surface: Surface, width: Int, height: Int) =
+                helper().nativeDirectAttach(handle, surface, width, height)
+
+            override fun detach(handle: Long) = helper().nativeDirectDetach(handle)
+            override fun begin(handle: Long) = helper().nativeDirectBeginStroke(handle)
+            override fun present(handle: Long, matrix: FloatArray?, newBatch: Boolean) =
+                helper().nativeDirectPresent(handle, matrix, newBatch)
+
+            override fun end(handle: Long) = helper().nativeDirectEndStroke(handle)
+        })
 
         @JvmStatic
         fun trimPool() {
@@ -137,6 +169,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
                 GpuRenderThread.post {
                     wgpu.forEach {
                         liveWgpuHandles.remove(it)
+                        directDisplay.handleDestroyed(it)
                         destroyer.nativeDestroy(it)
                     }
                 }
@@ -244,6 +277,36 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             val evicted = if (pooledHandles.size >= MAX_POOLED_HANDLES) pooledHandles.removeFirst().handle else 0L
             pooledHandles.addLast(cached)
             evicted
+        }
+    }
+
+    /**
+     * The overlay window for wgpu direct display (core/wgpu-engine direct.rs; design doc §3): the
+     * wgpu engine presents the live stroke into the overlay SurfaceView's own surface through a
+     * swapchain, straight from its GPU buffers. See [beginDirectDisplay] / [presentDirect].
+     */
+    object DirectSurface {
+        /** Whether an overlay window is available to wgpu direct display (any thread). */
+        @Volatile
+        @JvmStatic
+        var available: Boolean = false
+            private set
+
+        /**
+         * The overlay SurfaceView's surface appeared or changed ([surface] non-null, [width]x[height]
+         * pixels) or is going away (null). Blocks until the render thread has applied it: when the
+         * surface goes, the wgpu swapchain on it must be gone before `surfaceDestroyed` returns.
+         */
+        @JvmStatic
+        fun set(surface: Surface?, width: Int, height: Int) {
+            available = surface != null && width > 0 && height > 0
+            runCatching { GpuRenderThread.call { directDisplay.setSurface(surface, width, height) } }
+        }
+
+        /** Clears the wgpu direct-display surface (the committed stroke is on screen). Queued. */
+        @JvmStatic
+        fun endStroke() {
+            GpuRenderThread.post { directDisplay.end() }
         }
     }
 
@@ -660,6 +723,46 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         return ok
     }
 
+    // ---- wgpu direct display (core/wgpu-engine direct.rs; design doc §3) ----------------------
+
+    /**
+     * Direct-display capability bits of this engine (GFX_WGPU_DIRECT_* in graffux_wgpu.h: 1 window
+     * support, 2 adapter can present, 4 attached, 8 stroke showing, 16 real swapchain); 0 when not
+     * wgpu, not initialized, or the library predates direct display.
+     */
+    @Synchronized
+    fun directCapabilities(): Int =
+        if (!isInitialized || backend != Backend.WGPU) 0 else onGpu { nativeDirectCapabilities(nativeHandle) }
+
+    /**
+     * Stroke start with wgpu direct display, after the layer is seeded (upload / resident bind):
+     * attaches this engine to the overlay window ([DirectSurface.set]), snapshots the layer as the
+     * stroke's base and clears the surface. True = present batches with [presentDirect] and skip
+     * readback while it keeps succeeding; false = unsupported here, use readback as before.
+     */
+    @Synchronized
+    fun beginDirectDisplay(): Boolean {
+        if (!isInitialized || !backend.ownDirectDisplay || !DirectSurface.available) return false
+        val handle = nativeHandle
+        return onGpu { directDisplay.begin(handle) }
+    }
+
+    /**
+     * Presents the stroke so far on the overlay window, straight from the GPU (no readback).
+     * [overlayToLayer] maps an overlay pixel to layer pixels, as LiveStrokeOverlay.present's. With
+     * multipass on, pending drafts render first and refinement continues after the frame. False =
+     * direct display is off for the rest of this stroke; catch up with [readback].
+     */
+    @Synchronized
+    fun presentDirect(overlayToLayer: FloatArray): Boolean {
+        if (!isInitialized || !backend.ownDirectDisplay) return false
+        require(overlayToLayer.size >= AFFINE_FLOATS) { "overlayToLayer must hold 6 floats" }
+        val handle = nativeHandle
+        val ok = timed(PassKind.COMPOSITE) { onGpu { directDisplay.present(handle, overlayToLayer) } }
+        if (ok && multipassEnabled) refiner.frameDone(handle)
+        return ok
+    }
+
     /** Whether this engine's handle runs multipass (set at init from [multipass]). */
     @Volatile private var multipassEnabled = false
 
@@ -700,6 +803,14 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     @Synchronized
     fun supportsResidentLayers(): Boolean =
         isInitialized && backend == Backend.WGPU && onGpu { nativeSupportsResidentLayers(nativeHandle) }
+
+    /** (resident layer count, bytes they hold) -- 0 to 0 when not wgpu or the library lacks it. */
+    @get:Synchronized
+    val residentStats: Pair<Long, Long> get() {
+        if (!isInitialized || backend != Backend.WGPU) return 0L to 0L
+        val stats = onGpu { nativeResidentStats(nativeHandle) }
+        return if (stats == null || stats.size < 2) 0L to 0L else stats[0] to stats[1]
+    }
 
     /**
      * Starts a stroke on layer [layerKey] at content [generation] instead of [upload]: binds the
@@ -804,6 +915,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         GpuRenderThread.post {
             liveWgpuHandles.remove(handle)
             multipassHandles.remove(handle)
+            directDisplay.handleDestroyed(handle)
             nativeDestroy(handle)
         }
     }
@@ -882,9 +994,16 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     private external fun nativeFlushMultipass(handle: Long): Boolean
     private external fun nativeMultipassStats(handle: Long): DoubleArray?
     private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
+    private external fun nativeResidentStats(handle: Long): LongArray?
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?
+    private external fun nativeDirectCapabilities(handle: Long): Int
+    private external fun nativeDirectAttach(handle: Long, surface: Surface, width: Int, height: Int): Boolean
+    private external fun nativeDirectDetach(handle: Long)
+    private external fun nativeDirectBeginStroke(handle: Long): Boolean
+    private external fun nativeDirectPresent(handle: Long, matrix: FloatArray?, newBatch: Boolean): Boolean
+    private external fun nativeDirectEndStroke(handle: Long): Boolean
 }
 
 /** Pass kinds; ordinals match StampEngine.h `PassKind` and wgpu's timing.rs. */

@@ -104,6 +104,31 @@ bool gfx_wgpu_flush(GfxWgpuEngine* e);
 // Up to n diagnostics doubles (MultipassStats::to_array); returns how many were written.
 size_t gfx_wgpu_multipass_stats(GfxWgpuEngine* e, double* out, size_t n);
 
+// Direct display (core/wgpu-engine/src/direct.rs; design doc §3). The live stroke is drawn from the
+// engine's GPU buffers into a wgpu surface made from the overlay SurfaceView's ANativeWindow: the
+// stroke's contribution over a stroke-start snapshot (the port of live_overlay.comp), from the
+// layer or, with multipass on, the multipass display (draft, then the refinement ease). No
+// readback. Read-only on the layer: committed results are byte-identical with it on or off.
+// Capability bits: GFX_WGPU_DIRECT_* below.
+#define GFX_WGPU_DIRECT_WINDOW 1u    // built with window support (Android)
+#define GFX_WGPU_DIRECT_ADAPTER 2u   // the adapter can run the present pass
+#define GFX_WGPU_DIRECT_ATTACHED 4u  // a target is attached
+#define GFX_WGPU_DIRECT_STROKE 8u    // a stroke is showing
+#define GFX_WGPU_DIRECT_SURFACE 16u  // the target is a real swapchain
+uint32_t gfx_wgpu_direct_capabilities(GfxWgpuEngine* e);
+// window: ANativeWindow*, held by the caller until detach/destroy. One engine per window at a
+// time. False = unsupported (format, alpha mode, adapter): keep the readback display.
+bool gfx_wgpu_direct_attach(GfxWgpuEngine* e, void* window, int32_t width, int32_t height);
+void gfx_wgpu_direct_detach(GfxWgpuEngine* e);
+// After the layer is seeded, before the first dab: snapshot it as the base, clear the surface.
+bool gfx_wgpu_direct_begin_stroke(GfxWgpuEngine* e);
+// matrix: 6 floats, surface pixel -> layer pixel (m0*x + m1*y + m2, m3*x + m4*y + m5), or NULL to
+// reuse the last one. newBatch: a stamp call preceded this (false: re-present the multipass ease).
+// Pending multipass drafts run first; refinement never does.
+bool gfx_wgpu_direct_present(GfxWgpuEngine* e, const float* matrix, bool newBatch);
+// Clears the surface.
+bool gfx_wgpu_direct_end_stroke(GfxWgpuEngine* e);
+
 #ifdef __cplusplus
 }
 #endif

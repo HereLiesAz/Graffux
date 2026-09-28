@@ -126,6 +126,20 @@ codebase is deferred scope or a real gap in the install-report flow.
   are the escape hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
+- **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
+  `BottomCarousel.kt` (`:app`) is an M3 `HorizontalMultiBrowseCarousel` of brushes, effect tools and
+  tool options, above the Undo/Fit/Redo row. It sits in `:app`, not `:feature:editor`, so
+  GraffitiXR is untouched. A segmented switch picks the page by hand. It is not inferred from the
+  tool: effect tools paint with the current brush, so auto-switching would pull the Brushes page away
+  exactly when it's wanted. What each page shows, and which item is selected, is derived in
+  `BottomCarouselPlan.kt` (pure, tested). Every tap goes through an existing `EditorViewModel` call.
+  The brush rail and the Tool Options window stay; the carousel's "All options" item opens that
+  window. The carousel pads itself clear of the rail via `LocalRailInset`. It hides with the other
+  bottom chrome while a panel is open or the UI is hidden. It collapses with its chevron, and the
+  areas dropdown's "Carousel" toggle removes it. material3 `1.5.0-alpha29` has no centre-aligned
+  multi-browse keylines (only `HorizontalCenteredHeroCarousel`, a hero layout). Centring is
+  approximated with symmetric content padding. This is a basic first version, meant to be
+  adjusted.
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —
@@ -134,6 +148,26 @@ codebase is deferred scope or a real gap in the install-report flow.
   trilinearly sampled) are both destructive bitmap bakes pushed through `pushHistory()` —
   neither can be expressed as a `ColorMatrix`, which is why they exist as their own code
   paths rather than extra knobs on the existing one.
+- **Every frame resize is one `EditorIntent.ResizeFrame`, and constraints run inside it.** A frame
+  is a `GROUP` layer; its box is `layoutWidth` × `layoutHeight`, in its children's space and
+  centred on the group origin (`LayoutOps.localFrameRect`), because the group renderer draws its
+  children inside the group's own transform. The reducer sets the new size and, in the same
+  transition, runs `LayoutOps.applyResize` over the direct children — so the frame and everything
+  its constraints moved are one undo step. Entry points: Hug Contents, the "Frame Size (W x H)"
+  row in the layer's hidden menu, and the resize handle of a sized frame (a group with a declared
+  box gets an outline and handles; its handle resizes the box instead of scaling the group).
+  Precedence: a frame with auto-layout re-runs `applyAutoLayout` and ignores its children's
+  constraints (Figma does the same, and the constraint menu hides under an auto-layout parent).
+  Constraint geometry treats a child's offset as the centre of its box (that is how layers
+  render); STRETCH and SCALE resize on each axis independently — a vector layer's shape
+  width/height (and a path's points), a frame's layout size, and for a raster layer, which only
+  has a uniform `scale`, the smaller changed factor. A nested frame whose box changes passes the
+  resize down. Transforming a group — the TransformPanel's Scale field, rotation, moving it, or
+  scaling a group with no declared box — is not a resize: it scales the whole subtree as a unit
+  through the group's `graphicsLayer`, so constraints do not apply. Co-op: a resize emits
+  `Op.LayerGeometry` (shapes + layout size) and `Op.LayerTransform` for every layer whose geometry
+  changed, not only the active one. Known wart: auto-layout still positions from the frame's
+  offset and treats a child's offset as its top-left, which predates this convention.
 - **Extension acquisition is delegated, not built in.** Graffux is a host, not a marketplace:
   browsing/searching/purchasing an azphalt extension happens in a separate store app, reached
   via an intent (`spec/store-app.md` § Discovery) or an `azphalt://` deep link. The deep-link
@@ -155,8 +189,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   exists three times today: `VulkanStampEngine` and `GlesStampEngine` (C++, Android only) and the
   wgpu engine (`core/wgpu-engine`, Rust + WGSL). New brush work targets wgpu. Vulkan and GLES stay
   selectable in Settings → GPU engine for now, for comparison and as fallbacks, and Vulkan is
-  still the default. Direct display (`LiveStrokeOverlay`) stays raw Vulkan through
-  AHardwareBuffer interop and is ineligible while wgpu is selected. wgpu was chosen over
+  still the default. Direct display exists twice: `LiveStrokeOverlay` (raw Vulkan, imports the
+  Vulkan/GLES engines' AHardwareBuffer layer) and, for wgpu, the engine presenting into the same
+  overlay SurfaceView through a wgpu swapchain (`core/wgpu-engine/src/direct.rs`; design doc §3,
+  "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
   where the NDK engines cannot run at all), its automatic synchronization (no hand-written
   barriers between the ordered smudge phases), one shader language (WGSL, compiled by naga,

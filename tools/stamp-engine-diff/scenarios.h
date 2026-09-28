@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -14,6 +15,18 @@ using namespace graffux;
 #ifdef MULTIPASS
 #define MP_SETTLE() do { e.refine(0.02f); e.flushMultipass(); } while (0)
 #define MP_STEP() do { e.refine(0.01f); } while (0)
+#elif defined(DIRECT)
+// -DDIRECT (wgpu only): the direct-display entry points through the C++ adapter. A host has no
+// ANativeWindow, so attaching must fail cleanly and every direct call must be inert: the results
+// must be byte-identical to the plain wgpu run (run.sh compares them). The present pass itself is
+// covered by core/wgpu-engine/tests/direct.rs through an offscreen target.
+#define MP_SETTLE() do {} while (0)
+#define MP_STEP() do { \
+    static const float kIdentity[6] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f}; \
+    if (e.directPresent(kIdentity, true) || e.directBeginStroke()) { \
+        fprintf(stderr, "direct display active without a window\n"); std::exit(1); \
+    } \
+} while (0)
 #else
 #define MP_SETTLE() do {} while (0)
 #define MP_STEP() do {} while (0)
@@ -51,6 +64,17 @@ int runAll() {
     std::vector<uint8_t> out(W * H * 4);
     E e;
     if (!e.init(W, H)) { fprintf(stderr, "init failed\n"); return 1; }
+#ifdef DIRECT
+    {
+        const uint32_t caps = e.directCapabilities();
+        fprintf(stderr, "direct display capabilities: 0x%x\n", caps);
+        if ((caps & 1u) != 0 || e.directAttach(nullptr, W, H) || (e.directCapabilities() & 4u) != 0) {
+            fprintf(stderr, "direct display attached on a host\n");
+            return 1;
+        }
+        e.directDetach();
+    }
+#endif
 #ifdef MULTIPASS
     {
         // {enabled, passes, edge_fraction, transition_ms, overtake_ms, draft_scale, ballast, frame_ms}
