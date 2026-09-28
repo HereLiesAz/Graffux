@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 import synth  # noqa: E402
 from strokemodel import heatmap as hm  # noqa: E402
-from strokemodel.data import Stroke, read_dir  # noqa: E402
+from strokemodel.data import PER_SAMPLE, Stroke, read_dir, stroke_examples  # noqa: E402
 from strokemodel.onset import onsets  # noqa: E402
 
 
@@ -114,6 +114,35 @@ class PipelineTest(unittest.TestCase):
         f = hm.features(st, t0 + 400e6)
         self.assertEqual(f["heatmap.present"], 1.0)
         self.assertGreater(f["heatmap.n"], 1)
+
+
+class HoverInputTest(unittest.TestCase):
+    """The last PER_SAMPLE channel is the recorded `distance` axis, not a constant."""
+
+    def _stroke(self, schema: int, distance):
+        rng = random.Random(2)
+        rec = synth.stroke(rng, 10**10, 0, False, "gyroscope", 3)
+        rec["multiTouch"] = False  # v1 multi-touch strokes are skipped by design
+        n = len(rec["samples"]["t"])
+        if distance is None:
+            rec["samples"].pop("distance", None)
+        else:
+            rec["samples"]["distance"] = [distance(i) for i in range(n)]
+        return Stroke({"schema": schema, "displayHz": 60}, rec)
+
+    def test_hover_channel_carries_distance_for_every_schema(self):
+        for schema in (1, 2, 3):
+            examples = list(stroke_examples(self._stroke(schema, lambda i: 0.5 + i)))
+            self.assertTrue(examples, f"v{schema} yields examples")
+            hist = examples[-1][0]
+            self.assertEqual(hist.shape[1], PER_SAMPLE)
+            self.assertGreater(float(hist[-1, PER_SAMPLE - 1]), 0.0)
+            self.assertGreater(len(set(hist[:, PER_SAMPLE - 1].tolist())), 1)
+
+    def test_missing_or_negative_distance_reads_as_zero(self):
+        for dist in (None, lambda i: -1.0):
+            hist = list(stroke_examples(self._stroke(3, dist)))[-1][0]
+            self.assertTrue(np.all(hist[:, PER_SAMPLE - 1] == 0.0))
 
 
 if __name__ == "__main__":

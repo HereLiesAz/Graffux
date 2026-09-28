@@ -3,6 +3,8 @@ package com.hereliesaz.graffitixr.data
 import android.content.Context
 import android.net.Uri
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
+import com.hereliesaz.graffitixr.common.model.LegacyVisuals
+import com.hereliesaz.graffitixr.common.model.OverlayLayer
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -17,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -208,5 +211,91 @@ class ProjectManagerTest {
         assertEquals("legacy_project", metadata?.id)
         // Read path must be side-effect free: bytes on disk untouched.
         assertEquals(legacyJson, projectFile.readText())
+    }
+
+    // --- legacyVisuals migration ---
+
+    private val legacyOverlayJson =
+        """{"id":"LEGACY_ID","name":"Old","overlayImageUri":"file:///o.png",""" +
+            """"legacyVisuals":{"scale":2.0,"opacity":0.5}}"""
+
+    private val lenientJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    private fun persisted(id: String): GraffitiProject =
+        lenientJson.decodeFromString(
+            GraffitiProject.serializer(),
+            File(tempFilesDir, "projects/$id/project.json").readText(),
+        )
+
+    private fun assertMigrated(p: GraffitiProject?) {
+        assertEquals(1, p?.layers?.size)
+        assertEquals(2f, p!!.layers.first().scale)
+        assertEquals(0.5f, p.layers.first().opacity)
+        assertEquals(LegacyVisuals(), p.legacyVisuals)
+    }
+
+    @Test
+    fun `importProjectFromUri migrates legacyVisuals and persists the migration`() = runTest {
+        val id = "imported_legacy"
+        val result = importZip(zipOf("project.json" to legacyOverlayJson.replace("LEGACY_ID", id).toByteArray()))
+        assertMigrated(result)
+        assertMigrated(persisted(id))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `loadAsSpectator migrates legacyVisuals and persists the migration`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val id = "spectator_legacy"
+            manager.loadAsSpectator(zipOf("project.json" to legacyOverlayJson.replace("LEGACY_ID", id).toByteArray()))
+            assertMigrated(persisted(id))
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `migration fills default layer fields and keeps conflicting legacy values`() {
+        val uri = mockk<Uri>(relaxed = true)
+        val layer = OverlayLayer(uri = uri, scale = 3f, opacity = 1f, brightness = 0.2f)
+        val project = GraffitiProject(
+            id = "p",
+            layers = listOf(layer),
+            legacyVisuals = LegacyVisuals(scale = 2f, opacity = 0.5f, brightness = 0.2f),
+        )
+
+        val migrated = manager.migrateInMemory(project)
+
+        val first = migrated.layers.first()
+        assertEquals("layer's own non-default value wins", 3f, first.scale)
+        assertEquals("default layer field takes the legacy value", 0.5f, first.opacity)
+        assertEquals(0.2f, first.brightness)
+        // Only the value that could not be placed survives in legacyVisuals — nothing is lost.
+        assertEquals(LegacyVisuals(scale = 2f), migrated.legacyVisuals)
+        // Idempotent: a second pass is a no-op by identity, so it never re-persists.
+        assertSame(migrated, manager.migrateInMemory(migrated))
+    }
+
+    @Test
+    fun `migration keeps legacyVisuals when there is no layer to place them on`() {
+        val project = GraffitiProject(id = "p", legacyVisuals = LegacyVisuals(scale = 2f))
+        assertSame(project, manager.migrateInMemory(project))
+    }
+
+    @Test
+    fun `migration of a default first layer consumes all legacy values`() {
+        val uri = mockk<Uri>(relaxed = true)
+        val second = OverlayLayer(uri = uri, name = "second", scale = 4f)
+        val project = GraffitiProject(
+            id = "p",
+            layers = listOf(OverlayLayer(uri = uri), second),
+            legacyVisuals = LegacyVisuals(scale = 2f, rotationZ = 45f),
+        )
+        val migrated = manager.migrateInMemory(project)
+        assertEquals(2f, migrated.layers[0].scale)
+        assertEquals(45f, migrated.layers[0].rotationZ)
+        assertEquals(second, migrated.layers[1])
+        assertEquals(LegacyVisuals(), migrated.legacyVisuals)
     }
 }

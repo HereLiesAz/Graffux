@@ -205,7 +205,7 @@ anything in this repo's `desktop/` module, so it wasn't fixable here directly â€
 follow-up task against `aznavrail-cmp` instead, with the full repro and root-cause analysis above.
 That task was picked up and fixed: `shouldShrink` now short-circuits on a non-finite or non-positive
 font size before ever calling `textMeasurer.measure`, released as **`aznavrail-cmp` 11.47** (commit
-`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 and
+`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 (now 11.52, which keeps the fix) and
 re-enabled `azAbout(dedupeAbout = true)` (matching Android exactly again, no more
 `aboutRailItem = false` workaround) â€” **re-verified end-to-end**: opened the "?" item, closed it,
 confirmed no crash and no error dialog, and confirmed the rail was still fully functional afterward.
