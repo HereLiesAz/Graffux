@@ -104,7 +104,24 @@ pub fn coarse_radius(radius: f32, hardness: f32, f: f32) -> f32 {
     radius * FeatherEdge::for_hardness(hardness, f).edge
 }
 
-/// The mask value below which a masked draft is trimmed: `1 - f` of the mask's range.
+/// How much of the feather trim applies to a round tip of this hardness (`draft_stamp.wgsl`
+/// `trim_weight`): the stored feather key is multiplied by it. 0 for soft tips (hardness <= 0.5), so
+/// the draft shows the whole real falloff; 1 for hard ones (>= 0.9), where the trim only hides the
+/// thin rim that low resolution would blur. Trimming a soft falloff at `f` cuts through paint that
+/// still carries most of the dab's alpha and turns the draft into a flat, hard-edged disc, which
+/// the draft must never be.
+pub fn trim_weight(hardness: f32) -> f32 {
+    let t = ((hardness.clamp(0.0, 1.0) - 0.5) / 0.4).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The coarsest mask mip a masked draft samples has at least this many texels across
+/// (`draft_masked.wgsl` clamps its lod to `levels - 4`). A 1x1 or 2x2 level averages the falloff to
+/// a constant, and the dab's footprint then clips it to a solid shape.
+pub const MIN_DRAFT_MIP_TEXELS: u32 = 8;
+
+/// The mask value below which a masked draft is trimmed: `1 - f` of the mask's range. Masked drafts
+/// no longer trim (the mask's falloff is the stamp itself); kept for the round-tip analogue.
 pub fn mask_threshold(f: f32) -> f32 {
     1.0 - clamp_edge_fraction(f)
 }
@@ -173,6 +190,21 @@ pub fn mip_chain(pixels: &[u8], width: u32, height: u32) -> Vec<(Vec<u8>, u32, u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soft_tips_are_never_trimmed_and_hard_tips_fully() {
+        for h in [0.0, 0.05, 0.2, 0.35, 0.5] {
+            assert_eq!(trim_weight(h), 0.0, "hardness {h}");
+        }
+        assert_eq!(trim_weight(0.9), 1.0);
+        assert_eq!(trim_weight(1.0), 1.0);
+        let mut prev = 0.0;
+        for i in 0..=100 {
+            let w = trim_weight(i as f32 / 100.0);
+            assert!(w >= prev);
+            prev = w;
+        }
+    }
 
     /// Core and outer found numerically from `stamp_coverage` itself, then the trim rule checked.
     #[test]

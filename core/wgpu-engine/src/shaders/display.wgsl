@@ -19,7 +19,7 @@ struct Tile {
     x: i32,
     y: i32,
     slot: i32,     // snapshot slot of the "from" image; < 0 = no landing
-    _pad: i32,
+    live: i32,     // neighbours whose draft is live: bit (dy + 1) * 3 + (dx + 1)
     edge: f32,     // reveal edge on the feather key
     weight: f32,   // landing weight 0..1
     _pad1: f32,
@@ -60,6 +60,19 @@ fn draft_texel(t: vec2<i32>) -> DraftSample {
     return s;
 }
 
+// The draft texel to read for `t`: itself when it lies in this tile or in a live neighbour (and in
+// the draft), otherwise clamped back into this tile.
+fn texel_for(tile: Tile, t: vec2<i32>, lo: vec2<i32>, hi: vec2<i32>) -> vec2<i32> {
+    let side = vec2<i32>(select(select(0, 1, t.x > hi.x), -1, t.x < lo.x),
+                         select(select(0, 1, t.y > hi.y), -1, t.y < lo.y));
+    let inside = t.x >= 0 && t.y >= 0 && t.x < pc.draft_width && t.y < pc.draft_height;
+    let bit = (side.y + 1) * 3 + (side.x + 1);
+    if (inside && (all(side == vec2<i32>(0)) || ((tile.live >> u32(bit)) & 1) != 0)) {
+        return t;
+    }
+    return clamp(t, lo, hi);
+}
+
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let tile = pc.tiles[gid.z];
@@ -69,18 +82,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (p.x >= pc.layer_width || p.y >= pc.layer_height) { return; }
     let idx = p.y * pc.layer_width + p.x;
 
-    // Bilinear draft sample, clamped to this tile's draft texels.
+    // Bilinear draft sample. It reads across the tile's edge only into neighbours whose draft is
+    // still live; next to a landed neighbour (its draft texels cleared) it stays clamped to this
+    // tile, so that landing cannot bleed in. Clamping everywhere made the upsampled draft flat for
+    // the last half texel of every tile and then jump: a visible step every 32 px along a soft
+    // stroke (up to ~25 levels at draft scale 8).
     let lo = vec2<i32>(tile.x, tile.y) / i32(pc.scale);
     let hi = min((vec2<i32>(tile.x, tile.y) + vec2<i32>(pc.tile)) / i32(pc.scale),
                  vec2<i32>(pc.draft_width, pc.draft_height)) - vec2<i32>(1);
     let dp = (vec2<f32>(p) + vec2<f32>(0.5)) / pc.scale - vec2<f32>(0.5);
     let f0 = floor(dp);
     let fr = dp - f0;
-    let t00 = clamp(vec2<i32>(f0), lo, hi);
-    let t11 = clamp(vec2<i32>(f0) + vec2<i32>(1), lo, hi);
+    let t00 = texel_for(tile, vec2<i32>(f0), lo, hi);
+    let t10 = texel_for(tile, vec2<i32>(f0) + vec2<i32>(1, 0), lo, hi);
+    let t01 = texel_for(tile, vec2<i32>(f0) + vec2<i32>(0, 1), lo, hi);
+    let t11 = texel_for(tile, vec2<i32>(f0) + vec2<i32>(1, 1), lo, hi);
     let a = draft_texel(t00);
-    let b = draft_texel(vec2<i32>(t11.x, t00.y));
-    let c = draft_texel(vec2<i32>(t00.x, t11.y));
+    let b = draft_texel(t10);
+    let c = draft_texel(t01);
     let d = draft_texel(t11);
     let color = mix(mix(a.color, b.color, fr.x), mix(c.color, d.color, fr.x), fr.y);
     let key = mix(mix(a.key, b.key, fr.x), mix(c.key, d.key, fr.x), fr.y);

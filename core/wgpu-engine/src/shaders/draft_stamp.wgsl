@@ -57,6 +57,11 @@ fn feather_key(t: f32, hardness: f32) -> f32 {
     return clamp((t - h) / (outer - h), 0.0, 1.0);
 }
 
+// draft.rs trim_weight: 0 for soft tips (full falloff shown), 1 for hard ones.
+fn trim_weight(hardness: f32) -> f32 {
+    return smoothstep(0.5, 0.9, clamp(hardness, 0.0, 1.0));
+}
+
 fn wrap(c: i32, s: i32) -> i32 {
     if (c >= 0) { return c % s; }
     return s - 1 - ((-c - 1) % s);
@@ -115,10 +120,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (coverage <= 0.0) { continue; }
         let src_a = d.paint1.x * d.geometry.w * max(d.paint1.y, 0.0) * coverage;
         if (src_a <= 0.0) { continue; }
-        let k = feather_key(dist / radius, hardness);
+        // The trim only ever hides the thin, blurry rim of a hard tip. A soft tip's feather IS the
+        // stamp: trimming it turns the draft into a flat, hard-edged disc (the stroke-start "solid
+        // circle"), so the key fades to 0 (never trimmed) as hardness drops (draft.rs trim_weight).
+        let k = feather_key(dist / radius, hardness) * trim_weight(hardness);
         if (sequential) {
             dst = vec4<f32>(d.paint0.yzw * src_a + dst.rgb * (1.0 - src_a), src_a + dst.a * (1.0 - src_a));
-            key = min(key, k);
+            // Build-up: never hide more than one dab's worth of feather. Where repeated dabs (a held
+            // pointer) have piled alpha up past what the key promises, reveal it (draft.rs).
+            key = min(min(key, k), 1.0 - dst.a);
         } else if (src_a > dst.a) {
             // Strongest dab wins, as in the final pass (max-combine / strokeMax).
             dst = vec4<f32>(d.paint0.yzw * src_a, src_a);

@@ -55,6 +55,8 @@ class IncrementalAirbrushGenerator(
                 alpha = alpha,
                 angleDeg = brush.angle + dynamic.rotationOffsetDeg,
                 tipRatio = brush.tipRatio,
+                // Same as AirbrushEngine.heldDabs: never Dab's hard default.
+                hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
                 flowMultiplier = dynamic.flowMultiplier,
                 hueShiftDeg = dynamic.hueShiftDeg,
                 saturationMultiplier = dynamic.saturationMultiplier,
