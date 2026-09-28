@@ -178,6 +178,15 @@ public:
     /** Writes {resident layer count, bytes they hold}; engines without residency report 0/0. */
     virtual void residentStats(uint64_t out[2]) const { out[0] = 0; out[1] = 0; }
 
+    // ---- Optional: multipass rendering (wgpu only, experimental) -------------------------------
+    // Draft now, full quality in the time left over; see graffux_wgpu.h. Defaults: unsupported, and
+    // every other call behaves exactly as without it.
+    virtual bool setMultipass(const float* /*params*/, size_t /*count*/) { return false; }
+    // 1 = more to do, 0 = idle / unsupported, -1 = failure.
+    virtual int refine(float /*budgetMs*/) { return 0; }
+    virtual bool flushMultipass() { return true; }
+    // Diagnostics doubles written (0 = unsupported).
+    virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
     // ---- Optional: telemetry (GpuTelemetry.kt) -----------------------------------------------
     // key=value lines: engine, backend, renderer, vendor_id, device_id, driver, driver_info, api,
     // timestamps, timestamps_copy, shader_f16, stamp_tile. Empty = unknown.

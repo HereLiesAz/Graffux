@@ -1,4 +1,4 @@
-// FILE: app/src/main/java/com/hereliesaz/graffitixr/common/util/ImageExt.kt
+// FILE: core/common/src/main/java/com/hereliesaz/graffitixr/common/util/ImageExt.kt
 package com.hereliesaz.graffitixr.common.util
 
 import android.graphics.Bitmap

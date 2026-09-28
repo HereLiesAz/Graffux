@@ -89,7 +89,8 @@ object RoundStampCompositor {
             val rgb = dabColor and 0x00FFFFFF
             val radius = max(d.radius, 0.5f)
             val strength = (
-                ArgbColor.alpha(dabColor) / 255f * d.alpha * baseFlow * d.flowMultiplier.coerceAtLeast(0f)
+                ArgbColor.alpha(dabColor) / 255f * d.alpha * baseFlow * d.flowMultiplier.coerceAtLeast(0f) *
+                    d.contactDepth.coerceIn(0f, 1f)
                 ).coerceIn(0f, 1f)
             if (strength <= 0f) continue
 

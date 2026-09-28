@@ -15,25 +15,26 @@ internal data class LayerRailRow(val layer: Layer, val hostId: String) {
 }
 
 /**
- * The order in which the layers rail declares its rows.
+ * The order in which the layers rail declares its rows: depth-first, top-first (the frontmost
+ * layer on top), each group immediately followed by its whole subtree.
  *
- * A group layer is an `azRailSubHostItem` (a rail host that is itself a sub-item of its parent's
- * host), and its children are rail sub-items whose `hostId` is that group's id — never a nested
- * rail. Each host's direct children come first, top-first (the frontmost layer on top), and only
- * then the contents of any groups among them, level by level.
+ * A group layer is an `azRailRelocSubHostItem` (a draggable rail host that is itself a sub-item of
+ * its parent's host), and its children are rail sub-items whose `hostId` is that group's id —
+ * never a nested rail.
  *
- * The ordering matters because AzNavRail draws a host's children by filtering its item list on
- * `hostId` (so where a group's children sit relative to the group doesn't change the drawing),
- * but it decides what a drag can reorder by walking *contiguous* reloc items with the same
- * `hostId` (`RelocItemHandler.findCluster`). Declaring a group's children right after the group
- * would split its parent host's run of reloc items with foreign ones for no reason.
+ * The ordering matters because AzNavRail (11.52+) treats a relocatable sub-host plus every item
+ * *immediately after it* that descends from it as one block (`RelocItemHandler.blockEnd`): the
+ * block is one slot of its parent's reloc cluster and moves as a unit when the group is dragged.
+ * Declaring a group's children anywhere else would leave them out of its block, and would split
+ * the parent host's run of reloc slots.
  */
 internal fun layerRailRows(layers: List<Layer>): List<LayerRailRow> {
     val rows = mutableListOf<LayerRailRow>()
     fun declare(parentId: String?, hostId: String) {
-        val siblings = layers.filter { it.parentId == parentId }.reversed()
-        siblings.forEach { rows += LayerRailRow(it, hostId) }
-        siblings.filter { it.type == LayerType.GROUP }.forEach { declare(it.id, layerRailId(it.id)) }
+        layers.filter { it.parentId == parentId }.reversed().forEach {
+            rows += LayerRailRow(it, hostId)
+            if (it.type == LayerType.GROUP) declare(it.id, layerRailId(it.id))
+        }
     }
     declare(null, LAYERS_HOST_ID)
     return rows

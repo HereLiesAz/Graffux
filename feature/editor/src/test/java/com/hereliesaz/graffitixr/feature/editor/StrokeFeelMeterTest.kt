@@ -46,6 +46,22 @@ class StrokeFeelMeterTest {
     }
 
     @Test
+    fun inkReportCarriesItsOwnSeriesUnderTheInkEngineTag() {
+        val meter = StrokeFeelMeter()
+        meter.onInkPresented(20.0, strokeStart = true)
+        meter.onInkPresented(10.0, strokeStart = false)
+        meter.onInkPresented(5_000.0, strokeStart = false) // implausible: dropped
+        meter.onInkStabilized(3.0f)
+        meter.onStabilized(99f) // azphalt's series, must not leak into the Ink report
+        val engine = com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.ENGINE_JETPACK_INK
+        val report = meter.report(snapshot(), "x", engine)
+        assertTrue(report, report.contains("engine: $engine"))
+        assertTrue(report, report.contains("touch->paint: mean 15.0ms p95 10.0ms max 20.0ms (n=2)"))
+        assertTrue(report, report.contains("first dab: mean 20.0ms"))
+        assertTrue(report, report.contains("stabilizer lag: mean 3.0px"))
+    }
+
+    @Test
     fun frameMeterCountsFramesThatMissedARefresh() {
         val meter = FrameIntervalMeter(framePeriodNs = 16_666_667L)
         repeat(8) { meter.add(16_666_667L) }

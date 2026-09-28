@@ -21,9 +21,14 @@ internal const val SANDBOX_EXECUTION_TIMEOUT_MS = 15_000L
  * cancellation mechanism, not a hack. Using a throwaway [Thread] rather than interrupting the
  * calling coroutine's own thread is deliberate: `dispatchers.io`'s pool reuses threads, and
  * interrupting one out from under a coroutine dispatcher risks corrupting unrelated work sharing
- * that pool. Rethrows whatever [block] threw, or [TimeoutException] if it had to be cut off.
+ * that pool. [onTimeout] runs before the interrupt — callers use it to revoke the guest's host
+ * access (see [RevocableSandboxHost]). Rethrows whatever [block] threw, or [TimeoutException] if it had to be cut off.
  */
-internal fun <T> runSandboxBounded(timeoutMs: Long = SANDBOX_EXECUTION_TIMEOUT_MS, block: () -> T): T {
+internal fun <T> runSandboxBounded(
+    timeoutMs: Long = SANDBOX_EXECUTION_TIMEOUT_MS,
+    onTimeout: () -> Unit = {},
+    block: () -> T,
+): T {
     var result: T? = null
     var thrown: Throwable? = null
     val worker = Thread({
@@ -37,6 +42,9 @@ internal fun <T> runSandboxBounded(timeoutMs: Long = SANDBOX_EXECUTION_TIMEOUT_M
     worker.start()
     worker.join(timeoutMs)
     if (worker.isAlive) {
+        // Revoke host access first: the worker is abandoned, not killed, and may keep running (and
+        // calling host functions) until the interrupt is noticed — or forever, if it never is.
+        onTimeout()
         worker.interrupt()
         // A short grace period for Chicory to actually unwind after the interrupt lands — the
         // check happens between bytecode steps, not instantly, and a host call the guest is

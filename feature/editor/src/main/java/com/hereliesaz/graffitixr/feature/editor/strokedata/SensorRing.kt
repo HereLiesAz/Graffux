@@ -62,6 +62,7 @@ internal class SensorRing(val name: String, private val capacity: Int) {
     }
 
     /** This sensor's line in a stroke's `sensorStatus`. */
+    @Synchronized
     fun status(registered: Boolean, flushed: Boolean, slice: JSONObject?): JSONObject = JSONObject()
         .put("registered", registered)
         .put("flushed", flushed)
