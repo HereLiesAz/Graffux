@@ -415,7 +415,10 @@ object BrushTuftTopology {
                     dragAngleDeg = normalizeDegrees(state.dragAngleDeg),
                     bend = if (lift > 0f) 0f else target.bend,
                     separationFraction = if (lift > 0f) 0f else target.cohesiveSeparationFraction,
-                    trailingFraction = 0f,
+                    // Seed trailing from the same loaded targets as bend and separation. It is a
+                    // direct function of bend, so a tuft that starts bent must also start trailing
+                    // (scaled by touchdown compression exactly as [evolve] scales it).
+                    trailingFraction = if (lift > 0f) 0f else target.trailingFraction * (1f - touchdown * 0.8f),
                     splitDrive = 0f,
                     splitAmount = 0f,
                     splitLatched = false,
@@ -662,7 +665,17 @@ object BrushTuftTopology {
             if (leanMagnitude < 0.04f) {
                 1f
             } else {
-                val norm = (maxOf(cfg.rootSpan, cfg.physicalHeightSpan) * 0.5f).coerceAtLeast(0.01f)
+                // Normalize by the footprint's own half-extent along the lean direction (the support
+                // of the root ellipse/rectangle), not by its longest axis. Otherwise a lean across the
+                // narrow axis of a flat tip divides a short reach by the long half-span and the whole
+                // tip reads as nearly level, so neither edge contacts first.
+                val leanUx = contact.tipLeanX / leanMagnitude
+                val leanUy = contact.tipLeanY / leanMagnitude
+                val alongLateral = leanUx * rootLateralX + leanUy * rootLateralY
+                val alongForward = leanUx * rootForwardX + leanUy * rootForwardY
+                val halfLateral = cfg.rootSpan * 0.5f * alongLateral
+                val halfForward = cfg.physicalHeightSpan * 0.5f * alongForward
+                val norm = sqrt(halfLateral * halfLateral + halfForward * halfForward).coerceAtLeast(0.01f)
                 val plane = ((rootX * contact.tipLeanX + rootY * contact.tipLeanY) / norm).coerceIn(-1f, 1f)
                 val firstContact = (0.12f + (0.5f + plane * 0.5f) * 0.88f).coerceIn(0.08f, 1f)
                 (firstContact + (1f - firstContact) * contact.compression).coerceIn(0f, 1f)
