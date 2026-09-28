@@ -121,10 +121,13 @@ class HeatmapCapture(
                 p.errorStream.bufferedReader().forEachLine { synchronized(stderr) { stderr.appendLine(it) } }
             }
         }
-        Thread(drainStderr, "heatmap-stderr").apply { isDaemon = true; start() }
+        val stderrThread = Thread(drainStderr, "heatmap-stderr").apply { isDaemon = true; start() }
         reader = Thread({
             consume(p.inputStream)
             val code = runCatching { p.waitFor() }.getOrNull()
+            // su's refusal text arrives on stderr; let the drain finish before it is reported, or
+            // the status can race ahead of it and say only "exit 1".
+            runCatching { stderrThread.join(STDERR_JOIN_MS) }
             if (stopRequested) {
                 setStatus(status.copy(state = HeatmapStatus.STOPPED, frames = frames))
             } else if (status.state == HeatmapStatus.STARTING) {
@@ -215,6 +218,7 @@ class HeatmapCapture(
         const val MAX_BYTES_PER_STROKE = 384 * 1024
         private const val STATUS_EVERY_FRAMES = 30L
         private const val MAX_DETAIL = 300
+        private const val STDERR_JOIN_MS = 2_000L
 
         /** The offset to add to helper times: 0 unless the clocks demonstrably differ. */
         fun alignmentOffset(checkNs: Long): Long = if (abs(checkNs) > CLOCK_MISMATCH_NS) checkNs else 0L
