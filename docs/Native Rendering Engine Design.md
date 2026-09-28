@@ -457,7 +457,7 @@ Each stamp call (one frame's batch of dabs) becomes up to N pass items:
 
 - **Pass 1, the draft**: the same stamp (same tip mask, orientation, colour, grain, secondary tip,
   substrate) rendered at `1/scale` of the layer resolution into a separate draft buffer, over
-  transparent. The mask is sampled from the mip level that matches a draft texel. Dabs smaller than
+  transparent. The mask is sampled from the mip level that matches a draft texel, never coarser than an 8x8 level (a 1x1 or 2x2 level averages the falloff to a constant that the footprint clips to a solid shape). Dabs smaller than
   a draft texel are widened with their alpha lowered by the area ratio, so bristle-size dabs stay
   present. It is never a stand-in shape.
 - **The final pass**: exactly the dispatch the engine makes with multipass off, into the layer.
@@ -480,6 +480,37 @@ per axis for elliptical tips. Coverage there is `1 - f`, so for masked tips the 
 mask threshold `1 - f`. The draft keeps the real coverage profile inside the edge. The draft shaders
 store a *feather key* per texel (0 in the core, 1 at the outer edge); the display reveals only keys
 up to an edge that grows from `f` to the full feather.
+
+**The trim never flattens a soft stamp** (fixed after the owner's on-device report of flat,
+hard-edged discs on a soft brush at stroke start and after a pause). The rule is that a draft is the
+real stamp at lower quality, never a solid shape:
+
+- *Soft tips are not trimmed.* The stored key is multiplied by `trim_weight(hardness)`
+  (`draft.rs`): 0 up to hardness 0.5, smoothstep to 1 at 0.9. Trimming a soft falloff at `f` cut
+  through paint still carrying ~60% of the dab's alpha, so the first readback of a stroke (q = 0,
+  before any ETA or throughput exists) showed a flat disc with a hard rim. Hard tips keep the trim,
+  where it only hides the thin rim low resolution would blur.
+- *Masked drafts are not trimmed* (key 0): the mask carries the tip's own falloff.
+- *Build-up never hides piled-up paint.* In sequential (build-up) drafts the key is also capped at
+  `1 - alpha`, so repeated dabs at one spot (a held pointer) are revealed as they will land.
+- *Held dabs carry the brush's hardness.* `AirbrushEngine.heldDabs` and
+  `IncrementalAirbrushGenerator` left `Dab.hardness` at its default of 1, so every hold-to-build-up
+  deposit (Soft Round, Airbrush, Ink Pen) was a hard, flat disc, live and committed alike, with or
+  without multipass. They now use `brush.hardness * hardnessMultiplier` like movement dabs.
+- *No seams at tile edges.* The display's bilinear draft sample used to clamp to its own 32x32
+  tile, so the upsampled draft went flat for the last half texel of every tile and then jumped (up
+  to ~25 levels at draft scale 8): periodic ribbing along a soft stroke. It now reads across an edge
+  into a neighbour whose draft is still live (final work queued over it) and clamps only next to a
+  landed neighbour, whose draft texels are cleared. A landed tile never reads neighbours, so it
+  still shows exactly its base.
+
+Tests: `tests/multipass_soft.rs` (stroke-start falloff and no hard edge for large soft rounds up to
+164 px at draft scales 2/4/8; held build-up with starved refinement is soft, as wide as the final,
+and the layer is byte-identical to off; masked soft tips keep their falloff),
+`draft.rs::soft_tips_are_never_trimmed_and_hard_tips_fully`, and
+`AirbrushEngineTest` (held dabs carry the brush hardness; batch and incremental generators agree).
+The remaining max-combine ripple of a soft round at its preset spacing is pre-existing, identical
+with multipass off, and not changed here.
 
 ##### Scheduling
 

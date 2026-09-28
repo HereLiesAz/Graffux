@@ -111,4 +111,27 @@ class AirbrushEngineTest {
         val b = AirbrushEngine.heldDabs(samples, 20f, plainBrush, 10f, 4f, seed = 42L)
         assertEquals(a.map { it.radius to it.alpha }, b.map { it.radius to it.alpha })
     }
+
+    @Test
+    fun `held dabs carry the brush's own hardness, never the hard default`() {
+        // Regression: held dabs used Dab's default hardness 1, so a pause in a soft stroke (Soft
+        // Round with hardness turned down, Airbrush) stamped a flat, hard-edged disc, live and
+        // committed alike. Both the batch and the incremental generator must agree.
+        val samples = listOf(
+            BrushSample(10f, 10f, uptimeMillis = 0L),
+            BrushSample(10f, 10f, uptimeMillis = 50L),
+            BrushSample(10f, 10f, uptimeMillis = 1000L),
+        )
+        for (preset in BuiltInBrushes.presets.filter { it.airbrushDabsPerSecond > 0f }) {
+            for (hardness in listOf(0f, 0.1f, preset.hardness)) {
+                val brush = preset.copy(hardness = hardness)
+                val batch = AirbrushEngine.heldDabs(samples, 164f, brush, 10f, 4f, seed = 3L)
+                val live = IncrementalAirbrushGenerator(164f, brush, 10f, 4f, seed = 3L)
+                val incremental = samples.flatMap { live.append(it) }
+                assertTrue(batch.isNotEmpty())
+                assertEquals(batch, incremental)
+                batch.forEach { assertEquals("${preset.name} h=$hardness", hardness, it.hardness, 1e-6f) }
+            }
+        }
+    }
 }

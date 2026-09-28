@@ -77,6 +77,10 @@ object AirbrushEngine {
                         alpha = alpha,
                         angleDeg = brush.angle + dynamic.rotationOffsetDeg,
                         tipRatio = brush.tipRatio,
+                        // Dab.hardness defaults to 1 (a hard disc). Held dabs must carry the
+                        // brush's own falloff, exactly as movement dabs do (BrushStamps), or a pause
+                        // stamps a flat, hard-edged disc on top of a soft stroke.
+                        hardness = (brush.hardness * dynamic.hardnessMultiplier).coerceIn(0f, 1f),
                         flowMultiplier = dynamic.flowMultiplier,
                         hueShiftDeg = dynamic.hueShiftDeg,
                         saturationMultiplier = dynamic.saturationMultiplier,
