@@ -166,6 +166,19 @@ internal sealed interface EditorIntent {
     ) : EditorIntent
     /** Re-runs a frame's auto-layout over its children. */
     data class RelayoutFrame(val frameId: String) : EditorIntent
+    /**
+     * The one way a frame's box changes size: sets its layout size to [width] x [height] and, in the
+     * same transition, moves/resizes every child — auto-layout if the frame has one, otherwise each
+     * child's constraints (see LayoutOps.applyResize). One transition, so one undo step.
+     */
+    data class ResizeFrame(val frameId: String, val width: Float, val height: Float) : EditorIntent
+    /** A peer's layer geometry (shape sizes and layout size) — the co-op counterpart of ResizeFrame. */
+    data class SetLayerGeometry(
+        val layerId: String,
+        val shapes: List<com.hereliesaz.graffitixr.common.model.VectorShape>,
+        val layoutWidth: Float,
+        val layoutHeight: Float,
+    ) : EditorIntent
 
     // ── Shared styles ────────────────────────────────────────────────────────────────────────
     data class AddColorStyle(val style: com.hereliesaz.graffitixr.common.model.ColorStyle) : EditorIntent

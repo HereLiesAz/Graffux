@@ -134,6 +134,26 @@ codebase is deferred scope or a real gap in the install-report flow.
   trilinearly sampled) are both destructive bitmap bakes pushed through `pushHistory()` —
   neither can be expressed as a `ColorMatrix`, which is why they exist as their own code
   paths rather than extra knobs on the existing one.
+- **Every frame resize is one `EditorIntent.ResizeFrame`, and constraints run inside it.** A frame
+  is a `GROUP` layer; its box is `layoutWidth` × `layoutHeight`, in its children's space and
+  centred on the group origin (`LayoutOps.localFrameRect`), because the group renderer draws its
+  children inside the group's own transform. The reducer sets the new size and, in the same
+  transition, runs `LayoutOps.applyResize` over the direct children — so the frame and everything
+  its constraints moved are one undo step. Entry points: Hug Contents, the "Frame Size (W x H)"
+  row in the layer's hidden menu, and the resize handle of a sized frame (a group with a declared
+  box gets an outline and handles; its handle resizes the box instead of scaling the group).
+  Precedence: a frame with auto-layout re-runs `applyAutoLayout` and ignores its children's
+  constraints (Figma does the same, and the constraint menu hides under an auto-layout parent).
+  Constraint geometry treats a child's offset as the centre of its box (that is how layers
+  render); STRETCH and SCALE resize on each axis independently — a vector layer's shape
+  width/height (and a path's points), a frame's layout size, and for a raster layer, which only
+  has a uniform `scale`, the smaller changed factor. A nested frame whose box changes passes the
+  resize down. Transforming a group — the TransformPanel's Scale field, rotation, moving it, or
+  scaling a group with no declared box — is not a resize: it scales the whole subtree as a unit
+  through the group's `graphicsLayer`, so constraints do not apply. Co-op: a resize emits
+  `Op.LayerGeometry` (shapes + layout size) and `Op.LayerTransform` for every layer whose geometry
+  changed, not only the active one. Known wart: auto-layout still positions from the frame's
+  offset and treats a child's offset as its top-left, which predates this convention.
 - **Extension acquisition is delegated, not built in.** Graffux is a host, not a marketplace:
   browsing/searching/purchasing an azphalt extension happens in a separate store app, reached
   via an intent (`spec/store-app.md` § Discovery) or an `azphalt://` deep link. The deep-link
