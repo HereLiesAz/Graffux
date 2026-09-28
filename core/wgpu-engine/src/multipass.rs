@@ -388,7 +388,9 @@ struct TileParam {
     x: i32,
     y: i32,
     slot: i32,
-    _pad: i32,
+    /// Neighbours whose draft texels are live (display.wgsl reads across that edge): bit
+    /// `(dy + 1) * 3 + (dx + 1)` for dx, dy in -1..=1.
+    live_neighbours: i32,
     edge: f32,
     weight: f32,
     _pad1: f32,
@@ -2001,6 +2003,9 @@ impl Engine {
                 continue;
             }
             let eta = mp.eta.eta_ms(*backlog);
+            // A landed tile (nothing queued over it) shows exactly its base: its own draft is
+            // cleared, and it must not pull a still-drafting neighbour's texels in either.
+            let live_neighbours = if mp.tiles[t].pending > 0 { mp.live_neighbours(t) } else { 0 };
             let tile = &mut mp.tiles[t];
             if finish {
                 if tile.anim.landing.is_some() {
@@ -2027,7 +2032,7 @@ impl Engine {
                     (Some(_), Some(s)) => s as i32,
                     _ => -1,
                 },
-                _pad: 0,
+                live_neighbours,
                 edge,
                 weight,
                 _pad1: 0.0,
@@ -2116,6 +2121,27 @@ fn clear_draft_tile(encoder: &mut wgpu::CommandEncoder, mp: &Multipass, t: usize
 }
 
 impl Multipass {
+    /// Which of tile `t`'s eight neighbours still hold their draft (final work queued over them).
+    /// The display's bilinear draft sample may cross into those; a landed neighbour's draft texels
+    /// are cleared, so the sample stays clamped on that side.
+    fn live_neighbours(&self, t: usize) -> i32 {
+        let tx = t as i32 % self.tiles_x;
+        let ty = t as i32 / self.tiles_x;
+        let mut bits = 0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let (nx, ny) = (tx + dx, ty + dy);
+                if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= self.tiles_x || ny >= self.tiles_y {
+                    continue;
+                }
+                if self.tiles[(ny * self.tiles_x + nx) as usize].pending > 0 {
+                    bits |= 1 << ((dy + 1) * 3 + (dx + 1));
+                }
+            }
+        }
+        bits
+    }
+
     /// Work queued in the final FIFO up to and including the last item over each tile.
     fn backlog_units_per_tile(&self) -> Vec<f64> {
         let mut out = vec![0.0; self.tiles.len()];

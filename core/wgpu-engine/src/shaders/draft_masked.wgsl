@@ -113,7 +113,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let uv = vec2<f32>(rotated.x / (2.0 * half_w) + 0.5, rotated.y / (2.0 * half_h) + 0.5);
         // Mask texels per draft texel, along the tip's long axis.
-        let lod = clamp(log2(max(pc.mask_width * pc.scale / (2.0 * half_w), 1.0)), 0.0, pc.mask_levels - 1.0);
+        // Never coarser than an 8x8 level (draft.rs MIN_DRAFT_MIP_TEXELS): a 1x1 or 2x2 level averages
+        // the falloff to one constant and the dab rectangle then clips it to a solid shape.
+        let lod_max = max(pc.mask_levels - 4.0, 0.0);
+        let lod = clamp(log2(max(pc.mask_width * pc.scale / (2.0 * half_w), 1.0)), 0.0, lod_max);
         let mask_value = textureSampleLevel(tip_mask, linear_mip_clamp, uv, lod).r;
         var coverage = mask_value;
         if (coverage <= 0.0) { continue; }
@@ -159,7 +162,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let src_a = d.paint1.x * d.geometry.w * max(d.paint1.y, 0.0) * coverage;
         if (src_a <= 0.0) { continue; }
         dst = vec4<f32>(d.paint0.yzw * src_a + dst.rgb * (1.0 - src_a), src_a + dst.a * (1.0 - src_a));
-        key = min(key, clamp(1.0 - mask_value, 0.0, 1.0));
+        // A mask's falloff is the stamp's own shape and softness; trimming it at 1 - f made soft
+        // masked tips draft as flat discs. The draft shows the whole (lower-mip) mask: key 0.
+        key = 0.0;
     }
     draft_px[idx] = vec2<u32>(pack4x8unorm(dst), bitcast<u32>(key));
 }
