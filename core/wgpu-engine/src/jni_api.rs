@@ -5,11 +5,14 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JLongArray, ReleaseMode};
-use jni::sys::{jboolean, jfloat, jint, jlong, jlongArray, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{
+    jboolean, jdoubleArray, jfloat, jint, jlong, jlongArray, jstring, JNI_FALSE, JNI_TRUE,
+};
 use jni::JNIEnv;
 
 use crate::engine::{
-    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, SubstrateParams,
+    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
+    SubstrateParams,
 };
 
 fn guard(f: impl FnOnce() -> bool) -> jboolean {
@@ -564,6 +567,70 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
         Ok(array) => {
             let array: JLongArray = array;
             let _ = env.set_long_array_region(&array, 0, &[n as i64, bytes as i64]);
+            array.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// ---- Multipass rendering (experimental; see multipass.rs) ------------------------------------
+
+/// `params` = MultipassConfig floats; null or short takes defaults (null = off).
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeSetMultipass(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    params: JFloatArray,
+) -> jboolean {
+    guard(|| {
+        let values = floats(&mut env, &params).unwrap_or_default();
+        unsafe { engine(handle) }
+            .is_some_and(|e| e.set_multipass(MultipassConfig::from_floats(&values)))
+    })
+}
+
+/// 1 = work or animation remains, 0 = idle, -1 = failure.
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeRefine(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    budget_ms: jfloat,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        unsafe { engine(handle) }.map_or(-1, |e| e.refine(budget_ms))
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeFlush(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jboolean {
+    guard(|| unsafe { engine(handle) }.is_some_and(|e| e.flush()))
+}
+
+/// MultipassStats::to_array().
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeMultipassStats(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jdoubleArray {
+    let stats = catch_unwind(AssertUnwindSafe(|| {
+        unsafe { engine(handle) }.map(|e| e.multipass_stats().to_array())
+    }))
+    .ok()
+    .flatten();
+    let Some(stats) = stats else {
+        return std::ptr::null_mut();
+    };
+    match env.new_double_array(stats.len() as i32) {
+        Ok(array) => {
+            let _ = env.set_double_array_region(&array, 0, &stats);
             array.into_raw()
         }
         Err(_) => std::ptr::null_mut(),

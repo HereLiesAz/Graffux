@@ -37,6 +37,12 @@ against an independent NumPy implementation of the shader math instead. Build `r
 `-DWITH_PAINT_HEIGHT` to produce its inputs. `run.sh` builds that variant of both GLES and wgpu and
 compares them.
 
+**Multipass rendering.** `run.sh` also builds `run_wgpu.cpp` with `-DMULTIPASS`: the same
+scenarios with the wgpu engine's experimental multipass rendering on (drafts at once, the layer
+refined in 10-20 µs budgets between steps, everything landed before each result is read). Its
+output must equal the plain wgpu run exactly, and does: 0 bytes differ in every scenario on both
+wgpu backends (Mesa 25.2.8).
+
 `run_wgpu_resident.cpp` checks resident layers through the same adapter: six strokes (round with
 stroke-max frame batches, masked, smudge) with three undos in between, painted once by uploading
 the whole layer before every stroke and once through `bindLayer`/`uploadLayer` plus
