@@ -62,7 +62,7 @@ class GpuTuningController private constructor(context: Context) {
             // mid-session. The multipass scheduler follows every change.
             budgetProvider.budget.collect { budget ->
                 GpuStampEngine.setResidentBudget(budget.residentBudgetBytes)
-                GpuStampEngine.setMultipassBudget(budget.toMultipassBudget())
+                GpuStampEngine.multipassBudget = budget.toMultipassBudget()
             }
         }
         scope.launch { coordinator.state.collect { telemetry.paused = it == CalibrationState.RUNNING } }

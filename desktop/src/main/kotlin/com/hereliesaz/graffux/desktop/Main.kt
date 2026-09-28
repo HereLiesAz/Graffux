@@ -372,15 +372,16 @@ private fun GraffuxDesktopApp(
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                DesktopStampCanvas(
-                    state = canvasState,
-                    brush = selectedBrush,
-                    brushRadiusPx = brushRadius,
-                    colorArgb = selectedColor.toArgb(),
-                    flow = brushFlow,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    multipass = multipass,
-                )
+                CompositionLocalProvider(LocalMultipassSettings provides multipass) {
+                    DesktopStampCanvas(
+                        state = canvasState,
+                        brush = selectedBrush,
+                        brushRadiusPx = brushRadius,
+                        colorArgb = selectedColor.toArgb(),
+                        flow = brushFlow,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    )
+                }
             }
             }
         }

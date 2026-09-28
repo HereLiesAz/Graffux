@@ -74,10 +74,13 @@ data class GpuBudget(
         fun draftDivisor(scale: Float): Int {
             if (!(scale > 0f)) return MAX_DRAFT_DIVISOR
             val d = (1f / scale).coerceIn(1f, MAX_DRAFT_DIVISOR.toFloat())
-            return listOf(1, 2, 4, MAX_DRAFT_DIVISOR).minBy { kotlin.math.abs(it - d) }
+            return DRAFT_DIVISORS.minBy { kotlin.math.abs(it - d) }
         }
 
         private const val MAX_DRAFT_DIVISOR = 8
+
+        /** The draft resolution divisors the wgpu engine supports. */
+        private val DRAFT_DIVISORS = listOf(1, 2, 4, MAX_DRAFT_DIVISOR)
         const val MIB = 1024L * 1024L
         const val MIN_RESIDENT_MIB = 32L
     }

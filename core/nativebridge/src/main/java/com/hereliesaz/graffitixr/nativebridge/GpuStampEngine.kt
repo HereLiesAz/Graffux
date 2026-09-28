@@ -85,33 +85,30 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         @JvmStatic
         var multipass: MultipassSettings = MultipassSettings()
 
-        /**
-         * The device's current multipass budget (GpuTuningController collects its GpuBudget flow
-         * into [setMultipassBudget]); null until the first one arrives.
-         */
-        @Volatile private var multipassBudget: MultipassBudget? = null
-
         /** wgpu handles running multipass now. Render thread only. */
         private val multipassHandles = LinkedHashSet<Long>()
 
         /** [multipass] under the current [multipassBudget]: what the engines actually get. */
-        internal fun effectiveMultipass(): MultipassSettings = multipass.withBudget(multipassBudget)
+        internal val effectiveMultipass: MultipassSettings get() = multipass.withBudget(multipassBudget)
 
         /**
-         * A new device budget (tier landed, thermal change). Applies to live multipass engines at
-         * once (queued on the render thread; a draft-scale change takes effect at the next stroke
-         * start) and to every engine set up later.
+         * The device's multipass budget (GpuTuningController collects its GpuBudget flow into this;
+         * null until the first one arrives). A new budget (tier landed, thermal change) applies to
+         * live multipass engines at once (queued on the render thread; a draft-scale change takes
+         * effect at the next stroke start) and to every engine set up later.
          */
+        @Volatile
         @JvmStatic
-        fun setMultipassBudget(budget: MultipassBudget) {
-            multipassBudget = budget
-            GpuRenderThread.post {
-                if (multipassHandles.isEmpty()) return@post
-                val params = effectiveMultipass().toFloatArray()
-                val jni = helper()
-                multipassHandles.filter { it in liveWgpuHandles }.forEach { jni.nativeSetMultipass(it, params) }
+        var multipassBudget: MultipassBudget? = null
+            set(value) {
+                field = value
+                GpuRenderThread.post {
+                    if (multipassHandles.isEmpty()) return@post
+                    val params = effectiveMultipass.toFloatArray()
+                    val jni = helper()
+                    multipassHandles.filter { it in liveWgpuHandles }.forEach { jni.nativeSetMultipass(it, params) }
+                }
             }
-        }
 
         /** SharedPreferences keys (in [Backend.PREFS]) for [multipass]. */
         const val KEY_MULTIPASS = "multipass"
@@ -668,7 +665,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
 
     /** Render thread only. Off also lands anything a pooled handle still had queued. */
     private fun applyMultipass(handle: Long) {
-        val settings = effectiveMultipass()
+        val settings = effectiveMultipass
         multipassEnabled = nativeSetMultipass(handle, settings.toFloatArray()) && settings.enabled
         if (multipassEnabled) multipassHandles.add(handle) else multipassHandles.remove(handle)
     }

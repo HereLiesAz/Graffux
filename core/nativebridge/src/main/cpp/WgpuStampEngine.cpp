@@ -296,6 +296,8 @@ bool WgpuStampEngine::flushMultipass() {
 size_t WgpuStampEngine::multipassStats(double* out, size_t count) {
     if (engine_ == nullptr || gApi.setMultipass == nullptr) return 0;
     return gApi.multipassStats(engine_, out, count);
+}
+
 std::string WgpuStampEngine::gpuInfo() const {
     if (engine_ == nullptr || gApi.gpuInfo == nullptr) return {};
     std::string text(1024, '\0');

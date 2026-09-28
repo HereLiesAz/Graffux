@@ -262,12 +262,19 @@ fn main() {
             println!("\n[{bname}] no adapter -- skipped");
             continue;
         }
+        if std::env::var("BENCH_BACKEND").ok().is_some_and(|b| !bname.starts_with(b.as_str())) {
+            continue;
+        }
         println!("\n## {bname}\n");
         println!(
             "| brush | mode | touch-to-visible p50 | p95 | max | batch work p50 | layer final after last batch | display settled | draft/frame | composite/frame | readback/frame |"
         );
         println!("|---|---|---|---|---|---|---|---|---|---|---|");
+        let only = std::env::var("BENCH_ONLY").ok();
         for brush in [Brush::SoftRound, Brush::MaskedTextured, Brush::Bristles, Brush::HeavyMasked] {
+            if only.as_deref().is_some_and(|o| !brush.name().starts_with(o)) {
+                continue;
+            }
             let base = MultipassConfig {
                 enabled: true,
                 frame_ms: FRAME_MS as f32,

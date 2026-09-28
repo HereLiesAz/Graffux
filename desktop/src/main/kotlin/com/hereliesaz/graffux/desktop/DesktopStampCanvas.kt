@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import java.awt.image.BufferedImage
 import kotlinx.coroutines.Dispatchers
@@ -68,31 +70,17 @@ fun DesktopStampCanvas(
     colorArgb: Int,
     flow: Float = 1f,
     modifier: Modifier = Modifier,
-    multipass: MultipassSettings = MultipassSettings(),
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var hoverPosition by remember { mutableStateOf<Offset?>(null) }
     val gpu = remember { GpuStrokeRenderer() }
     DisposableEffect(gpu) { onDispose { gpu.close() } }
-    // Multipass drying (experimental): read by the renderer at each stroke start.
+    // Multipass drying (experimental, LocalMultipassSettings): read by the renderer at each
+    // stroke start; the ticker keeps a settling stroke refining and on screen.
+    val multipass = LocalMultipassSettings.current
     SideEffect { gpu.multipass = multipass }
-    // While a multipass stroke is still settling (the pointer resting), keep refining and showing
-    // it. Stroke frames and this tick are serialized inside the renderer.
-    LaunchedEffect(gpu) {
-        while (true) {
-            delay(MULTIPASS_TICK_MS)
-            if (!gpu.refining) continue
-            val image = withContext(Dispatchers.Default) {
-                val (w, h) = gpu.canvasSize ?: return@withContext null
-                gpu.tick()?.let { px ->
-                    BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB).apply { setRGB(0, 0, w, h, px, 0, w) }
-                }
-            }
-            // A stroke that ended meanwhile has committed its final frame; don't cover it.
-            if (image != null && gpu.multipassStroke) displayBitmap = image.toComposeImageBitmap()
-        }
-    }
+    MultipassTicker(gpu) { displayBitmap = it }
 
     // The ONE place that ever creates or resizes `state.committed`'s backing bitmap, covering
     // three cases uniformly: the very first layout pass (`committed == null`), a live window
@@ -222,12 +210,7 @@ fun DesktopStampCanvas(
                         val base = strokeBase
                         if (gpuStroke == true && base != null && gpu.multipassStroke) {
                             val dabs = BrushStamps.dynamicDabs(samples, brushRadiusPx * 2f, brush, strokeSeed)
-                            val pixels = withContext(Dispatchers.Default) {
-                                gpu.finishStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)?.copyOf()
-                            }
-                            if (pixels != null) {
-                                val frame = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
-                                frame.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
+                            finishMultipassStroke(gpu, base, dabs, colorArgb, flow)?.let { frame ->
                                 lastRenderedFrame = frame
                                 displayBitmap = frame.toComposeImageBitmap()
                             }
@@ -282,3 +265,52 @@ fun DesktopStampCanvas(
 
 /** Idle refinement cadence while a multipass stroke settles (about one 60 Hz frame). */
 private const val MULTIPASS_TICK_MS = 16L
+
+/** Multipass drying settings for [DesktopStampCanvas] (off unless provided). */
+val LocalMultipassSettings = compositionLocalOf { MultipassSettings() }
+
+/**
+ * While a multipass stroke is still settling (the pointer resting), keeps refining and shows each
+ * changed frame. Stroke frames and this tick are serialized inside the renderer.
+ */
+@Suppress("FunctionNaming") // Composable naming.
+@Composable
+private fun MultipassTicker(gpu: GpuStrokeRenderer, onFrame: (ImageBitmap) -> Unit) {
+    LaunchedEffect(gpu) {
+        while (true) {
+            delay(MULTIPASS_TICK_MS)
+            if (!gpu.refining) continue
+            val image = withContext(Dispatchers.Default) { gpu.tickImage() }
+            // A stroke that ended meanwhile has committed its final frame; don't cover it.
+            if (image != null && gpu.multipassStroke) onFrame(image.toComposeImageBitmap())
+        }
+    }
+}
+
+/** One idle refinement step as an image, or null when nothing changed. */
+private fun GpuStrokeRenderer.tickImage(): BufferedImage? {
+    val size = canvasSize ?: return null
+    return tick()?.let { px ->
+        val (w, h) = size
+        BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB).apply { setRGB(0, 0, w, h, px, 0, w) }
+    }
+}
+
+/**
+ * Lands a multipass stroke and renders its committed frame exactly as the plain path would, off the
+ * UI thread (the draft stays on screen meanwhile). Null = the GPU path failed; keep the last frame.
+ */
+private suspend fun finishMultipassStroke(
+    gpu: GpuStrokeRenderer,
+    base: BufferedImage,
+    dabs: List<Dab>,
+    colorArgb: Int,
+    flow: Float,
+): BufferedImage? {
+    val pixels = withContext(Dispatchers.Default) {
+        gpu.finishStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)?.copyOf()
+    } ?: return null
+    return BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB).apply {
+        setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
+    }
+}

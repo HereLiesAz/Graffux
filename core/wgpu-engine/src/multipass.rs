@@ -48,6 +48,8 @@ const REVEAL_BAND: f32 = 0.3;
 const LANDING_SPREAD: f32 = 0.6;
 /// Assumed cost of one refinement unit (a pixel times a dab) before anything is measured, ms.
 const DEFAULT_MS_PER_UNIT: f64 = 2e-5;
+/// Smallest refinement chunk, in pixel*dab units (one 16x16 block times 2 dabs).
+const MIN_CHUNK_UNITS: f64 = 256.0 * 2.0;
 
 /// Settings of the experiment. Passed as floats through the C ABI / JNI, in this order.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -529,6 +531,9 @@ pub(super) struct Multipass {
     anim: AnimParams,
     eta: EtaEstimator,
     ms_per_unit: [Ema; 2],
+    /// Fixed cost of one chunk's submit and wait with no work, measured (so per-unit estimates are
+    /// not inflated by it and chunks do not shrink toward nothing).
+    chunk_overhead_ms: Ema,
     draft_ms: Ema,
     present_ms: Ema,
     compose_ms: Ema,
@@ -710,6 +715,7 @@ impl Multipass {
             },
             eta: EtaEstimator::default(),
             ms_per_unit: [Ema::default(); 2],
+            chunk_overhead_ms: Ema::default(),
             draft_ms: Ema::default(),
             present_ms: Ema::default(),
             compose_ms: Ema::default(),
@@ -1500,11 +1506,18 @@ impl Engine {
             let head = mp.sched.head_mut(pass).expect("picked head");
             let kind = head.payload.call.kind();
             let ms_per_unit = mp.ms_per_unit[kind].get().unwrap_or(DEFAULT_MS_PER_UNIT).max(1e-9);
-            // Chunks of at most half what is left, so one mis-estimated chunk cannot eat the frame.
+            if mp.chunk_overhead_ms.get().is_none() {
+                mp.chunk_overhead_ms.add(self.mp_measure_submit_overhead(), 1.0);
+            }
+            let overhead = mp.chunk_overhead_ms.get().unwrap_or(0.0);
+            // Chunks of at most half what is left (after the fixed per-chunk cost), so one
+            // mis-estimated chunk cannot eat the frame; never below a minimum, so fixed costs do not
+            // dominate. Forced progress still takes the minimum on a starving budget.
             let mut max_units = if budget.is_infinite() {
                 f64::INFINITY
             } else {
-                (budget - elapsed).max(0.0) * 0.5 / ms_per_unit
+                (((budget - elapsed).max(0.0) * 0.5 - overhead).max(0.0) / ms_per_unit)
+                    .max(MIN_CHUNK_UNITS)
             };
             if mp.cfg.max_chunk_px > 0 && !budget.is_infinite() {
                 let edge = mp.cfg.max_chunk_px as f64;
@@ -1523,7 +1536,8 @@ impl Engine {
             let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
             if units > 0.0 {
-                mp.ms_per_unit[kind].add(ms / units, 0.2);
+                let fixed = mp.chunk_overhead_ms.get().unwrap_or(0.0);
+                mp.ms_per_unit[kind].add((ms - fixed).max(ms * 0.1) / units, 0.2);
                 mp.eta.observe_work(units, ms);
             }
             mp.chunks_run += 1;
@@ -1540,6 +1554,20 @@ impl Engine {
             }
         }
         mp.refine_busy_since_frame += start.elapsed().as_secs_f64() * 1000.0;
+    }
+
+    /// Wall time of an empty submit plus wait, ms (median of three).
+    fn mp_measure_submit_overhead(&mut self) -> f64 {
+        let mut samples = [0.0f64; 3];
+        for s in &mut samples {
+            let t0 = Instant::now();
+            let encoder = self.device.create_command_encoder(&Default::default());
+            self.queue.submit([encoder.finish()]);
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            *s = t0.elapsed().as_secs_f64() * 1000.0;
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples[1]
     }
 
     /// One chunk of the head final item of `pass`: exactly the dispatch the call makes with
@@ -1559,23 +1587,14 @@ impl Engine {
         };
         match call.as_ref() {
             Call::Stamp(c) => {
-                self.mp_exec_stamp(c, &subst_tex, &paint_tex, chunk.clone(), None);
-                if let Some(ch) = chunk {
-                    for _ in 1..ballast {
-                        let b = mp.ballast_buffer(self);
-                        self.mp_exec_stamp(c, &subst_tex, &paint_tex, Some(ch.clone()), Some(&b));
-                    }
-                }
+                let b = (ballast > 1).then(|| mp.ballast_buffer(self));
+                self.mp_exec_stamp(c, &subst_tex, &paint_tex, chunk, b.as_ref().map(|b| (b, ballast - 1)));
             }
             Call::Masked(c) => {
+                // An empty region: stamp_masked_dabs submits nothing then either.
                 if let Some(ch) = chunk {
-                    self.mp_exec_masked(c, &subst_tex, &paint_tex, ch.clone(), None);
-                    for _ in 1..ballast {
-                        let b = mp.ballast_buffer(self);
-                        self.mp_exec_masked(c, &subst_tex, &paint_tex, ch.clone(), Some(&b));
-                    }
-                } else {
-                    // stamp_masked_dabs with an empty region submits nothing but uploads.
+                    let b = (ballast > 1).then(|| mp.ballast_buffer(self));
+                    self.mp_exec_masked(c, &subst_tex, &paint_tex, ch, b.as_ref().map(|b| (b, ballast - 1)));
                 }
             }
         }
@@ -1585,17 +1604,17 @@ impl Engine {
     }
 
     /// `stamp_dabs`' dispatch for `chunk` (None: an empty region, which only clears strokeMax state
-    /// as the direct call would). `into` = a scratch target (the benchmark ballast) instead of the
-    /// layer; it never touches strokeMax state.
+    /// as the direct call would). `ballast` (benchmark only): that many extra copies of the dispatch
+    /// into a scratch buffer, in the same submit, never touching strokeMax state.
     fn mp_exec_stamp(
         &mut self,
         c: &StampCall,
         subst_tex: &Tex,
         paint_tex: &Tex,
         chunk: Option<(Rect, Range<usize>)>,
-        into: Option<&wgpu::Buffer>,
+        ballast: Option<(&wgpu::Buffer, u32)>,
     ) {
-        let use_stroke_max = c.stroke_max && !c.build_up && into.is_none();
+        let use_stroke_max = c.stroke_max && !c.build_up;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         if use_stroke_max {
             self.ensure_stroke_state(&mut encoder);
@@ -1636,53 +1655,67 @@ impl Engine {
             } else {
                 &self.placeholder_state
             };
-            let target = into.unwrap_or(&self.layer);
-            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("stamp"),
-                layout: &self.stamp_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.dab_buffer.buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: target.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: tv(subst_tex),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: tv(paint_tex),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: state.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: self.stamp_uniform.as_entire_binding(),
-                    },
-                ],
+            let make_bind = |target: &wgpu::Buffer, state: &wgpu::Buffer, uniform: &wgpu::Buffer| {
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("stamp"),
+                    layout: &self.stamp_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.dab_buffer.buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: target.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: tv(subst_tex),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: tv(paint_tex),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: state.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: uniform.as_entire_binding(),
+                        },
+                    ],
+                })
+            };
+            let bind = make_bind(&self.layer, state, &self.stamp_uniform);
+            let extra = ballast.map(|(buffer, n)| {
+                let scratch_uniform = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("ballast params"),
+                    contents: bytemuck::bytes_of(&StampUniform { stroke_max: 0.0, ..pc }),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+                (make_bind(buffer, &self.placeholder_state, &scratch_uniform), n)
             });
+            let groups = (
+                (r.w as u32).div_ceil(self.stamp_tile),
+                (r.h as u32).div_ceil(self.stamp_tile),
+            );
             {
                 let mut pass = encoder.begin_compute_pass(&Default::default());
                 pass.set_pipeline(&self.stamp_pipeline);
                 pass.set_bind_group(0, &bind, &[]);
-                pass.dispatch_workgroups(
-                    (r.w as u32).div_ceil(self.stamp_tile),
-                    (r.h as u32).div_ceil(self.stamp_tile),
-                    1,
-                );
+                pass.dispatch_workgroups(groups.0, groups.1, 1);
+                if let Some((extra_bind, n)) = extra.as_ref() {
+                    pass.set_bind_group(0, extra_bind, &[]);
+                    for _ in 0..*n {
+                        pass.dispatch_workgroups(groups.0, groups.1, 1);
+                    }
+                }
             }
         }
         self.queue.submit([encoder.finish()]);
-        if into.is_none() {
-            if let Some((r, _)) = chunk {
-                self.note_truth(r);
-            }
+        if let Some((r, _)) = chunk {
+            self.note_truth(r);
         }
     }
 
@@ -1693,7 +1726,7 @@ impl Engine {
         subst_tex: &Tex,
         paint_tex: &Tex,
         chunk: (Rect, Range<usize>),
-        into: Option<&wgpu::Buffer>,
+        ballast: Option<(&wgpu::Buffer, u32)>,
     ) {
         let (r, range) = chunk;
         let r8 = wgpu::TextureFormat::R8Unorm;
@@ -1777,8 +1810,7 @@ impl Engine {
         };
         self.queue
             .write_buffer(&self.masked_uniform, 0, bytemuck::bytes_of(&pc));
-        let target = into.unwrap_or(&self.layer);
-        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let make_bind = |target: &wgpu::Buffer| self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stamp masked"),
             layout: &self.masked_layout,
             entries: &[
@@ -1828,21 +1860,27 @@ impl Engine {
                 },
             ],
         });
+        let bind = make_bind(&self.layer);
+        let extra = ballast.map(|(buffer, n)| (make_bind(buffer), n));
+        let groups = (
+            (r.w as u32).div_ceil(self.stamp_tile),
+            (r.h as u32).div_ceil(self.stamp_tile),
+        );
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.masked_pipeline);
             pass.set_bind_group(0, &bind, &[]);
-            pass.dispatch_workgroups(
-                (r.w as u32).div_ceil(self.stamp_tile),
-                (r.h as u32).div_ceil(self.stamp_tile),
-                1,
-            );
+            pass.dispatch_workgroups(groups.0, groups.1, 1);
+            if let Some((extra_bind, n)) = extra.as_ref() {
+                pass.set_bind_group(0, extra_bind, &[]);
+                for _ in 0..*n {
+                    pass.dispatch_workgroups(groups.0, groups.1, 1);
+                }
+            }
         }
         self.queue.submit([encoder.finish()]);
-        if into.is_none() {
-            self.note_truth(r);
-        }
+        self.note_truth(r);
     }
 
     /// A final write to the layer: taints/extends the resident copy like `note_write`, but the

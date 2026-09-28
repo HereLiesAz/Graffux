@@ -44,6 +44,7 @@ import kotlin.math.max
  * probe once, not per frame. Calls are serialized on the instance (the gesture coroutine and the
  * multipass [tick] both reach it).
  */
+@Suppress("TooManyFunctions") // The plain and multipass stroke paths share one engine and its buffers.
 class GpuStrokeRenderer {
     /** Multipass drying settings; read at each [beginStroke]. Off by default. */
     @Volatile var multipass: MultipassSettings = MultipassSettings()
@@ -243,11 +244,9 @@ class GpuStrokeRenderer {
      */
     @Synchronized
     fun tick(): IntArray? {
-        val e = engine ?: return null
-        if (!strokeMultipass) return null
+        val e = engine?.takeIf { strokeMultipass } ?: return null
         e.refine()
-        if (!readDisplay(e)) return null
-        return if (lastCopyNonEmpty) frame else null
+        return frame.takeIf { readDisplay(e) && lastCopyNonEmpty }
     }
 
     /** Whether the current stroke runs multipass (decided at [beginStroke]). */
