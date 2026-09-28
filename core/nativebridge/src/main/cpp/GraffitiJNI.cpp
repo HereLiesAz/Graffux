@@ -1727,4 +1727,36 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*
     }
 }
 
+// ---- Per-device tuning and telemetry (GpuTuning.kt / GpuTelemetry.kt) ----------------------
+
+// Process-wide: applies to engines created after the call.
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampTuning(JNIEnv*, jobject, jint stampTile, jboolean timestamps) {
+    graffux::stampTuning().stampTile.store(stampTile == 8 ? 8 : 16);
+    graffux::stampTuning().timestamps.store(timestamps == JNI_TRUE);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGpuInfo(JNIEnv* env, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return nullptr;
+    const std::string info = engine->gpuInfo();
+    return info.empty() ? nullptr : env->NewStringUTF(info.c_str());
+}
+
+// {kind, nanos} pairs flattened; null when the engine has no GPU timings to give.
+JNIEXPORT jlongArray JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeTakePassTimings(JNIEnv* env, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return nullptr;
+    constexpr size_t kCapacityPairs = 1024;
+    std::vector<uint64_t> buffer(kCapacityPairs * 2);
+    const size_t n = engine->takePassTimings(buffer.data(), kCapacityPairs);
+    if (n == 0) return nullptr;
+    jlongArray out = env->NewLongArray(static_cast<jsize>(n * 2));
+    if (out == nullptr) return nullptr;
+    env->SetLongArrayRegion(out, 0, static_cast<jsize>(n * 2), reinterpret_cast<const jlong*>(buffer.data()));
+    return out;
+}
+
 } // extern "C"

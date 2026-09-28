@@ -6,6 +6,11 @@
 
 namespace graffux {
 
+StampTuning& stampTuning() {
+    static StampTuning tuning;
+    return tuning;
+}
+
 StampEngine* createStampEngine(int backend) {
     if (backend == static_cast<int>(StampBackend::Gles)) return new GlesStampEngine();
     if (backend == static_cast<int>(StampBackend::Wgpu)) return new WgpuStampEngine();

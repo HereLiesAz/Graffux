@@ -24,9 +24,32 @@ object GpuRenderThread {
     @Volatile private var thread: Thread? = null
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "graffux-gpu").also {
+        Thread({
+            tid = runCatching { android.os.Process.myTid() }.getOrDefault(0)
+            runnable.run()
+        }, "graffux-gpu").also {
             it.isDaemon = true
             thread = it
+        }
+    }
+
+    /** Linux thread id of the render thread once it has started (0 before), for ADPF hint sessions. */
+    @Volatile var tid: Int = 0
+        private set
+
+    /**
+     * Told how long each unit of render-thread work took (nanoseconds). Set by the ADPF
+     * `PerformanceHintManager` session (feature/editor `RenderThreadHints`); null = nobody listens.
+     */
+    @Volatile var workObserver: ((Long) -> Unit)? = null
+
+    private inline fun <T> observed(block: () -> T): T {
+        val observer = workObserver ?: return block()
+        val start = System.nanoTime()
+        try {
+            return block()
+        } finally {
+            runCatching { observer(System.nanoTime() - start) }
         }
     }
 
@@ -40,7 +63,7 @@ object GpuRenderThread {
     fun <T> call(block: () -> T): T {
         if (isCurrent) return block()
         return try {
-            executor.submit(Callable { block() }).get()
+            executor.submit(Callable { observed(block) }).get()
         } catch (e: ExecutionException) {
             throw e.cause ?: e
         }
@@ -50,7 +73,7 @@ object GpuRenderThread {
     fun post(block: () -> Unit) {
         executor.execute {
             // A posted teardown/refresh must never kill the queue for every later stroke.
-            runCatching(block).onFailure { System.err.println("GpuRenderThread: posted work failed: $it") }
+            runCatching { observed(block) }.onFailure { System.err.println("GpuRenderThread: posted work failed: $it") }
         }
     }
 

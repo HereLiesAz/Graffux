@@ -7,6 +7,7 @@ use std::ffi::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::engine::{
+    EngineOptions,
     BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, SubstrateParams,
 };
 
@@ -63,6 +64,71 @@ pub extern "C" fn gfx_wgpu_create(width: i32, height: i32, backend: i32) -> *mut
             Some(e) => Box::into_raw(Box::new(e)),
             None => std::ptr::null_mut(),
         }
+    })
+}
+
+/// `gfx_wgpu_create` with per-device tuning: `stamp_tile` 8 or 16 (other values mean 16) and
+/// whether to time passes with timestamp queries when the adapter supports them.
+#[no_mangle]
+pub extern "C" fn gfx_wgpu_create_tuned(
+    width: i32,
+    height: i32,
+    backend: i32,
+    stamp_tile: i32,
+    timestamps: bool,
+) -> *mut Engine {
+    guard(std::ptr::null_mut(), || {
+        let options = EngineOptions {
+            stamp_tile: stamp_tile.max(0) as u32,
+            timestamps,
+        };
+        match Engine::new_with_options(width, height, BackendChoice::from_id(backend), options) {
+            Some(e) => Box::into_raw(Box::new(e)),
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Writes NUL-terminated `key=value` lines describing the adapter (see `Engine::gpu_info`);
+/// returns the full length.
+///
+/// # Safety
+/// `out` must point to `capacity` writable bytes (or be null with capacity 0).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_gpu_info(e: *mut Engine, out: *mut c_char, capacity: usize) -> usize {
+    let Some(e) = engine(e) else { return 0 };
+    let text = e.gpu_info();
+    if !out.is_null() && capacity > 0 {
+        let n = text.len().min(capacity - 1);
+        std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+        *out.add(n) = 0;
+    }
+    text.len()
+}
+
+/// Drains GPU pass timings into `out` as `{kind, nanoseconds}` pairs, at most `capacity_pairs`
+/// (the rest are dropped); returns the pairs written. 0 without timestamp support.
+///
+/// # Safety
+/// `out` must point to `2 * capacity_pairs` writable u64s (or be null with capacity 0).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_take_pass_timings(
+    e: *mut Engine,
+    out: *mut u64,
+    capacity_pairs: usize,
+) -> usize {
+    let Some(e) = engine(e) else { return 0 };
+    guard(0, || {
+        let samples = e.take_pass_timings();
+        let n = samples.len().min(capacity_pairs);
+        if out.is_null() {
+            return 0;
+        }
+        for (i, (kind, ns)) in samples.iter().take(n).enumerate() {
+            *out.add(i * 2) = *kind as u64;
+            *out.add(i * 2 + 1) = *ns;
+        }
+        n
     })
 }
 
