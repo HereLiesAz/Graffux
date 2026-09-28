@@ -58,8 +58,11 @@ class GpuTuningController private constructor(context: Context) {
         GpuStampEngine.passTimingSink = telemetry
         telemetry.onThermal(thermal.sample())
         scope.launch {
+            // Collected, not read once: the tier can land or change, and thermal state moves,
+            // mid-session. The multipass scheduler follows every change.
             budgetProvider.budget.collect { budget ->
                 GpuStampEngine.setResidentBudget(budget.residentBudgetBytes)
+                GpuStampEngine.multipassBudget = budget.toMultipassBudget()
             }
         }
         scope.launch { coordinator.state.collect { telemetry.paused = it == CalibrationState.RUNNING } }

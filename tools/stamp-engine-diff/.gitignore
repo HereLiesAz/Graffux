@@ -7,3 +7,5 @@ out_gl_ph/
 out_wgpu_ph_vk/
 out_wgpu_ph_gl/
 out_wgpu_ph/
+out_wgpu_mp_vk/
+out_wgpu_mp_gl/

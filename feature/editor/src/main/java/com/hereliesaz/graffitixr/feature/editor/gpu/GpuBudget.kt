@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor.gpu
 
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassBudget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +57,30 @@ data class GpuBudget(
     /** Fraction of the per-frame refinement/extra-work budget the scheduler may spend. */
     val refinementFraction: Float get() = scale
 
+    /**
+     * What the wgpu multipass scheduler takes: the tier's draft resolution as a divisor (0.5 -> 2,
+     * 0.25 -> 4, clamped to 1..8), the thermally scaled quality levels and refinement fraction, and
+     * the tier's refinement tile size as the largest refinement chunk.
+     */
+    fun toMultipassBudget(): MultipassBudget = MultipassBudget(
+        draftScale = draftDivisor(tier.draftResolutionScale),
+        qualityLevels = qualityLevels,
+        refinementFraction = refinementFraction,
+        tileSizePx = tier.tileSizePx,
+    )
+
     companion object {
+        /** 1 / scale rounded to the engine's divisors 1, 2, 4, 8. */
+        fun draftDivisor(scale: Float): Int {
+            if (!(scale > 0f)) return MAX_DRAFT_DIVISOR
+            val d = (1f / scale).coerceIn(1f, MAX_DRAFT_DIVISOR.toFloat())
+            return DRAFT_DIVISORS.minBy { kotlin.math.abs(it - d) }
+        }
+
+        private const val MAX_DRAFT_DIVISOR = 8
+
+        /** The draft resolution divisors the wgpu engine supports. */
+        private val DRAFT_DIVISORS = listOf(1, 2, 4, MAX_DRAFT_DIVISOR)
         const val MIB = 1024L * 1024L
         const val MIN_RESIDENT_MIB = 32L
     }

@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   label:
-    uses: HereLiesAz/workflows/.github/workflows/pr-labeler.yml@main
+    uses: HereLiesAz/workflows/.github/workflows/pr-labeler.yml@3047ba321b6712f1b28c22907bb10bb78bdc4662 # main

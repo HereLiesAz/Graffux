@@ -267,7 +267,9 @@ class BrushTuftTopologyTest {
         assertTrue(step.states.last().splitLatched)
         val splitSeparation = abs(step.states.last().separationFraction)
 
-        repeat(12) {
+        // The outer tuft (stiffness 0.8) releases drive with a ~118 ms recovery tau, so it needs
+        // ~20 frames to settle inside the (rejoin, split) window; after 12 it is still above split.
+        repeat(20) {
             step = BrushTuftTopology.step(
                 step.states,
                 global.copy(bend = 0.25f),

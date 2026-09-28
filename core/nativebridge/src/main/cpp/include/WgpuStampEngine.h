@@ -72,6 +72,10 @@ public:
     bool invalidateLayer(uint64_t key) override;
     void invalidateAllLayers() override;
     void setResidentBudget(uint64_t bytes) override;
+    bool setMultipass(const float* params, size_t count) override;
+    int refine(float budgetMs) override;
+    bool flushMultipass() override;
+    size_t multipassStats(double* out, size_t count) override;
     std::string gpuInfo() const override;
     size_t takePassTimings(uint64_t* out, size_t capacityPairs) override;
     bool isInitialized() const override { return engine_ != nullptr; }

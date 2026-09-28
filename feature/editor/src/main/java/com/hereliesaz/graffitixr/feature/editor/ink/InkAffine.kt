@@ -118,6 +118,28 @@ internal data class InkAffine(
             return fit.after(fromPivot).after(unscale).after(unrotate).after(toPivot)
         }
 
+        /**
+         * World → exported document pixels: the artboard (the document's aspect fit and centred in
+         * the [canvasWidth]×[canvasHeight] world, exactly as
+         * [com.hereliesaz.graffitixr.feature.editor.export.artboardRect] and the on-screen frame
+         * place it) stretched onto [docWidth]×[docHeight]. What the Ink SVG export draws through,
+         * so its paths land where the same stroke sits in the exported PNGs.
+         */
+        fun worldToDocument(canvasWidth: Int, canvasHeight: Int, docWidth: Int, docHeight: Int): InkAffine {
+            val rect = com.hereliesaz.graffitixr.feature.editor.export.artboardRect(
+                canvasWidth, canvasHeight, docWidth, docHeight,
+            )
+            val left = rect.first()
+            val top = rect.component2()
+            val w = rect.component3()
+            val h = rect.last()
+            val degenerate = minOf(w, h) <= 0f || minOf(docWidth, docHeight) <= 0
+            if (degenerate) return IDENTITY
+            val sx = docWidth / w
+            val sy = docHeight / h
+            return InkAffine(sx, 0f, -left * sx, 0f, sy, -top * sy)
+        }
+
         private const val MIN_SCALE = 1e-4f
     }
 }
