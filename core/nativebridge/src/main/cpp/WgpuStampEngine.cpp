@@ -57,6 +57,11 @@ struct Api {
     bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
     void (*invalidateAllLayers)(GfxWgpuEngine*);
     void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
+    // Optional (multipass rendering): absent in an older library; then multipass is unsupported.
+    bool (*setMultipass)(GfxWgpuEngine*, const float*, size_t);
+    int32_t (*refine)(GfxWgpuEngine*, float);
+    bool (*flush)(GfxWgpuEngine*);
+    size_t (*multipassStats)(GfxWgpuEngine*, double*, size_t);
     // Optional (per-device tuning, telemetry): an older library creates untuned and reports
     // no GPU info or timings, so telemetry falls back to CPU wall time.
     GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
@@ -110,6 +115,11 @@ void load() {
                               optional(lib, "gfx_wgpu_invalidate_all_layers", a.invalidateAllLayers) &&
                               optional(lib, "gfx_wgpu_set_resident_budget", a.setResidentBudget);
         if (!resident) a.bindLayer = nullptr;  // all or nothing
+        const bool multipass = optional(lib, "gfx_wgpu_set_multipass", a.setMultipass) &&
+                               optional(lib, "gfx_wgpu_refine", a.refine) &&
+                               optional(lib, "gfx_wgpu_flush", a.flush) &&
+                               optional(lib, "gfx_wgpu_multipass_stats", a.multipassStats);
+        if (!multipass) a.setMultipass = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
         optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
         optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
@@ -266,6 +276,26 @@ void WgpuStampEngine::invalidateAllLayers() {
 
 void WgpuStampEngine::setResidentBudget(uint64_t bytes) {
     if (supportsResidentLayers()) gApi.setResidentBudget(engine_, bytes);
+}
+
+bool WgpuStampEngine::setMultipass(const float* params, size_t count) {
+    return engine_ != nullptr && gApi.setMultipass != nullptr &&
+           gApi.setMultipass(engine_, params, count);
+}
+
+int WgpuStampEngine::refine(float budgetMs) {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return 0;
+    return gApi.refine(engine_, budgetMs);
+}
+
+bool WgpuStampEngine::flushMultipass() {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return true;
+    return gApi.flush(engine_);
+}
+
+size_t WgpuStampEngine::multipassStats(double* out, size_t count) {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return 0;
+    return gApi.multipassStats(engine_, out, count);
 }
 
 std::string WgpuStampEngine::gpuInfo() const {
