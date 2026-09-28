@@ -439,6 +439,9 @@ class ExtensionRepository @Inject constructor(
         if (!file.exists()) return
         
         val caps = ext.manifest.capabilities?.map { it.wire }?.toSet() ?: emptySet()
+        // Scope assetRead to THIS extension's own install dir, whatever host the caller passed in.
+        val host: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost =
+            ExtensionScopedSandboxHost(host, ExtensionAssetReader(ext))
         
         when (ext.manifest.runtime) {
             com.hereliesaz.graffitixr.common.azphalt.Runtime.WASM -> {

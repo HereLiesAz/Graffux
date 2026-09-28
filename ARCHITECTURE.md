@@ -73,7 +73,10 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    an extension's manifest didn't request is never mapped into its sandbox — not omitted from
    the WASM import list (that breaks module linking outright, since `quickjs.wasm` declares
    `clock_time_get`/`random_get` as mandatory imports), but replaced with a fixed, non-real
-   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`.
+   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`. A granted `assets` capability reads
+   only the invoking extension's own manifest-listed files, via `ExtensionScopedSandboxHost` /
+   `ExtensionAssetReader` (path rules shared with `AzpInstaller`, 4 MiB per-read cap;
+   `spec/package-format.md` § 5.1.1).
 7. **`azNavRail` must stay pinned to `11.18` or newer.** `azRailRelocItem` items (every layer
    row in the `"grp.layers"` panel is one) were completely unclickable under an
    `azUnattachedHostItem` in `11.15` through `11.17` — `RailContent.kt` nulls `onClick` for
