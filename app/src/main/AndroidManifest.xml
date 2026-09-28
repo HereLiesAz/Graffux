@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Hardware floor (with minSdk 29 in build.gradle.kts): Vulkan 1.1 (0x401000 = 1 << 22 | 1 << 12),
+         so Play only offers the app to devices whose GPU can run the brush engines. Level 0 is the
+         baseline hardware level every conformant Vulkan driver reports; stated explicitly. A
+         sideloaded install below the floor still runs: the GPU engine fails to start and strokes
+         take the CPU path, with a one-time notice (HardwareFloorNotice). -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="0" android:required="true" />
+
     <!-- firebase-analytics transitively declares AD_ID (advertising ID); we don't use it, and
          leaving it in requires an "app uses advertising ID" declaration in Play Console (Play
          rejected the release: "This release includes the ... AD_ID permission but your
