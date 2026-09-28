@@ -428,7 +428,16 @@ private:
         ici.usage = VK_IMAGE_USAGE_STORAGE_BIT;
         ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (!ok(vkCreateImage(device_, &ici, nullptr, &img.image), "vkCreateImage(AHB)")) return false;
+        if (!ok(vkCreateImage(device_, &ici, nullptr, &img.image), "vkCreateImage(AHB)")) {
+            img.image = VK_NULL_HANDLE;
+            return false;
+        }
+        // Every failure past this point unwinds the image (and memory/view, if made) so a failed
+        // import never leaks — mirrors VulkanStampEngine::createLayerImageFromHardwareBuffer.
+        auto fail = [&]() {
+            destroyImage(img);
+            return false;
+        };
 
         VkImportAndroidHardwareBufferInfoANDROID import{};
         import.sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
@@ -439,18 +448,25 @@ private:
         dedicated.image = img.image;
         int32_t type = memoryType(props.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         if (type < 0) type = memoryType(props.memoryTypeBits, 0);
-        if (type < 0) return false;
+        if (type < 0) return fail();
         VkMemoryAllocateInfo mai{};
         mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         mai.pNext = &dedicated;
         mai.allocationSize = props.allocationSize;
         mai.memoryTypeIndex = static_cast<uint32_t>(type);
-        if (!ok(vkAllocateMemory(device_, &mai, nullptr, &img.memory), "vkAllocateMemory(AHB)")) return false;
-        if (!ok(vkBindImageMemory(device_, img.image, img.memory, 0), "vkBindImageMemory(AHB)")) return false;
+        if (!ok(vkAllocateMemory(device_, &mai, nullptr, &img.memory), "vkAllocateMemory(AHB)")) {
+            img.memory = VK_NULL_HANDLE;
+            return fail();
+        }
+        if (!ok(vkBindImageMemory(device_, img.image, img.memory, 0), "vkBindImageMemory(AHB)")) return fail();
         img.width = width;
         img.height = height;
         img.general = false;
-        return makeView(img, format);
+        if (!makeView(img, format)) {
+            img.view = VK_NULL_HANDLE;
+            return fail();
+        }
+        return true;
     }
 
     bool createPlainImage(int width, int height, Image& img) {

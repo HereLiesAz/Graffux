@@ -51,7 +51,8 @@ class IncrementalRoundStampCompositor(
             val rgb = dabColor and 0x00FFFFFF
             val radius = max(dab.radius, 0.5f)
             val strength = (
-                ArgbColor.alpha(dabColor) / 255f * dab.alpha * baseFlow * dab.flowMultiplier.coerceAtLeast(0f)
+                ArgbColor.alpha(dabColor) / 255f * dab.alpha * baseFlow * dab.flowMultiplier.coerceAtLeast(0f) *
+                    dab.contactDepth.coerceIn(0f, 1f)
                 ).coerceIn(0f, 1f)
             if (strength <= 0f) continue
 
