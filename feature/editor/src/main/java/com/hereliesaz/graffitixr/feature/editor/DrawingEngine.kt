@@ -193,7 +193,7 @@ internal class DrawingEngine(
         val brushScale = ImageProcessor.screenToBitmapScale(
             stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height, stroke.layerScale
         )
-        // Jetpack Ink brush (Settings > Jetpack Ink brush): the command carries the finished Ink
+        // Jetpack Ink utensil (Ink Pen, Marker, ...): the command carries the finished Ink
         // stroke, which is rendered as-is through Ink's own CanvasStrokeRenderer — the pixels
         // committed and replayed are Ink's, matching what its InProgressStrokesView showed live.
         // Everything around the paint is the editor's usual discipline: the selection clip (and

@@ -96,14 +96,6 @@ class SettingsViewModel @Inject constructor(
         settings.setBrushSizeFixedOnScreen(fixed)
     }
 
-    /** Settings > Jetpack Ink brush: the round Brush's live stroke drawn by androidx.ink. Off by default. */
-    val jetpackInkBrush: StateFlow<Boolean> =
-        settings.jetpackInkBrush.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    fun setJetpackInkBrush(enabled: Boolean) = viewModelScope.launch(dispatchers.io) {
-        settings.setJetpackInkBrush(enabled)
-    }
-
     /**
      * Performance settings. Both trade fidelity for power and memory, which is a judgement only the
      * person holding the device can make — hence exposed rather than tuned to a fixed guess.

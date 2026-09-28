@@ -220,6 +220,18 @@ codebase is deferred scope or a real gap in the install-report flow.
   change only where documented (Mali's 8x8 workgroup, from Arm's guide) or evidenced (the driver
   workaround table starts empty). GraffitiXR keeps the old silent "Untitled" bootstrap:
   `EditorViewModel.projectGateEnabled` is set only by `GraffuxApplication`. See §2b of the design doc.
+- **Jetpack Ink is a set of art utensils, not a mode of the round brush.** `androidx.ink`'s public
+  stock families (pinned Ink 1.0.0: `pressurePen`, `marker`, `highlighter`, `dashedLine`, each only
+  `V1`) are listed in the brush rail as Ink Pen, Ink Marker, Ink Highlighter and Ink Dashed Line,
+  beside the bundled, custom and installed brushes. The catalogue is `InkUtensil` (`:core:common`,
+  no Ink import) and its rail entries `INK_UTENSIL_CATALOG` (`:app`); any other brush list should
+  read those rather than naming the utensils again. Picking one sets
+  `EditorViewModel.activeInkUtensil` and drops the stamp brush; picking any other brush clears it,
+  so exactly one of the two is ever in hand. There is no Settings toggle (the old
+  `jetpack_ink_brush` key is deleted by `RetiredSettingsMigration`), and the utensils take size,
+  colour, opacity and the stabilizer but not softness. Ink's `pencilUnstable` (restricted API,
+  needs a client texture) and `emojiHighlighter` (needs an emoji texture) are not offered. See
+  `docs/Native Rendering Engine Design.md`, "Jetpack Ink utensils".
 - **Multipass drying is an experiment in the wgpu engine, off by default** (design doc §2b,
   "Multipass drying"). Each stamp call renders a low-resolution draft of the same stamp at once and
   its full-quality dab later, in whatever time is left of each frame; the display eases between

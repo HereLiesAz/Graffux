@@ -826,4 +826,5 @@ class EditorViewModelTest {
 
         assertEquals(0, viewModel.uiState.value.selectedNodeIndex)
     }
+
 }
