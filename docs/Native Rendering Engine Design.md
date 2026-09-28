@@ -453,6 +453,52 @@ compile but are not exercised by any host test.
   contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
   per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
 
+### Jetpack Ink brush (Settings → Jetpack Ink brush, off by default)
+
+An alternative live path for the **legacy** round Brush only: `EditorViewModel.usesJetpackInk`
+requires `activeStampBrush == null`. Note that since the GPU stamp Round became the default brush,
+nothing in the UI sets `activeStampBrush` to null, so this path is not currently reachable from the
+brush rail — the toggle takes effect only if the legacy round is selected again.
+
+Code: `feature/editor/.../ink/`. `InkBrushCanvas` hosts Ink's front-buffered `InProgressStrokesView`;
+the finished stroke becomes an ordinary `StrokeCommand` carrying `inkStroke`, which `DrawingEngine`
+renders through `CanvasStrokeRenderer` on commit and on every replay.
+
+- **Input.** Touch reaches Ink through Compose (`motionEventSpy`), not the Android view, so the
+  surface follows DrawingCanvas's rules: a second finger cancels the stroke and stops consuming,
+  which leaves the gesture to `canvasNavigation` (pan/zoom/rotate) and `multiFingerTaps`; the
+  `StrokeGate` is held only once the stroke has moved past touch slop, so a two-finger tap is still
+  an undo. (Ink itself starts drawing at touch-down, before slop.)
+- **Stabilizer.** At stabilizer level > 0 each sample goes through `InkStabilizer` — the editor's own
+  `StrokeStabilizer`, on world-space points, reset per stroke — and into Ink's `StrokeInput` API
+  instead of raw MotionEvents. At level 0 Ink gets the MotionEvents.
+- **Soft edges.** Feathering 0 is Ink's stock `pressurePen`. Feathering > 0 builds a custom family
+  (`InkStrokes.softRoundFamily`): a particle tip every 0.1 brush sizes, widened by `1 + feathering`,
+  stamping a radial texture served by `InkSoftRoundTextures`. Ink 1.0 has no tip-softness control and
+  particles accumulate, so the texture is solved (`InkSoftRound.solveStampProfile`) so that a
+  straight stroke's cross-section matches the legacy round's `BlurMaskFilter` edge within a few
+  percent (`InkSoftRoundTest`). Remaining gaps: tight curves run slightly denser on the inside of the
+  bend; a stroke crossing itself darkens at the crossing (the legacy path paints once); opacity is
+  baked into the texture in 5 % steps; and the particles' outlines, not the falloff, are what the
+  SVG export sees.
+- **Feel and prediction reports (TEMPORARY).** Ink's `LatencyData` feeds `StrokeFeelMeter`'s Ink
+  series (touch→paint per input, first dab from the stroke's START input) and the stabilizer lag.
+  The setter is `@RestrictTo` in Ink 1.0 and hidden from Kotlin, so it is reached reflectively. On
+  the stabilized route Ink has no OS event time, so touch→paint starts at view receipt there. The
+  same `PredictionTournament` DrawingCanvas uses (`rememberPredictionSession`) records every real
+  sample, and each stroke's ranking is filed with engine `jetpack-ink`.
+- **History.** `InkStrokeLedger` keeps each layer's Ink strokes in effect: added on commit, removed
+  on an undo that went through, restored on redo, cleared on project change. It outlives the
+  stroke-list bake.
+- **Export.** Export for Figma writes `<project>-ink.svg` next to the bundle when the visible layers
+  hold Ink strokes: one `<path>` per stroke, in document pixels (`InkAffine.worldToDocument`).
+- **Co-op.** An Ink stroke is sent as the same `Op.StrokeComplete` a round-brush stroke sends
+  (bitmap-space points, pressures, opacity, feathering). Peers replay it with the round brush, so
+  their copy is close to, not identical to, Ink's geometry; alpha lock, wrap-around and the
+  selection clip are not carried, as for every co-op stroke. Carrying Ink's exact geometry would
+  need a new `Op` variant with the serialized `StrokeInputBatch` and brush, and a guest that renders
+  it through Ink.
+
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is
 `androidx.graphics.lowlatency` (`GLFrontBufferedRenderer`, API 29+; wraps `SurfaceControl` +,
 where available, `HardwareBufferRenderer` on API 34+ per the companion doc's own §"Bringing the
