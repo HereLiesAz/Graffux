@@ -49,8 +49,6 @@ class IncrementalDynamicDabGenerator(
     private var mechanicalState = BrushMechanicalState()
     private var predictedStrokeTotal = 0f
     private var peakSpeed = 1e-4f
-    private var startSpeedT = 0f
-    private var startSpeedLocked = false
 
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
@@ -65,10 +63,6 @@ class IncrementalDynamicDabGenerator(
             return emitAt(sample, 0f)
         }
         if (secondSample == null) secondSample = sample
-        if (!startSpeedLocked && secondSample != null) {
-            startSpeedT = ((firstSample?.speedPxPerMs ?: 0f) / peakSpeed).coerceIn(0f, 1f)
-            startSpeedLocked = true
-        }
 
         val segmentLength = hypot(sample.x - prev.x, sample.y - prev.y)
         if (!firstMovementSeen) {
@@ -111,15 +105,11 @@ class IncrementalDynamicDabGenerator(
         val contact = mechanics.contact
         val taper = brush.taper
         val blot = brush.blot
-        val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
-        val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
-        val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
-        val naturalStartMinSz = 1f - startSpeedT
-        val naturalStartMinOp = 1f - startSpeedT
-        val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
-        val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
-        val taperSize = lerp(startMinSz, 1f, startTaperT)
-        val taperOpacity = lerp(startMinOp, 1f, startTaperT)
+        // Only the brush's configured start taper; the automatic speed-driven one is gone (see
+        // BrushStamps.dynamicDabs).
+        val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
+        val taperSize = lerp(taper.minSize, 1f, startTaperT)
+        val taperOpacity = lerp(taper.minOpacity, 1f, startTaperT)
         val speedSizeFactor = 1f - (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f) * SPEED_SIZE_SENSITIVITY
 
         val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
@@ -340,7 +330,6 @@ class IncrementalDynamicDabGenerator(
         const val RAD_TO_DEG = 57.29578f
         const val DEG_TO_RAD = 0.017453292f
         const val EPSILON = 1e-4f
-        const val MAX_LIFT_TAPER_DIAMETERS = 8f
         const val SPEED_SIZE_SENSITIVITY = 0.2f
         const val MASK_SEED_SALT = 0x4D41534B5F544950L
         const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
