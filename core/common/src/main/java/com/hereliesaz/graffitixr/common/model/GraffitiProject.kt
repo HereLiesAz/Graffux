@@ -111,6 +111,11 @@ data class GraffitiProject(
     // and it would be strange for it to survive switching tools but not closing the app.
     val savedSelections: List<SavedSelection> = emptyList(),
 
+    // Unused: nothing reads or writes this any more. Kept only for file compatibility. Removing it
+    // would be safe for *this* build's reader (ProjectManager's Json has ignoreUnknownKeys = true, so
+    // old project JSON carrying the key still parses), but an older app build reading a project
+    // written by this one is only safe because this key keeps a default. Keeping the field costs
+    // nothing and avoids reasoning about every reader, so leave it until a format-version bump.
     val progressPercentage: Float = 0f,
     val evolutionImageUris: List<@Serializable(with = UriSerializer::class) Uri> = emptyList(),
 

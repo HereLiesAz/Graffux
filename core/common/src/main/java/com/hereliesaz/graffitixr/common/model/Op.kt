@@ -29,6 +29,19 @@ sealed class Op {
     @Serializable
     data class StrokeComplete(val layerId: String, val stroke: BrushStroke) : Op()
 
+    /**
+     * A layer's size as geometry rather than transform: its vector shapes and its declared layout
+     * size. Sent for a resized frame and for every child its constraints resized, alongside
+     * [LayerTransform] for their moved offsets — neither field fits in the transform encoding.
+     */
+    @Serializable
+    data class LayerGeometry(
+        val layerId: String,
+        val shapes: List<VectorShape>,
+        val layoutWidth: Float,
+        val layoutHeight: Float,
+    ) : Op()
+
     @Serializable
     data class TextContentChange(val layerId: String, val text: String) : Op()
 

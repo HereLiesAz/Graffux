@@ -24,6 +24,7 @@ class StrokeFeelMeter {
     private val stabilizerLag = Series()
     private val inkTouchToPaint = Series()
     private val inkFirstDab = Series()
+    private val inkStabilizerLag = Series()
     private var firstDabPending = false
 
     /** A stroke started: the next [onFirstDabPresented] belongs to it. */
@@ -66,6 +67,13 @@ class StrokeFeelMeter {
     }
 
     /**
+     * Jetpack Ink path with a stabilizer level set: how far the editor's stabilizer moved a sample
+     * before it reached Ink. Its own series for the same reason as [onInkPresented].
+     */
+    @Synchronized
+    fun onInkStabilized(lagPx: Float) = inkStabilizerLag.add(lagPx.toDouble())
+
+    /**
      * Report lines. [touchToPaint] is the tracker snapshot; [context] describes the canvas/brush
      * load the numbers were measured under. [engine] picks whose numbers are reported: the azphalt
      * engine's tracker/first-dab/stabilizer series, or the Jetpack Ink series — and is printed on
@@ -100,13 +108,13 @@ class StrokeFeelMeter {
         appendLine("  engine: $ENGINE_JETPACK_INK")
         appendLine(
             "  touch->paint: ${inkTouchToPaint.describe("ms")} " +
-                "(Ink LatencyData: OS event -> estimated pixel presentation)",
+                "(Ink LatencyData: OS event, or view receipt when stabilized, -> estimated pixel presentation)",
         )
         appendLine("  input delivery: ${delivery.describe("ms")}")
         appendLine("  first dab: ${inkFirstDab.describe("ms")} (ACTION_DOWN -> first Ink frame presented)")
-        // Not measured on this path, said so rather than printed as "no data" that reads like a bug:
-        // Ink does its own input smoothing, and the editor's stabilizer never sees these samples.
-        append("  stabilizer lag: n/a (the editor stabilizer is not applied to Ink strokes)")
+        // "no data" here means every Ink stroke so far ran at stabilizer level 0, which hands Ink the
+        // raw MotionEvents; with a level set, the editor's stabilizer runs before Ink sees a sample.
+        append("  stabilizer lag: ${inkStabilizerLag.describe("px")}")
     }
 
     private fun ms(v: Double) = "%.1fms".format(v)

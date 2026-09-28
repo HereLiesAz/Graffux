@@ -422,6 +422,7 @@ private fun GpuBackendRow(vm: SettingsViewModel) {
             prefs.edit().putBoolean(LiveStrokeOverlay.ENABLED_KEY, it).apply()
         },
     )
+    MultipassRows(prefs)
     // Jetpack Ink (androidx.ink) as the round Brush's live-stroke renderer. Persisted through
     // SettingsRepository; off by default, and off leaves drawing exactly as it was. On, it takes
     // the place of Direct display for those strokes rather than drawing alongside it.
@@ -510,8 +511,9 @@ private val SAMPLE_RATES = listOf(30, 60, 90, 120, 0)
 private val RENDER_SCALES = listOf(1f, 0.75f, 0.5f, 0.25f)
 
 /** A titled row of mutually exclusive choices, rendered as a wrapped strip of chips. */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
-private fun <T> ChoiceRow(
+internal fun <T> ChoiceRow(
     title: String,
     subtitle: String,
     options: List<T>,

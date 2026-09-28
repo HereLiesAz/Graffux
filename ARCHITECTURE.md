@@ -73,7 +73,10 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    an extension's manifest didn't request is never mapped into its sandbox — not omitted from
    the WASM import list (that breaks module linking outright, since `quickjs.wasm` declares
    `clock_time_get`/`random_get` as mandatory imports), but replaced with a fixed, non-real
-   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`.
+   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`. A granted `assets` capability reads
+   only the invoking extension's own manifest-listed files, via `ExtensionScopedSandboxHost` /
+   `ExtensionAssetReader` (path rules shared with `AzpInstaller`, 4 MiB per-read cap;
+   `spec/package-format.md` § 5.1.1).
 7. **`azNavRail` must stay pinned to `11.18` or newer.** `azRailRelocItem` items (every layer
    row in the `"grp.layers"` panel is one) were completely unclickable under an
    `azUnattachedHostItem` in `11.15` through `11.17` — `RailContent.kt` nulls `onClick` for
@@ -83,13 +86,16 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    `AzUnattachedRelocItemClickTest.kt`). This was never fixable from this repo —
    `dragModifier` isn't exposed through `azRailRelocItem`'s public API — so don't reintroduce
    the bug by downgrading the version pin below `11.18` for an unrelated reason.
-8. **Group layers are rail hosts, never nested rails.** In the `"grp.layers"` panel a `GROUP`
-   layer is an `azRailSubHostItem` (id `layer.<groupId>`) under its parent's host, and its
-   children are `azRailRelocItem`s whose `hostId` is that id — see `LayerRailPlan.kt`'s
-   `layerRailRows`. Do not use `azRailRelocItem`'s `nestedContent` / `keepNestedRailOpen` for
-   layers. AzNavRail has no item that is both a reloc item and a host, so a group itself can't be
-   dragged, and since a reloc cluster is a contiguous run of same-host reloc items, a group also
-   bounds how far its leaf siblings can be dragged past it.
+8. **Group layers are relocatable rail hosts, never nested rails.** In the `"grp.layers"` panel a
+   `GROUP` layer is an `azRailRelocSubHostItem` (id `layer.<groupId>`, AzNavRail `11.52`+) under
+   its parent's host, and its children are `azRailRelocItem`s / `azRailRelocSubHostItem`s whose
+   `hostId` is that id — see `LayerRailPlan.kt`'s `layerRailRows`. Do not use `azRailRelocItem`'s
+   `nestedContent` / `keepNestedRailOpen` for layers. AzNavRail treats a relocatable sub-host plus
+   every descendant declared *immediately after it* as one block that occupies one slot of its
+   parent's reloc cluster, so `layerRailRows` must stay depth-first (each group followed directly
+   by its whole subtree): that is what makes a dragged group carry its children and keeps each
+   host's siblings — leaves and groups alike — in one draggable cluster. Keep the pin at `11.52`
+   or newer; below it there is no draggable host and a group would again block its siblings.
 
 ---
 
@@ -142,6 +148,26 @@ codebase is deferred scope or a real gap in the install-report flow.
   trilinearly sampled) are both destructive bitmap bakes pushed through `pushHistory()` —
   neither can be expressed as a `ColorMatrix`, which is why they exist as their own code
   paths rather than extra knobs on the existing one.
+- **Every frame resize is one `EditorIntent.ResizeFrame`, and constraints run inside it.** A frame
+  is a `GROUP` layer; its box is `layoutWidth` × `layoutHeight`, in its children's space and
+  centred on the group origin (`LayoutOps.localFrameRect`), because the group renderer draws its
+  children inside the group's own transform. The reducer sets the new size and, in the same
+  transition, runs `LayoutOps.applyResize` over the direct children — so the frame and everything
+  its constraints moved are one undo step. Entry points: Hug Contents, the "Frame Size (W x H)"
+  row in the layer's hidden menu, and the resize handle of a sized frame (a group with a declared
+  box gets an outline and handles; its handle resizes the box instead of scaling the group).
+  Precedence: a frame with auto-layout re-runs `applyAutoLayout` and ignores its children's
+  constraints (Figma does the same, and the constraint menu hides under an auto-layout parent).
+  Constraint geometry treats a child's offset as the centre of its box (that is how layers
+  render); STRETCH and SCALE resize on each axis independently — a vector layer's shape
+  width/height (and a path's points), a frame's layout size, and for a raster layer, which only
+  has a uniform `scale`, the smaller changed factor. A nested frame whose box changes passes the
+  resize down. Transforming a group — the TransformPanel's Scale field, rotation, moving it, or
+  scaling a group with no declared box — is not a resize: it scales the whole subtree as a unit
+  through the group's `graphicsLayer`, so constraints do not apply. Co-op: a resize emits
+  `Op.LayerGeometry` (shapes + layout size) and `Op.LayerTransform` for every layer whose geometry
+  changed, not only the active one. Known wart: auto-layout still positions from the frame's
+  offset and treats a child's offset as its top-left, which predates this convention.
 - **Extension acquisition is delegated, not built in.** Graffux is a host, not a marketplace:
   browsing/searching/purchasing an azphalt extension happens in a separate store app, reached
   via an intent (`spec/store-app.md` § Discovery) or an `azphalt://` deep link. The deep-link
@@ -163,8 +189,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   exists three times today: `VulkanStampEngine` and `GlesStampEngine` (C++, Android only) and the
   wgpu engine (`core/wgpu-engine`, Rust + WGSL). New brush work targets wgpu. Vulkan and GLES stay
   selectable in Settings → GPU engine for now, for comparison and as fallbacks, and Vulkan is
-  still the default. Direct display (`LiveStrokeOverlay`) stays raw Vulkan through
-  AHardwareBuffer interop and is ineligible while wgpu is selected. wgpu was chosen over
+  still the default. Direct display exists twice: `LiveStrokeOverlay` (raw Vulkan, imports the
+  Vulkan/GLES engines' AHardwareBuffer layer) and, for wgpu, the engine presenting into the same
+  overlay SurfaceView through a wgpu swapchain (`core/wgpu-engine/src/direct.rs`; design doc §3,
+  "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
   where the NDK engines cannot run at all), its automatic synchronization (no hand-written
   barriers between the ordered smudge phases), one shader language (WGSL, compiled by naga,
@@ -192,3 +220,14 @@ codebase is deferred scope or a real gap in the install-report flow.
   change only where documented (Mali's 8x8 workgroup, from Arm's guide) or evidenced (the driver
   workaround table starts empty). GraffitiXR keeps the old silent "Untitled" bootstrap:
   `EditorViewModel.projectGateEnabled` is set only by `GraffuxApplication`. See §2b of the design doc.
+- **Multipass drying is an experiment in the wgpu engine, off by default** (design doc §2b,
+  "Multipass drying"). Each stamp call renders a low-resolution draft of the same stamp at once and
+  its full-quality dab later, in whatever time is left of each frame; the display eases between
+  them per tile. The draft is a hard guarantee, never behind refinement. The committed layer is the
+  final queue run strictly in submission order, split only in exact ways, so it is byte-identical
+  to multipass off: never let a reordering or an approximation reach the layer. The scheduler lives
+  in the Rust engine (`scheduler.rs`, pure and unit-tested) because batching and exact chunking need
+  the engine's pipelines, and one copy serves Android and desktop. It follows the device's
+  `GpuBudget` (collected, since the tier can change mid-session). On Android nothing waits for
+  refinement (the CPU commit is the committed layer; the stroke-end refresh drops queued work); on
+  desktop stroke end lands it before committing the GPU frame.

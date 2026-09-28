@@ -21,8 +21,9 @@ namespace graffux {
  * library (no cargo / Android targets on the build host) still links and runs: init() just returns
  * false and the caller falls back to the CPU path, exactly as with no usable GPU.
  *
- * No AHardwareBuffer output: initWithHardwareBuffer() returns false, so direct display
- * (LiveStrokeOverlay, raw Vulkan interop) is simply ineligible while wgpu is the selected engine.
+ * No AHardwareBuffer output: initWithHardwareBuffer() returns false, so LiveStrokeOverlay (raw
+ * Vulkan interop) never sees a wgpu layer. wgpu has its own direct display instead (direct*():
+ * a wgpu surface on the overlay SurfaceView's window; see graffux_wgpu.h and the design doc §3).
  */
 class WgpuStampEngine final : public StampEngine {
 public:
@@ -72,6 +73,16 @@ public:
     bool invalidateLayer(uint64_t key) override;
     void invalidateAllLayers() override;
     void setResidentBudget(uint64_t bytes) override;
+    bool setMultipass(const float* params, size_t count) override;
+    int refine(float budgetMs) override;
+    bool flushMultipass() override;
+    size_t multipassStats(double* out, size_t count) override;
+    uint32_t directCapabilities() const override;
+    bool directAttach(ANativeWindow* window, int width, int height) override;
+    void directDetach() override;
+    bool directBeginStroke() override;
+    bool directPresent(const float* matrix, bool newBatch) override;
+    bool directEndStroke() override;
     std::string gpuInfo() const override;
     size_t takePassTimings(uint64_t* out, size_t capacityPairs) override;
     bool isInitialized() const override { return engine_ != nullptr; }
@@ -80,6 +91,9 @@ public:
 
 private:
     GfxWgpuEngine* engine_ = nullptr;
+    // The window direct display is attached to; this adapter holds a reference to it for as long
+    // as the Rust surface exists (released after gfx_wgpu_direct_detach / gfx_wgpu_destroy).
+    ANativeWindow* directWindow_ = nullptr;
     int width_ = 0;
     int height_ = 0;
 };

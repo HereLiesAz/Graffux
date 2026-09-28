@@ -132,7 +132,13 @@ internal object CanvasHitTest {
         viewportRotation: Float = 0f,
     ): List<Offset>? {
         if (canvasWidth <= 0f || canvasHeight <= 0f) return null
-        val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: return null
+        // A sized frame (a group with a declared layout box) has no pixels of its own but does have
+        // a box — outlined here so it gets transform handles, and its resize handle resizes that
+        // box (EditorViewModel.onTransformGesture). Deliberately not in localHalfExtents: tapping
+        // inside a frame still picks the artwork in it, not the frame.
+        val (halfW, halfH) = frameHalfExtents(layer)
+            ?: localHalfExtents(layer, canvasWidth, canvasHeight)
+            ?: return null
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
         val rad = Math.toRadians(layer.rotationZ.toDouble())
@@ -362,6 +368,12 @@ internal object CanvasHitTest {
      * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
      * of the bitmap in the canvas. Returns null when the layer has no measurable content.
      */
+    private fun frameHalfExtents(layer: Layer): Pair<Float, Float>? {
+        val sized = layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP &&
+            layer.layoutWidth > 0f && layer.layoutHeight > 0f
+        return if (sized) (layer.layoutWidth / 2f) to (layer.layoutHeight / 2f) else null
+    }
+
     private fun localHalfExtents(layer: Layer, canvasWidth: Float, canvasHeight: Float): Pair<Float, Float>? {
         if (layer.shapes.isNotEmpty()) {
             val halfW = layer.shapes.maxOf { it.width } / 2f

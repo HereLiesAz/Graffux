@@ -2,7 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor.ink
 
 /**
  * The committed Jetpack Ink strokes of each layer, kept in memory alongside the pixels they were
- * rendered into — the seed of a future vector layer, and what the debug SVG export reads.
+ * rendered into — the seed of a future vector layer, and what Export for Figma's Ink SVG reads.
  *
  * Separate from `LayerStore`'s stroke list on purpose: that list is a replay cache that
  * `maybeBakeOldStrokes` folds into the layer's base bitmap and discards, and the Ink geometry has
@@ -34,6 +34,22 @@ internal class InkStrokeLedger<T : Any> {
         }
         return index >= 0
     }
+
+    /**
+     * Undo of the history entry [key] on [layerId]: takes its stroke out if it carried one. Call it
+     * only once the undo has actually been applied to the layer (a failed undo keeps its stroke).
+     */
+    fun onUndo(layerId: String, key: Any) {
+        remove(layerId, key)
+    }
+
+    /** Redo of [key] on [layerId]: puts [stroke] back, or does nothing for a non-Ink entry (null). */
+    fun onRedo(layerId: String, key: Any, stroke: T?) {
+        if (stroke != null) add(layerId, key, stroke)
+    }
+
+    /** Layers that currently hold at least one stroke. */
+    fun layerIds(): Set<String> = byLayer.keys.toSet()
 
     /** [layerId]'s strokes, oldest first. */
     fun strokes(layerId: String): List<T> = byLayer[layerId]?.map { it.stroke }.orEmpty()

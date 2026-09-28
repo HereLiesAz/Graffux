@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import android.app.Application
 import com.hereliesaz.graffitixr.common.crash.CrashReporter
 import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
@@ -48,6 +49,14 @@ class GraffuxApplication : Application() {
             GpuStampEngine.Backend.fromLabel(gpuPrefs.getString(GpuStampEngine.Backend.KEY, null))
         // Direct display of the live stroke (Settings), off unless turned on.
         LiveStrokeOverlay.enabled = gpuPrefs.getBoolean(LiveStrokeOverlay.ENABLED_KEY, false)
+        // Multipass drying (experimental, wgpu only), off unless turned on.
+        GpuStampEngine.multipass = MultipassSettings(
+            enabled = gpuPrefs.getBoolean(GpuStampEngine.KEY_MULTIPASS, false),
+            transitionMs = gpuPrefs.getFloat(
+                GpuStampEngine.KEY_MULTIPASS_TRANSITION_MS,
+                MultipassSettings.DEFAULT_TRANSITION_MS,
+            ),
+        )
         // Extension installs and trust-store refreshes go out over plain HttpURLConnection
         // (ExtensionRepository, EditorViewModel.installExtensionFromUrl) — this was built to patch an
         // outdated device TLS provider ahead of exactly that traffic, but nothing ever called it, so

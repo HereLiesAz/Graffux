@@ -10,10 +10,12 @@ import kotlinx.serialization.Serializable
  * directions. **Constraints** pin a child to its frame's edges and let it react to a resize.
  * **Auto-layout** takes the frame's children and positions them itself, in a row or a column.
  *
- * A layer's [Layer.offset] is relative to the canvas centre (see VectorShape's doc), so everything
- * here works in that same space: a frame's rect is derived from its own offset plus a declared size,
- * and children are placed as offsets within it. Nothing here touches how anything renders — this
- * produces new offsets, and the existing renderers draw them.
+ * A layer's [Layer.offset] is relative to the canvas centre (see VectorShape's doc). Constraints
+ * treat a child's offset as the centre of its box and take the frame's box in the children's own
+ * space (see [LayoutOps.localFrameRect]). Auto-layout predates that and positions from the frame's
+ * offset, treating a child's offset as its top-left; the two never run on the same frame (auto-layout
+ * wins, see [LayoutOps.applyResize]). Nothing here touches how anything renders — this produces new
+ * offsets and sizes, and the existing renderers draw them.
  */
 
 /** How a child sticks to its frame on one axis when the frame resizes. */
@@ -67,27 +69,61 @@ data class Rect(val x: Float, val y: Float, val width: Float, val height: Float)
 
 object LayoutOps {
 
+    /** Nesting deeper than this is treated as a cycle and not followed. */
+    private const val MAX_FRAME_DEPTH = 32
+
     /**
-     * Repositions [frameId]'s children after the frame resized from [old] to [new].
+     * A frame's box in its children's coordinate space, for a frame [width] x [height] units big.
+     *
+     * A frame (a [LayerType.GROUP]) draws its children inside its own transform, centred on the
+     * layer origin — the group's offset, scale and rotation are applied to the whole subtree by the
+     * renderer. So in the space a child's [Layer.offset] lives in, the frame's box is centred on
+     * zero and is exactly the frame's declared, unscaled layout size.
+     */
+    fun localFrameRect(width: Float, height: Float): Rect = Rect(-width / 2f, -height / 2f, width, height)
+
+    /**
+     * Repositions (and, for STRETCH / SCALE, resizes) [frameId]'s children after the frame's box
+     * went from [old] to [new]. Nested frames whose box changes as a result are resized in turn.
      *
      * Auto-layout wins when the frame declares one: it fully owns its children's placement, so
      * asking constraints to also weigh in would give two answers for the same position. That
      * precedence matches Figma, where turning on auto-layout takes the constraint controls away.
+     *
+     * Constraint geometry treats a child's [Layer.offset] as the CENTRE of its box, because that is
+     * how every renderer and the editor's hit test draw a layer (shapes are centred on
+     * the layer origin). A child's extent is its [layoutDeclaredSize].
      */
     fun applyResize(
         layers: List<Layer>,
         frameId: String,
         old: Rect,
         new: Rect,
-    ): List<Layer> {
-        val frame = layers.firstOrNull { it.id == frameId } ?: return layers
-        if (frame.autoLayout.direction != LayoutDirection.NONE) {
-            return applyAutoLayout(layers, frameId, new)
+    ): List<Layer> = applyResize(layers, frameId, old, new, depth = 0)
+
+    private fun applyResize(layers: List<Layer>, frameId: String, old: Rect, new: Rect, depth: Int): List<Layer> {
+        val frame = layers.firstOrNull { it.id == frameId }
+        return when {
+            frame == null -> layers
+            frame.autoLayout.direction != LayoutDirection.NONE -> applyAutoLayout(layers, frameId, new)
+            old.width <= 0f || old.height <= 0f || depth > MAX_FRAME_DEPTH -> layers
+            else -> constrainChildren(layers, frameId, old, new, depth)
         }
-        if (old.width <= 0f || old.height <= 0f) return layers
-        return layers.map { child ->
-            if (child.parentId != frameId) child else child.constrainedTo(old, new)
+    }
+
+    private fun constrainChildren(layers: List<Layer>, frameId: String, old: Rect, new: Rect, depth: Int): List<Layer> {
+        var out = layers
+        layers.filter { it.parentId == frameId && it.id != frameId }.forEach { child ->
+            val updated = ConstraintSolver.constrain(child, old, new)
+            out = out.map { if (it.id == child.id) updated else it }
+            // A child that is itself a frame and whose box changed passes the resize down.
+            val oldBox = ConstraintSolver.frameBox(child)
+            val newBox = ConstraintSolver.frameBox(updated)
+            if (oldBox != null && newBox != null && oldBox != newBox) {
+                if (out.any { it.parentId == child.id }) out = applyResize(out, child.id, oldBox, newBox, depth + 1)
+            }
         }
+        return out
     }
 
     /**
@@ -111,7 +147,7 @@ object LayoutOps {
         val placed = HashMap<String, Offset>(children.size)
         var cursor = 0f
         children.forEach { child ->
-            val size = child.declaredSize
+            val size = child.layoutDeclaredSize
             if (layout.direction == LayoutDirection.HORIZONTAL) {
                 val y = innerY + crossOffset(layout.align, innerH, size.second)
                 placed[child.id] = Offset(innerX + cursor, y)
@@ -136,7 +172,7 @@ object LayoutOps {
         val children = layers.filter { it.parentId == frameId && it.isVisible }
         if (children.isEmpty()) return null
 
-        val sizes = children.map { it.declaredSize }
+        val sizes = children.map { it.layoutDeclaredSize }
         val gaps = layout.gap * (children.size - 1)
         return if (layout.direction == LayoutDirection.HORIZONTAL) {
             val w = sizes.sumOf { it.first.toDouble() }.toFloat() + gaps + layout.paddingStart + layout.paddingEnd
@@ -155,65 +191,4 @@ object LayoutOps {
         LayoutAlign.END -> available - size
     }
 
-    /** Applies this layer's constraints for a frame resize from [old] to [new]. */
-    private fun Layer.constrainedTo(old: Rect, new: Rect): Layer {
-        val (w, h) = declaredSize
-        val x = axis(constraints.horizontal, offset.x, w, old.x, old.width, new.x, new.width)
-        val y = axis(constraints.vertical, offset.y, h, old.y, old.height, new.y, new.height)
-        // STRETCH and SCALE change the child's size as well as its position. Size lives on the
-        // shape for a vector layer, and on `scale` otherwise, so only the uniform-scale case is
-        // applied here — a non-uniform stretch of a raster layer has no field to express it.
-        val scaled = when {
-            constraints.horizontal == ConstraintAnchor.SCALE && old.width > 0f ->
-                copy(scale = scale * (new.width / old.width))
-            else -> this
-        }
-        return scaled.copy(offset = Offset(x.first, y.first))
-    }
-
-    /**
-     * One axis of constraint solving. Returns the new position (and the new extent, for the callers
-     * that can use it) given the child's [pos]/[size] and the frame's old/new origin and extent.
-     */
-    private fun axis(
-        anchor: ConstraintAnchor,
-        pos: Float,
-        size: Float,
-        oldOrigin: Float,
-        oldExtent: Float,
-        newOrigin: Float,
-        newExtent: Float,
-    ): Pair<Float, Float> {
-        val startGap = pos - oldOrigin
-        val endGap = (oldOrigin + oldExtent) - (pos + size)
-        return when (anchor) {
-            ConstraintAnchor.START -> (newOrigin + startGap) to size
-            ConstraintAnchor.END -> (newOrigin + newExtent - endGap - size) to size
-            ConstraintAnchor.CENTER -> {
-                val centreGap = (pos + size / 2f) - (oldOrigin + oldExtent / 2f)
-                (newOrigin + newExtent / 2f + centreGap - size / 2f) to size
-            }
-            ConstraintAnchor.STRETCH -> {
-                val newSize = (newExtent - startGap - endGap).coerceAtLeast(0f)
-                (newOrigin + startGap) to newSize
-            }
-            ConstraintAnchor.SCALE -> {
-                if (oldExtent <= 0f) return (newOrigin + startGap) to size
-                val ratio = newExtent / oldExtent
-                (newOrigin + startGap * ratio) to (size * ratio)
-            }
-        }
-    }
-
-    /**
-     * A layer's size for layout purposes. Vector layers measure their shapes; everything else falls
-     * back to its scaled bitmap-independent extent, since a raster layer's true pixel size isn't
-     * available in this pure module.
-     */
-    private val Layer.declaredSize: Pair<Float, Float>
-        get() {
-            val shape = shapes.firstOrNull()
-            if (shape != null) return (shape.width * scale) to (shape.height * scale)
-            return (layoutWidth * scale) to (layoutHeight * scale)
-        }
 }

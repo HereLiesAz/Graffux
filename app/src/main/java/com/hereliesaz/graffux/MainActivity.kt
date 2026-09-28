@@ -2325,9 +2325,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // paints first, underneath everything); declared here top-first (reversed) so the item at
     // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
     // convention and Photoshop/Procreate's own. A group layer is a rail host of its own
-    // (azRailSubHostItem under its parent's host) and its children are ordinary rail sub-items
-    // whose hostId is that group — never a nested rail — so reordering stays scoped to siblings
-    // at each level. See layerRailRows for the declaration order and why it matters.
+    // (azRailRelocSubHostItem under its parent's host, draggable with its children) and its
+    // children are ordinary rail sub-items whose hostId is that group — never a nested rail — so
+    // reordering stays scoped to siblings at each level. See layerRailRows for the declaration
+    // order and why it matters.
     //
     // Unattached and pinned to the opposite side of the screen from the main rail, not a group
     // in the rail strip. Layers is the one host you keep reaching for *while* painting —
@@ -2567,21 +2568,16 @@ private fun AzNavHostScope.ConfigureRailItems(
 }
 
 /**
- * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host, so it
- * drag-reorders among that host's other leaf layers. A [LayerType.GROUP] is an `azRailSubHostItem`
- * under the row's host with id `layer.<groupId>`, and its children (declared by [layerRailRows] as
- * rows of their own) are reloc sub-items with that id as their `hostId` — sub-items of a host,
- * not a nested rail.
+ * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host. A
+ * [LayerType.GROUP] is an `azRailRelocSubHostItem` under the row's host with id `layer.<groupId>`,
+ * and its children (declared by [layerRailRows] directly after it) are reloc sub-items with that id
+ * as their `hostId` — sub-items of a host, not a nested rail. Leaves and groups share one reloc
+ * cluster per host, so a group drags among its siblings like any layer, carrying its children.
  *
- * Library limit: AzNavRail has no item that is both a reloc item and a host (`azRailRelocItem`
- * takes no host flags; `azRailSubHostItem` takes no `onRelocate`), so a group itself can't be
- * dragged, and — because a reloc cluster is a *contiguous* run of same-host reloc items — a group
- * also bounds how far its leaf siblings can be dragged past it. Moving a whole group is done
- * through the existing layer ops (Ungroup / Group with Above), not a drag.
- *
- * onRelocate's newOrder is every reloc id of the host, top-first; [EditorViewModel.onLayerRailRelocated]
- * narrows it to the host's own layers and applies it via [LayerListOps.reorderSubset], which only
- * touches the named layers' slots, so a group's untouched slot stays where it was.
+ * onRelocate's newOrder is the host's direct reloc members (leaf and group ids), top-first;
+ * [EditorViewModel.onLayerRailRelocated] narrows it to the host's own layers and applies it via
+ * [LayerListOps.reorderSubset] as one undoable reorder. A group's children keep their `parentId`,
+ * so they follow the group without being touched.
  */
 private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: EditorUiState, env: LayerRailEnv) {
     val vm = env.vm
@@ -2592,7 +2588,7 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
         renderLayerMenu(layer, uiState, env)
     }
     if (row.isGroup) {
-        azRailSubHostItem(
+        azRailRelocSubHostItem(
             id = id, hostId = row.hostId, classifiers = setOf(id),
             text = layer.name,
             content = GraffuxIcons.LayerGroup,
@@ -2601,6 +2597,7 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
             color = navItemColor,
             initiallyExpanded = env.railExpansion[id] ?: false,
             onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
+            onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
             hiddenMenu = menu,
         )
         return
@@ -2622,8 +2619,8 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
         shape = AzButtonShape.NONE_SQUARE,
         color = navItemColor,
         onClick = { vm.onLayerActivated(layer.id) },
-        // newOrder is every reloc id of this host, top-first; the ViewModel narrows it to the
-        // host's own layers (the group's children when parentId is a group's id).
+        // newOrder is this host's reloc members (leaves and groups), top-first; the ViewModel narrows
+        // it to the host's own layers (the group's children when parentId is a group's id).
         onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
         hiddenMenu = menu,
     )
@@ -2786,6 +2783,20 @@ private fun HiddenMenuScope.renderLayerLayoutMenu(
     on: (() -> Unit) -> () -> Unit,
 ) {
     val hasChildren = uiState.layers.any { it.parentId == layer.id }
+    if (hasChildren && layer.type == LayerType.GROUP) {
+        // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
+        // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
+        // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.
+        val w = if (layer.layoutWidth > 0f) layer.layoutWidth else uiState.documentWidth.toFloat()
+        val h = if (layer.layoutHeight > 0f) layer.layoutHeight else uiState.documentHeight.toFloat()
+        inputItem(hint = "Frame Size (W x H)", initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
+            val parts = text.split('x', 'X', '×', ',', ' ').mapNotNull { it.trim().toFloatOrNull() }
+            if (parts.size == 2) {
+                vm.onLayerActivated(layer.id)
+                vm.onSetFrameSize(parts[0], parts[1])
+            }
+        }
+    }
     if (hasChildren) {
         val current = layer.autoLayout
         LayoutDirection.entries.forEach { dir ->
