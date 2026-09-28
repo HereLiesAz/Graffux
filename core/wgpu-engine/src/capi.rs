@@ -613,3 +613,79 @@ pub unsafe extern "C" fn gfx_wgpu_multipass_stats(e: *mut Engine, out: *mut f64,
         k
     })
 }
+
+// ---- Direct display (direct.rs; docs/Native Rendering Engine Design.md §3) ---------------------
+
+/// Direct-display capability bits (`direct::caps`): 1 window support built in, 2 adapter can run
+/// the present pass, 4 attached, 8 stroke showing, 16 attached to a real swapchain.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_capabilities(e: *mut Engine) -> u32 {
+    guard(0, || engine(e).map_or(0, |e| e.direct_capabilities()))
+}
+
+/// Attaches direct display to an `ANativeWindow*` of `width`x`height` pixels. False = unsupported
+/// here; the caller keeps the readback display.
+///
+/// # Safety
+/// `e` must be a live engine; `window` a valid `ANativeWindow*` the caller keeps a reference to
+/// until `gfx_wgpu_direct_detach` or `gfx_wgpu_destroy`. One engine per window at a time.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_attach(
+    e: *mut Engine,
+    window: *mut std::ffi::c_void,
+    width: i32,
+    height: i32,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| e.direct_attach_window(window, width, height))
+    })
+}
+
+/// Drops the surface (disconnects from the window). Safe to call when not attached.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_detach(e: *mut Engine) {
+    guard((), || {
+        if let Some(e) = engine(e) {
+            e.direct_detach()
+        }
+    })
+}
+
+/// Stroke start: snapshots the (already seeded) layer as the stroke's base, clears the surface.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_begin_stroke(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.direct_begin_stroke()))
+}
+
+/// Presents the stroke so far. `matrix`: 6 floats mapping a surface pixel to layer pixels
+/// (`m0*x + m1*y + m2, m3*x + m4*y + m5`), or null to reuse the previous one. `new_batch`: a stamp
+/// call preceded it (false for a re-present of the multipass ease).
+///
+/// # Safety
+/// `matrix` must be null or point to 6 readable floats.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_present(e: *mut Engine, matrix: *const f32, new_batch: bool) -> bool {
+    guard(false, || {
+        let m = slice(matrix, 6);
+        let m = (m.len() == 6).then(|| [m[0], m[1], m[2], m[3], m[4], m[5]]);
+        engine(e).is_some_and(|e| e.direct_present(m, new_batch))
+    })
+}
+
+/// Stroke end: clears the surface.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_end_stroke(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.direct_end_stroke()))
+}

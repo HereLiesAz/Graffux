@@ -9,3 +9,5 @@ out_wgpu_ph_gl/
 out_wgpu_ph/
 out_wgpu_mp_vk/
 out_wgpu_mp_gl/
+out_wgpu_dd_vk/
+out_wgpu_dd_gl/

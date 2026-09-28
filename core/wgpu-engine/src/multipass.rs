@@ -727,6 +727,24 @@ impl Multipass {
         }
     }
 
+    /// A displayed frame starts (a readback or a direct present of a new batch): feeds the frame
+    /// cadence and the refinement duty cycle the budget and ETA use.
+    fn begin_frame(&mut self) {
+        let now = self.now();
+        if let Some(last) = self.last_frame_start {
+            let interval = now - last;
+            if interval > 0.0 {
+                if interval < 100.0 {
+                    self.frame_ms.add(interval, 0.1);
+                }
+                self.eta
+                    .observe_duty(self.refine_busy_since_frame, interval.max(self.frame_period()));
+            }
+        }
+        self.last_frame_start = Some(now);
+        self.refine_busy_since_frame = 0.0;
+    }
+
     fn now(&self) -> f64 {
         self.clock
             .unwrap_or_else(|| self.origin.elapsed().as_secs_f64() * 1000.0)
@@ -1953,19 +1971,7 @@ impl Engine {
     /// rectangle of the displayed image.
     pub(super) fn mp_readback_rect(&mut self, out: &mut [u8]) -> Option<(i32, i32, i32, i32)> {
         self.with_mp(|e, mp| {
-            let now = mp.now();
-            if let Some(last) = mp.last_frame_start {
-                let interval = now - last;
-                if interval > 0.0 {
-                    if interval < 100.0 {
-                        mp.frame_ms.add(interval, 0.1);
-                    }
-                    mp.eta
-                        .observe_duty(mp.refine_busy_since_frame, interval.max(mp.frame_period()));
-                }
-            }
-            mp.last_frame_start = Some(now);
-            mp.refine_busy_since_frame = 0.0;
+            mp.begin_frame();
             e.mp_run_drafts(mp);
             e.mp_compose(mp, false);
             let t0 = Instant::now();
@@ -1986,6 +1992,27 @@ impl Engine {
             mp.present_ms.add(t0.elapsed().as_secs_f64() * 1000.0, 0.2);
             result.filter(|_| e.ok())
         })
+    }
+
+    /// Direct display (direct.rs): this frame's drafts and display composite, then the display
+    /// buffer to present from -- exactly what [`Engine::mp_readback_rect`] would copy, without the
+    /// copy. `new_frame`: a new batch was just stamped (measures the frame cadence, like a
+    /// readback); false for a re-present of the refinement ease while the pen rests. None when
+    /// multipass is off. Never runs refinement, so a draft is never delayed behind it.
+    pub(super) fn mp_present_source(&mut self, new_frame: bool) -> Option<wgpu::Buffer> {
+        if !self.mp_on() {
+            return None;
+        }
+        Some(self.with_mp(|e, mp| {
+            let t0 = Instant::now();
+            if new_frame {
+                mp.begin_frame();
+            }
+            e.mp_run_drafts(mp);
+            e.mp_compose(mp, false);
+            mp.present_ms.add(t0.elapsed().as_secs_f64() * 1000.0, 0.2);
+            mp.display.clone()
+        }))
     }
 
     /// Advances every active tile's animation and composites them into the display (one dispatch

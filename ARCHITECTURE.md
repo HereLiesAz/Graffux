@@ -149,8 +149,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   exists three times today: `VulkanStampEngine` and `GlesStampEngine` (C++, Android only) and the
   wgpu engine (`core/wgpu-engine`, Rust + WGSL). New brush work targets wgpu. Vulkan and GLES stay
   selectable in Settings → GPU engine for now, for comparison and as fallbacks, and Vulkan is
-  still the default. Direct display (`LiveStrokeOverlay`) stays raw Vulkan through
-  AHardwareBuffer interop and is ineligible while wgpu is selected. wgpu was chosen over
+  still the default. Direct display exists twice: `LiveStrokeOverlay` (raw Vulkan, imports the
+  Vulkan/GLES engines' AHardwareBuffer layer) and, for wgpu, the engine presenting into the same
+  overlay SurfaceView through a wgpu swapchain (`core/wgpu-engine/src/direct.rs`; design doc §3,
+  "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
   where the NDK engines cannot run at all), its automatic synchronization (no hand-written
   barriers between the ordered smudge phases), one shader language (WGSL, compiled by naga,
