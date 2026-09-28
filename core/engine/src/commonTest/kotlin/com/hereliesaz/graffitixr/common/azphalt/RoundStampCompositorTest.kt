@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.common.azphalt
 
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -41,6 +42,31 @@ class RoundStampCompositorTest {
                 "at the same offset ($tapAlpha)",
         )
         assertTrue(dragAlpha < 200, "the edge should still read as visibly translucent, not hardened")
+    }
+
+    @Test
+    fun `contactDepth scales deposit strength and the default leaves ordinary dabs untouched`() {
+        fun centerAlpha(depth: Float?): Int {
+            val base = Dab(x = 20f, y = 20f, radius = 8f, alpha = 1f, angleDeg = 0f, hardness = 1f)
+            val dab = if (depth == null) base else base.copy(contactDepth = depth)
+            val tile = RoundStampCompositor.compositeMaxCombined(
+                listOf(dab), black, black, BrushColorSource.PLAIN, flow = 1f,
+            ) ?: return 0
+            return ArgbColor.alpha(tile.pixels[(20 - tile.top) * tile.width + (20 - tile.left)])
+        }
+        assertEquals(255, centerAlpha(null))
+        assertEquals(centerAlpha(null), centerAlpha(1f))
+        assertTrue(abs(centerAlpha(0.4f) - 102) <= 2, "half-pressed dab should deposit ~40%")
+        assertEquals(0, centerAlpha(0f))
+        assertEquals(255, centerAlpha(3f), "contactDepth is clamped to 1")
+
+        val incremental = IncrementalRoundStampCompositor(64, 64, tileSize = 64)
+        val tiles = incremental.append(
+            listOf(Dab(x = 20f, y = 20f, radius = 8f, alpha = 1f, hardness = 1f, contactDepth = 0.4f)),
+            black, black, BrushColorSource.PLAIN, 1f,
+        )
+        val px = tiles.single().pixels[20 * 64 + 20]
+        assertTrue(abs(ArgbColor.alpha(px) - centerAlpha(0.4f)) <= 1, "incremental path must match")
     }
 
     @Test

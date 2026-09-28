@@ -360,9 +360,12 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     _class: JClass,
     handle: jlong,
 ) -> jstring {
-    let text = unsafe { engine(handle) }
-        .map(|e| e.adapter_description())
-        .unwrap_or_default();
+    let text = catch_unwind(AssertUnwindSafe(|| {
+        unsafe { engine(handle) }
+            .map(|e| e.adapter_description())
+            .unwrap_or_default()
+    }))
+    .unwrap_or_default();
     env.new_string(text)
         .map(|s| s.into_raw())
         .unwrap_or(std::ptr::null_mut())
@@ -559,7 +562,10 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     _class: JClass,
     handle: jlong,
 ) -> jlongArray {
-    let (n, bytes) = unsafe { engine(handle) }.map_or((0, 0), |e| e.resident_stats());
+    let (n, bytes) = catch_unwind(AssertUnwindSafe(|| {
+        unsafe { engine(handle) }.map_or((0, 0), |e| e.resident_stats())
+    }))
+    .unwrap_or((0, 0));
     match env.new_long_array(2) {
         Ok(array) => {
             let array: JLongArray = array;
