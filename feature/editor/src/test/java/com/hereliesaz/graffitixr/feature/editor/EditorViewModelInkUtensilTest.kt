@@ -239,4 +239,73 @@ class EditorViewModelInkUtensilTest {
         viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.PEN)
         assertTrue(viewModel.usesJetpackInk())
     }
+
+    @Test
+    fun `a finished Ink stroke carries the utensil it started with, not the current selection`() {
+        withLayer()
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.PEN)
+        // Switched after lift, before Ink's finished callback.
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.HIGHLIGHTER)
+        every { opEmitter.isActive } returns true
+        val stroke = mockk<androidx.ink.strokes.Stroke>(relaxed = true)
+        val layerId = viewModel.uiState.value.activeLayerId!!
+
+        // Ink's input batch is native (no host-JVM library), so drive the commit past its read-out.
+        viewModel.commitInkStroke(
+            stroke, listOf(Offset(1f, 1f)), listOf(1f),
+            com.hereliesaz.graffitixr.common.model.InkUtensil.PEN, IntSize(100, 100),
+        ) {}
+
+        val sent = mutableListOf<Op>()
+        io.mockk.verify { opEmitter.emit(capture(sent)) }
+        val complete = sent.filterIsInstance<Op.StrokeComplete>().single()
+        assertEquals("ink.pen", complete.stroke.inkUtensilId)
+        assertEquals(
+            com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
+            viewModel.inkLedgerStrokes(layerId).single().inkUtensil,
+        )
+    }
+
+    @Test
+    fun `a peer's reconstructed Ink stroke joins the Ink ledger the Figma SVG export reads`() {
+        withLayer()
+        val layerId = viewModel.uiState.value.activeLayerId!!
+        val ink = com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes
+        mockkObject(ink)
+        try {
+            every { ink.brush(any(), any(), any(), any()) } returns mockk(relaxed = true)
+            every { ink.strokeFromPoints(any(), any(), any()) } returns mockk(relaxed = true)
+            viewModel.applySpectatorOp(
+                Op.StrokeComplete(
+                    layerId,
+                    com.hereliesaz.graffitixr.common.model.BrushStroke(
+                        points = listOf(1f, 1f, 5f, 5f),
+                        pressures = listOf(1f, 1f),
+                        inkUtensilId = "ink.marker",
+                    ),
+                ),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val recorded = viewModel.inkLedgerStrokes(layerId).single()
+            assertEquals(com.hereliesaz.graffitixr.common.model.InkUtensil.MARKER, recorded.inkUtensil)
+            assertNotNull(recorded.inkStroke)
+        } finally {
+            unmockkObject(ink)
+        }
+    }
+
+    @Test
+    fun `a peer stroke that falls back to the round brush stays out of the Ink ledger`() {
+        withLayer()
+        val layerId = viewModel.uiState.value.activeLayerId!!
+        viewModel.applySpectatorOp(
+            Op.StrokeComplete(
+                layerId,
+                com.hereliesaz.graffitixr.common.model.BrushStroke(points = listOf(1f, 1f, 5f, 5f)),
+            ),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
+    }
 }

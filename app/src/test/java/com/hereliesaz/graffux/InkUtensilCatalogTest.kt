@@ -33,11 +33,10 @@ class InkUtensilCatalogTest {
     }
 
     @Test
-    fun `the active brush name lights the matching utensil and nothing else`() {
+    fun `the utensil in hand resolves to its own entry, and none means no entry`() {
         InkUtensil.entries.forEach { u ->
-            assertEquals(u, inkUtensilEntryForBrushName(u.displayName)?.utensil)
+            assertEquals(u, inkUtensilEntryFor(u)?.utensil)
         }
-        assertNull(inkUtensilEntryForBrushName("Round"))
-        assertNull(inkUtensilEntryForBrushName(null))
+        assertNull(inkUtensilEntryFor(null))
     }
 }
