@@ -332,6 +332,103 @@ sequences with undos. Three checks cover it:
   colour layer is resident.
 - No zero-copy display (AHardwareBuffer) for wgpu, so direct display stays ineligible (§3).
 
+#### Device tuning: hardware floor, telemetry, calibration tiers, thermal budget
+
+Applies to all three engines unless a line says otherwise. Code: `feature/editor/.../gpu/`,
+`GpuStampEngine.kt` (tuning and timing hooks), `StampEngine.h` (`gpuInfo`, `takePassTimings`,
+`stampTuning()`), `core/wgpu-engine/src/timing.rs`.
+
+**Hardware floor.** Graffux (`:app`) now needs Android 10 (minSdk 29, was 26) and Vulkan 1.1
+(`<uses-feature android.hardware.vulkan.version 0x401000>`, plus `vulkan.level 0`), so Play filters
+out everything below. The library modules stay at minSdk 26 because GraffitiXR shares them. A
+sideloaded install below the floor still runs: engine init fails cleanly, strokes take the CPU
+path, and `HardwareFloorNotice` says so once.
+
+**Telemetry.** The prediction-ranking "feel" block gains `gpu:` (renderer, vendor, driver, Vulkan
+API version, engine/backend, timestamps yes/no), `gpu tier:`, `gpu passes:` (stamp, readback,
+composite, smudge, multipass; p50/p95), `frame budget:` (stroke batches whose stamp+readback CPU
+time exceeded one display frame) and `thermal:` (status and headroom at session start and at report
+time). Pass times come from GPU timestamps where the engine has them and are labelled `gpu`;
+otherwise CPU wall time around the native call, labelled `cpu`:
+
+| engine | stamp | readback | smudge | how |
+|---|---|---|---|---|
+| Vulkan | gpu | gpu | cpu | `vkCmdWriteTimestamp` TOP/BOTTOM around the submitted pass, read after the fence |
+| wgpu | gpu | gpu if `TIMESTAMP_QUERY_INSIDE_ENCODERS` | gpu | `TIMESTAMP_QUERY` pass writes, resolved in batches (`timing.rs`) |
+| GLES | cpu | cpu | cpu | timer queries not wired |
+
+`composite` is the editor's CPU layer composite (no GPU composite pass exists yet); `multipass` is
+reserved for the scheduler. GPU timings are drained when a stroke's engine is released.
+
+**Calibration and tiers.** `CalibrationCoordinator` runs a short offscreen benchmark
+(`EngineCalibrationProbe`: stamp throughput, full-layer readback bandwidth, a 4-layer Canvas
+composite) on the active backend, off the main thread, maps it through `GpuTierTable` (one table,
+the only place tier values live) and stores the tier keyed by GPU+driver and app version
+(`GpuTierStore`). A changed driver string or app version recalibrates.
+
+When it runs is tied to the **mandatory project dialog** (`ProjectGateDialog`), shown whenever
+there is no project to work in (first launch with no projects, and File > New). It has a name
+field, Load… (system picker) and Save, and no cancel path: no close button, taps outside are
+swallowed, and it installs no back handler, so Back keeps the app's existing root behaviour.
+Calibration starts when the dialog opens (unless a tier is stored). Save shows "Saving…" while the
+project is created and waits for calibration at most 2 s from the tap. Load shows "Loading…" while
+the project is read, then waits at most 2 s more. Past the cap the canvas opens on the conservative
+tier and the calibrated tier is applied when it lands (tiers only change draft/refinement
+parameters, so switching mid-session is safe). The app leaving the screen (Home, or the picker
+covering it: `onStop`) pauses the run; `onStart` resumes it, and a step that overlapped the pause is
+thrown away and redone. A failed engine init or call mid-step counts as a lost context and the step
+reruns on a fresh engine (up to three attempts). Nothing is stored until a run completes, so process
+death just means the next dialog retries; completed steps of an interrupted run are kept in memory.
+A picker cancelled with Back returns to the same dialog with calibration still running.
+
+If the app opens straight into an existing project with no stored tier, it uses the conservative
+default and calibrates at the next project dialog. It does not calibrate at idle: an idle
+benchmark would compete with the first stroke for the GPU. Settings shows the tier and has
+**Re-run calibration**, which runs in the background and is cancelled by the next stroke.
+
+| tier | draft scale | quality levels | tile | resident budget | batch | fp16 | needs stamp / readback / composite |
+|---|---|---|---|---|---|---|---|
+| conservative (default) | 0.5 | 2 | 256 | 128 MiB | 64 | off | none |
+| standard | 0.75 | 3 | 256 | 192 MiB | 128 | off | >= 20 dabs/ms, >= 1000 MB/s, <= 12 ms |
+| high | 1.0 | 4 | 512 | 256 MiB | 256 | off | >= 60 dabs/ms, >= 3000 MB/s, <= 6 ms |
+
+The thresholds are starting points, not measurements. `high`'s 256 MiB matches the wgpu engine's
+existing default; each step roughly doubles the one below. Retune from the `gpu tier:` lines once
+real devices report them.
+
+**Per-family knobs.** `GpuFamilyDetector` (Adreno, Mali/Immortalis, Xclipse, PowerVR; Tensor is
+tagged from `Build.SOC_MODEL` but keeps its GPU's family: Mali on G1-G4, PowerVR on G5).
+`WorkgroupPolicy`: Mali uses an 8x8 stamp workgroup, following Arm's Mali GPU Best Practices guide
+(64 invocations as the baseline workgroup size). Every other family keeps 16x16. Nothing contradicts
+it and nothing is measured. The size reaches Vulkan as the choice between its two precompiled SPIR-V
+variants and wgpu as the WGSL `STAMP_TILE` override constant. GLES ignores it. `cargo test`
+(`stamp_tile_8_matches_16`) checks that 8x8 and 16x16 give byte-identical pixels. fp16 is detected
+(wgpu `SHADER_F16`, `VK_KHR_shader_float16_int8` `shaderFloat16`) and reported but never enabled:
+no fp16 shader exists and every tier row has it off. `DriverWorkarounds` holds the vendor +
+driver-version-range table. It is empty, with the mechanism and its tests in place.
+
+**Thermal.** `ThermalMonitor` reads `PowerManager` thermal status (API 29+, listener) and
+`getThermalHeadroom(10 s)` (API 30+, polled every 10 s). `ThermalBudgetScaler` takes the smaller of
+a status cap (moderate 0.6, severe 0.3, critical and above 0) and a headroom ramp (full budget up to
+0.7, falling linearly to 0.25 at 1.0). `ThermalGpuBudgetProvider` applies that to the tier.
+`RenderThreadHints` opens an ADPF `PerformanceHintManager` session (API 31+) on `GpuRenderThread`
+targeting one display frame. That covers wgpu only: Vulkan and GLES strokes run on coroutine workers.
+
+**Hook for the multipass scheduler.** `GpuBudgetProvider.budget: StateFlow<GpuBudget>`, from
+`GpuTuningController.get(context).budgetProvider`. `GpuBudget` carries the tier (draft scale, tile
+size) and the thermally scaled `qualityLevels`, `dispatchBatchSize`, `refinementFraction` and
+`residentBudgetBytes`. Today only the wgpu resident budget consumes it. No stroke path has a batch
+cap, and none was added. The scheduler should collect the flow rather than read it once: the tier
+can change mid-session.
+
+**Verified here (no GPU, no device):** `cargo test` on Mesa lavapipe and llvmpipe (timestamps
+resolve on both, the 8x8 override matches 16x16, pass timings drain). Kotlin unit tests cover the
+tier mapping, persistence, family detection, the workaround mechanism, thermal scaling, the
+telemetry format and the calibration orchestration, and a Robolectric UI test covers the dialog.
+**Not verified:** any of it on a phone. That includes the timestamp values, whether the Mali 8x8
+choice helps, the tier thresholds, ADPF behaviour, and the Vulkan and GLES native changes, which
+compile but are not exercised by any host test.
+
 ## 3. Front-buffer / low-latency presentation
 
 **Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
@@ -556,6 +653,10 @@ the original argument for Vulkan compute over GLES stands unchanged; only "build
 retracted.
 
 ## 8. Device capability tiers
+
+Update: Graffux now requires API 29 and Vulkan 1.1 (see §2b, "Device tuning"), so the per-device
+floors below are enforced by Play for Graffux. They still apply to GraffitiXR, whose shared modules
+remain at minSdk 26. Performance tiers within that floor are calibrated per device (§2b).
 
 Not every Android device in `minSdk 26`'s range can do all of this. Rather than one all-or-nothing
 "GPU engine" flag, detect and fall back per capability, independently:

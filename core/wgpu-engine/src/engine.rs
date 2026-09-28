@@ -14,6 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
+use crate::timing::{GpuTimer, PassKind};
 
 #[path = "multipass.rs"]
 mod multipass;
@@ -21,8 +22,30 @@ pub use multipass::{
     MultipassConfig, MultipassStats, DISPLAY_WGSL, DRAFT_MASKED_WGSL, DRAFT_STAMP_WGSL,
 };
 
-const STAMP_TILE: u32 = 16;
+
+/// Default stamp workgroup edge (16x16 = 256 invocations). Overridable per GPU family through
+/// [`EngineOptions::stamp_tile`], which reaches the WGSL as the `STAMP_TILE` override constant.
+pub const DEFAULT_STAMP_TILE: u32 = 16;
 const SMUDGE_TILE: u32 = 8;
+
+/// Per-device tuning applied at creation (Kotlin `GpuTuning` via the C ABI / JNI).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EngineOptions {
+    /// Stamp workgroup edge: 8 or 16. Anything else, or a size the adapter cannot run, uses the
+    /// largest of the two it can.
+    pub stamp_tile: u32,
+    /// Request `TIMESTAMP_QUERY` (when the adapter has it) and time every pass.
+    pub timestamps: bool,
+}
+
+impl Default for EngineOptions {
+    fn default() -> Self {
+        EngineOptions {
+            stamp_tile: DEFAULT_STAMP_TILE,
+            timestamps: true,
+        }
+    }
+}
 
 /// One dab, binary-identical to `graffux::GpuDab` (16 floats / 64 bytes).
 #[repr(C)]
@@ -407,6 +430,12 @@ pub struct Engine {
     stamp_pipeline: wgpu::ComputePipeline,
     masked_pipeline: wgpu::ComputePipeline,
     smudge_pipeline: wgpu::ComputePipeline,
+    /// Stamp workgroup edge this engine's pipelines were built with (8 or 16).
+    stamp_tile: u32,
+    /// Timestamp queries; `None` when the adapter has no `TIMESTAMP_QUERY`.
+    timer: Option<GpuTimer>,
+    /// Adapter supports `SHADER_F16`. Reported only.
+    shader_f16: bool,
     dirty: Rect,
     /// Multipass rendering (experimental, off by default). `None` until first enabled; when it is
     /// `None` or disabled, every call takes exactly the pre-multipass path.
@@ -466,6 +495,7 @@ fn make_pipeline(
     label: &str,
     source: &str,
     layout: &wgpu::BindGroupLayout,
+    constants: &[(&str, f64)],
 ) -> wgpu::ComputePipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
@@ -481,7 +511,10 @@ fn make_pipeline(
         layout: Some(&pipeline_layout),
         module: &module,
         entry_point: Some("main"),
-        compilation_options: Default::default(),
+        compilation_options: wgpu::PipelineCompilationOptions {
+            constants,
+            ..Default::default()
+        },
         cache: None,
     })
 }
@@ -495,6 +528,16 @@ impl Engine {
     /// the layer does not fit the device's limits, or device creation failed): the caller falls
     /// back to its CPU path.
     pub fn new(width: i32, height: i32, backend: BackendChoice) -> Option<Engine> {
+        Self::new_with_options(width, height, backend, EngineOptions::default())
+    }
+
+    /// [`Engine::new`] with per-device tuning.
+    pub fn new_with_options(
+        width: i32,
+        height: i32,
+        backend: BackendChoice,
+        options: EngineOptions,
+    ) -> Option<Engine> {
         if width <= 0 || height <= 0 {
             return None;
         }
@@ -508,11 +551,21 @@ impl Engine {
         } else {
             requested
         };
-        Self::with_backends(width, height, backends)
+        Self::with_backends_and_options(width, height, backends, options)
     }
 
     /// [`Engine::new`] restricted to an explicit backend set (tests pin Vulkan vs GL with this).
     pub fn with_backends(width: i32, height: i32, backends: wgpu::Backends) -> Option<Engine> {
+        Self::with_backends_and_options(width, height, backends, EngineOptions::default())
+    }
+
+    /// [`Engine::with_backends`] with per-device tuning.
+    pub fn with_backends_and_options(
+        width: i32,
+        height: i32,
+        backends: wgpu::Backends,
+        options: EngineOptions,
+    ) -> Option<Engine> {
         if width <= 0 || height <= 0 {
             return None;
         }
@@ -556,14 +609,28 @@ impl Engine {
             );
             return None;
         }
-        if limits.max_compute_invocations_per_workgroup < STAMP_TILE * STAMP_TILE
-            || limits.max_storage_buffers_per_shader_stage < 3
-        {
+        let fits = |tile: u32| {
+            limits.max_compute_invocations_per_workgroup >= tile * tile
+                && limits.max_compute_workgroup_size_x >= tile
+                && limits.max_compute_workgroup_size_y >= tile
+        };
+        let wanted = if options.stamp_tile == 8 { 8 } else { DEFAULT_STAMP_TILE };
+        let stamp_tile = if fits(wanted) { wanted } else { 8 };
+        if !fits(stamp_tile) || limits.max_storage_buffers_per_shader_stage < 3 {
             return None;
         }
+        // Timestamps only when the adapter offers them; fp16 (SHADER_F16) is reported, never
+        // requested -- there is no f16 shader path yet (Kotlin GpuTierTable keeps it off).
+        let timing_features = if options.timestamps {
+            adapter.features()
+                & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
+        } else {
+            wgpu::Features::empty()
+        };
+        let shader_f16 = adapter.features().contains(wgpu::Features::SHADER_F16);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("graffux-wgpu"),
-            required_features: wgpu::Features::empty(),
+            required_features: timing_features,
             required_limits: limits.clone(),
             ..Default::default()
         }))
@@ -577,7 +644,7 @@ impl Engine {
                 error.store(true, Ordering::SeqCst);
             }));
         }
-        Some(Self::build(
+        let mut engine = Self::build(
             device,
             queue,
             adapter.get_info(),
@@ -585,7 +652,10 @@ impl Engine {
             width,
             height,
             &limits,
-        ))
+            stamp_tile,
+        );
+        engine.shader_f16 = shader_f16;
+        Some(engine)
     }
 
     fn build(
@@ -596,6 +666,7 @@ impl Engine {
         width: i32,
         height: i32,
         limits: &wgpu::Limits,
+        stamp_tile: u32,
     ) -> Engine {
         let layer_bytes = width as u64 * height as u64 * 4;
         // Buffers are zero-initialized by wgpu, so a fresh layer is already transparent.
@@ -718,11 +789,19 @@ impl Engine {
                 uniform_entry(3, true),
             ],
         });
-        let stamp_pipeline = make_pipeline(&device, "stamp", STAMP_WGSL, &stamp_layout);
-        let masked_pipeline =
-            make_pipeline(&device, "stamp masked", STAMP_MASKED_WGSL, &masked_layout);
+        let tile_constant = [("STAMP_TILE", stamp_tile as f64)];
+        let stamp_pipeline =
+            make_pipeline(&device, "stamp", STAMP_WGSL, &stamp_layout, &tile_constant);
+        let masked_pipeline = make_pipeline(
+            &device,
+            "stamp masked",
+            STAMP_MASKED_WGSL,
+            &masked_layout,
+            &tile_constant,
+        );
         let smudge_pipeline =
-            make_pipeline(&device, "color smudge", COLOR_SMUDGE_WGSL, &smudge_layout);
+            make_pipeline(&device, "color smudge", COLOR_SMUDGE_WGSL, &smudge_layout, &[]);
+        let timer = GpuTimer::new(&device, &queue);
 
         Engine {
             device,
@@ -762,6 +841,9 @@ impl Engine {
             stamp_pipeline,
             masked_pipeline,
             smudge_pipeline,
+            stamp_tile,
+            timer,
+            shader_f16: false,
             dirty: Rect {
                 x: 0,
                 y: 0,
@@ -894,6 +976,66 @@ impl Engine {
 
     pub fn backend(&self) -> wgpu::Backend {
         self.adapter_info.backend
+    }
+
+    /// Stamp workgroup edge the pipelines were built with (8 or 16).
+    pub fn stamp_tile(&self) -> u32 {
+        self.stamp_tile
+    }
+
+    /// Whether passes are timed on the GPU (`TIMESTAMP_QUERY`); readback additionally needs
+    /// `TIMESTAMP_QUERY_INSIDE_ENCODERS`.
+    pub fn gpu_timestamps(&self) -> (bool, bool) {
+        match &self.timer {
+            Some(t) => (true, t.inside_encoders),
+            None => (false, false),
+        }
+    }
+
+    /// `key=value` lines describing the adapter for telemetry (Kotlin `GpuInfo.parse`).
+    /// wgpu does not expose the Vulkan API version, so `api` is empty here.
+    pub fn gpu_info(&self) -> String {
+        let i = &self.adapter_info;
+        let (ts, ts_copy) = self.gpu_timestamps();
+        format!(
+            "engine=wgpu\nbackend={:?}\nrenderer={}\nvendor_id={}\ndevice_id={}\ndriver={}\n\
+             driver_info={}\napi=\ntimestamps={}\ntimestamps_copy={}\nshader_f16={}\n\
+             stamp_tile={}",
+            i.backend,
+            i.name.replace('\n', " "),
+            i.vendor,
+            i.device,
+            i.driver.replace('\n', " "),
+            i.driver_info.replace('\n', " "),
+            ts as u8,
+            ts_copy as u8,
+            self.shader_f16 as u8,
+            self.stamp_tile,
+        )
+    }
+
+    /// Every GPU pass timing since the last call, `(kind, nanoseconds)`. Empty without
+    /// timestamp support. Waits for the GPU once when timings are pending.
+    pub fn take_pass_timings(&mut self) -> Vec<(PassKind, u64)> {
+        match self.timer.as_mut() {
+            Some(t) => t.take(&self.device, &self.queue),
+            None => Vec::new(),
+        }
+    }
+
+    fn reserve_timing(&mut self, kind: PassKind) -> Option<u32> {
+        let timer = self.timer.as_mut()?;
+        Some(timer.reserve(&self.device, &self.queue, kind))
+    }
+
+    fn pass_descriptor(&self, timed: Option<u32>) -> wgpu::ComputePassDescriptor<'_> {
+        wgpu::ComputePassDescriptor {
+            label: None,
+            timestamp_writes: match (timed, self.timer.as_ref()) {
+                (Some(begin), Some(t)) => Some(t.pass_writes(begin)),
+                _ => None,
+            },
+        }
     }
 
     fn ok(&self) -> bool {
@@ -1113,13 +1255,14 @@ impl Engine {
                     },
                 ],
             });
+            let timed = self.reserve_timing(PassKind::Stamp);
             {
-                let mut pass = encoder.begin_compute_pass(&Default::default());
+                let mut pass = encoder.begin_compute_pass(&self.pass_descriptor(timed));
                 pass.set_pipeline(&self.stamp_pipeline);
                 pass.set_bind_group(0, &bind, &[]);
                 pass.dispatch_workgroups(
-                    (r.w as u32).div_ceil(STAMP_TILE),
-                    (r.h as u32).div_ceil(STAMP_TILE),
+                    (r.w as u32).div_ceil(self.stamp_tile),
+                    (r.h as u32).div_ceil(self.stamp_tile),
                     1,
                 );
             }
@@ -1307,13 +1450,14 @@ impl Engine {
                     },
                 ],
             });
+            let timed = self.reserve_timing(PassKind::Stamp);
             {
-                let mut pass = encoder.begin_compute_pass(&Default::default());
+                let mut pass = encoder.begin_compute_pass(&self.pass_descriptor(timed));
                 pass.set_pipeline(&self.masked_pipeline);
                 pass.set_bind_group(0, &bind, &[]);
                 pass.dispatch_workgroups(
-                    (r.w as u32).div_ceil(STAMP_TILE),
-                    (r.h as u32).div_ceil(STAMP_TILE),
+                    (r.w as u32).div_ceil(self.stamp_tile),
+                    (r.h as u32).div_ceil(self.stamp_tile),
                     1,
                 );
             }
@@ -1472,10 +1616,11 @@ impl Engine {
                 },
             ],
         });
+        let timed = self.reserve_timing(PassKind::Smudge);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             // One dispatch per phase; wgpu synchronizes storage writes between dispatches.
-            let mut pass = encoder.begin_compute_pass(&Default::default());
+            let mut pass = encoder.begin_compute_pass(&self.pass_descriptor(timed));
             pass.set_pipeline(&self.smudge_pipeline);
             for (i, (_, groups)) in plan.iter().enumerate() {
                 pass.set_bind_group(0, &bind, &[(i as u64 * stride) as u32]);
@@ -1572,7 +1717,15 @@ impl Engine {
     ) -> bool {
         let row_bytes = self.width as u64 * 4;
         let rect_row = r.w as u64 * 4;
+        let timed = if self.timer.as_ref().is_some_and(|t| t.inside_encoders) {
+            self.reserve_timing(PassKind::Readback)
+        } else {
+            None
+        };
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        if let (Some(begin), Some(timer)) = (timed, self.timer.as_ref()) {
+            encoder.write_timestamp(timer.query_set(), begin);
+        }
         // Whole rows are one copy; a rectangle narrower than half the layer is copied per row
         // into a compact block so the transfer (and the mapping) is only as wide as the dabs.
         let full_rows = r.w as u64 * 2 >= self.width as u64;
@@ -1597,6 +1750,9 @@ impl Engine {
             }
             (rect_row, r.h as u64 * rect_row)
         };
+        if let (Some(begin), Some(timer)) = (timed, self.timer.as_ref()) {
+            encoder.write_timestamp(timer.query_set(), begin + 1);
+        }
         self.queue.submit([encoder.finish()]);
         let slice = self.staging.slice(0..length);
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1672,7 +1828,7 @@ impl Engine {
         if r.is_empty() {
             return r;
         }
-        let tile = STAMP_TILE as i32;
+        let tile = self.stamp_tile as i32;
         let w = (r.w + tile - 1) / tile * tile;
         let h = (r.h + tile - 1) / tile * tile;
         Rect::new(r.x, r.y, w, h).clamp(self.width, self.height)

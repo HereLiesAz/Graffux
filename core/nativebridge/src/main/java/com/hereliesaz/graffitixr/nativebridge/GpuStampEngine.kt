@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.nativebridge
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.HardwareBuffer
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassBudget
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import java.util.ArrayDeque
@@ -84,6 +85,34 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         @JvmStatic
         var multipass: MultipassSettings = MultipassSettings()
 
+        /**
+         * The device's current multipass budget (GpuTuningController collects its GpuBudget flow
+         * into [setMultipassBudget]); null until the first one arrives.
+         */
+        @Volatile private var multipassBudget: MultipassBudget? = null
+
+        /** wgpu handles running multipass now. Render thread only. */
+        private val multipassHandles = LinkedHashSet<Long>()
+
+        /** [multipass] under the current [multipassBudget]: what the engines actually get. */
+        internal fun effectiveMultipass(): MultipassSettings = multipass.withBudget(multipassBudget)
+
+        /**
+         * A new device budget (tier landed, thermal change). Applies to live multipass engines at
+         * once (queued on the render thread; a draft-scale change takes effect at the next stroke
+         * start) and to every engine set up later.
+         */
+        @JvmStatic
+        fun setMultipassBudget(budget: MultipassBudget) {
+            multipassBudget = budget
+            GpuRenderThread.post {
+                if (multipassHandles.isEmpty()) return@post
+                val params = effectiveMultipass().toFloatArray()
+                val jni = helper()
+                multipassHandles.filter { it in liveWgpuHandles }.forEach { jni.nativeSetMultipass(it, params) }
+            }
+        }
+
         /** SharedPreferences keys (in [Backend.PREFS]) for [multipass]. */
         const val KEY_MULTIPASS = "multipass"
         const val KEY_MULTIPASS_TRANSITION_MS = "multipass_transition_ms"
@@ -159,6 +188,43 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         }
 
         internal fun nativeCreationCountForTesting(): Int = nativeCreationCount.get()
+
+        // ---- Per-device tuning and telemetry (feature/editor gpu/ package) -------------------
+
+        /**
+         * Receives every timed pass: [PassKind] ordinal, nanoseconds, and whether the number came
+         * from GPU timestamps (true) or CPU wall time around the native call (false). Null = off.
+         */
+        @Volatile var passTimingSink: PassTimingSink? = null
+
+        /** `key=value` lines from the most recently initialized engine (see StampEngine.h gpuInfo). */
+        @Volatile var lastGpuInfo: String? = null
+            private set
+
+        /** Resident-layer budget new and live wgpu engines use; <= 0 keeps the engine default. */
+        @Volatile var residentBudgetBytes: Long = 0L
+            private set
+
+        /**
+         * Process-wide tuning for engines created from now on: stamp workgroup edge (8 or 16;
+         * Vulkan and wgpu honour it, GLES has fixed local sizes) and GPU timestamp queries.
+         */
+        @JvmStatic
+        fun applyTuning(stampTile: Int, timestamps: Boolean) {
+            runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
+        }
+
+        /** Changes the wgpu resident budget on every live engine (queued) and for new ones. */
+        @JvmStatic
+        fun setResidentBudget(bytes: Long) {
+            residentBudgetBytes = bytes
+            if (bytes <= 0L) return
+            GpuRenderThread.post {
+                if (liveWgpuHandles.isEmpty()) return@post
+                val jni = helper()
+                liveWgpuHandles.forEach { jni.nativeSetResidentBudget(it, bytes) }
+            }
+        }
 
         private fun takePooled(key: PoolKey): Long = synchronized(poolLock) {
             // wgpu: most recently returned first -- it holds the layers painted most recently.
@@ -237,6 +303,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             }
             handle
         }
+        if (created != 0L) onCreated(created)
         nativeHandle = created
         poolKey = if (created != 0L) key else null
         healthy = created != 0L
@@ -301,7 +368,8 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             flat[base] = d.x; flat[base + 1] = d.y; flat[base + 2] = d.radius
             flat[base + 3] = d.alpha; flat[base + 4] = d.angleDeg
         }
-        return onGpu { nativeStampDabs(nativeHandle, flat, colorArgb, hardness) }.also { if (!it) healthy = false }
+        return timed(PassKind.STAMP) { onGpu { nativeStampDabs(nativeHandle, flat, colorArgb, hardness) } }
+            .also { if (!it) healthy = false }
     }
 
     /**
@@ -349,13 +417,13 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
         }
         val cfg = substrate?.sanitized()
-        return onGpu {
+        return timed(PassKind.STAMP) { onGpu {
             nativeStampResolvedDabs(
                 nativeHandle, flat, buildUp, cfg != null, cfg != null && paintHeightUploaded,
                 cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
                 cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f, strokeMax,
             )
-        }.also { if (!it) healthy = false }
+        } }.also { if (!it) healthy = false }
     }
 
     /**
@@ -464,7 +532,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             }
         } else null
         val cfg = substrate?.sanitized()
-        return onGpu {
+        return timed(PassKind.STAMP) { onGpu {
             nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
@@ -473,7 +541,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             cfg?.baseHeight ?: 0f, cfg?.heightScale ?: 0f, cfg?.textureScale ?: 1f,
             cfg?.textureOffsetX ?: 0f, cfg?.textureOffsetY ?: 0f,
             )
-        }.also { if (!it) healthy = false }
+        } }.also { if (!it) healthy = false }
     }
 
     /**
@@ -541,13 +609,13 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             }
             bytes
         } else null
-        val ok = onGpu {
+        val ok = timed(PassKind.SMUDGE) { onGpu {
             nativeColorSmudge(
             nativeHandle, flat, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
             baseColorRate, chargeDecayRate, pickupRate,
             sampleSourceRgba8, sampleSourceWidth, sampleSourceHeight,
             )
-        }
+        } }
         if (!ok) healthy = false
         return ok
     }
@@ -571,7 +639,9 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     fun readback(bitmap: Bitmap): Boolean {
         if (!isInitialized) return false
         require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }
-        val ok = if (backend == Backend.WGPU) readbackWgpuRect(bitmap) else nativeReadback(nativeHandle, bitmap)
+        val ok = timed(PassKind.READBACK) {
+            if (backend == Backend.WGPU) readbackWgpuRect(bitmap) else nativeReadback(nativeHandle, bitmap)
+        }
         if (!ok) healthy = false
         return ok
     }
@@ -598,8 +668,9 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
 
     /** Render thread only. Off also lands anything a pooled handle still had queued. */
     private fun applyMultipass(handle: Long) {
-        val settings = multipass
+        val settings = effectiveMultipass()
         multipassEnabled = nativeSetMultipass(handle, settings.toFloatArray()) && settings.enabled
+        if (multipassEnabled) multipassHandles.add(handle) else multipassHandles.remove(handle)
     }
 
     /**
@@ -659,6 +730,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         substrateHeightUploaded = false
         paintHeightUploaded = false
         if (handle == 0L) return
+        drainGpuTimings(handle)
         val key = poolKey
         nativeHandle = 0L
         poolKey = null
@@ -680,6 +752,50 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         }
     }
 
+    /** A new native engine: record its GPU description and give wgpu the current resident budget. */
+    private fun onCreated(handle: Long) = onGpu {
+        runCatching { nativeGpuInfo(handle) }.getOrNull()?.let { lastGpuInfo = it }
+        if (backend == Backend.WGPU && residentBudgetBytes > 0L) nativeSetResidentBudget(handle, residentBudgetBytes)
+    }
+
+    /** GPU-timestamped passes since the last drain, as {kind, nanos} pairs; null without support. */
+    @Synchronized
+    fun takePassTimings(): LongArray? {
+        if (!isInitialized) return null
+        return onGpu { nativeTakePassTimings(nativeHandle) }
+    }
+
+    /** This engine's `key=value` GPU description (see [lastGpuInfo]); null when not initialized. */
+    @Synchronized
+    fun gpuInfo(): String? {
+        if (!isInitialized) return null
+        return onGpu { nativeGpuInfo(nativeHandle) }
+    }
+
+    /** Hands GPU timestamps to [passTimingSink] at stroke end; wgpu's drain is queued, not awaited. */
+    private fun drainGpuTimings(handle: Long) {
+        val sink = passTimingSink ?: return
+        val drain = {
+            runCatching { nativeTakePassTimings(handle) }.getOrNull()?.let { pairs ->
+                var i = 0
+                while (i + 1 < pairs.size) {
+                    sink.onPass(pairs[i].toInt(), pairs[i + 1], true)
+                    i += 2
+                }
+            }
+        }
+        if (backend == Backend.WGPU) GpuRenderThread.post { drain() } else drain()
+    }
+
+    /** CPU wall time around a native call, reported as not-GPU (telemetry labels it "cpu"). */
+    private inline fun <T> timed(kind: PassKind, block: () -> T): T {
+        val sink = passTimingSink ?: return block()
+        val start = System.nanoTime()
+        val result = block()
+        sink.onPass(kind.ordinal, System.nanoTime() - start, false)
+        return result
+    }
+
     /** Destroys [handle]; wgpu handles later, on the render thread, leaving the live-handle registry. */
     private fun destroyHandle(handle: Long, backend: Backend) {
         if (backend != Backend.WGPU) {
@@ -690,6 +806,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         // main thread at stroke teardown and must not stall on a slow GPU.
         GpuRenderThread.post {
             liveWgpuHandles.remove(handle)
+            multipassHandles.remove(handle)
             nativeDestroy(handle)
         }
     }
@@ -767,6 +884,26 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     private external fun nativeRefine(handle: Long, budgetMs: Float): Int
     private external fun nativeFlushMultipass(handle: Long): Boolean
     private external fun nativeMultipassStats(handle: Long): DoubleArray?
+    private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
+    private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
+    private external fun nativeGpuInfo(handle: Long): String?
+    private external fun nativeTakePassTimings(handle: Long): LongArray?
+}
+
+/** Pass kinds; ordinals match StampEngine.h `PassKind` and wgpu's timing.rs. */
+enum class PassKind(val label: String) {
+    STAMP("stamp"),
+    READBACK("readback"),
+    COMPOSITE("composite"),
+    SMUDGE("smudge"),
+
+    /** Reserved for the multipass draft/clarity scheduler. */
+    MULTIPASS("multipass"),
+}
+
+/** See [GpuStampEngine.passTimingSink]. [kind] = [PassKind] ordinal. */
+fun interface PassTimingSink {
+    fun onPass(kind: Int, nanos: Long, gpu: Boolean)
 }
 
 /**

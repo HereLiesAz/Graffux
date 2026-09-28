@@ -13,10 +13,12 @@ pub mod progress;
 pub mod reference;
 pub mod resident;
 pub mod scheduler;
+pub mod timing;
 
 pub use wgpu;
 
 pub use engine::{
-    BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams,
-    MultipassConfig, MultipassStats, SubstrateParams,
+    BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab,
+    MaskedParams, MultipassConfig, MultipassStats, SubstrateParams, DEFAULT_STAMP_TILE,
 };
+pub use timing::PassKind;

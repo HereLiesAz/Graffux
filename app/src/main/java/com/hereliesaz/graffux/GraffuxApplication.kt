@@ -6,6 +6,7 @@ import com.hereliesaz.graffitixr.common.crash.CrashReporter
 import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
+import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.nativebridge.NativeCrashHandler
@@ -39,6 +40,9 @@ class GraffuxApplication : Application() {
         // The shared editor's Liquify tool bakes through the native bridge, so load before any edit.
         // Idempotent and safe on every process start.
         NativeLibLoader.loadAll()
+        // Graffux has no work without a project: when there is none, the editor asks for one with
+        // the mandatory project dialog instead of silently creating "Untitled".
+        EditorViewModel.projectGateEnabled = true
         // GPU backend chosen in Settings (Vulkan / OpenGL ES / wgpu) for every stamp engine created from now on.
         val gpuPrefs = getSharedPreferences(GpuStampEngine.Backend.PREFS, MODE_PRIVATE)
         GpuStampEngine.Backend.preferred =

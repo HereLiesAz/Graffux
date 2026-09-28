@@ -113,7 +113,9 @@ android {
 
         defaultConfig {
             applicationId = "com.hereliesaz.graffux"
-            minSdk = 26
+            // Hardware floor: Android 10 (API 29) plus Vulkan 1.1 (AndroidManifest.xml <uses-feature>).
+            // Was 26. The library modules stay at 26 because GraffitiXR shares them.
+            minSdk = 29
             targetSdk = 37
 
             versionCode = currentVersionCode

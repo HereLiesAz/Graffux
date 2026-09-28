@@ -238,6 +238,7 @@ fun SettingsScreen(
             StrokeDataRow(vm)
             HorizontalDivider()
             GpuBackendRow(vm)
+            GpuTierRow()
             HorizontalDivider()
 
             Spacer(Modifier.height(16.dp))
@@ -607,8 +608,9 @@ private fun SwitchRow(
     }
 }
 
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
-private fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+internal fun ActionRow(title: String, subtitle: String, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()

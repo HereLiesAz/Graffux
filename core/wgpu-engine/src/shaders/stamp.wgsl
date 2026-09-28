@@ -102,7 +102,11 @@ fn substrate_deposition(d: Dab, canvas_point: vec2<f32>) -> f32 {
     return clamp(d.material.y, 0.0, 1.0) * clamp(d.material.z, 0.0, 1.0) * gate;
 }
 
-@compute @workgroup_size(16, 16)
+// Workgroup edge, set per GPU family by the host (EngineOptions::stamp_tile; 8 or 16). The math
+// never reads it: each invocation is one pixel, so the tile size changes scheduling, not output.
+override STAMP_TILE: u32 = 16u;
+
+@compute @workgroup_size(STAMP_TILE, STAMP_TILE)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pixel = vec2<i32>(gid.xy) + vec2<i32>(pc.origin_x, pc.origin_y);
     let size = vec2<i32>(pc.layer_width, pc.layer_height);

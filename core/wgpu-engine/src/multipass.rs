@@ -37,7 +37,10 @@ use crate::scheduler::{Item, PassSpec, Scheduler, SchedulerConfig};
 /// Display tile size, in layer pixels (a multiple of every draft scale).
 pub const TILE: i32 = 32;
 const MAX_TILES_PER_DISPATCH: usize = 128;
-const BLOCK: i32 = STAMP_TILE as i32;
+/// Chunk grid of final work, in pixels: a multiple of every stamp workgroup edge (8 or 16).
+const BLOCK: i32 = 16;
+/// Workgroup edge of the draft and display shaders (fixed @workgroup_size(16, 16)).
+const MP_WG: u32 = 16;
 const DRAFT_PASS: usize = 0;
 /// Width of the reveal's soft step, in feather-key units.
 const REVEAL_BAND: f32 = 0.3;
@@ -61,13 +64,19 @@ pub struct MultipassConfig {
     /// Aging among refinement passes: a waiting later pass overtakes a fresh earlier one after
     /// this long (see scheduler.rs).
     pub overtake_ms: f32,
-    /// Draft resolution divisor (1, 2, 4 or 8); 0 = adaptive, starting at 2.
+    /// Draft resolution divisor (1, 2, 4 or 8) the device tier allows (Kotlin `GpuBudget`); 0 =
+    /// 2. The engine's own frame-time measurement may coarsen it further (up to 8), never finer.
     pub draft_scale: u32,
     /// Test/benchmark only: every refinement chunk is repeated into a scratch buffer this many
     /// times in all (1 = off), to prove drafts do not slow down when refinement gets expensive.
     pub refine_ballast: f32,
     /// Frame period hint in ms; 0 = measured from the readback cadence.
     pub frame_ms: f32,
+    /// Fraction of each frame's leftover time refinement may use (the tier's thermally scaled
+    /// `refinementFraction`), 0..1. 0 still makes minimal progress.
+    pub refine_fraction: f32,
+    /// Largest refinement chunk edge in pixels (the tier's refinement tile size); 0 = no cap.
+    pub max_chunk_px: u32,
 }
 
 impl Default for MultipassConfig {
@@ -81,15 +90,17 @@ impl Default for MultipassConfig {
             draft_scale: 0,
             refine_ballast: 1.0,
             frame_ms: 0.0,
+            refine_fraction: 1.0,
+            max_chunk_px: 0,
         }
     }
 }
 
 impl MultipassConfig {
-    pub const FLOATS: usize = 8;
+    pub const FLOATS: usize = 10;
 
     /// `[enabled, passes, edge_fraction, transition_ms, overtake_ms, draft_scale, refine_ballast,
-    /// frame_ms]`; missing trailing values take their defaults.
+    /// frame_ms, refine_fraction, max_chunk_px]`; missing trailing values take their defaults.
     pub fn from_floats(v: &[f32]) -> MultipassConfig {
         let d = MultipassConfig::default();
         let at = |i: usize, dflt: f32| v.get(i).copied().filter(|x| x.is_finite()).unwrap_or(dflt);
@@ -102,6 +113,8 @@ impl MultipassConfig {
             draft_scale: at(5, 0.0).max(0.0) as u32,
             refine_ballast: at(6, 1.0).max(1.0),
             frame_ms: at(7, 0.0).max(0.0),
+            refine_fraction: at(8, 1.0).clamp(0.0, 1.0),
+            max_chunk_px: at(9, 0.0).max(0.0) as u32,
         }
     }
 
@@ -115,6 +128,8 @@ impl MultipassConfig {
             self.draft_scale as f32,
             self.refine_ballast,
             self.frame_ms,
+            self.refine_fraction,
+            self.max_chunk_px as f32,
         ]
     }
 
@@ -130,6 +145,11 @@ impl MultipassConfig {
             _ => 8,
         };
         self.refine_ballast = self.refine_ballast.max(1.0);
+        self.refine_fraction = if self.refine_fraction.is_finite() {
+            self.refine_fraction.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self
     }
 }
@@ -460,7 +480,13 @@ struct TileState {
     pending: u32,
     anim: TileAnim,
     slot: Option<u32>,
+    /// The display holds a composite of the tile's current content at this reveal edge (None: the
+    /// content changed since, or it was never composited).
+    shown_edge: Option<f32>,
 }
+
+/// Reveal-edge change below which a tile is not recomposited (about one 8-bit level of the feather).
+const EDGE_EPSILON: f32 = 0.004;
 
 pub(super) struct Multipass {
     cfg: MultipassConfig,
@@ -598,11 +624,11 @@ impl Multipass {
             ],
         });
         let draft_stamp_pipeline =
-            make_pipeline(device, "draft stamp", DRAFT_STAMP_WGSL, &draft_stamp_layout);
+            make_pipeline(device, "draft stamp", DRAFT_STAMP_WGSL, &draft_stamp_layout, &[]);
         let draft_masked_pipeline =
-            make_pipeline(device, "draft masked", DRAFT_MASKED_WGSL, &draft_masked_layout);
+            make_pipeline(device, "draft masked", DRAFT_MASKED_WGSL, &draft_masked_layout, &[]);
         let display_pipeline =
-            make_pipeline(device, "multipass display", DISPLAY_WGSL, &display_layout);
+            make_pipeline(device, "multipass display", DISPLAY_WGSL, &display_layout, &[]);
         let r8 = wgpu::TextureFormat::R8Unorm;
         let storage_dst = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 
@@ -1062,23 +1088,23 @@ impl Engine {
         self.with_mp(|e, mp| {
             // Adapt the draft resolution to what drafts cost on this device (only between strokes,
             // when the draft buffer is empty anyway).
-            if mp.cfg.draft_scale == 0 {
-                let period = mp.frame_period();
-                if let Some(ms) = mp.draft_ms.get() {
-                    let wanted = if ms > 0.3 * period && mp.scale < 8 {
-                        mp.scale * 2
-                    } else if ms < 0.05 * period && mp.scale > 2 {
-                        mp.scale / 2
-                    } else {
-                        mp.scale
-                    };
-                    if wanted != mp.scale {
-                        mp.scale = wanted;
-                        mp.draft_ms = Ema::default();
-                    }
+            // The tier's scale is the floor; measured draft cost coarsens it (to 8 at most) when
+            // drafts eat too much of the frame, and relaxes back toward the floor when cheap.
+            let floor = if mp.cfg.draft_scale == 0 { 2 } else { mp.cfg.draft_scale };
+            mp.scale = mp.scale.max(floor);
+            let period = mp.frame_period();
+            if let Some(ms) = mp.draft_ms.get() {
+                let wanted = if ms > 0.3 * period && mp.scale < 8 {
+                    mp.scale * 2
+                } else if ms < 0.05 * period && mp.scale > floor {
+                    mp.scale / 2
+                } else {
+                    mp.scale
+                };
+                if wanted != mp.scale {
+                    mp.scale = wanted;
+                    mp.draft_ms = Ema::default();
                 }
-            } else {
-                mp.scale = mp.cfg.draft_scale;
             }
             let (dw, dh) = draft_dims(e.width, e.height, mp.scale);
             if (dw, dh) != (mp.draft_w, mp.draft_h) {
@@ -1195,6 +1221,7 @@ impl Engine {
                 let tiles: Vec<usize> = mp.tiles_in(item.payload.footprint).collect();
                 for t in tiles {
                     mp.tiles[t].anim.on_draft(now);
+                    mp.tiles[t].shown_edge = None;
                 }
                 self.dirty = self.dirty.union(item.payload.footprint);
             }
@@ -1225,8 +1252,8 @@ impl Engine {
             return;
         }
         let groups = (
-            ((x1 - x0) as u32).div_ceil(STAMP_TILE),
-            ((y1 - y0) as u32).div_ceil(STAMP_TILE),
+            ((x1 - x0) as u32).div_ceil(MP_WG),
+            ((y1 - y0) as u32).div_ceil(MP_WG),
         );
         let first = &batch[0].payload;
         match first.call.as_ref() {
@@ -1456,8 +1483,9 @@ impl Engine {
         } else {
             let period = mp.frame_period();
             let since = mp.last_frame_start.map_or(0.0, |t| (mp.now() - t).max(0.0));
-            // Leave a millisecond before the next frame's drafts are due.
-            (period - since - 1.0).max(0.0)
+            // End before the next batch is due (the frame started a little before its readback),
+            // with a margin for estimate error: refinement must never delay a draft.
+            ((period - since) * 0.8 - 1.0).max(0.0) * mp.cfg.refine_fraction as f64
         };
         let mut first = true;
         loop {
@@ -1472,11 +1500,16 @@ impl Engine {
             let head = mp.sched.head_mut(pass).expect("picked head");
             let kind = head.payload.call.kind();
             let ms_per_unit = mp.ms_per_unit[kind].get().unwrap_or(DEFAULT_MS_PER_UNIT).max(1e-9);
-            let max_units = if budget.is_infinite() {
+            // Chunks of at most half what is left, so one mis-estimated chunk cannot eat the frame.
+            let mut max_units = if budget.is_infinite() {
                 f64::INFINITY
             } else {
-                (budget - elapsed).max(0.0) / ms_per_unit
+                (budget - elapsed).max(0.0) * 0.5 / ms_per_unit
             };
+            if mp.cfg.max_chunk_px > 0 && !budget.is_infinite() {
+                let edge = mp.cfg.max_chunk_px as f64;
+                max_units = max_units.min(edge * edge * head.payload.call.dab_count() as f64);
+            }
             let chunk = if head.payload.footprint.is_empty() {
                 None
             } else {
@@ -1546,7 +1579,9 @@ impl Engine {
                 }
             }
         }
-        units * ballast as f64
+        // Real work units: the measured time (ballast included) per unit is what sizes the next
+        // chunks, so an expensive refinement gets proportionally smaller chunks.
+        units
     }
 
     /// `stamp_dabs`' dispatch for `chunk` (None: an empty region, which only clears strokeMax state
@@ -1637,8 +1672,8 @@ impl Engine {
                 pass.set_pipeline(&self.stamp_pipeline);
                 pass.set_bind_group(0, &bind, &[]);
                 pass.dispatch_workgroups(
-                    (r.w as u32).div_ceil(STAMP_TILE),
-                    (r.h as u32).div_ceil(STAMP_TILE),
+                    (r.w as u32).div_ceil(self.stamp_tile),
+                    (r.h as u32).div_ceil(self.stamp_tile),
                     1,
                 );
             }
@@ -1799,8 +1834,8 @@ impl Engine {
             pass.set_pipeline(&self.masked_pipeline);
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(
-                (r.w as u32).div_ceil(STAMP_TILE),
-                (r.h as u32).div_ceil(STAMP_TILE),
+                (r.w as u32).div_ceil(self.stamp_tile),
+                (r.h as u32).div_ceil(self.stamp_tile),
                 1,
             );
         }
@@ -1867,6 +1902,7 @@ impl Engine {
             clear_draft_tile(&mut encoder, mp, t);
             let params = mp.anim;
             mp.tiles[t].anim.land(now, &params);
+            mp.tiles[t].shown_edge = None;
         }
         if any {
             self.queue.submit([encoder.finish()]);
@@ -1937,6 +1973,14 @@ impl Engine {
             }
             let q = tile.anim.quality(now, &params);
             let weight = tile.anim.landing_weight(now, &params);
+            let edge = f + q * (1.0 + REVEAL_BAND - f);
+            // Unchanged on screen: new content, a running ease or a visible reveal step recomposite.
+            let unchanged = tile.anim.landing.is_none()
+                && tile.shown_edge.is_some_and(|e| (e - edge).abs() < EDGE_EPSILON);
+            if unchanged {
+                continue;
+            }
+            tile.shown_edge = Some(edge);
             let r = Rect::new((t as i32 % mp.tiles_x) * TILE, (t as i32 / mp.tiles_x) * TILE, TILE, TILE);
             list.push(TileParam {
                 x: r.x,
@@ -1946,7 +1990,7 @@ impl Engine {
                     _ => -1,
                 },
                 _pad: 0,
-                edge: f + q * (1.0 + REVEAL_BAND - f),
+                edge,
                 weight,
                 _pad1: 0.0,
                 _pad2: 0.0,
@@ -2006,7 +2050,7 @@ impl Engine {
                 let mut pass = encoder.begin_compute_pass(&Default::default());
                 pass.set_pipeline(&mp.display_pipeline);
                 pass.set_bind_group(0, &bind, &[]);
-                let per = (TILE as u32).div_ceil(STAMP_TILE);
+                let per = (TILE as u32).div_ceil(MP_WG);
                 pass.dispatch_workgroups(per, per, group.len() as u32);
             }
             self.queue.submit([encoder.finish()]);
@@ -2230,6 +2274,8 @@ mod tests {
             draft_scale: 4,
             refine_ballast: 10.0,
             frame_ms: 16.0,
+            refine_fraction: 0.5,
+            max_chunk_px: 256,
         };
         assert_eq!(MultipassConfig::from_floats(&c.to_floats()), c);
         assert_eq!(MultipassConfig::from_floats(&[]), MultipassConfig::default());

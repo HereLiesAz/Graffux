@@ -13,7 +13,7 @@
 //! `target/multipass-png/` for a look; they are not committed.
 
 use graffux_wgpu::wgpu::Backends;
-use graffux_wgpu::{ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig, SubstrateParams};
+use graffux_wgpu::{ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig, SubstrateParams};
 
 const W: i32 = 131;
 const H: i32 = 97;
@@ -714,3 +714,23 @@ fn resident_refresh_drops_queued_work_and_stays_exact() {
     }
 }
 
+
+/// Main's per-device stamp workgroup (8x8 on some GPU families): multipass chunks stay exact.
+#[test]
+fn multipass_matches_plain_with_an_8x8_stamp_tile() {
+    let a = assets();
+    let opts = EngineOptions {
+        stamp_tile: 8,
+        ..EngineOptions::default()
+    };
+    for (name, b) in backends() {
+        let session = ops(4, 60);
+        let mut off = Engine::with_backends_and_options(W, H, b, opts).unwrap();
+        run(&mut off, &session, &a, None);
+        let mut e = Engine::with_backends_and_options(W, H, b, opts).unwrap();
+        assert_eq!(e.stamp_tile(), 8);
+        assert!(e.set_multipass(on(2)));
+        run(&mut e, &session, &a, Some(77));
+        assert!(e.read_all().unwrap() == off.read_all().unwrap(), "[{name}] tile 8");
+    }
+}

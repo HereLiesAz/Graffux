@@ -76,6 +76,8 @@ public:
     int refine(float budgetMs) override;
     bool flushMultipass() override;
     size_t multipassStats(double* out, size_t count) override;
+    std::string gpuInfo() const override;
+    size_t takePassTimings(uint64_t* out, size_t capacityPairs) override;
     bool isInitialized() const override { return engine_ != nullptr; }
     int width() const override { return width_; }
     int height() const override { return height_; }

@@ -10,8 +10,6 @@ import kotlin.random.Random
 
 private const val RAD_TO_DEG = 57.29578f
 private const val DEG_TO_RAD = 0.017453292f
-private const val MAX_LIFT_TAPER_DIAMETERS = 8f
-private const val FAST_LIFT_END_FLOOR = 0.6f
 private const val SPEED_SIZE_SENSITIVITY = 0.2f
 private const val MASK_SEED_SALT = 0x4D41534B5F544950L
 private const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
@@ -192,9 +190,6 @@ object BrushStamps {
         val out = ArrayList<Dab>()
         val startTime = real.first().uptimeMillis
         val peakSpeed = real.maxOf { it.speedPxPerMs }.coerceAtLeast(1e-4f)
-        val endSpeed = real.last().speedPxPerMs
-        val liftDecelT = (1f - (endSpeed / peakSpeed)).coerceIn(0f, 1f)
-        val startSpeedT = (real.first().speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
         val dwellMs = if (blot.dwellRampMs > 0f) {
             val anchor = real.first()
             val stillRadius = brush.airbrushStillnessRadiusPx
@@ -229,29 +224,21 @@ object BrushStamps {
             mechanicalState = mechanics.state
             val contact = mechanics.contact
 
-            val naturalStartZone = diameter * MAX_LIFT_TAPER_DIAMETERS * startSpeedT
-            val effectiveStartZone = if (taper.startLengthPx > 0f) taper.startLengthPx else naturalStartZone
-            val startTaperT = if (effectiveStartZone > 0f) (at / effectiveStartZone).coerceIn(0f, 1f) else 1f
-            val naturalStartMinSz = 1f - startSpeedT
-            val naturalStartMinOp = 1f - startSpeedT
-            val startMinSz = if (taper.startLengthPx > 0f) taper.minSize else naturalStartMinSz
-            val startMinOp = if (taper.startLengthPx > 0f) taper.minOpacity else naturalStartMinOp
-            val startSizeFactor = lerp(startMinSz, 1f, startTaperT)
-            val startOpacityFactor = lerp(startMinOp, 1f, startTaperT)
+            // Only a brush's own configured taper shapes the ends. The automatic speed-driven
+            // start/lift tapers (size AND opacity fading into feathered tails) were removed at the
+            // owner's call: a stroke is full strength end to end unless the brush says otherwise.
+            val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
+            val startSizeFactor = lerp(taper.minSize, 1f, startTaperT)
+            val startOpacityFactor = lerp(taper.minOpacity, 1f, startTaperT)
 
-            val naturalEndZone = diameter * MAX_LIFT_TAPER_DIAMETERS * liftDecelT
-            val guaranteedEndZone = minOf(maxOf(naturalEndZone, taper.endLengthPx), total * 0.5f)
-            var endTaperT = if (guaranteedEndZone > 0f) {
-                ((total - at) / guaranteedEndZone).coerceIn(0f, 1f)
-            } else 1f
-            if (taper.liftOffSynthesizesPressure && taper.endLengthPx > 0f && endTaperT < 1f) {
+            val endZone = minOf(taper.endLengthPx, total * 0.5f)
+            var endTaperT = if (endZone > 0f) ((total - at) / endZone).coerceIn(0f, 1f) else 1f
+            if (taper.liftOffSynthesizesPressure && endZone > 0f && endTaperT < 1f) {
                 val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
                 endTaperT = (endTaperT * liftFactor).coerceIn(0f, 1f)
             }
-            val naturalEndMinSz = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
-            val naturalEndMinOp = lerp(FAST_LIFT_END_FLOOR, 0f, liftDecelT)
-            val endMinSz = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minSize else naturalEndMinSz
-            val endMinOp = if (taper.endLengthPx > 0f && (total - at) <= taper.endLengthPx) taper.minOpacity else naturalEndMinOp
+            val endMinSz = taper.minSize
+            val endMinOp = taper.minOpacity
             val endCurvedT = sqrt(endTaperT)
             val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
             val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)

@@ -16,6 +16,9 @@ package com.hereliesaz.graffitixr.common.azphalt.wgpu
  * @property draftScale draft resolution divisor (1, 2, 4, 8); 0 adapts to the device.
  * @property refineBallast benchmark only: multiplies the cost of refinement.
  * @property frameMs frame period hint; 0 measures it.
+ * @property refineFraction share of each frame's leftover time refinement may use (the device
+ *   tier's thermally scaled budget), 0..1.
+ * @property maxChunkPx largest refinement chunk edge (the tier's refinement tile size); 0 = no cap.
  */
 data class MultipassSettings(
     val enabled: Boolean = false,
@@ -26,6 +29,8 @@ data class MultipassSettings(
     val draftScale: Int = 0,
     val refineBallast: Float = 1f,
     val frameMs: Float = 0f,
+    val refineFraction: Float = 1f,
+    val maxChunkPx: Int = 0,
 ) {
     /** The engine's float layout (MultipassConfig::from_floats). */
     fun toFloatArray(): FloatArray = floatArrayOf(
@@ -37,7 +42,25 @@ data class MultipassSettings(
         draftScale.toFloat(),
         refineBallast,
         frameMs,
+        refineFraction,
+        maxChunkPx.toFloat(),
     )
+
+    /**
+     * These settings under a device budget (the tier's draft scale, quality levels, refinement
+     * fraction and tile size, all thermally scaled): the user's choices stay, the budget's replace
+     * the engine defaults.
+     */
+    fun withBudget(budget: MultipassBudget?): MultipassSettings = if (budget == null) {
+        this
+    } else {
+        copy(
+            draftScale = budget.draftScale,
+            passes = budget.qualityLevels.coerceAtLeast(2),
+            refineFraction = budget.refinementFraction,
+            maxChunkPx = budget.tileSizePx,
+        )
+    }
 
     companion object {
         const val DEFAULT_TRANSITION_MS = 150f
@@ -48,6 +71,17 @@ data class MultipassSettings(
         val TRANSITION_CHOICES_MS = listOf(0f, 80f, 150f, 300f)
     }
 }
+
+/**
+ * The device's multipass budget (feature:editor's `GpuBudget`, reduced to what the engine takes).
+ * [draftScale] = the tier's draft resolution as a divisor (0.5 -> 2).
+ */
+data class MultipassBudget(
+    val draftScale: Int,
+    val qualityLevels: Int,
+    val refinementFraction: Float,
+    val tileSizePx: Int,
+)
 
 /** Diagnostics from the engine (MultipassStats::to_array). */
 data class MultipassStats(
