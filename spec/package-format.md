@@ -578,13 +578,30 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 |---|---|
 | `canvas` | `requestRedraw()`, `canvasWidth()`, `canvasHeight()`, `canvasDpi()` |
 | `layers` | `layerCount()` |
-| `params` | `paramNumber(key)`, `paramBool(key)`, `paramString(key)` — reads declared extension parameters |
+| `params` | `paramNumber(key)`, `paramBool(key)`, `paramString(key)`, `paramNumberOpt(key, out)`, `paramBoolOpt(key)` — reads declared extension parameters (see § 5.1.1) |
 | `color` | `colorActive()` / `colorSetActive(rgba)` — the app's active RGBA color |
 | `assets` | `assetRead(path)` — read a bundled asset file's bytes |
 | `selection` | `selectionSize()`, `selectionRead()` — the current selection mask |
 | `bitmap` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`** — see note below. |
 | `time` | See § 5.2 — handled specially, only via the WASI bridge in `JsSandbox`, not through `AzphaltSandboxHost` at all. |
 | `audio` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`**. |
+
+#### 5.1.1 `params` ABI: signalling an unset parameter
+
+WASM guests import these from module `env`; `key` is always a `(ptr: i32, len: i32)` UTF-8 pair.
+
+| Function | Signature | Unset key |
+|---|---|---|
+| `paramNumber` | `(keyPtr, keyLen) -> f64` | returns `0.0` (indistinguishable from a real 0) |
+| `paramBool` | `(keyPtr, keyLen) -> i32` | returns `0` (indistinguishable from `false`) |
+| `paramString` | `(keyPtr, keyLen, outPtr, outCap) -> i32` | returns `-1`; otherwise the full UTF-8 byte length (copies at most `outCap` bytes) |
+| `paramNumberOpt` | `(keyPtr, keyLen, outPtr) -> i32` | returns `-1`; otherwise returns `1` and writes the value as a little-endian f64 at `outPtr` |
+| `paramBoolOpt` | `(keyPtr, keyLen) -> i32` | returns `-1`; otherwise `1` (true) or `0` (false) |
+
+`paramNumber` and `paramBool` are kept, unchanged, for guests already built against them. New guests
+that need to tell "unset" from a zero/false value should import the `Opt` variants, which follow
+`paramString`'s `-1` convention. JS guests are unaffected: their `paramNumber`/`paramBool` already
+return `undefined` for an unset key.
 
 An unrecognized capability string deserializes to `Capability.UNKNOWN` in the manifest parser — "the
 host simply never grants what it doesn't understand (fail-safe: less privilege)."
