@@ -229,7 +229,7 @@ class PredictionTournament(
         val end = anchor.uptimeMillis + reachMs
         val times = (1 until TAIL_FRAMES).map { anchor.uptimeMillis + it * frameMs }.filter { it < end } + end
         for (predictor in predictors) {
-            val points = times.map { predictor.predict(it)?.position ?: return@map null }
+            val points = times.map { predictor.predict(it)?.position }
             if (points.all { it != null }) return PredictionTail(predictor.name, points.filterNotNull())
         }
         return null

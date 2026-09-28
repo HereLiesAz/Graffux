@@ -16,6 +16,13 @@ use wgpu::util::DeviceExt;
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
 use crate::timing::{GpuTimer, PassKind};
 
+#[path = "multipass.rs"]
+mod multipass;
+pub use multipass::{
+    MultipassConfig, MultipassStats, DISPLAY_WGSL, DRAFT_MASKED_WGSL, DRAFT_STAMP_WGSL,
+};
+
+
 /// Default stamp workgroup edge (16x16 = 256 invocations). Overridable per GPU family through
 /// [`EngineOptions::stamp_tile`], which reaches the WGSL as the `STAMP_TILE` override constant.
 pub const DEFAULT_STAMP_TILE: u32 = 16;
@@ -407,8 +414,10 @@ pub struct Engine {
     stamp_uniform: wgpu::Buffer,
     masked_uniform: wgpu::Buffer,
     uniform_align: u64,
-    substrate_tex: Tex,
-    paint_height_tex: Tex,
+    /// Shared with queued multipass work, which binds the texture that was current when it was
+    /// submitted; an upload then allocates a new texture instead of writing a captured one.
+    substrate_tex: Arc<Tex>,
+    paint_height_tex: Arc<Tex>,
     mask_tex: Tex,
     grain_tex: Tex,
     secondary_mask_tex: Tex,
@@ -428,6 +437,9 @@ pub struct Engine {
     /// Adapter supports `SHADER_F16`. Reported only.
     shader_f16: bool,
     dirty: Rect,
+    /// Multipass rendering (experimental, off by default). `None` until first enabled; when it is
+    /// `None` or disabled, every call takes exactly the pre-multipass path.
+    mp: Option<Box<multipass::Multipass>>,
 }
 
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -815,8 +827,8 @@ impl Engine {
             stamp_uniform,
             masked_uniform,
             uniform_align,
-            substrate_tex,
-            paint_height_tex,
+            substrate_tex: Arc::new(substrate_tex),
+            paint_height_tex: Arc::new(paint_height_tex),
             mask_tex,
             grain_tex,
             secondary_mask_tex,
@@ -838,6 +850,7 @@ impl Engine {
                 w: width,
                 h: height,
             },
+            mp: None,
         }
     }
 
@@ -919,6 +932,30 @@ impl Engine {
             },
         );
         tex.hash = hash;
+    }
+
+    /// [`Engine::ensure_tex`] for a texture queued multipass work may still bind: written in place
+    /// only while nothing else holds it (always the case with multipass off), otherwise replaced.
+    #[allow(clippy::too_many_arguments)]
+    fn ensure_shared_tex(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        tex: &mut Arc<Tex>,
+        label: &str,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        data: &[u8],
+    ) {
+        match Arc::get_mut(tex) {
+            Some(t) => Self::ensure_tex(device, queue, t, label, width, height, format, data),
+            None => {
+                if tex.width == width && tex.height == height && tex.hash == fnv1a(data) {
+                    return;
+                }
+                *tex = Arc::new(Self::make_tex(device, queue, label, width, height, format, data));
+            }
+        }
     }
 
     pub fn width(&self) -> i32 {
@@ -1020,12 +1057,14 @@ impl Engine {
 
     /// `StampEngine::clear`: transparent layer, new stroke.
     pub fn clear(&mut self) -> bool {
+        self.mp_session_ending();
         self.detach();
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.clear_buffer(&self.layer, 0, None);
         self.queue.submit([encoder.finish()]);
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.mp_session_started();
         self.ok()
     }
 
@@ -1036,10 +1075,12 @@ impl Engine {
         if rgba.len() < bytes {
             return false;
         }
+        self.mp_session_ending();
         self.detach();
         self.queue.write_buffer(&self.layer, 0, &rgba[..bytes]);
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.mp_session_started();
         self.ok()
     }
 
@@ -1056,11 +1097,14 @@ impl Engine {
         if y1 <= y0 {
             return self.ok();
         }
+        // Multipass: queued work paints over these rows, so it must land first.
+        self.mp_drain();
         let row_bytes = self.width as usize * 4;
         let (start, end) = (y0 as usize * row_bytes, y1 as usize * row_bytes);
         self.queue
             .write_buffer(&self.layer, start as u64, &rgba[start..end]);
         self.note_write(Rect::new(0, y0, self.width, y1 - y0));
+        self.mp_synced(Rect::new(0, y0, self.width, y1 - y0));
         self.ok()
     }
 
@@ -1070,7 +1114,7 @@ impl Engine {
             return false;
         }
         let data = &height_r8[..(width * height) as usize];
-        Self::ensure_tex(
+        Self::ensure_shared_tex(
             &self.device,
             &self.queue,
             &mut self.substrate_tex,
@@ -1090,7 +1134,7 @@ impl Engine {
             return false;
         }
         let data: &[u8] = bytemuck::cast_slice(&heights[..(width * height) as usize]);
-        Self::ensure_tex(
+        Self::ensure_shared_tex(
             &self.device,
             &self.queue,
             &mut self.paint_height_tex,
@@ -1135,6 +1179,9 @@ impl Engine {
     ) -> bool {
         if dabs.is_empty() {
             return false;
+        }
+        if self.mp_on() {
+            return self.mp_submit_stamp(dabs, color_argb, hardness, build_up, substrate, stroke_max);
         }
         let use_stroke_max = stroke_max && !build_up;
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1241,6 +1288,9 @@ impl Engine {
         }
         if !p.secondary_dabs.is_empty() && p.secondary_dabs.len() != dabs.len() {
             return false;
+        }
+        if self.mp_on() {
+            return self.mp_submit_masked(dabs, color_argb, hardness, p);
         }
         let r8 = wgpu::TextureFormat::R8Unorm;
         let mask = &p.mask[..(p.mask_width * p.mask_height) as usize];
@@ -1435,6 +1485,9 @@ impl Engine {
         if dabs.len() < 2 {
             return false;
         }
+        // Multipass: Color Smudge reads the layer it writes, so everything queued lands first and
+        // the smudge runs at full quality right away (it has no draft yet; see multipass.rs).
+        self.mp_drain();
         let sample_source =
             sample_source.filter(|(s, w, h)| *w > 0 && *h > 0 && s.len() >= (*w * *h * 4) as usize);
         let has_sample_merged = sample_source.is_some();
@@ -1576,6 +1629,17 @@ impl Engine {
         }
         self.queue.submit([encoder.finish()]);
         self.note_write(Rect::new(0, 0, self.width, self.height));
+        if self.mp_on() {
+            let reach = radius + 2;
+            let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+            for d in dabs {
+                x0 = x0.min(d.x as i32 - reach);
+                y0 = y0.min(d.y as i32 - reach);
+                x1 = x1.max(d.x as i32 + reach + 1);
+                y1 = y1.max(d.y as i32 + reach + 1);
+            }
+            self.mp_synced(Rect::new(x0, y0, x1 - x0, y1 - y0));
+        }
         self.ok()
     }
 
@@ -1604,13 +1668,17 @@ impl Engine {
         if out.len() < self.layer_bytes() as usize {
             return None;
         }
+        if self.mp_on() {
+            return self.mp_readback_rect(out);
+        }
         let r = self.dirty.clamp(self.width, self.height);
         if r.is_empty() {
             self.dirty = Rect::default();
             return self.ok().then_some((0, 0, 0, 0));
         }
         let stride = self.width as usize * 4;
-        if !self.read_region_into(r, out, stride, (r.y as usize * stride) + r.x as usize * 4) {
+        let src = self.layer.clone();
+        if !self.read_region_into(&src, r, out, stride, (r.y as usize * stride) + r.x as usize * 4) {
             return None;
         }
         self.dirty = Rect::default();
@@ -1619,6 +1687,7 @@ impl Engine {
 
     /// The rectangle a [`Engine::readback`] would copy now, `(x, y, w, h)`; zeros when clean.
     pub fn dirty_rect(&self) -> (i32, i32, i32, i32) {
+        // With multipass on, `dirty` is the displayed image's changed rectangle; same meaning.
         let r = self.dirty.clamp(self.width, self.height);
         (r.x, r.y, r.w, r.h)
     }
@@ -1631,11 +1700,21 @@ impl Engine {
         if r.is_empty() || r.clamp(self.width, self.height) != r || out.len() < (w * h * 4) as usize {
             return false;
         }
-        self.read_region_into(r, out, w as usize * 4, 0) && self.ok()
+        // Reads the layer itself, so queued multipass work must land first.
+        self.mp_drain();
+        let src = self.layer.clone();
+        self.read_region_into(&src, r, out, w as usize * 4, 0) && self.ok()
     }
 
     /// Copies `r` (inside the layer) to `out`, row `i` landing at `base + i*out_stride`.
-    fn read_region_into(&mut self, r: Rect, out: &mut [u8], out_stride: usize, base: usize) -> bool {
+    fn read_region_into(
+        &mut self,
+        src: &wgpu::Buffer,
+        r: Rect,
+        out: &mut [u8],
+        out_stride: usize,
+        base: usize,
+    ) -> bool {
         let row_bytes = self.width as u64 * 4;
         let rect_row = r.w as u64 * 4;
         let timed = if self.timer.as_ref().is_some_and(|t| t.inside_encoders) {
@@ -1652,7 +1731,7 @@ impl Engine {
         let full_rows = r.w as u64 * 2 >= self.width as u64;
         let (src_stride, length) = if full_rows {
             encoder.copy_buffer_to_buffer(
-                &self.layer,
+                src,
                 r.y as u64 * row_bytes,
                 &self.staging,
                 0,
@@ -1662,7 +1741,7 @@ impl Engine {
         } else {
             for row in 0..r.h as u64 {
                 encoder.copy_buffer_to_buffer(
-                    &self.layer,
+                    src,
                     (r.y as u64 + row) * row_bytes + r.x as u64 * 4,
                     &self.staging,
                     row * rect_row,
@@ -1710,6 +1789,11 @@ impl Engine {
     /// Whole-layer readback regardless of the dirty rectangle (tests, desktop display refresh).
     pub fn read_all(&mut self) -> Option<Vec<u8>> {
         let mut out = vec![0u8; self.layer_bytes() as usize];
+        if self.mp_on() {
+            // The layer itself, after everything queued has landed.
+            let (w, h) = (self.width, self.height);
+            return self.read_region(0, 0, w, h, &mut out).then_some(out);
+        }
         self.mark_fully_dirty();
         if self.readback(&mut out) {
             Some(out)
@@ -1780,7 +1864,12 @@ impl Engine {
     /// first dab of the stroke costs only its own dispatch and rectangle.
     pub fn bind_layer(&mut self, key: u64, generation: u64) -> u64 {
         match self.residents.get(key) {
-            Some(e) if e.tag == Tag::Valid(generation) => self.activate(key),
+            Some(e) if e.tag == Tag::Valid(generation) => {
+                self.mp_session_ending();
+                let session = self.activate(key);
+                self.mp_session_started();
+                session
+            }
             _ => 0,
         }
     }
@@ -1794,6 +1883,7 @@ impl Engine {
         if rgba.len() < bytes as usize {
             return 0;
         }
+        self.mp_session_ending();
         if self.residents.get(key).is_none() {
             let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("resident layer"),
@@ -1817,9 +1907,12 @@ impl Engine {
         if !self.ok() {
             self.residents.remove(key);
             self.detach();
+            self.mp_session_started();
             return 0;
         }
-        self.activate(key)
+        let session = self.activate(key);
+        self.mp_session_started();
+        session
     }
 
     /// The stroke that bound `key` in session `session` is committed and the GPU copy *is* the
@@ -1827,6 +1920,10 @@ impl Engine {
     /// without any upload. False (and nothing changes) if the layer was rebound, invalidated or
     /// evicted since -- the next bind then misses and uploads, which is always correct.
     pub fn commit_layer(&mut self, key: u64, session: u64, generation: u64) -> bool {
+        // The GPU copy is about to become the committed layer: queued work must land first.
+        if self.active_key == Some(key) {
+            self.mp_drain();
+        }
         match self.residents.get_mut(key) {
             Some(e) if e.session == session && session != 0 && e.tag != Tag::Invalid => {
                 e.tag = Tag::Valid(generation);
@@ -1854,10 +1951,21 @@ impl Engine {
         if rgba.len() < self.layer_bytes() as usize {
             return false;
         }
+        // Multipass: the CPU commit supersedes queued refinement of this stroke. It is dropped, not
+        // drained (nothing waits for it), and its footprint joins the re-uploaded rectangle.
+        let accepted = self.residents.get(key).is_some_and(|e| {
+            e.session == session && session != 0 && e.tag != Tag::Invalid
+        });
+        let dropped = if accepted && self.active_key == Some(key) {
+            self.mp_discard_pending()
+        } else {
+            Rect::default()
+        };
         let (width, height) = (self.width, self.height);
         let Some(e) = self.residents.get_mut(key) else {
             return false;
         };
+        e.touched = e.touched.union(dropped).clamp(width, height);
         if e.session != session || session == 0 || e.tag == Tag::Invalid {
             return false;
         }
@@ -1891,6 +1999,7 @@ impl Engine {
     /// active layer, mark it so no bind can match it). True if the engine held it.
     pub fn invalidate_layer(&mut self, key: u64) -> bool {
         if self.active_key == Some(key) {
+            self.mp_discard_pending();
             if let Some(e) = self.residents.get_mut(key) {
                 e.tag = Tag::Invalid;
                 return true;
@@ -1902,6 +2011,9 @@ impl Engine {
 
     /// Forgets every resident layer (memory pressure, document switch).
     pub fn invalidate_all_layers(&mut self) {
+        if self.active_key.is_some() {
+            self.mp_discard_pending();
+        }
         let evicted = self.residents.invalidate_all(self.active_key);
         drop(evicted);
     }

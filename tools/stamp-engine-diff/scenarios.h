@@ -8,6 +8,17 @@
 #include <cmath>
 using namespace graffux;
 
+// -DMULTIPASS (wgpu only): the same scenarios with multipass rendering on. Drafts render at once and
+// the layer is refined in small budgets; MP_SETTLE lands everything before a result is read, and the
+// result must be byte-identical to the plain wgpu run (run.sh compares them).
+#ifdef MULTIPASS
+#define MP_SETTLE() do { e.refine(0.02f); e.flushMultipass(); } while (0)
+#define MP_STEP() do { e.refine(0.01f); } while (0)
+#else
+#define MP_SETTLE() do {} while (0)
+#define MP_STEP() do {} while (0)
+#endif
+
 static void dump(const char* name, const std::vector<uint8_t>& px) {
     std::string path = std::string(OUTDIR) + "/" + name + ".raw";
     FILE* f = fopen(path.c_str(), "wb"); fwrite(px.data(), 1, px.size(), f); fclose(f);
@@ -40,11 +51,19 @@ int runAll() {
     std::vector<uint8_t> out(W * H * 4);
     E e;
     if (!e.init(W, H)) { fprintf(stderr, "init failed\n"); return 1; }
+#ifdef MULTIPASS
+    {
+        // {enabled, passes, edge_fraction, transition_ms, overtake_ms, draft_scale, ballast, frame_ms}
+        const float mp[] = {1.f, 2.f, 0.4f, 150.f, 50.f, 2.f, 1.f, 0.f};
+        if (!e.setMultipass(mp, 8)) { fprintf(stderr, "setMultipass failed\n"); return 1; }
+    }
+#endif
     auto rb = [&](const char* name) { std::fill(out.begin(), out.end(), 0); e.upload(out.data(), out.size()); };
     (void)rb;
     auto fresh = [&]() { e.upload(seed.data(), seed.size()); };
     auto readAll = [&](const char* name) {
         std::vector<uint8_t> buf(W * H * 4, 0x5A);
+        MP_SETTLE();
         // full dirty after upload: readback copies everything touched since last readback
         if (!e.readback(buf.data(), buf.size())) { fprintf(stderr, "readback failed %s\n", name); }
         dump(name, buf);
@@ -56,9 +75,9 @@ int runAll() {
     // 2: buildUp
     fresh(); e.stampDabs(mkDabs(60, false), 0x80336699u, 0.7f, true); readAll("s2_buildup");
     // 3: strokeMax across batches
-    fresh(); { auto all = mkDabs(90, false); for (int b = 0; b < 3; ++b) { std::vector<GpuDab> part(all.begin()+b*30, all.begin()+(b+1)*30); e.stampDabs(part, 0xFF20A0E0u, 0.2f, false, {}, true); } } readAll("s3_strokemax");
+    fresh(); { auto all = mkDabs(90, false); for (int b = 0; b < 3; ++b) { std::vector<GpuDab> part(all.begin()+b*30, all.begin()+(b+1)*30); e.stampDabs(part, 0xFF20A0E0u, 0.2f, false, {}, true); MP_STEP(); } } readAll("s3_strokemax");
     // 3b: strokeMax continues after partial readbacks (dirty-rect behaviour with a reused buffer)
-    fresh(); { std::vector<uint8_t> buf(W*H*4, 0x11); e.readback(buf.data(), buf.size()); auto all = mkDabs(40, true); for (int b = 0; b < 4; ++b) { std::vector<GpuDab> part(all.begin()+b*10, all.begin()+(b+1)*10); e.stampDabs(part, 0xFF102030u, 0.5f, false, {}, true); e.readback(buf.data(), buf.size()); } dump("s3b_partial", buf); }
+    fresh(); { std::vector<uint8_t> buf(W*H*4, 0x11); e.readback(buf.data(), buf.size()); auto all = mkDabs(40, true); for (int b = 0; b < 4; ++b) { std::vector<GpuDab> part(all.begin()+b*10, all.begin()+(b+1)*10); e.stampDabs(part, 0xFF102030u, 0.5f, false, {}, true); e.readback(buf.data(), buf.size()); MP_STEP(); } MP_SETTLE(); e.readback(buf.data(), buf.size()); dump("s3b_partial", buf); }
     // 4: substrate + paint height
     { std::vector<uint8_t> tooth(29*31); for (auto& t : tooth) t = rng() % 256; std::vector<float> ph(W*H); for (auto& p : ph) p = U(rng)*0.6f;
       e.uploadSubstrateHeight(tooth.data(), 29, 31);

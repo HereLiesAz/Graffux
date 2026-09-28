@@ -27,6 +27,14 @@ sound finished — see each claim's own verification note.
   is available in this container, so the pressure *value itself* arriving correctly from real
   Surface Pen hardware is unverified — only that the code path reads and uses whatever pressure
   Compose reports (confirmed at 1.0 from mouse/Xvfb input).
+- **Multipass drying (experimental, off by default).** Tool Options -> "Multipass drying
+  (experimental)" and a drying-transition slider. Live frames stamp only the new dabs through the
+  wgpu engine's multipass path: a draft shows at once and settles to full quality as refinement
+  catches up (an idle tick keeps it going while the pointer rests). At stroke end the renderer lands
+  the queued work off the UI thread and renders the committed frame exactly as the plain path's last
+  frame, so the committed image is identical either way; a stroke started during that wait waits
+  for it. `GpuStrokeParityTest.multipassCommitsTheSameFramesAsThePlainPath` checks it. See the
+  design doc, §2b "Multipass drying".
 - **GPU compositing through wgpu, CPU as the fallback.** The canvas composites strokes on the
   GPU with the wgpu stamp engine (`core/wgpu-engine`, Rust + WGSL), the same engine the Android
   app offers under Settings → GPU engine → wgpu. wgpu picks Vulkan, DX12, Metal or GL on each
