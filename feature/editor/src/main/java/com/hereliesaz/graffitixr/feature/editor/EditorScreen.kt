@@ -426,6 +426,20 @@ fun EditorScreen(
                 brush = { vm.inkBrushForCurrentState() },
                 onStrokeFinished = { stroke, size, done -> vm.onInkStrokeFinished(stroke, size, done) },
                 onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
+                gate = strokeGate,
+                stabilizer = { vm.inkStabilizerSettings() },
+                callbacks = remember(vm) {
+                    val ink = com.hereliesaz.graffitixr.feature.editor.prediction
+                        .PredictionRankingReporter.ENGINE_JETPACK_INK
+                    com.hereliesaz.graffitixr.feature.editor.ink.InkCanvasCallbacks(
+                        onLatency = vm::onInkLatency,
+                        onSampleAccepted = vm::onInkSampleAccepted,
+                        onStabilized = vm::onInkStabilized,
+                        onPredictionRanked = { report, hz -> vm.onPredictionBrushStroke(report, hz, ink) },
+                        onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz, ink) },
+                        predictionLeadMs = { vm.predictionLeadMs },
+                    )
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {

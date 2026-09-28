@@ -578,7 +578,7 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 |---|---|
 | `canvas` | `requestRedraw()`, `canvasWidth()`, `canvasHeight()`, `canvasDpi()` |
 | `layers` | `layerCount()` |
-| `params` | `paramNumber(key)`, `paramBool(key)`, `paramString(key)` — reads declared extension parameters |
+| `params` | `paramNumber(key)`, `paramBool(key)`, `paramString(key)`, `paramNumberOpt(key, out)`, `paramBoolOpt(key)` — reads declared extension parameters (see § 5.1.1) |
 | `color` | `colorActive()` / `colorSetActive(rgba)` — the app's active RGBA color |
 | `assets` | `assetRead(path)` — read a bundled asset file's bytes |
 | `selection` | `selectionSize()`, `selectionRead()` — the current selection mask |
@@ -586,8 +586,43 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 | `time` | See § 5.2 — handled specially, only via the WASI bridge in `JsSandbox`, not through `AzphaltSandboxHost` at all. |
 | `audio` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`**. |
 
+#### 5.1.1 `params` ABI: signalling an unset parameter
+
+WASM guests import these from module `env`; `key` is always a `(ptr: i32, len: i32)` UTF-8 pair.
+
+| Function | Signature | Unset key |
+|---|---|---|
+| `paramNumber` | `(keyPtr, keyLen) -> f64` | returns `0.0` (indistinguishable from a real 0) |
+| `paramBool` | `(keyPtr, keyLen) -> i32` | returns `0` (indistinguishable from `false`) |
+| `paramString` | `(keyPtr, keyLen, outPtr, outCap) -> i32` | returns `-1`; otherwise the full UTF-8 byte length (copies at most `outCap` bytes) |
+| `paramNumberOpt` | `(keyPtr, keyLen, outPtr) -> i32` | returns `-1`; otherwise returns `1` and writes the value as a little-endian f64 at `outPtr` |
+| `paramBoolOpt` | `(keyPtr, keyLen) -> i32` | returns `-1`; otherwise `1` (true) or `0` (false) |
+
+`paramNumber` and `paramBool` are kept, unchanged, for guests already built against them. New guests
+that need to tell "unset" from a zero/false value should import the `Opt` variants, which follow
+`paramString`'s `-1` convention. JS guests are unaffected: their `paramNumber`/`paramBool` already
+return `undefined` for an unset key.
+
 An unrecognized capability string deserializes to `Capability.UNKNOWN` in the manifest parser — "the
 host simply never grants what it doesn't understand (fail-safe: less privilege)."
+
+#### 5.1.1 `assetRead` resolution
+
+`assetRead(path)` reads from the **invoking extension's own install directory**
+(`filesDir/extensions/<id>/`, where `AzpInstaller` unpacks the package). `ExtensionRepository.
+executeCodeExtension` wraps whatever host it is given in an `ExtensionScopedSandboxHost` bound to
+that one extension, so an extension can never name another extension's files. `path` is
+package-relative, the same form as a `files` map key (e.g. `assets/teal.cube`). The read returns
+`null` (missing or denied) unless all of these hold (`ExtensionAssetReader`):
+
+- the path passes `ExtensionPaths.isUnsafePath`, the same helper `AzpInstaller` uses on zip entry
+  names: no empty string, NUL, leading `/`, `:` (drive/scheme), backslash, or `..` segment;
+  percent-encoding is not decoded, so `%2e%2e/` is just an unlisted literal name;
+- the path is a key of the manifest's `files` map (the digest-verified payload list);
+- its canonical path (symlinks resolved) is a regular file strictly inside the extension root;
+- the file is at most `ExtensionAssetReader.MAX_ASSET_READ_BYTES` (4 MiB).
+
+The Wasm bridge's `outCap` truncation contract is unchanged.
 
 **TODO: unconfirmed** — `bitmap` and `audio` are part of the `Capability` wire enum and are described
 in `AzphaltSandboxHost`'s doc comment framing ("Each function represents an access-controlled

@@ -77,7 +77,7 @@ dependencies {
     // Crypto: Ed25519 signature + trust verification for azphalt `.azp` packages
     // (spec/package-format.md § Signing). Android's built-in Ed25519 (java.security) is only API 33+,
     // but this app's minSdk is 26, so Bouncy Castle provides it everywhere. Version pinned to match
-    // the root build's forced 1.85 (already on the app classpath transitively).
+    // the root build's forced 1.86 (already on the app classpath transitively).
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
 
     // Networking (Crash Reporting)

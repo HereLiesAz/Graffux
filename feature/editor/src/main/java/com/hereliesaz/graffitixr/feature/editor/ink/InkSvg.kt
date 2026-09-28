@@ -3,9 +3,10 @@ package com.hereliesaz.graffitixr.feature.editor.ink
 import java.util.Locale
 
 /**
- * Builds an SVG document out of Jetpack Ink stroke outlines — the debug export behind "Export Ink
- * strokes (SVG)", meant to be dropped straight into Figma to eyeball what a future vector layer
- * built from these strokes would hold.
+ * Builds an SVG document out of Jetpack Ink stroke outlines — written next to the bundle by
+ * "Export for Figma" (EditorViewModel.exportForFigma) whenever the visible layers hold Ink strokes,
+ * so it can be dropped straight into Figma over the PNGs to see what a future vector layer built
+ * from these strokes would hold.
  *
  * Pure Kotlin on plain point lists: the Ink-specific part (walking a `PartitionedMesh`'s outlines)
  * lives in [InkStrokes.outlines], so this half is JVM-testable without Ink's native library.

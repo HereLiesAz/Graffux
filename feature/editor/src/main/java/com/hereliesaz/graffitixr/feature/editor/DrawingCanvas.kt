@@ -33,12 +33,8 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipGeometryConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushTipTopology
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.feature.editor.prediction.AndroidXMotionGesturePredictor
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
-import com.hereliesaz.graffitixr.feature.editor.prediction.LinearGesturePredictor
-import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
-import com.hereliesaz.graffitixr.feature.editor.prediction.GoogleInkGesturePredictor
-import kotlin.math.roundToLong
+import com.hereliesaz.graffitixr.feature.editor.prediction.rememberPredictionSession
 
 private const val EYEDROP_HOLD_MS = 500L
 private const val NANOS_PER_SECOND = 1_000_000_000f
@@ -148,31 +144,14 @@ fun DrawingCanvas(
     var latestTiltAvailable by remember { mutableStateOf(false) }
     var latestOrientationAvailable by remember { mutableStateOf(false) }
 
-    val refreshRate = remember(view) {
-        runCatching { view.display?.refreshRate }
-            .getOrNull()
-            ?.takeIf { it.isFinite() && it > 1f }
-            ?: 60f
-    }
-    val nextFrameMs = (1000f / refreshRate).roundToLong().coerceIn(4L, 34L)
-    // TEMPORARY: Settings > Developer can pin one predictor to run alone (see PredictionTournament).
-    val predictionPrefs = view.context
-        .getSharedPreferences(PredictionTournament.SOLO_PREFS, android.content.Context.MODE_PRIVATE)
-    val soloModel = predictionPrefs.getString(PredictionTournament.SOLO_KEY, null)?.takeIf { it.isNotBlank() }
-    val inkProfile = predictionPrefs.getString(PredictionTournament.INK_PROFILE_KEY, null)
-        .let { saved -> GoogleInkGesturePredictor.Profile.entries.firstOrNull { it.label == saved } }
-        ?: GoogleInkGesturePredictor.Profile.STANDARD
-    // Google Ink draws the tail; linear covers the first samples of a stroke. AndroidX is ranked
-    // alongside (TEMPORARY) and only draws the tail when run solo, since it predicts a single frame.
-    val androidXPredictor = remember(view) { AndroidXMotionGesturePredictor(view) }
-    val predictionTournament = remember(view, soloModel, inkProfile) {
-        PredictionTournament(
-            listOf(LinearGesturePredictor(), androidXPredictor),
-            soloModel = soloModel,
-            inkProfile = inkProfile,
-        )
-    }
-    val androidXRunning = PredictionTournament.ANDROIDX in predictionTournament.activeModels
+    // TEMPORARY: the prediction tournament, shared in construction with InkBrushCanvas; Settings >
+    // Developer can pin one predictor to run alone (see PredictionTournament).
+    val predictionSession = rememberPredictionSession(view)
+    val refreshRate = predictionSession.refreshRate
+    val nextFrameMs = predictionSession.nextFrameMs
+    val androidXPredictor = predictionSession.androidX
+    val predictionTournament = predictionSession.tournament
+    val androidXRunning = predictionSession.androidXRunning
     // Provisional ink: the real samples since touch-down, drawn here until the engine's own paint
     // shows (or PROVISIONAL_MAX_MS passes). Presentation only.
     var provisionalInk by remember { mutableStateOf<List<Offset>?>(null) }

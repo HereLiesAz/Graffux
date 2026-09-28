@@ -931,7 +931,6 @@
     <ID>UnusedParameter:EditorViewModel.kt$maskShape: Bitmap?</ID>
     <ID>UnusedParameter:EditorViewModel.kt$shape: Bitmap?</ID>
     <ID>UnusedPrivateMember:EditorViewModel.kt$EditorViewModel$private fun fitActiveLayerToAnchor(halfW: Float, halfH: Float)</ID>
-    <ID>UnusedPrivateMember:EditorViewModel.kt$EditorViewModel$private fun updateLayerUri(id: String, uri: Uri)</ID>
     <ID>UnusedPrivateProperty:LayerStoreTest.kt$LayerStoreTest$s</ID>
     <ID>UnusedPrivateProperty:MaterialStateCodec.kt$MaterialStateCodec$x</ID>
     <ID>UseCheckOrError:DrawingEngine.kt$DrawingEngine$throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")</ID>

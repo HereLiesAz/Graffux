@@ -9,6 +9,7 @@
 
 #ifdef __ANDROID__
 #include <android/log.h>
+#include <android/native_window.h>
 #define WGPU_LOGW(...) __android_log_print(ANDROID_LOG_WARN, "WgpuStampEngine", __VA_ARGS__)
 #else
 #define WGPU_LOGW(...) (std::fprintf(stderr, "WgpuStampEngine: " __VA_ARGS__), std::fputc('\n', stderr))
@@ -57,11 +58,24 @@ struct Api {
     bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
     void (*invalidateAllLayers)(GfxWgpuEngine*);
     void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
+    // Optional (multipass rendering): absent in an older library; then multipass is unsupported.
+    bool (*setMultipass)(GfxWgpuEngine*, const float*, size_t);
+    int32_t (*refine)(GfxWgpuEngine*, float);
+    bool (*flush)(GfxWgpuEngine*);
+    size_t (*multipassStats)(GfxWgpuEngine*, double*, size_t);
     // Optional (per-device tuning, telemetry): an older library creates untuned and reports
     // no GPU info or timings, so telemetry falls back to CPU wall time.
     GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
     size_t (*gpuInfo)(GfxWgpuEngine*, char*, size_t);
     size_t (*takePassTimings)(GfxWgpuEngine*, uint64_t*, size_t);
+    // Optional (direct display): an older library has none, so direct display is unsupported and
+    // strokes display through readback as before.
+    uint32_t (*directCapabilities)(GfxWgpuEngine*);
+    bool (*directAttach)(GfxWgpuEngine*, void*, int32_t, int32_t);
+    void (*directDetach)(GfxWgpuEngine*);
+    bool (*directBeginStroke)(GfxWgpuEngine*);
+    bool (*directPresent)(GfxWgpuEngine*, const float*, bool);
+    bool (*directEndStroke)(GfxWgpuEngine*);
 };
 
 std::once_flag gLoadOnce;
@@ -110,9 +124,21 @@ void load() {
                               optional(lib, "gfx_wgpu_invalidate_all_layers", a.invalidateAllLayers) &&
                               optional(lib, "gfx_wgpu_set_resident_budget", a.setResidentBudget);
         if (!resident) a.bindLayer = nullptr;  // all or nothing
+        const bool multipass = optional(lib, "gfx_wgpu_set_multipass", a.setMultipass) &&
+                               optional(lib, "gfx_wgpu_refine", a.refine) &&
+                               optional(lib, "gfx_wgpu_flush", a.flush) &&
+                               optional(lib, "gfx_wgpu_multipass_stats", a.multipassStats);
+        if (!multipass) a.setMultipass = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
         optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
         optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
+        const bool direct = optional(lib, "gfx_wgpu_direct_capabilities", a.directCapabilities) &&
+                            optional(lib, "gfx_wgpu_direct_attach", a.directAttach) &&
+                            optional(lib, "gfx_wgpu_direct_detach", a.directDetach) &&
+                            optional(lib, "gfx_wgpu_direct_begin_stroke", a.directBeginStroke) &&
+                            optional(lib, "gfx_wgpu_direct_present", a.directPresent) &&
+                            optional(lib, "gfx_wgpu_direct_end_stroke", a.directEndStroke);
+        if (!direct) a.directCapabilities = nullptr;  // all or nothing
         gApi = a;  // The library stays loaded for the process lifetime.
     }
 }
@@ -268,6 +294,26 @@ void WgpuStampEngine::setResidentBudget(uint64_t bytes) {
     if (supportsResidentLayers()) gApi.setResidentBudget(engine_, bytes);
 }
 
+bool WgpuStampEngine::setMultipass(const float* params, size_t count) {
+    return engine_ != nullptr && gApi.setMultipass != nullptr &&
+           gApi.setMultipass(engine_, params, count);
+}
+
+int WgpuStampEngine::refine(float budgetMs) {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return 0;
+    return gApi.refine(engine_, budgetMs);
+}
+
+bool WgpuStampEngine::flushMultipass() {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return true;
+    return gApi.flush(engine_);
+}
+
+size_t WgpuStampEngine::multipassStats(double* out, size_t count) {
+    if (engine_ == nullptr || gApi.setMultipass == nullptr) return 0;
+    return gApi.multipassStats(engine_, out, count);
+}
+
 std::string WgpuStampEngine::gpuInfo() const {
     if (engine_ == nullptr || gApi.gpuInfo == nullptr) return {};
     std::string text(1024, '\0');
@@ -281,9 +327,60 @@ size_t WgpuStampEngine::takePassTimings(uint64_t* out, size_t capacityPairs) {
     return gApi.takePassTimings(engine_, out, capacityPairs);
 }
 
+uint32_t WgpuStampEngine::directCapabilities() const {
+    if (engine_ == nullptr || gApi.directCapabilities == nullptr) return 0;
+    return gApi.directCapabilities(engine_);
+}
+
+bool WgpuStampEngine::directAttach(ANativeWindow* window, int width, int height) {
+#ifdef __ANDROID__
+    if (engine_ == nullptr || gApi.directCapabilities == nullptr || window == nullptr) return false;
+    if (window != directWindow_) {
+        // A new window: drop the old surface before letting go of its window.
+        directDetach();
+        ANativeWindow_acquire(window);
+        directWindow_ = window;
+    }
+    if (gApi.directAttach(engine_, window, width, height)) return true;
+    directDetach();
+    return false;
+#else
+    (void)window;
+    (void)width;
+    (void)height;
+    return false;
+#endif
+}
+
+void WgpuStampEngine::directDetach() {
+    if (engine_ != nullptr && gApi.directCapabilities != nullptr) gApi.directDetach(engine_);
+#ifdef __ANDROID__
+    if (directWindow_ != nullptr) ANativeWindow_release(directWindow_);
+#endif
+    directWindow_ = nullptr;
+}
+
+bool WgpuStampEngine::directBeginStroke() {
+    return engine_ != nullptr && gApi.directCapabilities != nullptr && gApi.directBeginStroke(engine_);
+}
+
+bool WgpuStampEngine::directPresent(const float* matrix, bool newBatch) {
+    return engine_ != nullptr && gApi.directCapabilities != nullptr &&
+           gApi.directPresent(engine_, matrix, newBatch);
+}
+
+bool WgpuStampEngine::directEndStroke() {
+    return engine_ != nullptr && gApi.directCapabilities != nullptr && gApi.directEndStroke(engine_);
+}
+
 void WgpuStampEngine::destroy() {
+    // The surface goes with the engine; only then may its window be released.
     if (engine_ != nullptr) gApi.destroy(engine_);
     engine_ = nullptr;
+#ifdef __ANDROID__
+    if (directWindow_ != nullptr) ANativeWindow_release(directWindow_);
+#endif
+    directWindow_ = nullptr;
     width_ = height_ = 0;
 }
 
