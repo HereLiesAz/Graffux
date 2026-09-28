@@ -310,6 +310,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // "Brushes" group or the full "My Brushes" gallery window -- neither of which stays visible
     // while a stroke is in progress the way this does.
     var showBrushRail by remember { mutableStateOf(true) }
+    // The bottom carousel (BottomCarousel.kt): additive to the brush rail and Tool Options window,
+    // not a replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
+    // outright, and its own chevron collapses it to a single button when the canvas needs the room.
+    var showCarousel by remember { mutableStateOf(true) }
+    var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, expanded = true)) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -837,6 +842,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             )
                         areaToggle("Layers", showLayersRail) { showLayersRail = it }
                         areaToggle("Brushes", showBrushRail) { showBrushRail = it }
+                        areaToggle("Carousel", showCarousel) { showCarousel = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
@@ -943,10 +949,61 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ) {
                         Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                     }
-                } else if (uiState.activePanel == EditorPanel.NONE) Row(
-                    modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                } else if (uiState.activePanel == EditorPanel.NONE) Column(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        // Clear of the docked rail: the carousel is the one wide thing in this strip.
+                        .padding(
+                            start = if (railInset.dockedOnLeft) railInset.width else 8.dp,
+                            end = if (railInset.dockedOnLeft) 8.dp else railInset.width,
+                            bottom = 24.dp,
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (showCarousel) {
+                        val carouselEntries = carouselEntries(
+                            carouselUi.category,
+                            CarouselInputs(
+                                activeTool = uiState.activeTool,
+                                activeBrushName = uiState.activeBrushName,
+                                builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                                customBrushes = customBrushes.map { it.id to it.brush },
+                                extensionBrushes = brushes,
+                                stabilizerLevel = uiState.stabilizerLevel,
+                                stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                smudgeMode = colorSmudgeSettings.mode,
+                                selectionShape = uiState.selectionShape,
+                                toolOptionsOpen = showToolOptions,
+                            ),
+                        )
+                        BottomCarousel(
+                            ui = carouselUi,
+                            onUiChange = { carouselUi = it },
+                            content = CarouselContent(
+                                entries = carouselEntries,
+                                brushColor = uiState.activeColor,
+                                secondaryColor = uiState.secondaryColor,
+                                extensionPreviews = brushPreviews,
+                            ),
+                            onEntryClick = { entry ->
+                                when (val action = entry.action) {
+                                    is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
+                                    is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
+                                    is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
+                                    is CarouselAction.PickTool -> vm.setActiveTool(
+                                        if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
+                                    )
+                                    is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
+                                    is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
+                                    is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
+                                    is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                    CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
+                                }
+                            },
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     val viewMoved = uiState.viewportZoom != 1f ||
                         uiState.viewportOffset != Offset.Zero ||
                         uiState.viewportRotation != 0f
@@ -985,6 +1042,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         }
                     }
                 }
+                    }
             }
 
             onscreen(alignment = Alignment.Center) {
