@@ -66,9 +66,10 @@ Graffux is growing toward a full, touch-first design tool. Near-term:
 
 - Bind layers to the artboard (letterbox) and export at exact document pixels.
 - Snapping, smart guides, and align / distribute.
-- A real upstream fix for the AzNavRail bug that currently leaves the layers panel's rows
-  unclickable (see `ARCHITECTURE.md` invariant 7) and the nested-group hidden-menu gap
-  (invariant 8) — both filed against `HereLiesAz/aznavrail`, not fixable from this repo alone.
+- An upstream AzNavRail item that is both a reloc item and a host, so group layers can be dragged
+  and don't bound how far their siblings move (see `ARCHITECTURE.md` invariant 8) — filed against
+  `HereLiesAz/aznavrail`, not fixable from this repo alone. (The unclickable-rows bug of
+  invariant 7 was fixed upstream in `11.18`.)
 
 ## License
 

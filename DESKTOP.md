@@ -197,7 +197,8 @@ anything in this repo's `desktop/` module, so it wasn't fixable here directly �
 follow-up task against `aznavrail-cmp` instead, with the full repro and root-cause analysis above.
 That task was picked up and fixed: `shouldShrink` now short-circuits on a non-finite or non-positive
 font size before ever calling `textMeasurer.measure`, released as **`aznavrail-cmp` 11.47** (commit
-`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 and
+`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 (it
+is now pinned at 11.51 in `gradle/libs.versions.toml`, which keeps the fix) and
 re-enabled `azAbout(dedupeAbout = true)` (matching Android exactly again, no more
 `aboutRailItem = false` workaround) — **re-verified end-to-end**: opened the "?" item, closed it,
 confirmed no crash and no error dialog, and confirmed the rail was still fully functional afterward.
@@ -307,8 +308,8 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
   gone. `desktop/.../FloatingWindow.kt` is a copy of `core:design`'s `FloatingWindow` composable,
   adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
-  (11.47, already a `:desktop` dependency) — confirmed by decompiling
-  `aznavrail-cmp-desktop-11.47.jar` and reading `aznavrail-cmp`'s own `commonMain` source
+  (11.51, already a `:desktop` dependency) — confirmed by decompiling
+  `aznavrail-cmp-desktop-11.47.jar`, the version pinned when this was written, and reading `aznavrail-cmp`'s own `commonMain` source
   (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real
   floating-window mechanism (dragging, onscreen clamping, z-index stacking all come from the same
   library code both platforms call), not a second hand-built implementation. "Tool Options" (brush

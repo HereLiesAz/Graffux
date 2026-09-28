@@ -56,7 +56,12 @@ class SettingsViewModel @Inject constructor(
             onSuccess = { "Uploaded $it stroke-data file(s)." },
             onFailure = { "Stroke data upload failed: ${it.message}" },
         )
+        // Success or partial failure, the set of files still waiting may have changed.
+        pendingStrokeData.refresh(context)
     }
+
+    /** Finished stroke-data files not yet uploaded, for the Settings row. */
+    val pendingStrokeData = PendingStrokeDataCount(dispatchers)
 
     fun disconnectPredictionReports() {
         predictionReports?.disconnect()
