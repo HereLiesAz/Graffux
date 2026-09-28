@@ -50,7 +50,7 @@ sound finished — see each claim's own verification note.
   devices are multi-core, so on a machine without a usable GPU adapter this keeps every core busy
   instead of rasterizing single-threaded on the UI thread.
 - **The real AzNavRail UI.** `aznavrail-cmp` (`com.github.HereLiesAz.AzNavRail:aznavrail-cmp`,
-  bumped to 11.44 for this) is a genuine Compose Multiplatform port of the same DSL the Android app
+  bumped to 11.44 for this; now 11.52, shared with the Android app via `gradle/libs.versions.toml`) is a genuine Compose Multiplatform port of the same DSL the Android app
   uses — `AzHostActivityLayout`, `azConfig`, `azTheme`, `azRailItem`, all package-compatible — with
   a published `jvm("desktop")` target. An earlier draft of this document claimed AzNavRail was
   Android-AAR-only; that was wrong (checked only the locally-resolved Gradle cache, not the
@@ -307,7 +307,7 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
   gone. `desktop/.../FloatingWindow.kt` is a copy of `core:design`'s `FloatingWindow` composable,
   adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
-  (11.47, already a `:desktop` dependency) — confirmed by decompiling
+  (11.47 at the time, now 11.52; already a `:desktop` dependency) — confirmed by decompiling
   `aznavrail-cmp-desktop-11.47.jar` and reading `aznavrail-cmp`'s own `commonMain` source
   (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real
   floating-window mechanism (dragging, onscreen clamping, z-index stacking all come from the same
