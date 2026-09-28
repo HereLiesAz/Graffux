@@ -56,7 +56,12 @@ class SettingsViewModel @Inject constructor(
             onSuccess = { "Uploaded $it stroke-data file(s)." },
             onFailure = { "Stroke data upload failed: ${it.message}" },
         )
+        // Success or partial failure, the set of files still waiting may have changed.
+        pendingStrokeData.refresh(context)
     }
+
+    /** Finished stroke-data files not yet uploaded, for the Settings row. */
+    val pendingStrokeData = PendingStrokeDataCount(dispatchers)
 
     fun disconnectPredictionReports() {
         predictionReports?.disconnect()
@@ -89,14 +94,6 @@ class SettingsViewModel @Inject constructor(
 
     fun setBrushSizeFixedOnScreen(fixed: Boolean) = viewModelScope.launch(dispatchers.io) {
         settings.setBrushSizeFixedOnScreen(fixed)
-    }
-
-    /** Settings > Jetpack Ink brush: the round Brush's live stroke drawn by androidx.ink. Off by default. */
-    val jetpackInkBrush: StateFlow<Boolean> =
-        settings.jetpackInkBrush.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    fun setJetpackInkBrush(enabled: Boolean) = viewModelScope.launch(dispatchers.io) {
-        settings.setJetpackInkBrush(enabled)
     }
 
     /**

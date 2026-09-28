@@ -39,7 +39,7 @@ consumes the same modules for its 2D work and adds AR on top.
 
 The UI is driven by [AzNavRail](https://github.com/HereLiesAz/AzNavRail) — the rail hosts the design
 tools; the canvas is its full-screen background. See `ARCHITECTURE.md` for module boundaries,
-invariants, and a currently-open upstream AzNavRail bug affecting the layers panel.
+invariants, and the AzNavRail version floors the layers panel depends on.
 
 ## Architecture
 

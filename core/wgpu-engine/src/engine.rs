@@ -21,6 +21,8 @@ mod multipass;
 pub use multipass::{
     MultipassConfig, MultipassStats, DISPLAY_WGSL, DRAFT_MASKED_WGSL, DRAFT_STAMP_WGSL,
 };
+#[path = "direct.rs"]
+pub mod direct;
 
 
 /// Default stamp workgroup edge (16x16 = 256 invocations). Overridable per GPU family through
@@ -440,6 +442,13 @@ pub struct Engine {
     /// Multipass rendering (experimental, off by default). `None` until first enabled; when it is
     /// `None` or disabled, every call takes exactly the pre-multipass path.
     mp: Option<Box<multipass::Multipass>>,
+    /// The instance and adapter the device came from: direct display makes its surface on them.
+    instance: Option<wgpu::Instance>,
+    adapter: Option<wgpu::Adapter>,
+    /// Direct display (direct.rs); `None` = not attached, the readback display only.
+    direct: Option<Box<direct::Direct>>,
+    /// The window `direct` is attached to (identity only, never dereferenced here).
+    direct_window: Option<usize>,
 }
 
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -655,6 +664,8 @@ impl Engine {
             stamp_tile,
         );
         engine.shader_f16 = shader_f16;
+        engine.instance = Some(instance);
+        engine.adapter = Some(adapter);
         Some(engine)
     }
 
@@ -851,6 +862,10 @@ impl Engine {
                 h: height,
             },
             mp: None,
+            instance: None,
+            adapter: None,
+            direct: None,
+            direct_window: None,
         }
     }
 

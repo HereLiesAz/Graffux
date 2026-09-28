@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.common.model.Op
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
@@ -436,6 +437,118 @@ class EditorViewModelTest {
         assertTrue(viewModel.uiState.value.layers.any { it.textParams == null })
     }
 
+    // ── Frame resize + constraints ───────────────────────────────────────────────────────────
+
+    /** A 400x200 frame holding one right-pinned child and one stretching child. */
+    private fun seedFrame() {
+        val frame = Layer(
+            id = "F", name = "F", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            layoutWidth = 400f, layoutHeight = 200f,
+        )
+        val end = Layer(
+            id = "end", name = "end", parentId = "F", offset = Offset(130f, 0f),
+            constraints = com.hereliesaz.graffitixr.common.model.Constraints(
+                horizontal = com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END,
+            ),
+            shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 100f, height = 50f)),
+        )
+        val fill = Layer(
+            id = "fill", name = "fill", parentId = "F",
+            constraints = com.hereliesaz.graffitixr.common.model.Constraints(
+                horizontal = com.hereliesaz.graffitixr.common.model.ConstraintAnchor.STRETCH,
+            ),
+            shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 360f, height = 50f)),
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(frame, end, fill)))
+        viewModel.onLayerActivated("F")
+    }
+
+    private fun layer(id: String) = viewModel.uiState.value.layers.first { it.id == id }
+
+    @Test
+    fun `a numeric frame resize and its constrained children undo as one step`() = runTest {
+        seedFrame()
+        val undoBefore = viewModel.uiState.value.undoCount
+
+        viewModel.onSetFrameSize(800f, 200f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(800f, layer("F").layoutWidth, 0.01f)
+        assertEquals(330f, layer("end").offset.x, 0.01f)
+        assertEquals(760f, layer("fill").shapes.first().width, 0.01f)
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(400f, layer("F").layoutWidth, 0.01f)
+        assertEquals(130f, layer("end").offset.x, 0.01f)
+        assertEquals(360f, layer("fill").shapes.first().width, 0.01f)
+    }
+
+    @Test
+    fun `dragging a frame's resize handle resizes its box, not its scale, in one undo step`() = runTest {
+        seedFrame()
+        val undoBefore = viewModel.uiState.value.undoCount
+
+        viewModel.onGestureStart()
+        viewModel.onTransformGesture(Offset.Zero, 1.5f, 0f)
+        viewModel.onTransformGesture(Offset.Zero, 4f / 3f, 0f)
+        viewModel.onGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1f, layer("F").scale, 0.0001f)
+        assertEquals(800f, layer("F").layoutWidth, 0.5f)
+        assertEquals(400f, layer("F").layoutHeight, 0.5f)
+        assertEquals(330f, layer("end").offset.x, 0.5f)
+        assertEquals(760f, layer("fill").shapes.first().width, 0.5f)
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(400f, layer("F").layoutWidth, 0.01f)
+        assertEquals(130f, layer("end").offset.x, 0.01f)
+        assertEquals(360f, layer("fill").shapes.first().width, 0.01f)
+    }
+
+    @Test
+    fun `a frame resize sends peers the children's changes, not just the frame's`() = runTest {
+        seedFrame()
+        viewModel.onSetFrameSize(800f, 200f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify {
+            opEmitter.emit(match { it is Op.LayerGeometry && it.layerId == "F" && it.layoutWidth == 800f })
+        }
+        verify {
+            opEmitter.emit(match { it is Op.LayerGeometry && it.layerId == "fill" && it.shapes.first().width == 760f })
+        }
+        verify {
+            opEmitter.emit(match { it is Op.LayerTransform && it.layerId == "end" && it.matrix[1] == 330f })
+        }
+    }
+
+    @Test
+    fun `hug contents goes through the same resize path`() = runTest {
+        val frame = Layer(
+            id = "F", name = "F", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            autoLayout = com.hereliesaz.graffitixr.common.model.AutoLayout(
+                direction = com.hereliesaz.graffitixr.common.model.LayoutDirection.HORIZONTAL,
+            ),
+        )
+        val a = Layer(
+            id = "a", name = "a", parentId = "F",
+            shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 100f, height = 50f)),
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(frame, a)))
+        viewModel.onLayerActivated("F")
+        val undoBefore = viewModel.uiState.value.undoCount
+
+        viewModel.onHugContents()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(100f, layer("F").layoutWidth, 0.01f)
+        assertEquals(50f, layer("F").layoutHeight, 0.01f)
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+    }
+
     @Test
     fun `undo and redo on empty stacks do not crash`() {
         // Fresh ViewModel has empty undo and redo stacks; neither call should throw.
@@ -713,4 +826,5 @@ class EditorViewModelTest {
 
         assertEquals(0, viewModel.uiState.value.selectedNodeIndex)
     }
+
 }

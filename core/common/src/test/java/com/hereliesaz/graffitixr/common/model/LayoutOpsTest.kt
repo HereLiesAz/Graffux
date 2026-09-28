@@ -33,84 +33,285 @@ class LayoutOpsTest {
 
     private val old = Rect(0f, 0f, 400f, 200f)
     private val wider = Rect(0f, 0f, 800f, 200f)
+    private val taller = Rect(0f, 0f, 400f, 400f)
 
     private fun resize(layers: List<Layer>, from: Rect = old, to: Rect = wider) =
         LayoutOps.applyResize(layers, "F", from, to)
 
-    // ── Constraints ──────────────────────────────────────────────────────────────────────────
+    /**
+     * A constrained child described by its box's top-left corner, the way a designer reads it.
+     * Constraint geometry works on a layer's CENTRE (its offset — shapes are drawn centred on it),
+     * so this converts.
+     */
+    private fun boxed(
+        id: String,
+        left: Float,
+        top: Float,
+        size: Pair<Float, Float> = 100f to 50f,
+        constraints: Constraints = Constraints(),
+    ) = child(
+        id, "F",
+        x = left + size.first / 2f, y = top + size.second / 2f,
+        w = size.first, h = size.second, constraints = constraints,
+    )
+
+    private fun List<Layer>.byId(id: String) = first { it.id == id }
+    private val Layer.left get() = offset.x - shapes.first().width * scale / 2f
+    private val Layer.top get() = offset.y - shapes.first().height * scale / 2f
+    private val Layer.w get() = shapes.first().width * scale
+    private val Layer.h get() = shapes.first().height * scale
+
+    private fun h(anchor: ConstraintAnchor) = Constraints(horizontal = anchor)
+    private fun v(anchor: ConstraintAnchor) = Constraints(vertical = anchor)
+
+    // ── Constraints: horizontal axis (400 → 800 wide) ────────────────────────────────────────
 
     @Test
     fun `START keeps the child's distance from the left edge`() {
-        val out = resize(listOf(frame("F"), child("a", "F", x = 20f, y = 0f)))
-        assertEquals(20f, out.first { it.id == "a" }.offset.x, 0.01f)
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 20f, top = 0f))).byId("a")
+        assertEquals(20f, a.left, 0.01f)
+        assertEquals(100f, a.w, 0.01f)
     }
 
     @Test
     fun `END keeps the child's distance from the right edge`() {
         // 400-wide frame, child at x=280 with width 100 → 20px gap on the right. After widening to
         // 800 the child must move to keep that 20px gap.
-        val out = resize(
-            listOf(
-                frame("F"),
-                child("a", "F", x = 280f, y = 0f, constraints = Constraints(horizontal = ConstraintAnchor.END)),
-            ),
-        )
-        assertEquals(680f, out.first { it.id == "a" }.offset.x, 0.01f)
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 280f, top = 0f, constraints = h(ConstraintAnchor.END)))).byId("a")
+        assertEquals(680f, a.left, 0.01f)
+        assertEquals(100f, a.w, 0.01f)
     }
 
     @Test
     fun `CENTER keeps the child's offset from the frame's centre`() {
-        // Child centred in the 400-wide frame stays centred in the 800-wide one.
-        val out = resize(
-            listOf(
-                frame("F"),
-                child("a", "F", x = 150f, y = 0f, constraints = Constraints(horizontal = ConstraintAnchor.CENTER)),
-            ),
-        )
-        assertEquals(350f, out.first { it.id == "a" }.offset.x, 0.01f)
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 150f, top = 0f, constraints = h(ConstraintAnchor.CENTER)))).byId("a")
+        assertEquals(350f, a.left, 0.01f)
+        assertEquals(100f, a.w, 0.01f)
     }
 
     @Test
-    fun `STRETCH holds both edges so the child grows with the frame`() {
-        val out = resize(
+    fun `STRETCH holds both edges so the child's width grows with the frame`() {
+        val a = resize(
             listOf(
-                frame("F"),
-                child("a", "F", x = 20f, y = 0f, w = 360f, constraints = Constraints(horizontal = ConstraintAnchor.STRETCH)),
+            frame("F"),
+            boxed("a", left = 20f, top = 0f, size = 360f to 50f,
+                constraints = h(ConstraintAnchor.STRETCH)),
             ),
-        )
-        // Position keeps the left gap; the growth itself is the width change, which the caller
-        // applies to the shape — position must not drift.
-        assertEquals(20f, out.first { it.id == "a" }.offset.x, 0.01f)
+        ).byId("a")
+        assertEquals(20f, a.left, 0.01f)
+        assertEquals(760f, a.w, 0.01f)
+        // The size lands on the shape, not on the layer's uniform scale.
+        assertEquals(1f, a.scale, 0.0001f)
+        assertEquals(50f, a.h, 0.01f)
     }
 
     @Test
-    fun `SCALE moves the child proportionally and scales it`() {
-        val out = resize(
-            listOf(
-                frame("F"),
-                child("a", "F", x = 100f, y = 0f, constraints = Constraints(horizontal = ConstraintAnchor.SCALE)),
-            ),
-        ).first { it.id == "a" }
-        // Frame doubled, so a child at 1/4 across stays at 1/4 across.
-        assertEquals(200f, out.offset.x, 0.01f)
-        assertEquals(2f, out.scale, 0.01f)
+    fun `SCALE moves and sizes the child proportionally on the horizontal axis`() {
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 100f, top = 0f, constraints = h(ConstraintAnchor.SCALE)))).byId("a")
+        // Frame doubled, so a child at 1/4 across stays at 1/4 across, twice as wide.
+        assertEquals(200f, a.left, 0.01f)
+        assertEquals(200f, a.w, 0.01f)
+        // Only the horizontal axis scales; the vertical is START and keeps its size.
+        assertEquals(50f, a.h, 0.01f)
+        assertEquals(1f, a.scale, 0.0001f)
+    }
+
+    // ── Constraints: vertical axis (200 → 400 tall) ──────────────────────────────────────────
+
+    @Test
+    fun `vertical START keeps the distance from the top`() {
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 0f, top = 10f)), to = taller).byId("a")
+        assertEquals(10f, a.top, 0.01f)
+        assertEquals(50f, a.h, 0.01f)
     }
 
     @Test
-    fun `the vertical axis is constrained independently of the horizontal`() {
-        val taller = Rect(0f, 0f, 400f, 400f)
-        val out = LayoutOps.applyResize(
+    fun `vertical END keeps the distance from the bottom`() {
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 10f, top = 130f, constraints = v(ConstraintAnchor.END))),
+            to = taller,
+        ).byId("a")
+        assertEquals(10f, a.left, 0.01f) // unchanged: START, and width didn't change
+        assertEquals(330f, a.top, 0.01f) // 20px from the bottom, preserved
+        assertEquals(50f, a.h, 0.01f)
+    }
+
+    @Test
+    fun `vertical CENTER keeps the offset from the frame's middle`() {
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 0f, top = 75f, constraints = v(ConstraintAnchor.CENTER))),
+            to = taller,
+        ).byId("a")
+        assertEquals(175f, a.top, 0.01f)
+        assertEquals(50f, a.h, 0.01f)
+    }
+
+    @Test
+    fun `vertical STRETCH grows the child's height`() {
+        val a = resize(
+            listOf(
+            frame("F"),
+            boxed("a", left = 0f, top = 10f, size = 100f to 180f,
+                constraints = v(ConstraintAnchor.STRETCH)),
+            ),
+            to = taller,
+        ).byId("a")
+        assertEquals(10f, a.top, 0.01f)
+        assertEquals(380f, a.h, 0.01f)
+        assertEquals(100f, a.w, 0.01f)
+    }
+
+    @Test
+    fun `vertical SCALE is applied, independently of the horizontal axis`() {
+        val a = resize(
+            listOf(frame("F"), boxed("a", left = 0f, top = 50f, constraints = v(ConstraintAnchor.SCALE))),
+            to = taller,
+        ).byId("a")
+        assertEquals(100f, a.top, 0.01f)
+        assertEquals(100f, a.h, 0.01f)
+        assertEquals(100f, a.w, 0.01f)
+    }
+
+    @Test
+    fun `both axes resize independently in one pass`() {
+        val bigger = Rect(0f, 0f, 800f, 400f)
+        val a = resize(
             listOf(
                 frame("F"),
-                child(
-                    "a", "F", x = 10f, y = 130f, w = 100f, h = 50f,
-                    constraints = Constraints(horizontal = ConstraintAnchor.START, vertical = ConstraintAnchor.END),
+                boxed(
+                    "a", left = 20f, top = 50f, size = 360f to 50f,
+                    constraints = Constraints(horizontal = ConstraintAnchor.STRETCH, vertical = ConstraintAnchor.SCALE),
                 ),
             ),
-            "F", old, taller,
-        ).first { it.id == "a" }
-        assertEquals(10f, out.offset.x, 0.01f)   // unchanged: START, and width didn't change
-        assertEquals(330f, out.offset.y, 0.01f)  // 20px from the bottom, preserved
+            to = bigger,
+        ).byId("a")
+        assertEquals(20f, a.left, 0.01f)
+        assertEquals(760f, a.w, 0.01f)
+        assertEquals(100f, a.top, 0.01f)
+        assertEquals(100f, a.h, 0.01f)
+    }
+
+    @Test
+    fun `a scaled path scales its points and handles, not just its box`() {
+        val path = VectorShape(
+            kind = ShapeKind.PATH, width = 100f, height = 50f,
+            points = listOf(-50f, -25f, 50f, 25f), handlesOut = listOf(10f, 10f, 0f, 0f),
+        )
+        val shape = resize(
+            listOf(
+                frame("F"),
+                boxed("a", left = 0f, top = 0f, constraints = h(ConstraintAnchor.SCALE)).copy(shapes = listOf(path)),
+            ),
+        ).byId("a").shapes.first()
+        assertEquals(listOf(-100f, -25f, 100f, 25f), shape.points)
+        assertEquals(listOf(20f, 10f, 0f, 0f), shape.handlesOut)
+    }
+
+    // ── Constraints: layers without a shape ──────────────────────────────────────────────────
+
+    @Test
+    fun `a raster layer SCALEs through its uniform scale`() {
+        // No shape and no declared size: the only size field a raster layer has is `scale`.
+        val raster = Layer(
+            id = "r", name = "r", parentId = "F", offset = Offset(100f, 100f),
+            constraints = h(ConstraintAnchor.SCALE),
+        )
+        val r = resize(listOf(frame("F"), raster)).byId("r")
+        assertEquals(2f, r.scale, 0.001f)
+        assertEquals(200f, r.offset.x, 0.01f)
+    }
+
+    @Test
+    fun `a raster layer with no measurable size is only moved by STRETCH`() {
+        val raster = Layer(
+            id = "r", name = "r", parentId = "F", offset = Offset(100f, 100f),
+            constraints = h(ConstraintAnchor.STRETCH),
+        )
+        val r = resize(listOf(frame("F"), raster)).byId("r")
+        assertEquals(1f, r.scale, 0.001f)
+        assertEquals(100f, r.offset.x, 0.01f)
+    }
+
+    @Test
+    fun `a raster layer scaled on both axes keeps its aspect and takes the smaller factor`() {
+        val raster = Layer(
+            id = "r", name = "r", parentId = "F", offset = Offset(200f, 100f),
+            constraints = Constraints(ConstraintAnchor.SCALE, ConstraintAnchor.SCALE),
+        )
+        val r = resize(listOf(frame("F"), raster), to = Rect(0f, 0f, 800f, 300f)).byId("r")
+        // x doubles, y grows 1.5x — a single scale can only honour one, so it takes the smaller.
+        assertEquals(1.5f, r.scale, 0.001f)
+    }
+
+    @Test
+    fun `a child with a declared layout size stretches that size`() {
+        val sized = Layer(
+            id = "s", name = "s", parentId = "F", offset = Offset(200f, 100f),
+            layoutWidth = 360f, layoutHeight = 50f, constraints = h(ConstraintAnchor.STRETCH),
+        )
+        val s = resize(listOf(frame("F"), sized)).byId("s")
+        assertEquals(760f, s.layoutWidth, 0.01f)
+        assertEquals(50f, s.layoutHeight, 0.01f)
+        assertEquals(1f, s.scale, 0.0001f)
+    }
+
+    // ── Constraints: nested frames ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `a stretched child frame resizes its own layout box and passes the resize down`() {
+        // F (400x200) holds G, a 200x100 frame centred at x=200 that stretches horizontally. G holds
+        // g1, pinned to G's right edge. Widening F to 800 widens G to 600, and g1 must follow G's
+        // right edge in G's own (centred) space.
+        val g = Layer(
+            id = "G", name = "G", type = LayerType.GROUP, parentId = "F",
+            offset = Offset(200f, 100f), layoutWidth = 200f, layoutHeight = 100f,
+            constraints = h(ConstraintAnchor.STRETCH),
+        )
+        // G's local box is -100..100; g1 is 40 wide with a 10px gap on the right → centre 70.
+        val g1 = child("g1", "G", x = 70f, y = 0f, w = 40f, h = 20f, constraints = h(ConstraintAnchor.END))
+        val out = resize(listOf(frame("F"), g, g1))
+        val newG = out.byId("G")
+        assertEquals(600f, newG.layoutWidth, 0.01f)
+        assertEquals(100f, newG.layoutHeight, 0.01f)
+        assertEquals(400f, newG.offset.x, 0.01f)
+        // G's local box is now -300..300; 10px gap + 20 half-width → centre 270.
+        assertEquals(270f, out.byId("g1").offset.x, 0.01f)
+    }
+
+    @Test
+    fun `a nested frame whose box did not change leaves its children alone`() {
+        val g = Layer(
+            id = "G", name = "G", type = LayerType.GROUP, parentId = "F",
+            offset = Offset(100f, 100f), layoutWidth = 200f, layoutHeight = 100f,
+        )
+        val g1 = child("g1", "G", x = 70f, y = 0f, constraints = h(ConstraintAnchor.END))
+        val out = resize(listOf(frame("F"), g, g1))
+        assertEquals(70f, out.byId("g1").offset.x, 0.01f)
+    }
+
+    @Test
+    fun `a nested auto-layout frame is re-laid out rather than constrained`() {
+        val row = AutoLayout(direction = LayoutDirection.HORIZONTAL, gap = 10f)
+        val g = Layer(
+            id = "G", name = "G", type = LayerType.GROUP, parentId = "F", autoLayout = row,
+            offset = Offset(200f, 100f), layoutWidth = 200f, layoutHeight = 100f,
+            constraints = h(ConstraintAnchor.STRETCH),
+        )
+        val g1 = child("g1", "G", x = 999f, y = 999f, constraints = h(ConstraintAnchor.END))
+        val out = resize(listOf(frame("F"), g, g1))
+        val newG = out.byId("G")
+        // Laid out from G's (moved) origin, not constrained from g1's previous position.
+        assertEquals(newG.offset.x, out.byId("g1").offset.x, 0.01f)
+    }
+
+    @Test
+    fun `local frame rect is centred on the frame origin`() {
+        assertEquals(Rect(-200f, -100f, 400f, 200f), LayoutOps.localFrameRect(400f, 200f))
     }
 
     @Test

@@ -1,5 +1,9 @@
 package com.hereliesaz.graffitixr.data.repository
 
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
@@ -163,28 +167,34 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
-    fun `jetpackInkBrush defaults off and round trips`() = runTest {
-        // Default OFF is the contract: with the toggle untouched the editor must paint exactly as
-        // before Jetpack Ink existed. No other test in this file touches this key.
-        assertFalse(repo.jetpackInkBrush.first())
+    fun `retired jetpack_ink_brush key is dropped and every other key survives`() = runTest {
+        val ink = booleanPreferencesKey("jetpack_ink_brush")
+        val fixed = booleanPreferencesKey("brush_size_fixed_on_screen")
+        val lang = stringPreferencesKey("language")
+        val old = mutablePreferencesOf(ink to true, fixed to true, lang to "fr")
 
-        repo.setJetpackInkBrush(true)
-        assertTrue(repo.jetpackInkBrush.first())
+        assertTrue(RetiredSettingsMigration.shouldMigrate(old))
+        val migrated = RetiredSettingsMigration.migrate(old)
 
-        repo.setJetpackInkBrush(false)
-        assertFalse(repo.jetpackInkBrush.first())
+        assertFalse(migrated.contains(ink))
+        assertEquals(true, migrated[fixed])
+        assertEquals("fr", migrated[lang])
+        // Idempotent: nothing left to migrate, so DataStore won't rewrite the file again.
+        assertFalse(RetiredSettingsMigration.shouldMigrate(migrated))
     }
 
     @Test
-    fun `jetpackInkBrush survives a new repository instance and leaves other settings alone`() = runTest {
-        // A fresh repository reads the same DataStore file: what the Settings row writes is what the
-        // editor's repository sees. Ends OFF so the default-off test above holds in any order.
-        val fixedBefore = repo.brushSizeFixedOnScreen.first()
-        repo.setJetpackInkBrush(true)
-        assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
-        assertEquals(fixedBefore, repo.brushSizeFixedOnScreen.first())
+    fun `retired key migration is a no-op on a store that never had the toggle`() = runTest {
+        val fresh = mutablePreferencesOf(booleanPreferencesKey("is_right_handed") to false)
+        assertFalse(RetiredSettingsMigration.shouldMigrate(fresh))
+        assertFalse(RetiredSettingsMigration.shouldMigrate(emptyPreferences()))
+    }
 
-        repo.setJetpackInkBrush(false)
-        assertFalse(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).jetpackInkBrush.first())
+    @Test
+    fun `the settings store still reads after the migration is installed`() = runTest {
+        // The migration runs on the store's first read; a repository must still round-trip values.
+        repo.setBrushSizeFixedOnScreen(true)
+        assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).brushSizeFixedOnScreen.first())
+        repo.setBrushSizeFixedOnScreen(false)
     }
 }

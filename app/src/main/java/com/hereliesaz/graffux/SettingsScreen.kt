@@ -35,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +53,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
-import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
@@ -236,7 +236,7 @@ fun SettingsScreen(
             HorizontalDivider()
             StrokeDataRow(vm)
             HorizontalDivider()
-            GpuBackendRow(vm)
+            GpuBackendRow()
             GpuTierRow()
             HorizontalDivider()
 
@@ -314,7 +314,9 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE) }
     var recording by remember { mutableStateOf(prefs.getBoolean(STROKE_DATA_KEY, true)) }
-    val pending = remember(recording) { StrokeDataStore.get(context).pending().size }
+    val pending by vm.pendingStrokeData.count.collectAsStateWithLifecycle()
+    // Refreshed on entry and on toggle here; the ViewModel refreshes again after every upload.
+    LaunchedEffect(recording) { vm.pendingStrokeData.refresh(context) }
     ChoiceRow(
         title = "Record strokes for training",
         subtitle = "Keeps every stroke's raw input (position, pressure, contact size, finger or " +
@@ -381,7 +383,7 @@ private fun PredictionSoloRow() {
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
-private fun GpuBackendRow(vm: SettingsViewModel) {
+private fun GpuBackendRow() {
     val context = LocalContext.current
     val prefs = remember(context) {
         context.getSharedPreferences(GpuStampEngine.Backend.PREFS, Context.MODE_PRIVATE)
@@ -423,19 +425,8 @@ private fun GpuBackendRow(vm: SettingsViewModel) {
         },
     )
     MultipassRows(prefs)
-    // Jetpack Ink (androidx.ink) as the round Brush's live-stroke renderer. Persisted through
-    // SettingsRepository; off by default, and off leaves drawing exactly as it was. On, it takes
-    // the place of Direct display for those strokes rather than drawing alongside it.
-    val jetpackInk by vm.jetpackInkBrush.collectAsStateWithLifecycle()
-    ChoiceRow(
-        title = "Jetpack Ink",
-        subtitle = "Draws the round Brush's stroke in progress with Android's low-latency Jetpack " +
-            "Ink renderer. Replaces Direct display for those strokes. Applies to the next stroke.",
-        options = listOf(false, true),
-        selected = jetpackInk,
-        label = { if (it) "On" else "Off" },
-        onSelect = { vm.setJetpackInkBrush(it) },
-    )
+    // No Jetpack Ink toggle: Ink's stock families are art utensils of their own in the brush list
+    // (Ink Pen, Ink Marker, ...), not a setting that swaps the round Brush's renderer.
 }
 
 /**

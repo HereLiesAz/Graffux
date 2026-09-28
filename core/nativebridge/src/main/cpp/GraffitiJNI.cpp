@@ -3,6 +3,7 @@
 #include <android/asset_manager_jni.h>
 #include <android/bitmap.h>
 #include <android/hardware_buffer_jni.h>
+#include <android/native_window_jni.h>
 #include <opencv2/opencv.hpp>
 #include <GLES3/gl3.h>
 #include <signal.h>
@@ -1757,6 +1758,60 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeMultipassStats(
     jdoubleArray out = env->NewDoubleArray(static_cast<jsize>(n));
     if (out != nullptr) env->SetDoubleArrayRegion(out, 0, static_cast<jsize>(n), stats);
     return out;
+}
+
+// ---- Direct display (wgpu only; StampEngine.h defaults to unsupported) -----------------------
+
+JNIEXPORT jint JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectCapabilities(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return 0;
+    return static_cast<jint>(engine->directCapabilities());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectAttach(
+    JNIEnv* env, jobject, jlong handle, jobject surface, jint width, jint height) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || !surface || width <= 0 || height <= 0) return JNI_FALSE;
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    if (!window) return JNI_FALSE;
+    const bool ok = engine->directAttach(window, width, height);
+    ANativeWindow_release(window);  // directAttach() holds its own reference
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectDetach(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (engine) engine->directDetach();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectBeginStroke(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() && engine->directBeginStroke() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectPresent(
+    JNIEnv* env, jobject, jlong handle, jfloatArray matrix, jboolean newBatch) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+    float m[6];
+    const float* mp = nullptr;
+    if (matrix != nullptr) {
+        if (env->GetArrayLength(matrix) < 6) return JNI_FALSE;
+        env->GetFloatArrayRegion(matrix, 0, 6, m);
+        mp = m;
+    }
+    return engine->directPresent(mp, newBatch == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectEndStroke(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() && engine->directEndStroke() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL

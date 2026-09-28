@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode as ComposeBlendMode
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.common.model.BlendMode as ModelBlendMode
@@ -184,12 +183,8 @@ class ProjectManager @Inject constructor(
         return@withContext try {
             val jsonString = projectFile.readText()
             val decoded = json.decodeFromString<GraffitiProject>(jsonString)
-            val projectData = migrateInMemory(decoded)
-            if (projectData !== decoded) {
-                // Persist the migration only on a full load — loadProjectMetadata stays read-only.
-                saveProject(context, projectData)
-                Log.i("ProjectManager", "Migrated legacyVisuals for project ${projectData.id}")
-            }
+            // Persist the migration only on a full load — loadProjectMetadata stays read-only.
+            val projectData = migrateAndPersist(context, decoded)
 
             val targetBitmaps = projectData.targetImageUris.mapNotNull { uri ->
                 ImageUtils.loadBitmapSync(context, uri)
@@ -220,83 +215,98 @@ class ProjectManager @Inject constructor(
     }
 
     /**
+     * Migrates a decoded project and, when the migration changed anything, persists it so the
+     * next read sees layer visuals rather than `legacyVisuals`. Every path that turns a
+     * `project.json` into the live project (disk load, `.fux` import, co-op spectator load) goes
+     * through here; only [loadProjectMetadata] stays in-memory, because it is a read-only listing.
+     */
+    private suspend fun migrateAndPersist(context: Context, decoded: GraffitiProject): GraffitiProject {
+        val migrated = migrateInMemory(decoded)
+        if (migrated !== decoded) {
+            saveProject(context, migrated)
+            Log.i("ProjectManager", "Migrated legacyVisuals for project ${migrated.id}")
+        }
+        return migrated
+    }
+
+    /**
      * Applies the legacyVisuals→layers migration purely in memory. Returns [project] itself
      * (same reference) when no migration is needed, so callers can detect change by identity
      * and decide whether to persist.
+     *
+     * Merge rule — the migration never discards a non-default legacy value:
+     * - The target is the first layer, or, when there are no layers but an `overlayImageUri`,
+     *   a fresh "Overlay" layer built from it.
+     * - Field by field: a legacy value that is default, or equal to the layer's, is consumed. A
+     *   layer field still at its default takes the legacy value. A layer field that already
+     *   holds a *different* non-default value keeps it — the layer is the newer source of truth —
+     *   and the legacy value stays behind in `legacyVisuals`.
+     * - With no target layer at all, `legacyVisuals` is left untouched.
+     *
+     * So `legacyVisuals` ends up holding exactly the values that could not be placed, and the
+     * migration is idempotent: re-running it on its own output returns the same reference.
      */
-    private fun migrateInMemory(project: GraffitiProject): GraffitiProject {
+    internal fun migrateInMemory(project: GraffitiProject): GraffitiProject {
         val lv = project.legacyVisuals
-        val defaults = LegacyVisuals()
-        if (lv == defaults) return project
+        val target = project.layers.firstOrNull()
+            ?: project.overlayImageUri?.let { OverlayLayer(uri = it, name = "Overlay") }
+        if (lv == LegacyVisuals() || target == null) return project
 
-        val migratedLayers: List<OverlayLayer> = when {
-            project.layers.isEmpty() && project.overlayImageUri != null -> {
-                val uri = project.overlayImageUri!!
-                listOf(
-                    OverlayLayer(
-                        uri = uri,
-                        name = "Overlay",
-                        scale = lv.scale,
-                        offset = lv.offset,
-                        rotationX = lv.rotationX,
-                        rotationY = lv.rotationY,
-                        rotationZ = lv.rotationZ,
-                        opacity = lv.opacity,
-                        blendMode = lv.blendMode.toModelBlendMode(),
-                        brightness = lv.brightness,
-                        contrast = lv.contrast,
-                        saturation = lv.saturation,
-                        colorBalanceR = lv.colorBalanceR,
-                        colorBalanceG = lv.colorBalanceG,
-                        colorBalanceB = lv.colorBalanceB
-                    )
-                )
-            }
-            project.layers.isNotEmpty() && project.layers.first().hasDefaultVisuals() -> {
-                val first = project.layers.first().copy(
-                    scale = lv.scale,
-                    offset = lv.offset,
-                    rotationX = lv.rotationX,
-                    rotationY = lv.rotationY,
-                    rotationZ = lv.rotationZ,
-                    opacity = lv.opacity,
-                    blendMode = lv.blendMode.toModelBlendMode(),
-                    brightness = lv.brightness,
-                    contrast = lv.contrast,
-                    saturation = lv.saturation,
-                    colorBalanceR = lv.colorBalanceR,
-                    colorBalanceG = lv.colorBalanceG,
-                    colorBalanceB = lv.colorBalanceB
-                )
-                listOf(first) + project.layers.drop(1)
-            }
-            else -> project.layers
-        }
-
-        return project.copy(layers = migratedLayers, legacyVisuals = defaults)
+        val (mergedLayer, residual) = mergeLegacyInto(target, lv)
+        val layers = listOf(mergedLayer) + project.layers.drop(1)
+        val result = project.copy(layers = layers, legacyVisuals = residual)
+        return if (result == project) project else result
     }
 
-    private fun OverlayLayer.hasDefaultVisuals(): Boolean {
-        return scale == 1f && offset == Offset.Zero && rotationX == 0f && rotationY == 0f && rotationZ == 0f &&
-                opacity == 1f && blendMode == ModelBlendMode.SrcOver && brightness == 0f && contrast == 1f &&
-                saturation == 1f && colorBalanceR == 1f && colorBalanceG == 1f && colorBalanceB == 1f
+    /** Per-field merge for [migrateInMemory]: returns (value for the layer, value left in legacy). */
+    private fun <T> mergeField(layerValue: T, legacyValue: T, default: T): Pair<T, T> = when {
+        legacyValue == default || legacyValue == layerValue -> layerValue to default
+        layerValue == default -> legacyValue to default
+        else -> layerValue to legacyValue
     }
 
-    fun exportProjectToUri(context: Context, projectId: String, uri: Uri) {
-        try {
-            writeProjectArchive(context, projectId, uri)
-        } catch (e: Exception) {
-            Log.e("ProjectManager", "Export failed", e)
-        }
+    private fun mergeLegacyInto(layer: OverlayLayer, lv: LegacyVisuals): Pair<OverlayLayer, LegacyVisuals> {
+        val d = LegacyVisuals()
+        val scale = mergeField(layer.scale, lv.scale, d.scale)
+        val offset = mergeField(layer.offset, lv.offset, d.offset)
+        val rotX = mergeField(layer.rotationX, lv.rotationX, d.rotationX)
+        val rotY = mergeField(layer.rotationY, lv.rotationY, d.rotationY)
+        val rotZ = mergeField(layer.rotationZ, lv.rotationZ, d.rotationZ)
+        val opacity = mergeField(layer.opacity, lv.opacity, d.opacity)
+        val brightness = mergeField(layer.brightness, lv.brightness, d.brightness)
+        val contrast = mergeField(layer.contrast, lv.contrast, d.contrast)
+        val saturation = mergeField(layer.saturation, lv.saturation, d.saturation)
+        val cbR = mergeField(layer.colorBalanceR, lv.colorBalanceR, d.colorBalanceR)
+        val cbG = mergeField(layer.colorBalanceG, lv.colorBalanceG, d.colorBalanceG)
+        val cbB = mergeField(layer.colorBalanceB, lv.colorBalanceB, d.colorBalanceB)
+        val blend = mergeField(layer.blendMode, lv.blendMode.toModelBlendMode(), ModelBlendMode.SrcOver)
+        val blendConflict = blend.second != ModelBlendMode.SrcOver
+
+        val merged = layer.copy(
+            scale = scale.first, offset = offset.first,
+            rotationX = rotX.first, rotationY = rotY.first, rotationZ = rotZ.first,
+            opacity = opacity.first, blendMode = blend.first,
+            brightness = brightness.first, contrast = contrast.first, saturation = saturation.first,
+            colorBalanceR = cbR.first, colorBalanceG = cbG.first, colorBalanceB = cbB.first,
+        )
+        val residual = LegacyVisuals(
+            opacity = opacity.second, brightness = brightness.second, contrast = contrast.second,
+            saturation = saturation.second,
+            colorBalanceR = cbR.second, colorBalanceG = cbG.second, colorBalanceB = cbB.second,
+            scale = scale.second, rotationX = rotX.second, rotationY = rotY.second, rotationZ = rotZ.second,
+            offset = offset.second,
+            blendMode = if (blendConflict) lv.blendMode else d.blendMode,
+        )
+        return merged to residual
     }
 
     /**
      * Writes project [projectId] to [uri] as a `.fux` archive — `project.json` plus every artifact
      * beside it, so the file is a complete, portable copy of the project.
      *
-     * Throws rather than logging, unlike [exportProjectToUri]. When the user has picked a location
-     * and named a file, a failure that produces nothing but a logcat line is indistinguishable from
-     * a successful save until they try to open it — the caller needs to be able to say so.
+     * Throws rather than logging. When the user has picked a location and named a file, a failure
+     * that produces nothing but a logcat line is indistinguishable from a successful save until
+     * they try to open it — the caller needs to be able to say so.
      */
     fun writeProjectArchive(context: Context, projectId: String, uri: Uri) {
         val sourceFolder = File(context.filesDir, "projects/$projectId")
@@ -399,7 +409,8 @@ class ProjectManager @Inject constructor(
                         }
                     }
 
-                    project
+                    // project.json is now on disk under destDir; migrate it there too.
+                    migrateAndPersist(context, project)
                 }
             }
         } catch (e: Exception) {
@@ -542,8 +553,9 @@ class ProjectManager @Inject constructor(
                     if (tmpFile.exists()) tmpFile.delete()
                 }
 
+                val migrated = migrateAndPersist(context, project)
                 withContext(Dispatchers.Main) {
-                    projectRepositoryProvider.get().createProject(project)
+                    projectRepositoryProvider.get().createProject(migrated)
                 }
             }
         } catch (e: Exception) {

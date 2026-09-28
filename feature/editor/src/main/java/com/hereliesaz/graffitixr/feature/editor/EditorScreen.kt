@@ -410,14 +410,14 @@ fun EditorScreen(
         // the "comparative area of the screen" a still frame and a live finger no longer agree on.
         // Direct display (Settings): a SurfaceControl layer above the window for the live stroke.
         // Composed before the drawing surface so touches still land on the canvas.
-        // Jetpack Ink (Settings) replaces it for the round Brush: Ink and the overlay must never
-        // both draw the same stroke, so with Ink on the overlay isn't hosted at all.
-        val jetpackInk by vm.jetpackInkBrush.collectAsState()
-        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled && !jetpackInk) {
+        // An Ink utensil (Ink Pen, Marker, ... in the brush list) replaces it: Ink and the overlay
+        // must never both draw the same stroke, so with one in hand the overlay isn't hosted at all.
+        val inkUtensil by vm.activeInkUtensil.collectAsState()
+        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled && inkUtensil == null) {
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked
-        if (canPaintActiveLayer && jetpackInk && vm.usesJetpackInk(uiState)) {
+        if (canPaintActiveLayer && inkUtensil != null && uiState.activeTool == Tool.BRUSH) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
                 screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
                     uiState.viewportOffset.x, uiState.viewportOffset.y,

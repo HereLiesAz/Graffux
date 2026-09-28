@@ -6,19 +6,20 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import androidx.ink.brush.Brush
-import androidx.ink.brush.BrushBehavior
 import androidx.ink.brush.BrushFamily
-import androidx.ink.brush.BrushPaint
-import androidx.ink.brush.BrushTip
-import androidx.ink.brush.ExperimentalInkCustomBrushApi
+import androidx.ink.brush.InputToolType
+import androidx.ink.brush.SelfOverlap
 import androidx.ink.brush.StockBrushes
 import androidx.ink.geometry.MutableVec
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
+import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
+import androidx.ink.strokes.StrokeInput
+import com.hereliesaz.graffitixr.common.model.InkUtensil
 
 /**
  * The Jetpack Ink half of the Ink brush path that touches Ink's native library: building the Ink
- * [Brush] from the editor's brush settings, rendering a finished [Stroke] into a layer bitmap, and
+ * [Brush] for an [InkUtensil] from the editor's brush settings, rendering a finished [Stroke] into a layer bitmap, and
  * reading a stroke's outline geometry back out. Everything that can be pure Kotlin (coordinate
  * mapping, SVG text, the per-layer ledger) lives beside it in this package instead, so it is
  * unit-testable without the native library.
@@ -26,63 +27,56 @@ import androidx.ink.strokes.Stroke
 internal object InkStrokes {
 
     /**
-     * The Ink brush for the editor's round Brush.
+     * The stock [BrushFamily] behind [utensil] — the one place an [InkUtensil] becomes Ink.
      *
-     * Hard ([feathering] 0, the legacy round's default): [StockBrushes.pressurePen] rather than
-     * `marker` — the built-in Round maps pressure to size (25–100%), and pressurePen is the stock
-     * family with that same pressure → width response; a finger reports no pressure and gets a
-     * constant width, as Round does. [opacity] (the Brush's whole-stroke opacity) is folded into the
-     * colour's alpha, the only place a stock family takes it.
-     *
-     * Soft ([feathering] > 0): [softRoundFamily], a particle tip stamping [InkSoftRound]'s solved
-     * falloff texture, widened by [InkSoftRound.tipScale] so the fade can reach past the nominal
-     * edge as the legacy round's BlurMaskFilter does. Opacity lives in the texture there (see
-     * [InkSoftRound.solveStampProfile]), so the colour keeps its own alpha.
-     *
-     * [sizeWorld] is the nominal diameter in world units — `EditorUiState.effectivePaintBrushSize()`,
-     * the same number a round-brush [com.hereliesaz.graffitixr.feature.editor.StrokeCommand] records.
+     * Every family is pinned to its `V1` version rather than `LATEST`: a family's `LATEST` is allowed
+     * to change shape in a later Ink release, and a stroke re-rendered on undo/redo/bake (or by a
+     * co-op peer on another Ink version) should look like the one that was drawn.
      */
-    fun roundBrush(sizeWorld: Float, argb: Int, opacity: Float, feathering: Float = 0f): Brush {
-        val size = sizeWorld.coerceAtLeast(MIN_SIZE)
-        if (!InkSoftRound.isSoft(feathering)) {
-            val alpha = ((argb ushr ALPHA_SHIFT and BYTE) * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, BYTE)
-            val color = (alpha shl ALPHA_SHIFT) or (argb and RGB_MASK)
-            return Brush.createWithColorIntArgb(
-                family = StockBrushes.pressurePen(),
-                colorIntArgb = color,
-                size = size,
-                epsilon = EPSILON,
-            )
-        }
-        return Brush.createWithColorIntArgb(
-            family = softRoundFamily(feathering, opacity),
-            colorIntArgb = argb,
-            size = size * InkSoftRound.tipScale(feathering),
-            epsilon = EPSILON,
+    fun family(utensil: InkUtensil): BrushFamily = when (utensil) {
+        InkUtensil.PEN -> StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1)
+        InkUtensil.MARKER -> StockBrushes.marker(StockBrushes.MarkerVersion.V1)
+        InkUtensil.HIGHLIGHTER -> StockBrushes.highlighter(
+            SelfOverlap.DISCARD,
+            StockBrushes.HighlighterVersion.V1,
         )
+        InkUtensil.DASHED_LINE -> StockBrushes.dashedLine(StockBrushes.DashedLineVersion.V1)
     }
 
-    /** A round particle tip stamping [InkSoftRound]'s solved texture, pressure → size 25–100%. */
-    @OptIn(ExperimentalInkCustomBrushApi::class)
-    private fun softRoundFamily(feathering: Float, opacity: Float): BrushFamily {
-        val pressureToSize = BrushBehavior(
-            listOf(
-                BrushBehavior.TargetNode(
-                    BrushBehavior.Target.SIZE_MULTIPLIER, MIN_PRESSURE_SIZE, 1f,
-                    BrushBehavior.SourceNode(BrushBehavior.Source.NORMALIZED_PRESSURE, 0f, 1f),
-                ),
-            ),
+    /**
+     * The Ink [Brush] for [utensil] at the editor's current settings.
+     *
+     * [sizeWorld] is the nominal diameter in world units — `EditorUiState.effectivePaintBrushSize()`,
+     * the same number every Brush-tool [com.hereliesaz.graffitixr.feature.editor.StrokeCommand]
+     * records. [opacity] (the Brush's whole-stroke opacity) is folded into the colour's alpha, the
+     * only place a stock family takes it. There is deliberately no feathering parameter: the stock
+     * families have fixed tips (see [InkUtensil]).
+     */
+    fun brush(utensil: InkUtensil, sizeWorld: Float, argb: Int, opacity: Float): Brush =
+        Brush.createWithColorIntArgb(
+            family = family(utensil),
+            colorIntArgb = InkColor.withOpacity(argb, opacity),
+            size = sizeWorld.coerceAtLeast(MIN_SIZE),
+            epsilon = EPSILON,
         )
-        val tip = BrushTip.Builder()
-            .setCornerRounding(1f)
-            .setParticleGapDistanceScale(InkSoftRound.PARTICLE_GAP)
-            .setBehaviors(listOf(pressureToSize))
-            .build()
-        val texture = BrushPaint.TextureLayer.builder(InkSoftRound.textureId(feathering, opacity), 1f, 1f)
-            .setSizeUnit(BrushPaint.TextureSizeUnit.BRUSH_SIZE)
-            .setMapping(BrushPaint.TextureMapping.STAMPING)
-            .build()
-        return BrushFamily(tip, BrushPaint(listOf(texture)))
+
+    /**
+     * Rebuilds an Ink stroke from bare [points] (interleaved x, y) and [pressures] (one per point,
+     * empty = none) — what a co-op guest receives. Ink needs non-decreasing timestamps and the wire
+     * carries none, so the inputs are spaced [SYNTHETIC_SAMPLE_MS] apart; the stock families shape
+     * by distance, not time, so the spacing changes nothing a guest can see.
+     */
+    fun strokeFromPoints(brush: Brush, points: List<Float>, pressures: List<Float>): Stroke {
+        val batch = MutableStrokeInputBatch()
+        val count = points.size / 2
+        for (i in 0 until count) {
+            val pressure = pressures.getOrNull(i)?.coerceIn(0f, 1f) ?: StrokeInput.NO_PRESSURE
+            batch.add(
+                InputToolType.TOUCH, points[i * 2], points[i * 2 + 1], i * SYNTHETIC_SAMPLE_MS,
+                StrokeInput.NO_STROKE_UNIT_LENGTH, pressure,
+            )
+        }
+        return Stroke(brush, batch)
     }
 
     /**
@@ -104,7 +98,7 @@ internal object InkStrokes {
         // A renderer per commit: DrawingEngine can run on several default-dispatcher threads at once
         // (one per layer being rebuilt) and a renderer's paint caches are not documented as
         // thread-safe. Creating one is cheap next to the full-layer copy every commit already makes.
-        val renderer = CanvasStrokeRenderer.create(InkSoftRoundTextures)
+        val renderer = CanvasStrokeRenderer.create()
         val saved = if (alphaLock) {
             canvas.saveLayer(null, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) })
         } else {
@@ -147,12 +141,9 @@ internal object InkStrokes {
         return result
     }
 
-    private const val ALPHA_SHIFT = 24
-    private const val BYTE = 0xFF
-    private const val RGB_MASK = 0xFFFFFF
     private const val MIN_SIZE = 0.5f
-    /** The legacy round's pressure → size floor (BuiltInBrushes.round's 0.25). */
-    private const val MIN_PRESSURE_SIZE = 0.25f
+    /** Spacing of a co-op stroke's synthetic input timestamps (~120 Hz). */
+    private const val SYNTHETIC_SAMPLE_MS = 8L
     /** Ink's geometric tolerance in world units; 0.1 is the value Ink's own samples use. */
     private const val EPSILON = 0.1f
 }

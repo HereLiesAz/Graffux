@@ -8,7 +8,7 @@ package com.hereliesaz.graffitixr.feature.editor.prediction
  * [FLUSH_MIN_STROKES] are unreported. Each issue carries the session totals so far.
  *
  * Every stroke is tagged with the engine that drew it ([ENGINE_AZPHALT], the editor's own
- * live-stroke pipeline, or [ENGINE_JETPACK_INK] when Settings > Jetpack Ink brush is on), and the
+ * live-stroke pipeline, or [ENGINE_JETPACK_INK] when an Ink utensil is in hand), and the
  * issue title and body name each engine behind the strokes it covers — feel numbers from the two
  * engines are not comparable, so a report must never leave a reader guessing which one it measured.
  */
