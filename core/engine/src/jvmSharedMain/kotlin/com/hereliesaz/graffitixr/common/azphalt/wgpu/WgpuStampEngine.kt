@@ -193,6 +193,30 @@ class WgpuStampEngine private constructor(
         return if (stats == null || stats.size < 2) 0L to 0L else stats[0] to stats[1]
     }
 
+    // ---- Multipass rendering (experimental; core/wgpu-engine/src/multipass.rs) -----------------
+    // Each stamp call renders a cheap draft at once; the full-quality dab lands later, in the time
+    // refine() is given. The layer (commits, resident layers, readRegion) is byte-identical to
+    // multipass off; readback() returns the displayed image, which converges to it.
+
+    /** Turns multipass on or off; off (the default) is the plain path exactly. */
+    @Synchronized fun setMultipass(settings: MultipassSettings): Boolean =
+        handle != 0L && WgpuNative.nativeSetMultipass(handle, settings.toFloatArray())
+
+    /**
+     * Refinement for up to [budgetMs] (0: the rest of the current frame, measured). Pending drafts
+     * always run first. 1 = work or display animation remains, 0 = idle, -1 = failure.
+     */
+    @Synchronized fun refine(budgetMs: Float = 0f): Int =
+        if (handle == 0L) 0 else WgpuNative.nativeRefine(handle, budgetMs)
+
+    /** Lands everything queued and finishes the display's eases (blocks for the queued work). */
+    @Synchronized fun flush(): Boolean = handle != 0L && WgpuNative.nativeFlush(handle)
+
+    /** Diagnostics; null once closed. */
+    @get:Synchronized
+    val multipassStats: MultipassStats? get() =
+        if (handle == 0L) null else WgpuNative.nativeMultipassStats(handle)?.let(MultipassStats::fromArray)
+
     @Synchronized
     override fun close() {
         val h = handle

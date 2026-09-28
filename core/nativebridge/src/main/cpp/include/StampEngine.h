@@ -173,6 +173,17 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
+
+    // ---- Optional: multipass rendering (wgpu only, experimental) -------------------------------
+    // Draft now, full quality in the time left over; see graffux_wgpu.h. Defaults: unsupported, and
+    // every other call behaves exactly as without it.
+    virtual bool setMultipass(const float* /*params*/, size_t /*count*/) { return false; }
+    // 1 = more to do, 0 = idle / unsupported, -1 = failure.
+    virtual int refine(float /*budgetMs*/) { return 0; }
+    virtual bool flushMultipass() { return true; }
+    // Diagnostics doubles written (0 = unsupported).
+    virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
+
     virtual bool isInitialized() const = 0;
     virtual int width() const = 0;
     virtual int height() const = 0;

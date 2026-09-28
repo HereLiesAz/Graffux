@@ -2,6 +2,7 @@ package com.hereliesaz.graffux.desktop
 
 import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.Dab
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuDabs
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuLibrary
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuStampEngine
@@ -26,13 +27,32 @@ import kotlin.math.max
  * a resize, a CPU-rendered stroke -- misses and uploads, exactly as before. Committed images are
  * never mutated in place (CanvasState swaps whole images), so object identity is a safe key.
  *
+ * **Multipass drying (experimental, [multipass]).** Live frames stamp only the dabs new since the
+ * previous frame (stroke-wide max-combine) into the engine's multipass path: each shows at once as
+ * a draft and settles to full quality as refinement catches up ([tick] keeps that going while the
+ * pointer rests). The live dab list is not prefix-stable (taper), so [finishStroke] then turns
+ * multipass off (landing everything) and renders the stroke exactly as the plain path's last frame
+ * does: restore the stroke's rows, stamp every dab once. The committed frame is therefore
+ * byte-identical with multipass on or off. That finish blocks (off the UI thread) for whatever
+ * refinement is still queued -- the one place on desktop that waits for full quality, because the
+ * committed image is the GPU's.
+ *
  * One engine per canvas size, created lazily. [beginStroke]/[renderStroke] return false/null
  * whenever the GPU path is unavailable -- the library did not load, no adapter with compute support
  * exists (e.g. no GPU driver at all), a call failed, or `-Dgraffux.gpu=false` -- and the caller then
  * keeps using the CPU compositor. A failed size is not retried, so a GPU-less machine pays for the
- * probe once, not per frame. Not thread-safe; the canvas calls it from its one gesture coroutine.
+ * probe once, not per frame. Calls are serialized on the instance (the gesture coroutine and the
+ * multipass [tick] both reach it).
  */
 class GpuStrokeRenderer {
+    /** Multipass drying settings; read at each [beginStroke]. Off by default. */
+    @Volatile var multipass: MultipassSettings = MultipassSettings()
+
+    // Multipass state of the current stroke: on for it, dabs already submitted, rows they reach.
+    private var strokeMultipass = false
+    private var submittedDabs = 0
+    private var strokeRows: IntRange = IntRange.EMPTY
+
     private var engine: WgpuStampEngine? = null
     private var failedSize: Pair<Int, Int>? = null
 
@@ -65,8 +85,14 @@ class GpuStrokeRenderer {
      * those pixels (the committed image object); null disables residency for this stroke. False =
      * use the CPU.
      */
+    @Synchronized
     fun beginStroke(baseArgb: IntArray, width: Int, height: Int, contentKey: Any? = null): Boolean {
         val e = engineFor(width, height) ?: return false
+        // Before the bind/upload below, so the stroke's session starts with multipass as set.
+        val settings = multipass
+        strokeMultipass = e.setMultipass(settings) && settings.enabled
+        submittedDabs = 0
+        strokeRows = IntRange.EMPTY
         val bytes = baseArgb.size * BYTES_PER_PIXEL
         if (baseRgba.size != bytes) baseRgba = ByteArray(bytes)
         if (readback.size != bytes) readback = ByteArray(bytes)
@@ -118,6 +144,7 @@ class GpuStrokeRenderer {
      * round-trip to the same premultiplied bytes at low alpha. If the stroke did not end on a GPU
      * frame, the resident copy is simply forgotten.
      */
+    @Synchronized
     fun commitStroke(contentKey: Any) {
         val e = engine
         val s = session
@@ -133,6 +160,7 @@ class GpuStrokeRenderer {
     }
 
     /** Forgets the resident canvas (e.g. the document was replaced). */
+    @Synchronized
     fun invalidate() {
         residentContent = null
         session = 0L
@@ -144,6 +172,7 @@ class GpuStrokeRenderer {
      * renderer's own buffer, valid until the next call. Null = fall back to the CPU path.
      */
     @Suppress("ReturnCount")
+    @Synchronized
     fun renderStroke(
         dabs: List<Dab>,
         colorArgb: Int,
@@ -152,6 +181,7 @@ class GpuStrokeRenderer {
         flow: Float,
     ): IntArray? {
         val e = engine ?: return null
+        if (strokeMultipass) return renderStrokeMultipass(e, dabs, colorArgb, secondaryColorArgb, colorSource, flow)
         val restore = touchedRows
         val restored = if (firstFrame) {
             e.upload(baseRgba)
@@ -178,6 +208,117 @@ class GpuStrokeRenderer {
         touchedRows = stamped
         lastFrameFromGpu = true
         return frame
+    }
+
+    /**
+     * Multipass live frame: stamps only the dabs added since the last frame (stroke-wide max, so the
+     * batches combine like one call), reads back the displayed image (drafts now, full quality as
+     * it lands) and gives refinement the rest of the frame.
+     */
+    @Suppress("LongParameterList", "ReturnCount")
+    private fun renderStrokeMultipass(
+        e: WgpuStampEngine,
+        dabs: List<Dab>,
+        colorArgb: Int,
+        secondaryColorArgb: Int,
+        colorSource: BrushColorSource,
+        flow: Float,
+    ): IntArray? {
+        if (firstFrame && !e.upload(baseRgba)) return fail("upload failed")
+        if (dabs.size > submittedDabs) {
+            val fresh = dabs.subList(submittedDabs, dabs.size)
+            val packed = WgpuDabs.resolvedRound(fresh, colorArgb, secondaryColorArgb, colorSource, flow)
+            if (!e.stampDabs(packed, colorArgb, hardness = 1f, strokeMax = true)) return fail("stampDabs failed")
+            submittedDabs = dabs.size
+            strokeRows = union(strokeRows, rowsOf(fresh, e.height))
+        }
+        if (!readDisplay(e)) return fail("readback failed")
+        e.refine()
+        return frame
+    }
+
+    /**
+     * Multipass idle step: refinement for the rest of the frame, then the displayed image if it
+     * changed (null otherwise, or when there is no multipass stroke).
+     */
+    @Synchronized
+    fun tick(): IntArray? {
+        val e = engine ?: return null
+        if (!strokeMultipass) return null
+        e.refine()
+        if (!readDisplay(e)) return null
+        return if (lastCopyNonEmpty) frame else null
+    }
+
+    /** Whether the current stroke runs multipass (decided at [beginStroke]). */
+    @get:Synchronized
+    val multipassStroke: Boolean get() = strokeMultipass
+
+    /** The engine's canvas size, or null without an engine. */
+    @get:Synchronized
+    val canvasSize: Pair<Int, Int>? get() = engine?.let { it.width to it.height }
+
+    /** True while the current multipass stroke still has refinement or display easing to do. */
+    @get:Synchronized
+    val refining: Boolean get() = strokeMultipass && engine?.multipassStats?.settled == false
+
+    /**
+     * Ends a stroke. With multipass, lands all queued work and renders the committed frame exactly
+     * as the plain path's last frame (restore the stroke's rows, stamp every dab once), so the
+     * committed result is the same with multipass on or off. Blocks for the queued refinement; call
+     * it off the UI thread. Without multipass it simply returns the last frame. Null = use the CPU.
+     */
+    @Suppress("ReturnCount")
+    @Synchronized
+    fun finishStroke(
+        dabs: List<Dab>,
+        colorArgb: Int,
+        secondaryColorArgb: Int,
+        colorSource: BrushColorSource,
+        flow: Float,
+    ): IntArray? {
+        val e = engine ?: return null
+        if (!strokeMultipass) return if (lastFrameFromGpu) frame else null
+        strokeMultipass = false
+        // Off lands everything and leaves the display equal to the layer.
+        if (!e.setMultipass(MultipassSettings()) || !readDisplay(e)) return fail("multipass finish failed")
+        val rows = union(strokeRows, rowsOf(dabs, e.height))
+        if (!rows.isEmpty() && !e.uploadRows(baseRgba, rows.first, rows.last - rows.first + 1)) {
+            return fail("upload failed")
+        }
+        if (dabs.isNotEmpty()) {
+            val packed = WgpuDabs.resolvedRound(dabs, colorArgb, secondaryColorArgb, colorSource, flow)
+            if (!e.stampDabs(packed, colorArgb, hardness = 1f)) return fail("stampDabs failed")
+        }
+        if (!readDisplay(e)) return fail("readback failed")
+        touchedRows = rowsOf(dabs, e.height)
+        lastFrameFromGpu = true
+        return frame
+    }
+
+    private var lastCopyNonEmpty = false
+
+    /** Reads back the engine's changed rectangle into [frame] (straight ARGB). */
+    private fun readDisplay(e: WgpuStampEngine): Boolean {
+        val copied = e.readbackRect(readback) ?: return false
+        if (firstFrame) {
+            WgpuDabs.straightArgb(readback, frame, 0, e.width * e.height)
+        } else if (!copied.isEmpty) {
+            for (row in copied.y until copied.y + copied.height) {
+                val start = row * e.width + copied.x
+                WgpuDabs.straightArgb(readback, frame, start, start + copied.width)
+            }
+        }
+        lastCopyNonEmpty = !copied.isEmpty
+        firstFrame = false
+        lastFrameFromGpu = true
+        return true
+    }
+
+    private fun union(a: IntRange, b: IntRange): IntRange = when {
+        a.isEmpty() -> b
+        b.isEmpty() -> a
+        else -> minOf(a.first, b.first)..maxOf(a.last, b.last)
     }
 
     private fun rowsOf(dabs: List<Dab>, height: Int): IntRange {
@@ -231,7 +372,9 @@ class GpuStrokeRenderer {
         return null
     }
 
+    @Synchronized
     fun close() {
+        strokeMultipass = false
         engine?.close()
         engine = null
         session = 0L

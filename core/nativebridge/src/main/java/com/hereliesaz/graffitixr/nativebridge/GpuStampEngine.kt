@@ -4,8 +4,11 @@ package com.hereliesaz.graffitixr.nativebridge
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.HardwareBuffer
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import java.util.ArrayDeque
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -71,6 +74,29 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
 
         private fun helper(): GpuStampEngine =
             jniHelper ?: GpuStampEngine(Backend.WGPU).also { jniHelper = it }
+
+        /**
+         * Multipass rendering for wgpu engines (Settings -> "Multipass drying (experimental)", off by
+         * default). Set at startup and whenever Settings change; applied when an engine is set up
+         * for a stroke, so a change takes effect on the next stroke. Off is the plain path exactly.
+         */
+        @Volatile
+        @JvmStatic
+        var multipass: MultipassSettings = MultipassSettings()
+
+        /** SharedPreferences keys (in [Backend.PREFS]) for [multipass]. */
+        const val KEY_MULTIPASS = "multipass"
+        const val KEY_MULTIPASS_TRANSITION_MS = "multipass_transition_ms"
+
+        private val refineTicker = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "graffux-gpu-refine-tick").also { it.isDaemon = true }
+        }
+
+        /** Idle-time refinement of multipass work, always on [GpuRenderThread]. */
+        private val refiner = MultipassRefiner(
+            post = GpuRenderThread::post,
+            schedule = { delayMs, task -> refineTicker.schedule(task, delayMs, TimeUnit.MILLISECONDS) },
+        ) { handle -> if (handle in liveWgpuHandles) helper().nativeRefine(handle, 0f) else 0 }
 
         @JvmStatic
         fun trimPool() {
@@ -192,7 +218,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             poolKey = key
             healthy = true
             hardwareBufferExported = false
-            if (onGpu { nativeClear(cached) }) return true
+            if (onGpu { nativeClear(cached).also { if (it) applyMultipass(cached) } }) return true
             destroyHandle(cached, backend)
             nativeHandle = 0L
             poolKey = null
@@ -205,7 +231,10 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
             } else {
                 nativeInit(width, height, backend.nativeId)
             }
-            if (handle != 0L && backend == Backend.WGPU) liveWgpuHandles.add(handle)
+            if (handle != 0L && backend == Backend.WGPU) {
+                liveWgpuHandles.add(handle)
+                applyMultipass(handle)
+            }
             handle
         }
         nativeHandle = created
@@ -553,13 +582,43 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
      */
     private fun readbackWgpuRect(bitmap: Bitmap): Boolean {
         val rect = IntArray(RECT_INTS)
-        val ok = onGpu { nativeReadbackRect(nativeHandle, bitmap, rect) }
+        val handle = nativeHandle
+        val ok = onGpu { nativeReadbackRect(handle, bitmap, rect) }
         if (ok && rect[2] > 0 && rect[3] > 0) {
             lastReadbackRect = rect
             readbackPixels += rect[2].toLong() * rect[3]
         }
+        // Multipass: the frame is out; refine in what is left of it (queued behind this call).
+        if (ok && multipassEnabled) refiner.frameDone(handle)
         return ok
     }
+
+    /** Whether this engine's handle runs multipass (set at init from [multipass]). */
+    @Volatile private var multipassEnabled = false
+
+    /** Render thread only. Off also lands anything a pooled handle still had queued. */
+    private fun applyMultipass(handle: Long) {
+        val settings = multipass
+        multipassEnabled = nativeSetMultipass(handle, settings.toFloatArray()) && settings.enabled
+    }
+
+    /**
+     * Lands this engine's queued multipass work in its GPU layer and finishes the display's eases
+     * (blocks behind it on the render thread). Nothing in the app needs this today: on Android the
+     * CPU commit is the committed layer, and the stroke-end refresh drops queued refinement
+     * instead of waiting for it. Kept for callers that read the GPU layer itself.
+     */
+    @Synchronized
+    fun flushMultipass(): Boolean =
+        !isInitialized || backend != Backend.WGPU || onGpu { nativeFlushMultipass(nativeHandle) }
+
+    /**
+     * Multipass diagnostics (see MultipassStats.fromArray), null when unsupported. Test/feel-report
+     * use; blocks behind queued GPU work.
+     */
+    @Synchronized
+    fun multipassStats(): DoubleArray? =
+        if (!isInitialized || backend != Backend.WGPU) null else onGpu { nativeMultipassStats(nativeHandle) }
 
     /** The rectangle ({x, y, w, h}) the last non-empty wgpu [readback] copied; null otherwise. */
     @Volatile var lastReadbackRect: IntArray? = null
@@ -609,6 +668,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
         substrateHeightUploaded = false
         lastReadbackRect = null
         readbackPixels = 0L
+        multipassEnabled = false
         // Pooling is bookkeeping and happens now, so the next stroke's init() finds this handle
         // even while its last batches are still queued: every wgpu call on it runs on
         // GpuRenderThread in order, so the next user's clear() lands after them.
@@ -703,6 +763,10 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     private external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
     private external fun nativeInvalidateAllLayers(handle: Long)
     private external fun nativeDestroy(handle: Long)
+    private external fun nativeSetMultipass(handle: Long, params: FloatArray): Boolean
+    private external fun nativeRefine(handle: Long, budgetMs: Float): Int
+    private external fun nativeFlushMultipass(handle: Long): Boolean
+    private external fun nativeMultipassStats(handle: Long): DoubleArray?
 }
 
 /**

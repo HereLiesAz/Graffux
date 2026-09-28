@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,8 +27,10 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import java.awt.image.BufferedImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
@@ -65,12 +68,31 @@ fun DesktopStampCanvas(
     colorArgb: Int,
     flow: Float = 1f,
     modifier: Modifier = Modifier,
+    multipass: MultipassSettings = MultipassSettings(),
 ) {
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var displayBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var hoverPosition by remember { mutableStateOf<Offset?>(null) }
     val gpu = remember { GpuStrokeRenderer() }
     DisposableEffect(gpu) { onDispose { gpu.close() } }
+    // Multipass drying (experimental): read by the renderer at each stroke start.
+    SideEffect { gpu.multipass = multipass }
+    // While a multipass stroke is still settling (the pointer resting), keep refining and showing
+    // it. Stroke frames and this tick are serialized inside the renderer.
+    LaunchedEffect(gpu) {
+        while (true) {
+            delay(MULTIPASS_TICK_MS)
+            if (!gpu.refining) continue
+            val image = withContext(Dispatchers.Default) {
+                val (w, h) = gpu.canvasSize ?: return@withContext null
+                gpu.tick()?.let { px ->
+                    BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB).apply { setRGB(0, 0, w, h, px, 0, w) }
+                }
+            }
+            // A stroke that ended meanwhile has committed its final frame; don't cover it.
+            if (image != null && gpu.multipassStroke) displayBitmap = image.toComposeImageBitmap()
+        }
+    }
 
     // The ONE place that ever creates or resizes `state.committed`'s backing bitmap, covering
     // three cases uniformly: the very first layout pass (`committed == null`), a live window
@@ -194,6 +216,22 @@ fun DesktopStampCanvas(
                         }
                     },
                     onEnd = {
+                        // Multipass: land the stroke's queued refinement and render the committed
+                        // frame exactly as the plain path would (off the UI thread; see
+                        // GpuStrokeRenderer.finishStroke). The draft stays on screen meanwhile.
+                        val base = strokeBase
+                        if (gpuStroke == true && base != null && gpu.multipassStroke) {
+                            val dabs = BrushStamps.dynamicDabs(samples, brushRadiusPx * 2f, brush, strokeSeed)
+                            val pixels = withContext(Dispatchers.Default) {
+                                gpu.finishStroke(dabs, colorArgb, colorArgb, BrushColorSource.PLAIN, flow)?.copyOf()
+                            }
+                            if (pixels != null) {
+                                val frame = BufferedImage(base.width, base.height, BufferedImage.TYPE_INT_ARGB)
+                                frame.setRGB(0, 0, base.width, base.height, pixels, 0, base.width)
+                                lastRenderedFrame = frame
+                                displayBitmap = frame.toComposeImageBitmap()
+                            }
+                        }
                         // The last `onMove`'s renderStroke call has already been awaited by the time
                         // this runs (see the class doc comment), so `lastRenderedFrame` is exactly
                         // what's on screen -- bake it in as the next stroke's starting point.
@@ -241,3 +279,6 @@ fun DesktopStampCanvas(
         }
     }
 }
+
+/** Idle refinement cadence while a multipass stroke settles (about one 60 Hz frame). */
+private const val MULTIPASS_TICK_MS = 16L

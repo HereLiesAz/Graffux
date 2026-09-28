@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -50,7 +51,11 @@ import com.hereliesaz.aznavrail.LocalAzAppMeta
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import kotlin.math.roundToInt
+
+/** Longest drying transition the Tool Options slider offers, ms. */
+private const val MAX_TRANSITION_MS = 400f
 
 /** A small, real palette for quick picks -- the last swatch in the row opens [ColorWheel], a real
  *  HSV disc picker, for anything not in this fixed set. */
@@ -150,6 +155,8 @@ private fun GraffuxDesktopApp(
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     var showColorWheel by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(true) }
+    // Multipass drying (experimental, GPU canvas only): off by default.
+    var multipass by remember { mutableStateOf(MultipassSettings()) }
     // Real icons (the same master SVGs Android's `GraffuxIcons` generates from), not text-only
     // rail labels -- see Icons.kt. Resolved here, in this composable's own scope, since the
     // `AzHostActivityLayout` DSL block below is not itself `@Composable`.
@@ -316,6 +323,26 @@ private fun GraffuxDesktopApp(
                                     .clickable { showColorWheel = !showColorWheel },
                             )
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // Experimental: each dab shows at once as a draft of the same brush and
+                        // settles to full quality as the GPU catches up. The committed result is
+                        // identical either way. Takes effect on the next stroke.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = multipass.enabled,
+                                onCheckedChange = { multipass = multipass.copy(enabled = it) },
+                            )
+                            Text("Multipass drying (experimental)")
+                        }
+                        if (multipass.enabled) {
+                            Text("Drying transition: ${multipass.transitionMs.toInt()} ms")
+                            Slider(
+                                value = multipass.transitionMs,
+                                onValueChange = { multipass = multipass.copy(transitionMs = it) },
+                                valueRange = 0f..MAX_TRANSITION_MS,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
                 if (showColorWheel) {
@@ -352,6 +379,7 @@ private fun GraffuxDesktopApp(
                     colorArgb = selectedColor.toArgb(),
                     flow = brushFlow,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    multipass = multipass,
                 )
             }
             }

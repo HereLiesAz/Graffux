@@ -7,7 +7,8 @@ use std::ffi::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::engine::{
-    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, SubstrateParams,
+    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
+    MultipassStats, SubstrateParams,
 };
 
 /// Mirrors `GfxWgpuSubstrate` in the header.
@@ -492,4 +493,56 @@ pub unsafe extern "C" fn gfx_wgpu_resident_stats(e: *mut Engine, out: *mut u64) 
         *out = n as u64;
         *out.add(1) = bytes;
     }
+}
+
+// ---- Multipass rendering (experimental; see multipass.rs) ------------------------------------
+
+/// Sets multipass rendering: `params` = `MultipassConfig` floats ([enabled, passes, edge_fraction,
+/// transition_ms, overtake_ms, draft_scale, refine_ballast, frame_ms]; missing trailing values take
+/// their defaults). Off (the default) is the pre-multipass path exactly.
+///
+/// # Safety
+/// `params` must point to `n` readable floats (or be null with n = 0).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_multipass(e: *mut Engine, params: *const f32, n: usize) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| e.set_multipass(MultipassConfig::from_floats(slice(params, n))))
+    })
+}
+
+/// Refinement for up to `budget_ms` (<= 0: the rest of the current frame). 1 = work or display
+/// animation remains, 0 = idle (or multipass off), -1 = failure.
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_refine(e: *mut Engine, budget_ms: f32) -> i32 {
+    guard(-1, || engine(e).map_or(-1, |e| e.refine(budget_ms)))
+}
+
+/// Lands all queued multipass work and finishes every display ease (blocks).
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_flush(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.flush()))
+}
+
+/// Writes up to `n` doubles of `MultipassStats` (see its `to_array`); returns how many.
+///
+/// # Safety
+/// `out` must point to `n` writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_multipass_stats(e: *mut Engine, out: *mut f64, n: usize) -> usize {
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        if out.is_null() {
+            return 0;
+        }
+        let stats = e.multipass_stats().to_array();
+        let k = n.min(MultipassStats::DOUBLES);
+        std::slice::from_raw_parts_mut(out, k).copy_from_slice(&stats[..k]);
+        k
+    })
 }

@@ -72,6 +72,10 @@ public:
     bool invalidateLayer(uint64_t key) override;
     void invalidateAllLayers() override;
     void setResidentBudget(uint64_t bytes) override;
+    bool setMultipass(const float* params, size_t count) override;
+    int refine(float budgetMs) override;
+    bool flushMultipass() override;
+    size_t multipassStats(double* out, size_t count) override;
     bool isInitialized() const override { return engine_ != nullptr; }
     int width() const override { return width_; }
     int height() const override { return height_; }

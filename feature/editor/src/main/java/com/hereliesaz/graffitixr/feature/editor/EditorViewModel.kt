@@ -9526,7 +9526,8 @@ class EditorViewModel @Inject constructor(
             ?.let { "${it.width}x${it.height}" } ?: "?"
         val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
-            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}, " +
+            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}" +
+            (if (GpuStampEngine.multipass.enabled) " multipass" else "") + ", " +
             "display ${if (LiveStrokeOverlay.enabled) "direct" else "compose"}"
         return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
     }
