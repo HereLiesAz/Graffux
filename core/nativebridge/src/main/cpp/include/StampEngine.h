@@ -175,6 +175,8 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
+    /** Writes {resident layer count, bytes they hold}; engines without residency report 0/0. */
+    virtual void residentStats(uint64_t out[2]) const { out[0] = 0; out[1] = 0; }
 
     // ---- Optional: telemetry (GpuTelemetry.kt) -----------------------------------------------
     // key=value lines: engine, backend, renderer, vendor_id, device_id, driver, driver_info, api,

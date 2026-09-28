@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor.gpu
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** PowerManager thermal status and forecast headroom at one moment. */
 data class ThermalSnapshot(
@@ -110,11 +111,11 @@ class ThermalGpuBudgetProvider(initialTier: GpuTier = GpuTierTable.default) : Gp
     private val state = MutableStateFlow(GpuBudget(initialTier, ThermalSnapshot(), 1f))
     override val budget: StateFlow<GpuBudget> = state.asStateFlow()
 
-    fun setTier(tier: GpuTier) = update(tier, state.value.thermal)
+    // Read-modify-write through update {} so a concurrent setTier/onThermal cannot drop the other's field.
+    fun setTier(tier: GpuTier) = state.update { budgetOf(tier, it.thermal) }
 
-    fun onThermal(thermal: ThermalSnapshot) = update(state.value.tier, thermal)
+    fun onThermal(thermal: ThermalSnapshot) = state.update { budgetOf(it.tier, thermal) }
 
-    private fun update(tier: GpuTier, thermal: ThermalSnapshot) {
-        state.value = GpuBudget(tier, thermal, ThermalBudgetScaler.scale(thermal))
-    }
+    private fun budgetOf(tier: GpuTier, thermal: ThermalSnapshot) =
+        GpuBudget(tier, thermal, ThermalBudgetScaler.scale(thermal))
 }

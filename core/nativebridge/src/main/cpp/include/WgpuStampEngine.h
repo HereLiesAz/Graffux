@@ -72,6 +72,7 @@ public:
     bool invalidateLayer(uint64_t key) override;
     void invalidateAllLayers() override;
     void setResidentBudget(uint64_t bytes) override;
+    void residentStats(uint64_t out[2]) const override;
     std::string gpuInfo() const override;
     size_t takePassTimings(uint64_t* out, size_t capacityPairs) override;
     bool isInitialized() const override { return engine_ != nullptr; }

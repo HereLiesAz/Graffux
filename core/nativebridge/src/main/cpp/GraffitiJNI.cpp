@@ -1718,6 +1718,18 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetResidentBudg
     if (engine && engine->isInitialized() && bytes >= 0) engine->setResidentBudget(static_cast<uint64_t>(bytes));
 }
 
+JNIEXPORT jlongArray JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeResidentStats(JNIEnv* env, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    uint64_t stats[2] = {0, 0};
+    if (engine && engine->isInitialized()) engine->residentStats(stats);
+    jlongArray out = env->NewLongArray(2);
+    if (out == nullptr) return nullptr;
+    const jlong values[2] = {static_cast<jlong>(stats[0]), static_cast<jlong>(stats[1])};
+    env->SetLongArrayRegion(out, 0, 2, values);
+    return out;
+}
+
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);

@@ -57,6 +57,8 @@ struct Api {
     bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
     void (*invalidateAllLayers)(GfxWgpuEngine*);
     void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
+    // Optional on its own (added after the other resident entry points): diagnostics only.
+    void (*residentStats)(GfxWgpuEngine*, uint64_t*);
     // Optional (per-device tuning, telemetry): an older library creates untuned and reports
     // no GPU info or timings, so telemetry falls back to CPU wall time.
     GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
@@ -110,6 +112,7 @@ void load() {
                               optional(lib, "gfx_wgpu_invalidate_all_layers", a.invalidateAllLayers) &&
                               optional(lib, "gfx_wgpu_set_resident_budget", a.setResidentBudget);
         if (!resident) a.bindLayer = nullptr;  // all or nothing
+        optional(lib, "gfx_wgpu_resident_stats", a.residentStats);
         optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
         optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
         optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
@@ -266,6 +269,12 @@ void WgpuStampEngine::invalidateAllLayers() {
 
 void WgpuStampEngine::setResidentBudget(uint64_t bytes) {
     if (supportsResidentLayers()) gApi.setResidentBudget(engine_, bytes);
+}
+
+void WgpuStampEngine::residentStats(uint64_t out[2]) const {
+    out[0] = 0;
+    out[1] = 0;
+    if (engine_ != nullptr && gApi.residentStats != nullptr) gApi.residentStats(engine_, out);
 }
 
 std::string WgpuStampEngine::gpuInfo() const {

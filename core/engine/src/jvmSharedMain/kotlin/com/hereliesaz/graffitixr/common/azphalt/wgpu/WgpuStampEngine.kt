@@ -114,7 +114,10 @@ class WgpuStampEngine private constructor(
         substrate?.toArray(),
     )
 
-    /** `colorSmudge`. [dabs] holds [SMUDGE_FLOATS] floats per dab, at least two dabs. */
+    /**
+     * `colorSmudge`. [dabs] holds [SMUDGE_FLOATS] floats per dab (build it with
+     * [WgpuDabs.colorSmudge]), at least two dabs; anything else returns false without a native call.
+     */
     @Suppress("LongParameterList")
     @Synchronized
     fun colorSmudge(
@@ -126,7 +129,8 @@ class WgpuStampEngine private constructor(
         paintColorArgb: Int,
         dilution: Float = 0f,
         sampleSourceRgba: ByteArray? = null,
-    ): Boolean = handle != 0L && WgpuNative.nativeColorSmudge(
+    ): Boolean = handle != 0L && dabs.size >= 2 * SMUDGE_FLOATS && dabs.size % SMUDGE_FLOATS == 0 &&
+        WgpuNative.nativeColorSmudge(
         handle, dabs, mode, radiusPx, feathering, smearAlpha, paintColorArgb, dilution,
         sampleSourceRgba, if (sampleSourceRgba != null) width else 0, if (sampleSourceRgba != null) height else 0,
     )

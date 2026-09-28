@@ -39,6 +39,14 @@ class GpuTelemetryTest {
     }
 
     @Test
+    fun `sample count is the window the percentiles cover, not the lifetime`() {
+        val t = GpuTelemetry { 16 * ms }
+        repeat(600) { t.onPass(PassKind.STAMP.ordinal, 1 * ms, gpu = true) }
+        val report = t.report(GpuInfo(), null, null)
+        assertTrue(report, report.contains("stamp p50 1.00ms p95 1.00ms (n=512) gpu"))
+    }
+
+    @Test
     fun `thermal start and end, and calibration passes are ignored`() {
         val t = GpuTelemetry { 16 * ms }
         t.onThermal(ThermalSnapshot(ThermalSnapshot.STATUS_NONE, 0.3f))
