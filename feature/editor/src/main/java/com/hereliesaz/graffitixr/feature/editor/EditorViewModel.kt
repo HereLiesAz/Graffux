@@ -704,6 +704,9 @@ class EditorViewModel @Inject constructor(
     // stroke-list bake, so the Ink SVG in exportForFigma always matches what each layer shows.
     private val inkLedger = com.hereliesaz.graffitixr.feature.editor.ink.InkStrokeLedger<StrokeCommand>()
 
+    /** [layerId]'s Ink strokes as Export for Figma's Ink SVG reads them. Main thread; for tests. */
+    internal fun inkLedgerStrokes(layerId: String): List<StrokeCommand> = inkLedger.strokes(layerId)
+
     // Which content generation each layer is at, for the wgpu engine's GPU-resident layer copies
     // (see GpuLayerResidency). Invalidations also drop the GPU copies eagerly, queued on the GPU
     // render thread behind any in-flight stroke work.
@@ -6581,10 +6584,14 @@ class EditorViewModel @Inject constructor(
     fun usesJetpackInk(state: EditorUiState = _uiState.value): Boolean =
         _activeInkUtensil.value != null && state.activeTool == Tool.BRUSH
 
+    /** The utensil in hand, as [inkBrushForCurrentState] resolves it; snapshotted with it at stroke start. */
+    fun inkUtensilForCurrentState(): com.hereliesaz.graffitixr.common.model.InkUtensil =
+        _activeInkUtensil.value ?: com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+
     /** The Ink brush for the utensil in hand at the current Brush settings, sized in world units. */
     fun inkBrushForCurrentState(): androidx.ink.brush.Brush {
         val s = _uiState.value
-        val utensil = _activeInkUtensil.value ?: com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+        val utensil = inkUtensilForCurrentState()
         return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.brush(
             utensil, s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity,
         )
@@ -6596,9 +6603,34 @@ class EditorViewModel @Inject constructor(
      * on commit and on every undo/redo/bake replay. [onCommitted] runs on the main thread once the
      * layer bitmap holding it is published, which is when the caller may drop the live Ink copy
      * without a flicker; it also runs if the stroke can't be committed, so nothing is left behind.
+     * [utensil] is the one snapshotted at stroke start with the brush ([inkUtensilForCurrentState]),
+     * not the current selection: the user may have switched utensil before Ink's finished callback.
      */
     fun onInkStrokeFinished(
         stroke: androidx.ink.strokes.Stroke,
+        utensil: com.hereliesaz.graffitixr.common.model.InkUtensil,
+        canvasSize: IntSize,
+        onCommitted: () -> Unit,
+    ) {
+        val inputs = stroke.inputs
+        val scratch = androidx.ink.strokes.StrokeInput()
+        val path = ArrayList<Offset>(inputs.size)
+        val pressures = ArrayList<Float>(inputs.size)
+        for (i in 0 until inputs.size) {
+            inputs.populate(i, scratch)
+            path += Offset(scratch.x, scratch.y)
+            pressures += if (scratch.hasPressure) scratch.pressure else 1f
+        }
+        commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
+    }
+
+    /** [onInkStrokeFinished] once the stroke's inputs are read out (the seam tests drive, as Ink's are native). */
+    @Suppress("LongParameterList")
+    internal fun commitInkStroke(
+        stroke: androidx.ink.strokes.Stroke,
+        path: List<Offset>,
+        pressures: List<Float>,
+        utensil: com.hereliesaz.graffitixr.common.model.InkUtensil,
         canvasSize: IntSize,
         onCommitted: () -> Unit,
     ) {
@@ -6611,15 +6643,6 @@ class EditorViewModel @Inject constructor(
             return
         }
         invalidateResident(layerId)
-        val inputs = stroke.inputs
-        val scratch = androidx.ink.strokes.StrokeInput()
-        val path = ArrayList<Offset>(inputs.size)
-        val pressures = ArrayList<Float>(inputs.size)
-        for (i in 0 until inputs.size) {
-            inputs.populate(i, scratch)
-            path += Offset(scratch.x, scratch.y)
-            pressures += if (scratch.hasPressure) scratch.pressure else 1f
-        }
         val command = StrokeCommand(
             path = path,
             pressures = pressures,
@@ -6636,7 +6659,7 @@ class EditorViewModel @Inject constructor(
             wrapAroundMode = state.wrapAroundMode,
             selection = state.selection,
             inkStroke = stroke,
-            inkUtensil = _activeInkUtensil.value ?: com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
+            inkUtensil = utensil,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -10483,6 +10506,12 @@ class EditorViewModel @Inject constructor(
                     
                     layerStore.addStroke(layerId, command)
                     rebuildLayerBitmap(layerId)
+                    // A reconstructed Ink stroke joins the ledger (main-thread only) so Export for
+                    // Figma's Ink SVG has it too. Peer strokes aren't in local undo history, so
+                    // nothing here undoes it — just as the pixels stay; a fallback has no Ink.
+                    if (inkStroke != null) {
+                        withContext(dispatchers.main) { inkLedger.add(layerId, command, command) }
+                    }
                 }
             }
             is Op.TextContentChange -> {

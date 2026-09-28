@@ -32,6 +32,7 @@ import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
+import com.hereliesaz.graffitixr.common.model.InkUtensil
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import com.hereliesaz.graffitixr.feature.editor.StrokeGate
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
@@ -61,7 +62,8 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.rememberPredictionSes
 internal fun InkBrushCanvas(
     screenToWorld: InkAffine,
     brush: () -> Brush,
-    onStrokeFinished: (stroke: Stroke, canvasSize: IntSize, onCommitted: () -> Unit) -> Unit,
+    utensil: () -> InkUtensil,
+    onStrokeFinished: (stroke: Stroke, utensil: InkUtensil, canvasSize: IntSize, onCommitted: () -> Unit) -> Unit,
     onRawMotionEvent: (MotionEvent) -> Unit,
     gate: StrokeGate,
     stabilizer: () -> Pair<Int, StabilizerAlgorithm>,
@@ -88,6 +90,7 @@ internal fun InkBrushCanvas(
         update = { h ->
             h.screenToWorld = screenToWorld
             h.brush = brush
+            h.utensil = utensil
             h.onStrokeFinished = onStrokeFinished
             h.stabilizerSettings = stabilizer
             h.callbacks = callbacks
@@ -141,7 +144,12 @@ internal fun InkBrushCanvas(
 private class InkTouchHost(context: Context) : FrameLayout(context) {
     var screenToWorld: InkAffine = InkAffine.IDENTITY
     var brush: () -> Brush = { error("brush not set") }
-    var onStrokeFinished: (Stroke, IntSize, () -> Unit) -> Unit = { _, _, done -> done() }
+    var utensil: () -> InkUtensil = { InkUtensil.PEN }
+    var onStrokeFinished: (Stroke, InkUtensil, IntSize, () -> Unit) -> Unit = { _, _, _, done -> done() }
+
+    // Each stroke's utensil, snapshotted at start with its brush: the selection can change between
+    // lift and Ink's finished callback, and the stroke is the utensil it was started with.
+    private val strokeUtensils = HashMap<InProgressStrokeId, InkUtensil>()
     var stabilizerSettings: () -> Pair<Int, StabilizerAlgorithm> = { 0 to StabilizerAlgorithm.entries.first() }
     var callbacks: InkCanvasCallbacks = InkCanvasCallbacks()
     var session: PredictionSession? = null
@@ -183,7 +191,8 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
                 override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
                     val size = IntSize(width, height)
                     for ((id, stroke) in strokes) {
-                        onStrokeFinished(stroke, size) { inkView.removeFinishedStrokes(setOf(id)) }
+                        val strokeUtensil = strokeUtensils.remove(id) ?: utensil()
+                        onStrokeFinished(stroke, strokeUtensil, size) { inkView.removeFinishedStrokes(setOf(id)) }
                     }
                 }
             },
@@ -217,21 +226,21 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
                         record(session, event.getX(index), event.getY(index), event.eventTime, event.getPressure(index))
                         finish(event, index, id)
                     } else {
-                        inkView.cancelStroke(id, event)
+                        cancel(id, event)
                     }
                 }
                 strokeId = null
                 endGesture(session, event, lifted = true)
             }
             MotionEvent.ACTION_CANCEL -> {
-                strokeId?.let { inkView.cancelStroke(it, event) }
+                strokeId?.let { cancel(it, event) }
                 strokeId = null
                 endGesture(session, event, lifted = false)
             }
             MotionEvent.ACTION_POINTER_DOWN -> strokeId?.let {
                 // A second finger is a gesture, not paint — DrawingCanvas's rule. Drop the stroke,
                 // and if it had become a stroke (past slop), tell the gate it was thrown away.
-                inkView.cancelStroke(it, event)
+                cancel(it, event)
                 strokeId = null
                 if (began) gate?.markCancelled()
                 began = false
@@ -254,6 +263,7 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
         stabilizerAlgorithm = algorithm
         stabilizing = inkStabilizer.isActive(level)
         record(session, downX, downY, event.eventTime, event.getPressure(0))
+        val startUtensil = utensil()
         strokeId = if (stabilizing) {
             inkStabilizer.reset()
             strokeDownTime = event.eventTime
@@ -261,7 +271,7 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
         } else {
             val toWorld = Matrix().apply { setValues(screenToWorld.toMatrixValues()) }
             inkView.startStroke(event, pointerId, brush(), toWorld)
-        }
+        }.also { strokeUtensils[it] = startUtensil }
     }
 
     private fun onMove(event: MotionEvent, session: PredictionSession?) {
@@ -300,6 +310,11 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
         }
         batch.add(stabilizedInput(event, index, event.eventTime))
         inkView.addToStroke(batch, id)
+    }
+
+    private fun cancel(id: InProgressStrokeId, event: MotionEvent) {
+        inkView.cancelStroke(id, event)
+        strokeUtensils.remove(id)
     }
 
     private fun finish(event: MotionEvent, index: Int, id: InProgressStrokeId) {

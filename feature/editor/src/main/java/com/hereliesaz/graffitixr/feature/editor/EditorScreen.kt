@@ -424,7 +424,10 @@ fun EditorScreen(
                     uiState.viewportZoom, uiState.viewportRotation,
                 ),
                 brush = { vm.inkBrushForCurrentState() },
-                onStrokeFinished = { stroke, size, done -> vm.onInkStrokeFinished(stroke, size, done) },
+                utensil = { vm.inkUtensilForCurrentState() },
+                onStrokeFinished = { stroke, utensil, size, done ->
+                    vm.onInkStrokeFinished(stroke, utensil, size, done)
+                },
                 onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
                 gate = strokeGate,
                 stabilizer = { vm.inkStabilizerSettings() },

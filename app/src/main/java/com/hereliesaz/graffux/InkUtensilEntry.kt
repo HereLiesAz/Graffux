@@ -33,6 +33,10 @@ internal val INK_UTENSIL_CATALOG: List<InkUtensilEntry> = InkUtensil.entries.map
     )
 }
 
-/** The catalogue entry lit while `activeBrushName` is [name], or null when no Ink utensil is in hand. */
-internal fun inkUtensilEntryForBrushName(name: String?): InkUtensilEntry? =
-    InkUtensil.fromDisplayName(name)?.let { u -> INK_UTENSIL_CATALOG.first { it.utensil == u } }
+/**
+ * The catalogue entry for [utensil] (the view-model's `activeInkUtensil`), or null when no Ink
+ * utensil is in hand. Never derived from `activeBrushName`: a stamp brush can share a utensil's name
+ * (the built-in "Ink Pen" does, and a custom or installed one may), and that must not read as Ink.
+ */
+internal fun inkUtensilEntryFor(utensil: InkUtensil?): InkUtensilEntry? =
+    utensil?.let { u -> INK_UTENSIL_CATALOG.first { it.utensil == u } }

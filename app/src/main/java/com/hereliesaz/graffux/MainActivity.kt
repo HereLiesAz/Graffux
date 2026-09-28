@@ -236,6 +236,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val activeInkUtensil by vm.activeInkUtensil.collectAsState()
     val projectGate by vm.projectGate.collectAsState()
     val railExpansion by vm.railExpansion.collectAsState()
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
@@ -521,6 +522,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val activeClassifiers = activeRailClassifiers(
         uiState, brushes, customBrushes,
         modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
+        activeInkUtensil = activeInkUtensil,
     ).toMutableSet().apply {
         if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
         if (showModelDialog) add("area.model")
@@ -1426,7 +1428,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
                 if (showToolOptions) {
                     val previewAssets = vm.activeBrushPreviewAssets()
-                    val inkInHand = inkUtensilEntryForBrushName(uiState.activeBrushName) != null
+                    val inkInHand = activeInkUtensil != null
                     ToolOptionsWindow(
                         stabilizerLevel = uiState.stabilizerLevel,
                         onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
@@ -1751,6 +1753,49 @@ private const val TRANSFORM_ID = "grp.transform"
  * install toast contradicting the panel it pointed at. Both the classifier and the item's colour now
  * read from this set, so the two cannot disagree about what is active.
  */
+/** [activeRailClassifiers]' modes and toggles that stay on until turned off. */
+private fun modeRailClassifiers(
+    uiState: EditorUiState,
+    modelWindowOpen: Boolean,
+    toolOptionsOpen: Boolean,
+): Set<String> = buildSet {
+    if (uiState.wrapAroundMode) add("tool.wraparound")
+    // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
+    // window's own item — otherwise a recording in progress would show nowhere in the rail.
+    if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
+    if (modelWindowOpen) add("tool.model")
+    if (toolOptionsOpen) add("tool.options")
+    if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
+    if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
+    if (uiState.selection?.inverted == true) add("tool.selectInvert")
+    if (uiState.quickMenuAt != null) add("tool.quick")
+    if (uiState.showColorPicker) add("tool.color")
+}
+
+/**
+ * The brush-list entry lit for the brush in hand. With an Ink utensil in hand its entry is the brush,
+ * and no stamp brush that happens to share its name (the built-in "Ink Pen") lights too.
+ */
+private fun activeBrushClassifiers(
+    activeBrushName: String?,
+    brushes: List<Pair<String, String>>,
+    customBrushes: List<CustomBrush>,
+    activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?,
+): Set<String> = buildSet {
+    val inkEntry = inkUtensilEntryFor(activeInkUtensil)
+    if (inkEntry != null) {
+        add(inkEntry.classifier)
+        return@buildSet
+    }
+    com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
+        .firstOrNull { it.name == activeBrushName }
+        ?.let { add("brush.builtin.${it.name}") }
+    brushes.firstOrNull { it.second == activeBrushName }?.let { add("brush.${it.first}") }
+    customBrushes.firstOrNull { it.brush.name == activeBrushName }
+        ?.let { add("brush.custom.${it.id}") }
+}
+
+@Suppress("LongParameterList") // Each is a separate source of "what is lit"; see the parameter notes.
 internal fun activeRailClassifiers(
     uiState: EditorUiState,
     brushes: List<Pair<String, String>>,
@@ -1762,6 +1807,11 @@ internal fun activeRailClassifiers(
     modelWindowOpen: Boolean,
     /** Whether the Tool Options window is open — same reasoning as [modelWindowOpen]. */
     toolOptionsOpen: Boolean,
+    /**
+     * The view-model's `activeInkUtensil`. Ink is classified by this, never by `activeBrushName`: a
+     * stamp brush may share a utensil's name (the built-in "Ink Pen" does).
+     */
+    activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil? = null,
 ): Set<String> = buildSet {
     // The active tool. One of these at a time, by construction; Tool.NONE has no item, because it is
     // the absence of one.
@@ -1778,17 +1828,7 @@ internal fun activeRailClassifiers(
     // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
-    if (uiState.wrapAroundMode) add("tool.wraparound")
-    // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
-    // window's own item — otherwise a recording in progress would show nowhere in the rail.
-    if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
-    if (modelWindowOpen) add("tool.model")
-    if (toolOptionsOpen) add("tool.options")
-    if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
-    if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
-    if (uiState.selection?.inverted == true) add("tool.selectInvert")
-    if (uiState.quickMenuAt != null) add("tool.quick")
-    if (uiState.showColorPicker) add("tool.color")
+    addAll(modeRailClassifiers(uiState, modelWindowOpen, toolOptionsOpen))
 
     // Which panel is open — the rail item that opened it stays lit while it is.
     //
@@ -1812,13 +1852,7 @@ internal fun activeRailClassifiers(
     // is now the bundled "Round" preset), which is why the host itself lights up rather than a member
     // of its list.
     if (uiState.activeBrushName == null) add("grp.brushes")
-    com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
-        .firstOrNull { it.name == uiState.activeBrushName }
-        ?.let { add("brush.builtin.${it.name}") }
-    inkUtensilEntryForBrushName(uiState.activeBrushName)?.let { add(it.classifier) }
-    brushes.firstOrNull { it.second == uiState.activeBrushName }?.let { add("brush.${it.first}") }
-    customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }
-        ?.let { add("brush.custom.${it.id}") }
+    addAll(activeBrushClassifiers(uiState.activeBrushName, brushes, customBrushes, activeInkUtensil))
     if (uiState.brushStudioDraft != null) add("brush.studio")
 
     // The layer being edited, and the two mode pickers — each always lights exactly one member,
@@ -1886,9 +1920,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     onOpenBrushTipsManager: () -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
+    // Not collected here (this builder isn't composable); selecting a utensil also changes
+    // activeBrushName, so uiState recomposes the rail whenever this changes.
+    val activeInkUtensil = vm.activeInkUtensil.value
     val activeIds = activeRailClassifiers(
         uiState, brushes, customBrushes,
         modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
+        activeInkUtensil = activeInkUtensil,
     )
     val navStrings = strings.nav
 

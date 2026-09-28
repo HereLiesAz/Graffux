@@ -188,4 +188,35 @@ class SecondaryRailClassifiersTest {
     fun `nothing is secondary in an empty document`() {
         assertTrue(secondaryRailClassifiers(EditorUiState()).isEmpty())
     }
+
+    @Test
+    fun `a stamp brush named like an Ink utensil does not light the Ink item`() {
+        // The built-in stamp "Ink Pen" shares InkUtensil.PEN's display name; Ink is keyed on the
+        // utensil in hand, never on the name.
+        val state = EditorUiState(activeTool = Tool.BRUSH, activeBrushName = "Ink Pen")
+        val lit = activeRailClassifiers(
+            uiState = state,
+            brushes = emptyList(),
+            customBrushes = emptyList(),
+            modelWindowOpen = false,
+            toolOptionsOpen = false,
+        )
+        assertFalse("brush.ink.pen" in lit)
+        assertTrue("brush.builtin.Ink Pen" in lit)
+    }
+
+    @Test
+    fun `the Ink utensil in hand lights its own item and no same-named stamp brush`() {
+        val state = EditorUiState(activeTool = Tool.BRUSH, activeBrushName = "Ink Pen")
+        val lit = activeRailClassifiers(
+            uiState = state,
+            brushes = emptyList(),
+            customBrushes = emptyList(),
+            modelWindowOpen = false,
+            toolOptionsOpen = false,
+            activeInkUtensil = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
+        )
+        assertTrue("brush.ink.pen" in lit)
+        assertFalse("brush.builtin.Ink Pen" in lit)
+    }
 }
