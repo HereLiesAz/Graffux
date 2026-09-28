@@ -589,6 +589,24 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 An unrecognized capability string deserializes to `Capability.UNKNOWN` in the manifest parser — "the
 host simply never grants what it doesn't understand (fail-safe: less privilege)."
 
+#### 5.1.1 `assetRead` resolution
+
+`assetRead(path)` reads from the **invoking extension's own install directory**
+(`filesDir/extensions/<id>/`, where `AzpInstaller` unpacks the package). `ExtensionRepository.
+executeCodeExtension` wraps whatever host it is given in an `ExtensionScopedSandboxHost` bound to
+that one extension, so an extension can never name another extension's files. `path` is
+package-relative, the same form as a `files` map key (e.g. `assets/teal.cube`). The read returns
+`null` (missing or denied) unless all of these hold (`ExtensionAssetReader`):
+
+- the path passes `ExtensionPaths.isUnsafePath`, the same helper `AzpInstaller` uses on zip entry
+  names: no empty string, NUL, leading `/`, `:` (drive/scheme), backslash, or `..` segment;
+  percent-encoding is not decoded, so `%2e%2e/` is just an unlisted literal name;
+- the path is a key of the manifest's `files` map (the digest-verified payload list);
+- its canonical path (symlinks resolved) is a regular file strictly inside the extension root;
+- the file is at most `ExtensionAssetReader.MAX_ASSET_READ_BYTES` (4 MiB).
+
+The Wasm bridge's `outCap` truncation contract is unchanged.
+
 **TODO: unconfirmed** — `bitmap` and `audio` are part of the `Capability` wire enum and are described
 in `AzphaltSandboxHost`'s doc comment framing ("Each function represents an access-controlled
 capability"), but no host-function binding for either exists in the current `WasmSandbox`/`JsSandbox`

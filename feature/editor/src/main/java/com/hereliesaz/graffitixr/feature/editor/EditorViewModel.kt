@@ -2065,6 +2065,8 @@ class EditorViewModel @Inject constructor(
             // Unused for now, but should dispatch intent
         }
         
+        // Not reached: ExtensionRepository.executeCodeExtension wraps this host in an
+        // ExtensionScopedSandboxHost that serves assetRead from the invoking extension's own dir.
         override fun assetRead(path: String): ByteArray? = null
         override fun selectionSize(): Int = 0
         override fun selectionRead(): ByteArray = ByteArray(0)
