@@ -112,6 +112,13 @@ class ExtensionRepository @Inject constructor(
     /** Serializes filesystem-mutating operations so concurrent install/uninstall can't interleave. */
     private val lock = Any()
 
+    /**
+     * Bumped (under [lock]) by every install and uninstall. [refreshTrustStore] snapshots it before
+     * its network round trip and skips its rescan if it moved, so a refresh that started before an
+     * install/uninstall can never publish a scan that races with that mutation's own.
+     */
+    private var mutationGeneration = 0L
+
     // App-lifetime scope for the one-shot initial scan off the injecting thread (see init below).
     private val ioScope = CoroutineScope(SupervisorJob() + dispatcherProvider.io)
 
@@ -150,6 +157,7 @@ class ExtensionRepository @Inject constructor(
         try {
             tempFile.outputStream().use { out -> copyBounded(input, out, AzpInstaller.MAX_PACKAGE_BYTES) }
             val installed = synchronized(lock) {
+                mutationGeneration++
                 val result = tempFile.inputStream().use {
                     installer.install(
                         it,
@@ -231,6 +239,7 @@ class ExtensionRepository @Inject constructor(
 
     fun uninstall(id: String, nowMs: Long = System.currentTimeMillis()) {
         val removed = synchronized(lock) {
+            mutationGeneration++
             val ext = _installed.value.find { it.id == id } ?: return@synchronized null
             File(ext.dir).deleteRecursively()
             _installed.value = scanInstalled()
@@ -511,6 +520,7 @@ class ExtensionRepository @Inject constructor(
     }
 
     private fun refreshTrustStore() {
+        val generationAtStart = synchronized(lock) { mutationGeneration }
         try {
             val connection = URL(WELL_KNOWN_URL).openConnection() as HttpURLConnection
             connection.connectTimeout = 10_000
@@ -525,25 +535,34 @@ class ExtensionRepository @Inject constructor(
             val out = ByteArrayOutputStream()
             connection.inputStream.use { copyBounded(it, out, MAX_TRUST_STORE_BYTES) }
             val body = out.toByteArray().decodeToString()
-            val keys = parseSigningKeys(body)
-            if (keys.isEmpty()) return
-            val store = TrustStore(keys)
-            if (store == trustStore) return
-            // Same lock installFromStream/uninstall take before touching installer/_installed. This
-            // runs once per launch after a blocking network round trip, unsynchronized -- an install
-            // or uninstall landing in that window could have its own, already-correct _installed
-            // write overwritten by this rescan afterward, the same last-writer-wins shape fixed
-            // elsewhere in this app's async publishers (#244, #249).
-            synchronized(lock) {
-                File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
-                trustStore = store
-                installer = AzpInstaller(extensionsRoot, store)
-                _installed.value = scanInstalled()
-            }
+            applyFetchedTrustStore(body, generationAtStart)
         } catch (_: Exception) {
             // Network unavailable — cached keys (if any) are already in use.
         }
     }
+
+    /**
+     * Adopt a freshly fetched trust store [body]. The keys are always adopted, but the rescan is
+     * skipped when an install/uninstall ran since [generationAtStart] was taken: that mutation already
+     * published its own scan, and this one must not race it (last-writer-wins, cf. #244, #249).
+     * Returns true only when this call rescanned and published [installed].
+     */
+    internal fun applyFetchedTrustStore(body: String, generationAtStart: Long): Boolean {
+        val keys = parseSigningKeys(body)
+        val store = TrustStore(keys)
+        if (keys.isEmpty() || store == trustStore) return false
+        return synchronized(lock) {
+            File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
+            trustStore = store
+            installer = AzpInstaller(extensionsRoot, store)
+            val unchanged = mutationGeneration == generationAtStart
+            if (unchanged) _installed.value = scanInstalled()
+            unchanged
+        }
+    }
+
+    /** Test seam: the current [mutationGeneration]. */
+    internal fun currentMutationGeneration(): Long = synchronized(lock) { mutationGeneration }
 
     private fun parseSigningKeys(json: String): List<TrustedKey> = runCatching {
         val root = Json.parseToJsonElement(json).jsonObject
