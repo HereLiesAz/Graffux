@@ -72,8 +72,21 @@ class CanvasState {
         val frame = committed ?: return null
         directory.mkdirs()
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-        val file = File(directory, "graffux-$timestamp.png")
+        val file = reserveUniqueFile(directory, "graffux-$timestamp")
         ImageIO.write(frame, "png", file)
         return file
+    }
+
+    /** The timestamp only has one-second resolution, so a second export in the same second would
+     *  overwrite the first. Claims `base.png`, else `base-2.png`, `base-3.png`, ... -- atomically,
+     *  via [File.createNewFile], so two exports can never be handed the same name. */
+    private fun reserveUniqueFile(directory: File, base: String): File {
+        var n = 1
+        while (true) {
+            val name = if (n == 1) "$base.png" else "$base-$n.png"
+            val candidate = File(directory, name)
+            if (candidate.createNewFile()) return candidate
+            n++
+        }
     }
 }

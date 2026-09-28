@@ -37,7 +37,10 @@ SENSOR_SPECS = [  # (name, values used)
     ("gameRotationVector", 4),
 ]
 SENSOR_LAG_NS = 50_000_000
-PER_SAMPLE = 11  # dx, dy, dt, pressure, touchMajor, touchMinor, sin/cos orientation, tilt, size, hovering
+# dx, dy, dt, pressure, touchMajor, touchMinor, sin/cos orientation, tilt, size, hover distance.
+# The last is the `distance` column (AXIS_DISTANCE, SCHEMA.md): the stylus's height above the glass,
+# 0 in contact and for fingers. Every schema (v1-v3) records it; a file missing it reads as 0.
+PER_SAMPLE = 11
 SENSOR_FEATURES = 2 * sum(n for _, n in SENSOR_SPECS) + len(SENSOR_SPECS)  # two times + presence flags
 CONTEXT_FEATURES = len(TOOLS) + 1 + 2  # tool one-hot, frame ms, zoom
 
@@ -117,6 +120,14 @@ def _sensor_features(rec: dict, anchor_ns: float) -> np.ndarray:
     return np.asarray(out + present, dtype=np.float32)
 
 
+def _hover_distance(samples: dict, n: int) -> np.ndarray:
+    """The per-sample `distance` column, non-negative; zeros when absent or the wrong length."""
+    v = samples.get("distance")
+    if v is None or len(v) != n:
+        return np.zeros(n)
+    return np.clip(np.nan_to_num(np.asarray(v, dtype=np.float64)), 0.0, None)
+
+
 def stroke_examples(stroke: Stroke):
     """Yields (history[HISTORY, PER_SAMPLE], sensors[SENSOR_FEATURES], context[CONTEXT_FEATURES],
     target[HORIZONS, 2], mask[HORIZONS]) for every usable anchor in the stroke."""
@@ -134,6 +145,7 @@ def stroke_examples(stroke: Stroke):
     orient = np.asarray(s["orientation"], float)
     tilt = np.asarray(s["tilt"], float)
     size = np.asarray(s["size"], float)
+    hover = _hover_distance(s, len(t))
     frame_ns = stroke.frame_ms * 1e6
     tool = rec.get("tool", "unknown")
     tool_onehot = [1.0 if tool == name else 0.0 for name in TOOLS] + [0.0 if tool in TOOLS else 1.0]
@@ -154,7 +166,7 @@ def stroke_examples(stroke: Stroke):
             hist[k] = [
                 d[0], d[1], (t[i] - t[j]) / 1e6 / TIME_SCALE_MS, pressure[j],
                 major[j] / POS_SCALE, minor[j] / POS_SCALE,
-                math.sin(orient[j]), math.cos(orient[j]), tilt[j], size[j], 0.0,
+                math.sin(orient[j]), math.cos(orient[j]), tilt[j], size[j], hover[j],
             ]
         target = np.zeros((HORIZONS, 2), dtype=np.float32)
         mask = np.zeros(HORIZONS, dtype=np.float32)

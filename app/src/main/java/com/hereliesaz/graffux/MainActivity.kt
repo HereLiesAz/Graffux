@@ -310,6 +310,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // "Brushes" group or the full "My Brushes" gallery window -- neither of which stays visible
     // while a stroke is in progress the way this does.
     var showBrushRail by remember { mutableStateOf(true) }
+    // The bottom carousel (BottomCarousel.kt): additive to the brush rail and Tool Options window,
+    // not a replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
+    // outright, and its own chevron collapses it to a single button when the canvas needs the room.
+    var showCarousel by remember { mutableStateOf(true) }
+    var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, expanded = true)) }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -837,6 +842,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             )
                         areaToggle("Layers", showLayersRail) { showLayersRail = it }
                         areaToggle("Brushes", showBrushRail) { showBrushRail = it }
+                        areaToggle("Carousel", showCarousel) { showCarousel = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
@@ -943,10 +949,61 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ) {
                         Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                     }
-                } else if (uiState.activePanel == EditorPanel.NONE) Row(
-                    modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                } else if (uiState.activePanel == EditorPanel.NONE) Column(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        // Clear of the docked rail: the carousel is the one wide thing in this strip.
+                        .padding(
+                            start = if (railInset.dockedOnLeft) railInset.width else 8.dp,
+                            end = if (railInset.dockedOnLeft) 8.dp else railInset.width,
+                            bottom = 24.dp,
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (showCarousel) {
+                        val carouselEntries = carouselEntries(
+                            carouselUi.category,
+                            CarouselInputs(
+                                activeTool = uiState.activeTool,
+                                activeBrushName = uiState.activeBrushName,
+                                builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                                customBrushes = customBrushes.map { it.id to it.brush },
+                                extensionBrushes = brushes,
+                                stabilizerLevel = uiState.stabilizerLevel,
+                                stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                smudgeMode = colorSmudgeSettings.mode,
+                                selectionShape = uiState.selectionShape,
+                                toolOptionsOpen = showToolOptions,
+                            ),
+                        )
+                        BottomCarousel(
+                            ui = carouselUi,
+                            onUiChange = { carouselUi = it },
+                            content = CarouselContent(
+                                entries = carouselEntries,
+                                brushColor = uiState.activeColor,
+                                secondaryColor = uiState.secondaryColor,
+                                extensionPreviews = brushPreviews,
+                            ),
+                            onEntryClick = { entry ->
+                                when (val action = entry.action) {
+                                    is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
+                                    is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
+                                    is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
+                                    is CarouselAction.PickTool -> vm.setActiveTool(
+                                        if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
+                                    )
+                                    is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
+                                    is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
+                                    is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
+                                    is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                    CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
+                                }
+                            },
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     val viewMoved = uiState.viewportZoom != 1f ||
                         uiState.viewportOffset != Offset.Zero ||
                         uiState.viewportRotation != 0f
@@ -985,6 +1042,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         }
                     }
                 }
+                    }
             }
 
             onscreen(alignment = Alignment.Center) {
@@ -2271,9 +2329,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // paints first, underneath everything); declared here top-first (reversed) so the item at
     // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
     // convention and Photoshop/Procreate's own. A group layer is a rail host of its own
-    // (azRailSubHostItem under its parent's host) and its children are ordinary rail sub-items
-    // whose hostId is that group — never a nested rail — so reordering stays scoped to siblings
-    // at each level. See layerRailRows for the declaration order and why it matters.
+    // (azRailRelocSubHostItem under its parent's host, draggable with its children) and its
+    // children are ordinary rail sub-items whose hostId is that group — never a nested rail — so
+    // reordering stays scoped to siblings at each level. See layerRailRows for the declaration
+    // order and why it matters.
     //
     // Unattached and pinned to the opposite side of the screen from the main rail, not a group
     // in the rail strip. Layers is the one host you keep reaching for *while* painting —
@@ -2524,21 +2583,16 @@ private fun AzNavHostScope.ConfigureRailItems(
 }
 
 /**
- * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host, so it
- * drag-reorders among that host's other leaf layers. A [LayerType.GROUP] is an `azRailSubHostItem`
- * under the row's host with id `layer.<groupId>`, and its children (declared by [layerRailRows] as
- * rows of their own) are reloc sub-items with that id as their `hostId` — sub-items of a host,
- * not a nested rail.
+ * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host. A
+ * [LayerType.GROUP] is an `azRailRelocSubHostItem` under the row's host with id `layer.<groupId>`,
+ * and its children (declared by [layerRailRows] directly after it) are reloc sub-items with that id
+ * as their `hostId` — sub-items of a host, not a nested rail. Leaves and groups share one reloc
+ * cluster per host, so a group drags among its siblings like any layer, carrying its children.
  *
- * Library limit: AzNavRail has no item that is both a reloc item and a host (`azRailRelocItem`
- * takes no host flags; `azRailSubHostItem` takes no `onRelocate`), so a group itself can't be
- * dragged, and — because a reloc cluster is a *contiguous* run of same-host reloc items — a group
- * also bounds how far its leaf siblings can be dragged past it. Moving a whole group is done
- * through the existing layer ops (Ungroup / Group with Above), not a drag.
- *
- * onRelocate's newOrder is every reloc id of the host, top-first; [EditorViewModel.onLayerRailRelocated]
- * narrows it to the host's own layers and applies it via [LayerListOps.reorderSubset], which only
- * touches the named layers' slots, so a group's untouched slot stays where it was.
+ * onRelocate's newOrder is the host's direct reloc members (leaf and group ids), top-first;
+ * [EditorViewModel.onLayerRailRelocated] narrows it to the host's own layers and applies it via
+ * [LayerListOps.reorderSubset] as one undoable reorder. A group's children keep their `parentId`,
+ * so they follow the group without being touched.
  */
 private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: EditorUiState, env: LayerRailEnv) {
     val vm = env.vm
@@ -2549,7 +2603,7 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
         renderLayerMenu(layer, uiState, env)
     }
     if (row.isGroup) {
-        azRailSubHostItem(
+        azRailRelocSubHostItem(
             id = id, hostId = row.hostId, classifiers = setOf(id),
             text = layer.name,
             content = GraffuxIcons.LayerGroup,
@@ -2558,6 +2612,7 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
             color = navItemColor,
             initiallyExpanded = env.railExpansion[id] ?: false,
             onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
+            onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
             hiddenMenu = menu,
         )
         return
@@ -2579,8 +2634,8 @@ private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: Edito
         shape = AzButtonShape.NONE_SQUARE,
         color = navItemColor,
         onClick = { vm.onLayerActivated(layer.id) },
-        // newOrder is every reloc id of this host, top-first; the ViewModel narrows it to the
-        // host's own layers (the group's children when parentId is a group's id).
+        // newOrder is this host's reloc members (leaves and groups), top-first; the ViewModel narrows
+        // it to the host's own layers (the group's children when parentId is a group's id).
         onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
         hiddenMenu = menu,
     )
@@ -2743,6 +2798,20 @@ private fun HiddenMenuScope.renderLayerLayoutMenu(
     on: (() -> Unit) -> () -> Unit,
 ) {
     val hasChildren = uiState.layers.any { it.parentId == layer.id }
+    if (hasChildren && layer.type == LayerType.GROUP) {
+        // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
+        // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
+        // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.
+        val w = if (layer.layoutWidth > 0f) layer.layoutWidth else uiState.documentWidth.toFloat()
+        val h = if (layer.layoutHeight > 0f) layer.layoutHeight else uiState.documentHeight.toFloat()
+        inputItem(hint = "Frame Size (W x H)", initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
+            val parts = text.split('x', 'X', '×', ',', ' ').mapNotNull { it.trim().toFloatOrNull() }
+            if (parts.size == 2) {
+                vm.onLayerActivated(layer.id)
+                vm.onSetFrameSize(parts[0], parts[1])
+            }
+        }
+    }
     if (hasChildren) {
         val current = layer.autoLayout
         LayoutDirection.entries.forEach { dir ->

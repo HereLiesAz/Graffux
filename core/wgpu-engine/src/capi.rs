@@ -7,8 +7,9 @@ use std::ffi::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::engine::{
+    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
+    MultipassStats, SubstrateParams,
     EngineOptions,
-    BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, SubstrateParams,
 };
 
 /// Mirrors `GfxWgpuSubstrate` in the header.
@@ -96,14 +97,16 @@ pub extern "C" fn gfx_wgpu_create_tuned(
 /// `out` must point to `capacity` writable bytes (or be null with capacity 0).
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_gpu_info(e: *mut Engine, out: *mut c_char, capacity: usize) -> usize {
-    let Some(e) = engine(e) else { return 0 };
-    let text = e.gpu_info();
-    if !out.is_null() && capacity > 0 {
-        let n = text.len().min(capacity - 1);
-        std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
-        *out.add(n) = 0;
-    }
-    text.len()
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        let text = e.gpu_info();
+        if !out.is_null() && capacity > 0 {
+            let n = text.len().min(capacity - 1);
+            std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+            *out.add(n) = 0;
+        }
+        text.len()
+    })
 }
 
 /// Drains GPU pass timings into `out` as `{kind, nanoseconds}` pairs, at most `capacity_pairs`
@@ -117,8 +120,8 @@ pub unsafe extern "C" fn gfx_wgpu_take_pass_timings(
     out: *mut u64,
     capacity_pairs: usize,
 ) -> usize {
-    let Some(e) = engine(e) else { return 0 };
     guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
         let samples = e.take_pass_timings();
         let n = samples.len().min(capacity_pairs);
         if out.is_null() {
@@ -145,14 +148,14 @@ pub unsafe extern "C" fn gfx_wgpu_destroy(e: *mut Engine) {
 /// `e` must be a live engine.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_width(e: *mut Engine) -> i32 {
-    engine(e).map_or(0, |e| e.width())
+    guard(0, || engine(e).map_or(0, |e| e.width()))
 }
 
 /// # Safety
 /// `e` must be a live engine.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_height(e: *mut Engine) -> i32 {
-    engine(e).map_or(0, |e| e.height())
+    guard(0, || engine(e).map_or(0, |e| e.height()))
 }
 
 /// # Safety
@@ -349,17 +352,19 @@ pub unsafe extern "C" fn gfx_wgpu_color_smudge(
 /// `ids` must hold 3 u32s and `nanos` 2 u64s.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_benchmark_info(e: *mut Engine, ids: *mut u32, nanos: *mut u64) {
-    let Some(e) = engine(e) else { return };
-    let b = e.color_smudge_benchmark_info();
-    if !ids.is_null() {
-        *ids = b.vendor_id;
-        *ids.add(1) = b.device_id;
-        *ids.add(2) = b.selected_tile_size;
-    }
-    if !nanos.is_null() {
-        *nanos = b.nanos8;
-        *nanos.add(1) = b.nanos16;
-    }
+    guard((), || {
+        let Some(e) = engine(e) else { return };
+        let b = e.color_smudge_benchmark_info();
+        if !ids.is_null() {
+            *ids = b.vendor_id;
+            *ids.add(1) = b.device_id;
+            *ids.add(2) = b.selected_tile_size;
+        }
+        if !nanos.is_null() {
+            *nanos = b.nanos8;
+            *nanos.add(1) = b.nanos16;
+        }
+    })
 }
 
 /// # Safety
@@ -384,14 +389,16 @@ pub unsafe extern "C" fn gfx_wgpu_adapter_description(
     out: *mut c_char,
     capacity: usize,
 ) -> usize {
-    let Some(e) = engine(e) else { return 0 };
-    let text = e.adapter_description();
-    if !out.is_null() && capacity > 0 {
-        let n = text.len().min(capacity - 1);
-        std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
-        *out.add(n) = 0;
-    }
-    text.len()
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        let text = e.adapter_description();
+        if !out.is_null() && capacity > 0 {
+            let n = text.len().min(capacity - 1);
+            std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+            *out.add(n) = 0;
+        }
+        text.len()
+    })
 }
 
 // ---- Dirty-rect readback and resident layers (see resident.rs and Engine's docs) ----------
@@ -552,10 +559,141 @@ pub unsafe extern "C" fn gfx_wgpu_set_resident_budget(e: *mut Engine, bytes: u64
 /// `out` must point to 2 writable u64s.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_resident_stats(e: *mut Engine, out: *mut u64) {
-    let Some(e) = engine(e) else { return };
-    if !out.is_null() {
-        let (n, bytes) = e.resident_stats();
-        *out = n as u64;
-        *out.add(1) = bytes;
-    }
+    guard((), || {
+        let Some(e) = engine(e) else { return };
+        if !out.is_null() {
+            let (n, bytes) = e.resident_stats();
+            *out = n as u64;
+            *out.add(1) = bytes;
+        }
+    })
+}
+
+// ---- Multipass rendering (experimental; see multipass.rs) ------------------------------------
+
+/// Sets multipass rendering: `params` = `MultipassConfig` floats ([enabled, passes, edge_fraction,
+/// transition_ms, overtake_ms, draft_scale, refine_ballast, frame_ms, refine_fraction,
+/// max_chunk_px]; missing trailing values take
+/// their defaults). Off (the default) is the pre-multipass path exactly.
+///
+/// # Safety
+/// `params` must point to `n` readable floats (or be null with n = 0).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_multipass(e: *mut Engine, params: *const f32, n: usize) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| e.set_multipass(MultipassConfig::from_floats(slice(params, n))))
+    })
+}
+
+/// Refinement for up to `budget_ms` (<= 0: the rest of the current frame). 1 = work or display
+/// animation remains, 0 = idle (or multipass off), -1 = failure.
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_refine(e: *mut Engine, budget_ms: f32) -> i32 {
+    guard(-1, || engine(e).map_or(-1, |e| e.refine(budget_ms)))
+}
+
+/// Lands all queued multipass work and finishes every display ease (blocks).
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_flush(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.flush()))
+}
+
+/// Writes up to `n` doubles of `MultipassStats` (see its `to_array`); returns how many.
+///
+/// # Safety
+/// `out` must point to `n` writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_multipass_stats(e: *mut Engine, out: *mut f64, n: usize) -> usize {
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        if out.is_null() {
+            return 0;
+        }
+        let stats = e.multipass_stats().to_array();
+        let k = n.min(MultipassStats::DOUBLES);
+        std::slice::from_raw_parts_mut(out, k).copy_from_slice(&stats[..k]);
+        k
+    })
+}
+
+// ---- Direct display (direct.rs; docs/Native Rendering Engine Design.md §3) ---------------------
+
+/// Direct-display capability bits (`direct::caps`): 1 window support built in, 2 adapter can run
+/// the present pass, 4 attached, 8 stroke showing, 16 attached to a real swapchain.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_capabilities(e: *mut Engine) -> u32 {
+    guard(0, || engine(e).map_or(0, |e| e.direct_capabilities()))
+}
+
+/// Attaches direct display to an `ANativeWindow*` of `width`x`height` pixels. False = unsupported
+/// here; the caller keeps the readback display.
+///
+/// # Safety
+/// `e` must be a live engine; `window` a valid `ANativeWindow*` the caller keeps a reference to
+/// until `gfx_wgpu_direct_detach` or `gfx_wgpu_destroy`. One engine per window at a time.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_attach(
+    e: *mut Engine,
+    window: *mut std::ffi::c_void,
+    width: i32,
+    height: i32,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| e.direct_attach_window(window, width, height))
+    })
+}
+
+/// Drops the surface (disconnects from the window). Safe to call when not attached.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_detach(e: *mut Engine) {
+    guard((), || {
+        if let Some(e) = engine(e) {
+            e.direct_detach()
+        }
+    })
+}
+
+/// Stroke start: snapshots the (already seeded) layer as the stroke's base, clears the surface.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_begin_stroke(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.direct_begin_stroke()))
+}
+
+/// Presents the stroke so far. `matrix`: 6 floats mapping a surface pixel to layer pixels
+/// (`m0*x + m1*y + m2, m3*x + m4*y + m5`), or null to reuse the previous one. `new_batch`: a stamp
+/// call preceded it (false for a re-present of the multipass ease).
+///
+/// # Safety
+/// `matrix` must be null or point to 6 readable floats.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_present(e: *mut Engine, matrix: *const f32, new_batch: bool) -> bool {
+    guard(false, || {
+        let m = slice(matrix, 6);
+        let m = (m.len() == 6).then(|| [m[0], m[1], m[2], m[3], m[4], m[5]]);
+        engine(e).is_some_and(|e| e.direct_present(m, new_batch))
+    })
+}
+
+/// Stroke end: clears the surface.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_direct_end_stroke(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.direct_end_stroke()))
 }

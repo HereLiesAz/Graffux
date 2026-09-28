@@ -113,7 +113,8 @@ class GpuTelemetry(private val frameBudgetNanos: () -> Long) : PassTimingSink {
         fun describe(): String {
             val sorted = recent.sorted()
             fun pct(p: Double) = sorted[((sorted.size - 1) * p).toInt()] / NANOS_PER_MS
-            return "p50 %.2fms p95 %.2fms (n=%d)".format(pct(P50), pct(P95), count)
+            // n = samples the percentiles cover (the window), not the lifetime [count].
+            return "p50 %.2fms p95 %.2fms (n=%d)".format(pct(P50), pct(P95), sorted.size)
         }
     }
 

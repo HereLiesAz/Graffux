@@ -126,11 +126,6 @@
     <!-- Description of the color balance tool, mentioning RGB sliders. -->
     <string name="nav_balance_info">Tint the layer colors using red, green, and blue channel sliders.</string>
 
-    <!-- Label for layer blending mode selection. -->
-    <string name="nav_blending">Blend</string>
-    <!-- Description of blending modes, used to control how layers composite. -->
-    <string name="nav_blending_info">Cycle through blend modes (Normal, Multiply, Screen, Overlay…) to control how this layer composites with layers below.</string>
-
     <!-- Label for the application settings menu. -->
     <string name="nav_settings">Settings</string>
     <!-- Description of the settings menu, listing configurable preferences. -->
