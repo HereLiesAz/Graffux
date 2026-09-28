@@ -181,3 +181,14 @@ codebase is deferred scope or a real gap in the install-report flow.
   change only where documented (Mali's 8x8 workgroup, from Arm's guide) or evidenced (the driver
   workaround table starts empty). GraffitiXR keeps the old silent "Untitled" bootstrap:
   `EditorViewModel.projectGateEnabled` is set only by `GraffuxApplication`. See §2b of the design doc.
+- **Multipass drying is an experiment in the wgpu engine, off by default** (design doc §2b,
+  "Multipass drying"). Each stamp call renders a low-resolution draft of the same stamp at once and
+  its full-quality dab later, in whatever time is left of each frame; the display eases between
+  them per tile. The draft is a hard guarantee, never behind refinement. The committed layer is the
+  final queue run strictly in submission order, split only in exact ways, so it is byte-identical
+  to multipass off: never let a reordering or an approximation reach the layer. The scheduler lives
+  in the Rust engine (`scheduler.rs`, pure and unit-tested) because batching and exact chunking need
+  the engine's pipelines, and one copy serves Android and desktop. It follows the device's
+  `GpuBudget` (collected, since the tier can change mid-session). On Android nothing waits for
+  refinement (the CPU commit is the committed layer; the stroke-end refresh drops queued work); on
+  desktop stroke end lands it before committing the GPU frame.

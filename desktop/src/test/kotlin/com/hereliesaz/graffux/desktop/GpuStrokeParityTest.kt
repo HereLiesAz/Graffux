@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
 import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.RoundStampCompositor
+import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuDabs
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.WgpuStampEngine
 import org.junit.Assert.assertArrayEquals
@@ -178,6 +179,49 @@ class GpuStrokeParityTest {
         return listOf(dabs.size / 3, dabs.size / 2, dabs.size).map { n ->
             renderer.renderStroke(dabs.take(n), color, color, BrushColorSource.PLAIN, flow)!!.copyOf()
         }
+    }
+
+    /**
+     * Multipass drying on vs off: the same strokes (grown over several frames, resident across
+     * strokes, with idle ticks in between) commit exactly the same frames. Live frames differ (drafts);
+     * the committed one must not.
+     */
+    @Test
+    fun multipassCommitsTheSameFramesAsThePlainPath() {
+        val plain = GpuStrokeRenderer()
+        val multi = GpuStrokeRenderer().apply { multipass = MultipassSettings(enabled = true, transitionMs = 60f) }
+        assumeTrue("no wgpu adapter: ${plain.description}", gpu(plain, IntArray(w * h), emptyList(), 0, 1f) != null)
+        val rng = Random(33)
+        var committedPlain = IntArray(w * h) {
+            ArgbColor.argb(rng.nextInt(256), rng.nextInt(256), rng.nextInt(256), rng.nextInt(256))
+        }
+        var committedMulti = committedPlain
+        val strokes = listOf(
+            dabs(5).take(30) to (0xFFE04020.toInt() to 1f),
+            dabs(6).take(45) to (0xB02080C0.toInt() to 0.6f),
+            dabs(7).take(25) to (0xFF10A050.toInt() to 0.9f),
+        )
+        for ((d, paint) in strokes) {
+            val (color, flow) = paint
+            val want = strokeFrames(plain, committedPlain, committedPlain, d, paint).last()
+            assertTrue(multi.beginStroke(committedMulti, w, h, committedMulti))
+            assertTrue(multi.multipassStroke)
+            for (n in listOf(d.size / 3, d.size / 2, d.size)) {
+                // Live frames: the renderer's own buffer, drafts included.
+                val live = multi.renderStroke(d.take(n), color, color, BrushColorSource.PLAIN, flow)
+                assertTrue(live != null)
+                multi.tick()
+            }
+            val got = multi.finishStroke(d, color, color, BrushColorSource.PLAIN, flow)!!.copyOf()
+            assertArrayEquals("multipass committed frame differs from the plain path", want, got)
+            plain.commitStroke(want)
+            multi.commitStroke(got)
+            committedPlain = want
+            committedMulti = got
+        }
+        println("GpuStrokeParityTest multipass: committed frames identical; resident hits ${multi.residentHits}")
+        plain.close()
+        multi.close()
     }
 
     @Test

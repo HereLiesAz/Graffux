@@ -216,6 +216,9 @@ internal fun EditorUiState.effectivePaintBrushSize(): Float =
  */
 internal const val HISTORY_DEPTH = 20
 
+/** The top of a colour channel; the Ink SVG export scales alpha against it. */
+private const val MAX_ALPHA = 255
+
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
 /** Safety margin, in overlay pixels, around each redrawn overlay region (filtering, rounding). */
@@ -687,6 +690,11 @@ class EditorViewModel @Inject constructor(
             )
 
     private val history = EditHistory(HISTORY_DEPTH)
+
+    // Every committed Jetpack Ink stroke still in effect, per layer, keyed by the StrokeCommand
+    // that carried it. Follows the undo/redo stacks (onUndoClicked/onRedoClicked) and outlives the
+    // stroke-list bake, so the Ink SVG in exportForFigma always matches what each layer shows.
+    private val inkLedger = com.hereliesaz.graffitixr.feature.editor.ink.InkStrokeLedger<StrokeCommand>()
 
     // Which content generation each layer is at, for the wgpu engine's GPU-resident layer copies
     // (see GpuLayerResidency). Invalidations also drop the GPU copies eagerly, queued on the GPU
@@ -1295,6 +1303,7 @@ class EditorViewModel @Inject constructor(
                     val projectIdChanged = _uiState.value.projectId != project.id
 
                     if (projectIdChanged) {
+                        inkLedger.clear()
                         val currentLayers = _uiState.value.layers
                         val layers = project.layers.map { overlayLayer ->
                             val existingLayer = currentLayers.find { it.id == overlayLayer.id }
@@ -1449,6 +1458,7 @@ class EditorViewModel @Inject constructor(
                     slamManager.clearMap()
                     layerStore.clear()
                     history.clear()
+                    inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
                     // without it, undoCount/redoCount keep whatever they were before the project
                     // closed, leaving an enabled Undo control wired to a stack that is now empty.
@@ -1527,6 +1537,7 @@ class EditorViewModel @Inject constructor(
                     updateHistoryCounts()
                     return
                 }
+                inkLedger.onUndo(command.layerId, command.command)
                 val deltas = command.tileDeltas
                 val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
                     deltas != null && applyTileDeltaFastPath(
@@ -1568,6 +1579,7 @@ class EditorViewModel @Inject constructor(
                 // Redo re-applies a stroke through the CPU replay, not a GPU stroke: stale copy.
                 invalidateResident(command.layerId)
                 layerStore.addStroke(command.layerId, command.command)
+                inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
                 val deltas = command.tileDeltas
                 val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
                     deltas != null && applyTileDeltaFastPath(
@@ -6499,7 +6511,7 @@ class EditorViewModel @Inject constructor(
     fun inkBrushForCurrentState(): androidx.ink.brush.Brush {
         val s = _uiState.value
         return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.roundBrush(
-            s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity,
+            s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity, s.brushFeathering,
         )
     }
 
@@ -6542,6 +6554,7 @@ class EditorViewModel @Inject constructor(
             brushColor = state.activeColor.toArgb(),
             intensity = 1f,
             opacity = state.brushOpacity,
+            feathering = state.brushFeathering,
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
@@ -6552,6 +6565,7 @@ class EditorViewModel @Inject constructor(
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
+        inkLedger.add(layerId, command, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         viewModelScope.launch(dispatchers.default) {
@@ -6563,12 +6577,55 @@ class EditorViewModel @Inject constructor(
                 scheduleDiskSave(layerId, target, layer.uri)
                 onCommitted()
             }
-            // Ink strokes aren't in the co-op stroke vocabulary; peers get the finished pixels.
-            if (opEmitter.isActive) {
-                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
-            }
+        }
+        // Co-op: the same StrokeComplete a round-brush stroke sends, built from the Ink stroke's own
+        // inputs (points in layer-bitmap space, pressures, opacity, feathering). Peers replay it
+        // with the round brush, not Ink, so their copy is the round brush's rendering of the same
+        // stroke — see inkCoopStroke for what differs. A bitmap per stroke was far heavier.
+        if (opEmitter.isActive) {
+            opEmitter.emit(Op.StrokeComplete(layerId, inkCoopStroke(command, base.width, base.height)))
         }
     }
+
+    /**
+     * The co-op [BrushStroke] for an Ink [command]: exactly what [onStrokeEnd] sends for a Tool.BRUSH
+     * round stroke — points mapped into the layer's [bitmapWidth]×[bitmapHeight] pixels, the recorded
+     * pressures, opacity and feathering. What it can't carry, because [BrushStroke] has no field for
+     * it: Ink's own geometry (the guest re-renders with the round brush, whose pressure curve and
+     * soft edge are close to, not identical to, Ink's), and alpha lock / wrap-around / selection clip,
+     * which no co-op stroke carries today either.
+     */
+    private fun inkCoopStroke(command: StrokeCommand, bitmapWidth: Int, bitmapHeight: Int): BrushStroke {
+        val mapped = ImageProcessor.mapScreenToBitmap(
+            command.path, command.canvasSize.width, command.canvasSize.height, bitmapWidth, bitmapHeight,
+            command.layerScale, command.layerOffset, command.layerRotationZ,
+        )
+        return BrushStroke(
+            points = mapped.flatMap { listOf(it.x, it.y) },
+            colorArgb = command.brushColor.toLong() and 0xFFFFFFFFL,
+            brushSize = command.brushSize,
+            brushFeathering = command.feathering,
+            blendModeOrdinal = Tool.BRUSH.ordinal,
+            opacity = command.opacity,
+            pressures = command.pressures,
+        )
+    }
+
+    // TEMPORARY feel numbers from InkBrushCanvas, kept apart from the azphalt engine's series.
+
+    /** One Ink input's touch-to-paint (Ink's LatencyData); [strokeStart] = the stroke's first dab. */
+    fun onInkLatency(latencyMs: Double, strokeStart: Boolean) = strokeFeelMeter.onInkPresented(latencyMs, strokeStart)
+
+    /** A real Ink sample reached the editor; [eventUptimeMs] is its hardware timestamp. */
+    fun onInkSampleAccepted(eventUptimeMs: Long) =
+        strokeFeelMeter.onSampleAccepted(eventUptimeMs, android.os.SystemClock.uptimeMillis())
+
+    /** The stabilizer moved an Ink sample [lagPx] world px from the raw point. */
+    fun onInkStabilized(lagPx: Float) = strokeFeelMeter.onInkStabilized(lagPx)
+
+    /** The stabilizer level and algorithm the next Ink stroke runs through (level 0 = off). */
+    fun inkStabilizerSettings(): Pair<Int, com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm> =
+        _uiState.value.let { it.stabilizerLevel to it.stabilizerAlgorithm }
 
     // ── Layer operations: clear and merge down ───────────────────────────────────────────────
 
@@ -9411,6 +9468,9 @@ class EditorViewModel @Inject constructor(
             Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
             return
         }
+        // Snapshotted here, on the main thread the ledger lives on. Visible layers only, bottom first,
+        // the same set and order the PNGs composite.
+        val inkStrokes = layers.filter { it.isVisible }.flatMap { inkLedger.strokes(it.id) }
         viewModelScope.launch(dispatchers.default) {
             dispatch(EditorIntent.SetLoading(true))
             try {
@@ -9454,6 +9514,7 @@ class EditorViewModel @Inject constructor(
 
                 withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
                 copyToDownloads(file, "application/json", "Figma bundle saved to Downloads", "Figma export failed")
+                if (inkStrokes.isNotEmpty()) writeInkSvg(File(dir, "$safeName-ink.svg"), inkStrokes, docW, docH)
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -9461,6 +9522,40 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * The Jetpack Ink strokes of [commands] as one SVG in document pixels ([docW]×[docH]) — the
+     * vector companion to the Figma bundle's per-layer PNGs, one `<path>` per stroke. Each stroke is
+     * mapped through its own recorded canvas size, since that is the world its points are in.
+     * Outlines are Ink's mesh boundary, so a soft-edged stroke exports as its hard particle discs:
+     * SVG paths here carry fill and opacity only, not the texture falloff.
+     */
+    private fun inkStrokesSvg(commands: List<StrokeCommand>, docW: Int, docH: Int): String {
+        val strokes = commands.mapNotNull { command ->
+            val ink = command.inkStroke ?: return@mapNotNull null
+            val toDoc = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.worldToDocument(
+                command.canvasSize.width, command.canvasSize.height, docW, docH,
+            )
+            com.hereliesaz.graffitixr.feature.editor.ink.InkSvg.StrokeOutlines(
+                com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.outlines(ink, toDoc),
+                // The command's colour and opacity, not the Ink brush's: a soft brush keeps opacity
+                // in its texture, not its colour.
+                colorWithOpacity(command.brushColor, command.opacity),
+            )
+        }
+        return com.hereliesaz.graffitixr.feature.editor.ink.InkSvg.document(docW, docH, strokes)
+    }
+
+    /** Writes [inkStrokesSvg] to [file] and copies it to Downloads, as the Figma bundle is. */
+    private suspend fun writeInkSvg(file: File, commands: List<StrokeCommand>, docW: Int, docH: Int) {
+        file.writeText(inkStrokesSvg(commands, docW, docH))
+        copyToDownloads(file, "image/svg+xml", "Ink strokes (SVG) saved to Downloads", "Ink SVG export failed")
+    }
+
+    private fun colorWithOpacity(argb: Int, opacity: Float): Int {
+        val alpha = (android.graphics.Color.alpha(argb) * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, MAX_ALPHA)
+        return androidx.core.graphics.ColorUtils.setAlphaComponent(argb, alpha)
     }
 
     // ── Brush Studio (user-authored brushes) ─────────────────────────────────────────────────
@@ -9628,7 +9723,8 @@ class EditorViewModel @Inject constructor(
             ?.let { "${it.width}x${it.height}" } ?: "?"
         val context = "canvas $canvas, ${s.layers.size} layers, brush ${"%.0f".format(s.brushSize)}px " +
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
-            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}, " +
+            "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}" +
+            (if (GpuStampEngine.multipass.enabled) " multipass" else "") + ", " +
             "display ${if (LiveStrokeOverlay.enabled) "direct" else "compose"}"
         val gpu = runCatching { gpuTuning?.report() }.getOrNull()
         val feel = strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)

@@ -59,8 +59,11 @@ data class Dab(
     val sourceRandom: Float = 0f,
     val mask: MaskDab? = null,
     /**
-     * Resolved surface penetration; renderers/material stages must not reinterpret raw pressure.
-     * Appended at the end of the public value contract so existing positional Dab callers retain
+     * Resolved surface penetration in [0, 1]; renderers/material stages must not reinterpret raw
+     * pressure. The CPU round compositors and ImpastoEngine scale deposit strength by it (clamped),
+     * and the GPU stamp shaders use it as the substrate-penetration gate. Defaults to 1 (full
+     * contact); only an active [BrushContactConfig] resolves it from pressure/contact, so ordinary
+     * brushes are unaffected. Appended at the end of the public value contract so existing positional Dab callers retain
      * the exact meaning of every pre-Phase-3 argument.
      */
     val contactDepth: Float = 1f,
