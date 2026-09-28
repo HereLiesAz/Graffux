@@ -88,8 +88,15 @@ var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPa
 // println (and CI's grep for it) without rerunning it.
 println("GRAFFUX_VERSION_CODE=$currentVersionCode")
 
+// Once per invocation: `assemble` / `bundle` pull in several matching tasks (assembleDebug,
+// assembleRelease, intermediate bundle* tasks), and each would otherwise bump versionBuild again.
+// The first matching task that actually executes does the single increment; the rest no-op.
+// (Tasks of one project never execute concurrently, so a plain flag is enough.)
+var versionBumpedThisBuild = false
 tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
     doFirst {
+        if (versionBumpedThisBuild) return@doFirst
+        versionBumpedThisBuild = true
         var execVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
         var execPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt()
         

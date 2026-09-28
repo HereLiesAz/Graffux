@@ -26,14 +26,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out stroke data
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: stroke-data
           path: data
           persist-credentials: false
 
       - name: Check out schema
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: main
           sparse-checkout: tools/stroke-model
@@ -41,7 +41,7 @@ jobs:
 
       - name: Skip if this commit was already uploaded
         id: seen
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .kaggle-uploaded
           key: stroke-data-kaggle-${{ hashFiles('data/stroke-data/**') }}
