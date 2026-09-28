@@ -437,6 +437,9 @@ private const val MODEL_TEXTURE_KEY = "model:texture"
  */
 private const val CONTINUOUS_EDIT_IDLE_MS = 400L
 
+/** Upper bound on a numerically entered frame size — the same ceiling setVectorSize uses. */
+private const val MAX_FRAME_SIZE = 8192f
+
 /**
  * The tools that rework pixels already on the layer instead of painting new ones.
  *
@@ -3525,6 +3528,16 @@ class EditorViewModel @Inject constructor(
     fun onTransformGesture(pan: Offset, zoom: Float, rotationDelta: Float, canvasW: Float = 0f, canvasH: Float = 0f) {
         val activeId = _uiState.value.activeLayerId ?: return
         val axis = _uiState.value.activeRotationAxis
+        // The resize handle on a sized frame resizes the frame's box — its children follow their
+        // constraints — instead of scaling the frame's transform, which would scale every child
+        // uniformly and ignore them. Rotation and moves stay transforms. History is the gesture's
+        // own (onGestureStart), so the whole drag, children included, is one undo step.
+        val frame = _uiState.value.layers.firstOrNull { it.id == activeId }?.takeIf { it.isResizableFrame() }
+        if (frame != null && zoom != 1f) {
+            dispatch(EditorIntent.ResizeFrame(activeId, frame.layoutWidth * zoom, frame.layoutHeight * zoom))
+            if (pan != Offset.Zero || rotationDelta != 0f) onTransformGesture(pan, 1f, rotationDelta, canvasW, canvasH)
+            return
+        }
         updateLinkedGroup(activeId) { layer ->
             val rx = if (axis == RotationAxis.X) layer.rotationX + rotationDelta else layer.rotationX
             val ry = if (axis == RotationAxis.Y) layer.rotationY + rotationDelta else layer.rotationY
@@ -3599,6 +3612,8 @@ class EditorViewModel @Inject constructor(
     fun resetViewport() = dispatch(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
 
     override fun onGestureEnd() {
+        val gestureBefore = gestureStartLayers
+        gestureStartLayers = null
         saveProject()
         dispatch(EditorIntent.SetGestureInProgress(false))
         if (_uiState.value.snapGuidesX.isNotEmpty() || _uiState.value.snapGuidesY.isNotEmpty()) {
@@ -3617,11 +3632,31 @@ class EditorViewModel @Inject constructor(
             0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
         )
         opEmitter.emit(Op.LayerTransform(activeId, encodedMatrix))
+        // A frame resized by its handle also moved/resized its children, which the op above does
+        // not cover.
+        if (gestureBefore != null && layer.isResizableFrame()) {
+            emitGeometryChanges(gestureBefore.filter { it.id != activeId }, state.layers)
+            opEmitter.emit(Op.LayerGeometry(activeId, layer.shapes, layer.layoutWidth, layer.layoutHeight))
+        }
     }
-    override fun onGestureStart() { 
+
+    /** The layers as a transform gesture began, so its end can tell what a frame resize changed. */
+    private var gestureStartLayers: List<Layer>? = null
+
+    override fun onGestureStart() {
         pushHistory()
-        dispatch(EditorIntent.BeginGesture) 
+        gestureStartLayers = _uiState.value.layers
+        dispatch(EditorIntent.BeginGesture)
     }
+
+    /**
+     * A frame the transform tool resizes rather than scales: a group with children and a declared
+     * box. A group with no declared size has no box to resize (and no handles to drag), so the
+     * transform tool keeps scaling it as a unit.
+     */
+    private fun Layer.isResizableFrame(): Boolean =
+        type == LayerType.GROUP && layoutWidth > 0f && layoutHeight > 0f &&
+            _uiState.value.layers.any { it.parentId == id }
     override fun toggleImageLock() {
         pushHistory()
         dispatch(EditorIntent.ToggleImageLock)
@@ -8995,16 +9030,51 @@ class EditorViewModel @Inject constructor(
             Toast.makeText(context, "Turn on auto-layout first", Toast.LENGTH_SHORT).show()
             return
         }
+        resizeFrame(frameId, size.first, size.second)
+    }
+
+    /**
+     * Sets the active frame's box to [width] x [height] — the numeric counterpart of dragging its
+     * resize handle. Children follow through their constraints (or the frame's auto-layout).
+     */
+    fun onSetFrameSize(width: Float, height: Float) {
+        val frameId = _uiState.value.activeLayerId ?: return
+        if (_uiState.value.layers.none { it.parentId == frameId }) return
+        resizeFrame(frameId, width.coerceIn(1f, MAX_FRAME_SIZE), height.coerceIn(1f, MAX_FRAME_SIZE))
+    }
+
+    /**
+     * Every discrete frame resize goes through here: one history entry covering the frame AND every
+     * child its constraints moved or resized (they land in the same reducer transition), one save,
+     * and the co-op ops for everything that changed.
+     */
+    private fun resizeFrame(frameId: String, width: Float, height: Float) {
+        val before = _uiState.value.layers
         pushHistory()
-        _uiState.update { state ->
-            state.copy(
-                layers = state.layers.map {
-                    if (it.id == frameId) it.copy(layoutWidth = size.first, layoutHeight = size.second) else it
-                },
-            )
-        }
-        dispatch(EditorIntent.RelayoutFrame(frameId))
+        dispatch(EditorIntent.ResizeFrame(frameId, width, height))
         saveProject()
+        emitGeometryChanges(before, _uiState.value.layers)
+    }
+
+    /**
+     * Sends a peer every layer whose geometry differs between [before] and [after]: its transform
+     * (offset / scale) and its geometry (shapes / layout size). A frame resize touches the frame
+     * and any number of descendants, and the existing ops only carried the active layer.
+     */
+    private fun emitGeometryChanges(before: List<Layer>, after: List<Layer>) {
+        val old = before.associateBy { it.id }
+        after.forEach { l ->
+            val prev = old[l.id] ?: return@forEach
+            if (prev.shapes != l.shapes || prev.layoutWidth != l.layoutWidth || prev.layoutHeight != l.layoutHeight) {
+                opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
+            }
+            if (prev.offset != l.offset || prev.scale != l.scale) {
+                opEmitter.emit(Op.LayerTransform(l.id, listOf(
+                    l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
+                    0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
+                )))
+            }
+        }
     }
 
     // ── Shared styles ────────────────────────────────────────────────────────────────────────
@@ -10153,7 +10223,9 @@ class EditorViewModel @Inject constructor(
         is Op.TextContentChange -> op.layerId
         is Op.LayerBitmapReplace -> op.layerId
         is Op.LayerRemove -> op.layerId
-        is Op.LayerAdd, is Op.LayerReorder, is Op.LayerTransform, is Op.LayerPropsChange -> null
+        // Geometry is drawn from shapes/layout size at composite time, like a transform.
+        is Op.LayerAdd, is Op.LayerReorder, is Op.LayerTransform, is Op.LayerPropsChange,
+        is Op.LayerGeometry -> null
     }
 
     fun applySpectatorOp(op: Op) {
@@ -10176,6 +10248,9 @@ class EditorViewModel @Inject constructor(
                 }
             }
             is Op.LayerPropsChange -> dispatch(EditorIntent.SetLayerProps(op.layerId, op.props))
+            is Op.LayerGeometry -> dispatch(
+                EditorIntent.SetLayerGeometry(op.layerId, op.shapes, op.layoutWidth, op.layoutHeight),
+            )
             is Op.StrokeComplete -> {
                 val layerId = op.layerId
                 val stroke = op.stroke

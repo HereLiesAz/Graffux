@@ -2728,6 +2728,20 @@ private fun HiddenMenuScope.renderLayerLayoutMenu(
     on: (() -> Unit) -> () -> Unit,
 ) {
     val hasChildren = uiState.layers.any { it.parentId == layer.id }
+    if (hasChildren && layer.type == LayerType.GROUP) {
+        // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
+        // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
+        // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.
+        val w = if (layer.layoutWidth > 0f) layer.layoutWidth else uiState.documentWidth.toFloat()
+        val h = if (layer.layoutHeight > 0f) layer.layoutHeight else uiState.documentHeight.toFloat()
+        inputItem(hint = "Frame Size (W x H)", initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
+            val parts = text.split('x', 'X', '×', ',', ' ').mapNotNull { it.trim().toFloatOrNull() }
+            if (parts.size == 2) {
+                vm.onLayerActivated(layer.id)
+                vm.onSetFrameSize(parts[0], parts[1])
+            }
+        }
+    }
     if (hasChildren) {
         val current = layer.autoLayout
         LayoutDirection.entries.forEach { dir ->

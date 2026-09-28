@@ -6,6 +6,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.LayoutOps
 import com.hereliesaz.graffitixr.common.model.Rect
 import com.hereliesaz.graffitixr.common.model.RotationAxis
@@ -42,6 +43,7 @@ internal object EditorReducer {
             ?: reduceBrushSettings(state, intent)
             ?: reduceComponents(state, intent)
             ?: reduceLayoutAndStyles(state, intent)
+            ?: reduceFrameGeometry(state, intent)
             ?: reduceSelection(state, intent)
             ?: state
     }
@@ -417,6 +419,16 @@ internal object EditorReducer {
         else -> null
     }
 
+    private fun reduceFrameGeometry(state: EditorUiState, intent: EditorIntent): EditorUiState? = when (intent) {
+        is EditorIntent.ResizeFrame -> state.resizedFrame(intent.frameId, intent.width, intent.height)
+        is EditorIntent.SetLayerGeometry -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.layerId) {
+                it.copy(shapes = intent.shapes, layoutWidth = intent.layoutWidth, layoutHeight = intent.layoutHeight)
+            },
+        )
+        else -> null
+    }
+
     private fun reduceSelection(state: EditorUiState, intent: EditorIntent): EditorUiState? = when (intent) {
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.
@@ -464,6 +476,37 @@ internal object EditorReducer {
         val h = if (frame.layoutHeight > 0f) frame.layoutHeight else documentHeight.toFloat()
         val rect = Rect(frame.offset.x, frame.offset.y, w, h)
         return copy(layers = LayoutOps.applyAutoLayout(layers, frameId, rect))
+    }
+
+    /**
+     * Resizes [frameId]'s box to [width] x [height] and brings its children along.
+     *
+     * Precedence: a frame with auto-layout is re-laid out ([relaidOut]) and its children's
+     * constraints are ignored — auto-layout owns placement outright, as in Figma. Otherwise every
+     * direct child is run through its constraints by [LayoutOps.applyResize], in the frame's local
+     * (centred) space, and nested frames that change size pass it on. A frame with no declared size
+     * yet is taken to have been document-sized, the same fallback [relaidOut] uses.
+     */
+    private fun EditorUiState.resizedFrame(frameId: String, width: Float, height: Float): EditorUiState {
+        val frame = layers.firstOrNull { it.id == frameId }
+        if (frame == null || width <= 0f || height <= 0f) return this
+        val oldW = if (frame.layoutWidth > 0f) frame.layoutWidth else documentWidth.toFloat()
+        val oldH = if (frame.layoutHeight > 0f) frame.layoutHeight else documentHeight.toFloat()
+        val sized = copy(
+            layers = LayerListOps.mapLayer(layers, frameId) { it.copy(layoutWidth = width, layoutHeight = height) },
+        )
+        return if (frame.autoLayout.direction != LayoutDirection.NONE) {
+            sized.relaidOut(frameId)
+        } else {
+            sized.copy(
+                layers = LayoutOps.applyResize(
+                    sized.layers,
+                    frameId,
+                    LayoutOps.localFrameRect(oldW, oldH),
+                    LayoutOps.localFrameRect(width, height),
+                ),
+            )
+        }
     }
 
     /**
