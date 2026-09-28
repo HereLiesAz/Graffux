@@ -120,6 +120,20 @@ codebase is deferred scope or a real gap in the install-report flow.
   are the escape hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
+- **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
+  `BottomCarousel.kt` (`:app`) is an M3 `HorizontalMultiBrowseCarousel` of brushes, effect tools and
+  tool options, above the Undo/Fit/Redo row. It sits in `:app`, not `:feature:editor`, so
+  GraffitiXR is untouched. A segmented switch picks the page by hand. It is not inferred from the
+  tool: effect tools paint with the current brush, so auto-switching would pull the Brushes page away
+  exactly when it's wanted. What each page shows, and which item is selected, is derived in
+  `BottomCarouselPlan.kt` (pure, tested). Every tap goes through an existing `EditorViewModel` call.
+  The brush rail and the Tool Options window stay; the carousel's "All options" item opens that
+  window. The carousel pads itself clear of the rail via `LocalRailInset`. It hides with the other
+  bottom chrome while a panel is open or the UI is hidden. It collapses with its chevron, and the
+  areas dropdown's "Carousel" toggle removes it. material3 `1.5.0-alpha29` has no centre-aligned
+  multi-browse keylines (only `HorizontalCenteredHeroCarousel`, a hero layout). Centring is
+  approximated with symmetric content padding. This is a basic first version, meant to be
+  adjusted.
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —
