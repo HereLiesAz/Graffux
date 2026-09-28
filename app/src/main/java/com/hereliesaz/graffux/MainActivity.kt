@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import com.hereliesaz.graffitixr.feature.editor.ProjectGateDialog
+import com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -162,6 +164,19 @@ class MainActivity : ComponentActivity() {
                 GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
             }
         }
+        HardwareFloorNotice.showOnce(this)
+    }
+
+    // GPU calibration pauses while the app is off screen (Home, or the system file picker covering
+    // it) and resumes when it is back; thermal polling and the ADPF hint session follow the same.
+    override fun onStart() {
+        super.onStart()
+        GpuTuningController.get(this).onAppVisible()
+    }
+
+    override fun onStop() {
+        GpuTuningController.get(this).onAppHidden()
+        super.onStop()
     }
 }
 
@@ -221,6 +236,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val vm: EditorViewModel = hiltViewModel()
     val settingsVm: SettingsViewModel = hiltViewModel()
     val uiState by vm.uiState.collectAsState()
+    val projectGate by vm.projectGate.collectAsState()
     val railExpansion by vm.railExpansion.collectAsState()
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
@@ -1179,7 +1195,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         currentProjectId = uiState.projectId,
                         onOpenProject = { vm.openProject(it) },
                         onOpenFile = { vm.openProjectFile(it) },
-                        onNew = { vm.createNewProject() },
+                        onNew = { showOpenDialog = false; vm.createNewProject() },
                         // Stays open behind the system picker: cancelling it should put the user back
                         // where they were rather than making them find Open again.
                         onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
@@ -1439,6 +1455,16 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
             }
+        }
+        // The mandatory project dialog, above the rail and every window: there is nothing to do
+        // without a project. Load goes through the same picker as File > Open; a cancelled picker
+        // returns null and the dialog simply stays.
+        projectGate?.let { gate ->
+            ProjectGateDialog(
+                state = gate,
+                onLoad = { projectOpener.launch(arrayOf("*/*")) },
+                onSave = { name -> vm.onProjectGateSave(name) },
+            )
         }
     }
     }

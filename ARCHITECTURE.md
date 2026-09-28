@@ -167,3 +167,14 @@ codebase is deferred scope or a real gap in the install-report flow.
   so batches, commit refreshes and invalidations stay in order and teardown never blocks the main
   thread. Vulkan and GLES do none of this. `StampEngine.h`'s new methods default to the old
   behaviour for them.
+- **Graffux's hardware floor is Android 10 + Vulkan 1.1, and the brush engine tunes itself within
+  it.** `:app` minSdk went from 26 to 29, and the manifest requires `android.hardware.vulkan.version`
+  0x401000, so Play offers the app only to devices whose GPU runs the stamp engines. The shared
+  library modules stay at 26 for GraffitiXR. Inside the floor, a short calibration picks a tier from
+  one table (`GpuTierTable`). It runs behind the mandatory project dialog (`ProjectGateDialog`: no
+  project, nothing to do, so the dialog has no cancel path), capped at 2 s beyond Save/Load. Its
+  result is stored per GPU+driver+app version. Thermal state scales the tier through
+  `GpuBudgetProvider`, the hook the multipass scheduler consumes. Per-family and per-driver knobs
+  change only where documented (Mali's 8x8 workgroup, from Arm's guide) or evidenced (the driver
+  workaround table starts empty). GraffitiXR keeps the old silent "Untitled" bootstrap:
+  `EditorViewModel.projectGateEnabled` is set only by `GraffuxApplication`. See §2b of the design doc.

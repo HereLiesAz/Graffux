@@ -606,6 +606,16 @@ class EditorViewModel @Inject constructor(
 
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
+    companion object {
+        /**
+         * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
+         * creating "Untitled" when there is no project. Graffux sets it at startup; GraffitiXR,
+         * which shares this module, keeps the old behaviour. Set before any EditorViewModel exists.
+         */
+        @Volatile
+        var projectGateEnabled: Boolean = false
+    }
+
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState = _uiState.asStateFlow()
 
@@ -1268,8 +1278,14 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             if (projectRepository.currentProject.value == null) {
                 val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
-                if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
-                else createProjectWithScreenSize("Untitled")
+                if (mostRecent != null) {
+                    projectRepository.loadProject(mostRecent.id)
+                } else if (projectGateEnabled) {
+                    // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
+                    showProjectGate()
+                } else {
+                    createProjectWithScreenSize("Untitled")
+                }
             }
         }
 
@@ -3031,44 +3047,55 @@ class EditorViewModel @Inject constructor(
      * the user shouldn't have to have thought about that.
      */
     fun openProjectFile(uri: Uri) {
-        viewModelScope.launch(dispatchers.io) {
-            try {
-                pendingSaveJobs.values.forEach { it.cancel() }
-                pendingSaveJobs.clear()
-                pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
-                    if (!persistPendingLayerWrite(layerId, write)) {
-                        throw java.io.IOException("Could not flush pending layer $layerId")
-                    }
-                    pendingWrites.remove(layerId, write)
-                }
-                persistProject(null)
-
-                val displayName = queryDisplayName(uri)
-                val result = projectRepository.importProject(uri)
-                val project = result.getOrNull()
-                if (project == null) {
-                    withContext(dispatchers.main) {
-                        // Named files are the common miss: someone picks a PNG, or a .fux that got
-                        // truncated in transit. Say which, rather than "import failed".
-                        toast(
-                            if (displayName != null && !ProjectFile.isProjectFile(displayName)) {
-                                "“$displayName” isn't a Graffux project file."
-                            } else {
-                                "Couldn't open that project — the file may be damaged."
-                            }
-                        )
-                    }
-                    return@launch
-                }
-                // importProject sets currentProject directly; load it so the editor rebuilds its
-                // layers from the freshly extracted files rather than keeping the old ones.
-                projectRepository.loadProject(project.id)
-                withContext(dispatchers.main) { toast("Opened “${project.name}”") }
-            } catch (e: Exception) {
-                android.util.Log.e("EditorViewModel", "Open project failed", e)
-                withContext(dispatchers.main) { toast("Couldn't open that project.") }
-            }
+        // Picked from the project dialog's Load: the dialog shows the load, and calibration runs alongside.
+        if (_projectGate.value != null) {
+            onProjectGateLoad(uri)
+            return
         }
+        viewModelScope.launch(dispatchers.io) { importProjectFile(uri) }
+    }
+
+    /** Flushes the current project, imports [uri] and loads it. False (after a toast) on failure. */
+    private suspend fun importProjectFile(uri: Uri): Boolean = try {
+        flushBeforeImport()
+        val displayName = queryDisplayName(uri)
+        val project = projectRepository.importProject(uri).getOrNull()
+        if (project == null) {
+            withContext(dispatchers.main) {
+                // Named files are the common miss: someone picks a PNG, or a .fux that got
+                // truncated in transit. Say which, rather than "import failed".
+                toast(
+                    if (displayName != null && !ProjectFile.isProjectFile(displayName)) {
+                        "“$displayName” isn't a Graffux project file."
+                    } else {
+                        "Couldn't open that project — the file may be damaged."
+                    }
+                )
+            }
+        } else {
+            // importProject sets currentProject directly; load it so the editor rebuilds its
+            // layers from the freshly extracted files rather than keeping the old ones.
+            projectRepository.loadProject(project.id)
+            withContext(dispatchers.main) { toast("Opened “${project.name}”") }
+        }
+        project != null
+    } catch (e: Exception) {
+        android.util.Log.e("EditorViewModel", "Open project failed", e)
+        withContext(dispatchers.main) { toast("Couldn't open that project.") }
+        false
+    }
+
+    /** Writes out everything pending for the current project before another one replaces it. */
+    private suspend fun flushBeforeImport() {
+        pendingSaveJobs.values.forEach { it.cancel() }
+        pendingSaveJobs.clear()
+        pendingWrites.entries.map { it.key to it.value }.forEach { (layerId, write) ->
+            if (!persistPendingLayerWrite(layerId, write)) {
+                throw java.io.IOException("Could not flush pending layer $layerId")
+            }
+            pendingWrites.remove(layerId, write)
+        }
+        persistProject(null)
     }
 
     /**
@@ -4189,6 +4216,7 @@ class EditorViewModel @Inject constructor(
         if (state.activeTool == Tool.NONE) return
         if (state.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStrokeStart()
+            gpuTuning?.coordinator?.onUserDrawing()
             feelFirstLatencyId = -1L
             strokePaintPresented = false
         }
@@ -7860,10 +7888,76 @@ class EditorViewModel @Inject constructor(
     }
 
     fun createNewProject() {
+        if (projectGateEnabled) {
+            showProjectGate()
+            return
+        }
         invalidateResident(null)
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
-            val project = createProjectWithScreenSize("Untitled $n")
+            createNewProjectNamed("Untitled $n")
+        }
+    }
+
+    // ── Project dialog (mandatory; see ProjectGateDialog) and GPU calibration around it ─────
+
+    private val _projectGate = MutableStateFlow<ProjectGateState?>(null)
+
+    /** The mandatory project dialog, or null when it is not shown. */
+    val projectGate: StateFlow<ProjectGateState?> = _projectGate.asStateFlow()
+
+    /** GPU tuning; null where the controller cannot start (JVM unit tests with a mock context). */
+    private val gpuTuning: com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController? by lazy {
+        runCatching { com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.get(context) }.getOrNull()
+    }
+
+    /** Shows the project dialog and starts calibration behind it (skipped when a tier is stored). */
+    fun showProjectGate() {
+        viewModelScope.launch(dispatchers.io) {
+            val n = projectRepository.getProjects().size + 1
+            if (_projectGate.value == null) _projectGate.value = ProjectGateState(defaultName = "Untitled $n")
+            gpuTuning?.coordinator?.onProjectDialogShown()
+        }
+    }
+
+    /**
+     * Project dialog > Save: creates the project named [name] while calibration finishes, waiting
+     * for it at most its cap from the tap; past that the canvas opens on the conservative tier and
+     * the calibrated one is applied when it lands.
+     */
+    fun onProjectGateSave(name: String) {
+        val gate = _projectGate.value ?: return
+        if (gate.busyLabel != null) return
+        _projectGate.value = gate.copy(busyLabel = "Saving…")
+        invalidateResident(null)
+        viewModelScope.launch(dispatchers.io) {
+            val calibration = launch { gpuTuning?.coordinator?.awaitForCreate() }
+            runCatching { createNewProjectNamed(name) }
+                .onFailure { android.util.Log.e("EditorViewModel", "Create project failed", it) }
+            calibration.join()
+            _projectGate.value = null
+        }
+    }
+
+    /**
+     * Project dialog > Load, after the picker returned [uri]: reads the project while calibration
+     * continues, then waits for calibration at most its cap. A file that fails to open leaves the
+     * dialog up (there is still no project to work in).
+     */
+    private fun onProjectGateLoad(uri: Uri) {
+        val gate = _projectGate.value ?: return
+        _projectGate.value = gate.copy(busyLabel = "Loading…")
+        viewModelScope.launch(dispatchers.io) {
+            val coordinator = gpuTuning?.coordinator
+            val opened = coordinator?.alongsideLoad { importProjectFile(uri) } ?: importProjectFile(uri)
+            _projectGate.value = if (opened) null else gate.copy(busyLabel = null)
+        }
+    }
+
+    /** File > New's body. Callers invalidate resident layers first, on the main thread. */
+    private suspend fun createNewProjectNamed(name: String) {
+        run {
+            val project = createProjectWithScreenSize(name)
             val projectId = project.id
 
             val (width, height) = newLayerSize()
@@ -7920,8 +8014,14 @@ class EditorViewModel @Inject constructor(
             // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
             if (_uiState.value.projectId == id) {
                 val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
-                if (mostRecent != null) projectRepository.loadProject(mostRecent.id)
-                else createProjectWithScreenSize("Untitled")
+                if (mostRecent != null) {
+                    projectRepository.loadProject(mostRecent.id)
+                } else if (projectGateEnabled) {
+                    // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
+                    showProjectGate()
+                } else {
+                    createProjectWithScreenSize("Untitled")
+                }
             }
         }
     }
@@ -9528,7 +9628,9 @@ class EditorViewModel @Inject constructor(
             "${s.activeBrushName ?: "legacy round"}, stabilizer ${s.stabilizerAlgorithm.name.lowercase()} " +
             "${s.stabilizerLevel}, gpu ${GpuStampEngine.Backend.preferred.label}, " +
             "display ${if (LiveStrokeOverlay.enabled) "direct" else "compose"}"
-        return strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
+        val gpu = runCatching { gpuTuning?.report() }.getOrNull()
+        val feel = strokeFeelMeter.report(azphaltLatencyTracker.snapshot(), context, engine)
+        return if (gpu == null) feel else feel + "\n" + gpu
     }
 
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
