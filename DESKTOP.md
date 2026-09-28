@@ -27,6 +27,14 @@ sound finished — see each claim's own verification note.
   is available in this container, so the pressure *value itself* arriving correctly from real
   Surface Pen hardware is unverified — only that the code path reads and uses whatever pressure
   Compose reports (confirmed at 1.0 from mouse/Xvfb input).
+- **Multipass drying (experimental, off by default).** Tool Options -> "Multipass drying
+  (experimental)" and a drying-transition slider. Live frames stamp only the new dabs through the
+  wgpu engine's multipass path: a draft shows at once and settles to full quality as refinement
+  catches up (an idle tick keeps it going while the pointer rests). At stroke end the renderer lands
+  the queued work off the UI thread and renders the committed frame exactly as the plain path's last
+  frame, so the committed image is identical either way; a stroke started during that wait waits
+  for it. `GpuStrokeParityTest.multipassCommitsTheSameFramesAsThePlainPath` checks it. See the
+  design doc, §2b "Multipass drying".
 - **GPU compositing through wgpu, CPU as the fallback.** The canvas composites strokes on the
   GPU with the wgpu stamp engine (`core/wgpu-engine`, Rust + WGSL), the same engine the Android
   app offers under Settings → GPU engine → wgpu. wgpu picks Vulkan, DX12, Metal or GL on each
@@ -50,7 +58,7 @@ sound finished — see each claim's own verification note.
   devices are multi-core, so on a machine without a usable GPU adapter this keeps every core busy
   instead of rasterizing single-threaded on the UI thread.
 - **The real AzNavRail UI.** `aznavrail-cmp` (`com.github.HereLiesAz.AzNavRail:aznavrail-cmp`,
-  bumped to 11.44 for this) is a genuine Compose Multiplatform port of the same DSL the Android app
+  bumped to 11.44 for this; now 11.52, shared with the Android app via `gradle/libs.versions.toml`) is a genuine Compose Multiplatform port of the same DSL the Android app
   uses — `AzHostActivityLayout`, `azConfig`, `azTheme`, `azRailItem`, all package-compatible — with
   a published `jvm("desktop")` target. An earlier draft of this document claimed AzNavRail was
   Android-AAR-only; that was wrong (checked only the locally-resolved Gradle cache, not the
@@ -197,8 +205,7 @@ anything in this repo's `desktop/` module, so it wasn't fixable here directly �
 follow-up task against `aznavrail-cmp` instead, with the full repro and root-cause analysis above.
 That task was picked up and fixed: `shouldShrink` now short-circuits on a non-finite or non-positive
 font size before ever calling `textMeasurer.measure`, released as **`aznavrail-cmp` 11.47** (commit
-`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 (it
-is now pinned at 11.51 in `gradle/libs.versions.toml`, which keeps the fix) and
+`50c56cd`, "Fix AutoSizeText crash on zero font-size candidate"). This app bumped to 11.47 (now 11.52, which keeps the fix) and
 re-enabled `azAbout(dedupeAbout = true)` (matching Android exactly again, no more
 `aboutRailItem = false` workaround) — **re-verified end-to-end**: opened the "?" item, closed it,
 confirmed no crash and no error dialog, and confirmed the rail was still fully functional afterward.
@@ -308,8 +315,8 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
   gone. `desktop/.../FloatingWindow.kt` is a copy of `core:design`'s `FloatingWindow` composable,
   adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
-  (11.51, already a `:desktop` dependency) — confirmed by decompiling
-  `aznavrail-cmp-desktop-11.47.jar`, the version pinned when this was written, and reading `aznavrail-cmp`'s own `commonMain` source
+  (11.47 at the time, now 11.52; already a `:desktop` dependency) — confirmed by decompiling
+  `aznavrail-cmp-desktop-11.47.jar` and reading `aznavrail-cmp`'s own `commonMain` source
   (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real
   floating-window mechanism (dragging, onscreen clamping, z-index stacking all come from the same
   library code both platforms call), not a second hand-built implementation. "Tool Options" (brush

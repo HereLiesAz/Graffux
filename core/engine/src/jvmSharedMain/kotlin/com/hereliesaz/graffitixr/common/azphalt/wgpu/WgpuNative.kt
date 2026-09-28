@@ -85,6 +85,10 @@ internal object WgpuNative {
     @JvmStatic external fun nativeInvalidateAllLayers(handle: Long)
     @JvmStatic external fun nativeSetResidentBudget(handle: Long, bytes: Long)
     @JvmStatic external fun nativeResidentStats(handle: Long): LongArray?
+    @JvmStatic external fun nativeSetMultipass(handle: Long, params: FloatArray?): Boolean
+    @JvmStatic external fun nativeRefine(handle: Long, budgetMs: Float): Int
+    @JvmStatic external fun nativeFlush(handle: Long): Boolean
+    @JvmStatic external fun nativeMultipassStats(handle: Long): DoubleArray?
     @JvmStatic external fun nativeAdapterDescription(handle: Long): String
 }
 

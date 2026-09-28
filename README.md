@@ -39,7 +39,7 @@ consumes the same modules for its 2D work and adds AR on top.
 
 The UI is driven by [AzNavRail](https://github.com/HereLiesAz/AzNavRail) — the rail hosts the design
 tools; the canvas is its full-screen background. See `ARCHITECTURE.md` for module boundaries,
-invariants, and a currently-open upstream AzNavRail bug affecting the layers panel.
+invariants, and the AzNavRail version floors the layers panel depends on.
 
 ## Architecture
 
@@ -66,10 +66,6 @@ Graffux is growing toward a full, touch-first design tool. Near-term:
 
 - Bind layers to the artboard (letterbox) and export at exact document pixels.
 - Snapping, smart guides, and align / distribute.
-- An upstream AzNavRail item that is both a reloc item and a host, so group layers can be dragged
-  and don't bound how far their siblings move (see `ARCHITECTURE.md` invariant 8) — filed against
-  `HereLiesAz/aznavrail`, not fixable from this repo alone. (The unclickable-rows bug of
-  invariant 7 was fixed upstream in `11.18`.)
 
 ## License
 

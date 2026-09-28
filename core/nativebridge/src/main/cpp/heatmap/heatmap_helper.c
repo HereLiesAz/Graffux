@@ -199,6 +199,13 @@ static int run_v4l2(const char *dev, char *why, size_t why_len) {
         if (xioctl(fd, VIDIOC_QUERYBUF, &b) != 0) {
             snprintf(why, why_len, "QUERYBUF: %s", errno_hint(errno)); goto fail;
         }
+        // The frame loop reads h rows of bpl bytes from every mapping; a driver reporting a
+        // buffer shorter than that would make it read past the end of the mmap.
+        if ((size_t)bpl * h > (size_t)b.length) {
+            snprintf(why, why_len, "buffer %u too small: %u bytes < %zu (%u x %u)", i, b.length,
+                     (size_t)bpl * h, bpl, h);
+            goto fail;
+        }
         lens[i] = b.length;
         maps[i] = mmap(NULL, b.length, PROT_READ, MAP_SHARED, fd, b.m.offset);
         if (maps[i] == MAP_FAILED) {

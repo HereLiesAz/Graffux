@@ -91,6 +91,19 @@ void gfx_wgpu_set_resident_budget(GfxWgpuEngine* e, uint64_t bytes);
 // out = {resident layer count, bytes held}.
 void gfx_wgpu_resident_stats(GfxWgpuEngine* e, uint64_t* out);
 
+// Multipass rendering (experimental, off by default; core/wgpu-engine/src/multipass.rs). Each stamp
+// call renders a cheap draft at once and its full-quality dab later, in the time left over; the
+// layer (what commits and resident layers use) stays byte-identical to multipass off.
+// params = {enabled, passes, edge_fraction, transition_ms, overtake_ms, draft_scale, refine_ballast,
+// frame_ms, refine_fraction, max_chunk_px}; fewer values take defaults. Off is the pre-multipass path exactly.
+bool gfx_wgpu_set_multipass(GfxWgpuEngine* e, const float* params, size_t n);
+// Refinement for up to budget_ms (<= 0: the rest of the frame). 1 = more to do, 0 = idle, -1 = error.
+int32_t gfx_wgpu_refine(GfxWgpuEngine* e, float budget_ms);
+// Lands everything queued and finishes display eases (blocks).
+bool gfx_wgpu_flush(GfxWgpuEngine* e);
+// Up to n diagnostics doubles (MultipassStats::to_array); returns how many were written.
+size_t gfx_wgpu_multipass_stats(GfxWgpuEngine* e, double* out, size_t n);
+
 #ifdef __cplusplus
 }
 #endif

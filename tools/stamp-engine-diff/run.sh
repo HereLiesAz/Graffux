@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 C=../../core/nativebridge/src/main/cpp
-mkdir -p gen out_vk out_gl out_wgpu_vk out_wgpu_gl out_gl_ph out_wgpu_ph_vk out_wgpu_ph_gl
+mkdir -p gen out_vk out_gl out_wgpu_vk out_wgpu_gl out_gl_ph out_wgpu_ph_vk out_wgpu_ph_gl out_wgpu_mp_vk out_wgpu_mp_gl
 spv() {  # source, header, tile, symbol -- same layout CMake's graffux_embed_shader writes
   glslangValidator -V --target-env vulkan1.1 -S comp -DTILE_SIZE="$3" -o "gen/$2.spv" "$C/shaders/$1" >/dev/null
   python3 - "$2" "$4" <<'PY'
@@ -41,6 +41,10 @@ done
 for v in vk gl; do
   g++ -std=c++17 -O2 -DWITH_PAINT_HEIGHT -DOUTDIR="\"out_wgpu_ph_$v\"" -I shim -I "$C" run_wgpu.cpp "$C/WgpuStampEngine.cpp" -ldl -o "gen/run_wgpu_ph_$v"
 done
+# Multipass rendering on (drafts now, final layer refined in small budgets): must equal the plain run.
+for v in vk gl; do
+  g++ -std=c++17 -O2 -DMULTIPASS -DOUTDIR="\"out_wgpu_mp_$v\"" -I shim -I "$C" run_wgpu.cpp "$C/WgpuStampEngine.cpp" -ldl -o "gen/run_wgpu_mp_$v"
+done
 # Resident layers: multi-stroke sequences with undos, full upload vs resident bind/refresh.
 g++ -std=c++17 -O2 -I shim -I "$C" run_wgpu_resident.cpp "$C/WgpuStampEngine.cpp" -ldl -o gen/run_wgpu_resident
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json EGL_PLATFORM=surfaceless GRAFFUX_WGPU_LIB="$WGPU_LIB"
@@ -51,6 +55,8 @@ WGPU_BACKEND=vulkan gen/run_wgpu_vk
 WGPU_BACKEND=gl gen/run_wgpu_gl
 WGPU_BACKEND=vulkan gen/run_wgpu_ph_vk
 WGPU_BACKEND=gl gen/run_wgpu_ph_gl
+WGPU_BACKEND=vulkan gen/run_wgpu_mp_vk
+WGPU_BACKEND=gl gen/run_wgpu_mp_gl
 echo "resident layers vs full upload (wgpu Vulkan):"; WGPU_BACKEND=vulkan gen/run_wgpu_resident
 echo "resident layers vs full upload (wgpu GL):"; WGPU_BACKEND=gl gen/run_wgpu_resident
 python3 - <<'PY'
@@ -78,5 +84,15 @@ for f in ("ph_out.raw", "s4_substrate.raw", "s4b_masked_substrate.raw"):
         n, m, total = cmp(f"out_wgpu_ph_{v}", "out_gl_ph", f)
         worst[f"wgpu({v})-gl paint height"] = max(worst.get(f"wgpu({v})-gl paint height", 0), m)
         print(f"  {f[:-4]:24s} wgpu({v}) {n:6d}/{total}  max {m}")
+print("multipass on vs off (wgpu, through the C++ adapter; must be 0):")
+for v in ("vk", "gl"):
+    total_diff = 0
+    for f in sorted(os.listdir(f"out_wgpu_{v}")):
+        n, m, total = cmp(f"out_wgpu_mp_{v}", f"out_wgpu_{v}", f)
+        total_diff += n
+        if n:
+            print(f"  {f[:-4]:24s} wgpu({v}) {n}/{total} max {m}")
+    print(f"  wgpu({v}): {total_diff} bytes differ across all scenarios")
+    worst[f"multipass-plain wgpu({v})"] = total_diff
 print("worst per pair:", worst)
 PY
