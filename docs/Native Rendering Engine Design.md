@@ -559,7 +559,38 @@ exactly the layer. Only tiles whose displayed state changed are recomposited.
 
 ##### Measured (SOFTWARE RENDERERS: Mesa 25.2.8 lavapipe / llvmpipe, no GPU)
 
-BENCH_TABLE
+`cargo run --release --example multipass_bench` (1536x1024 layer, a 120-frame drag at 60 Hz; a
+batch's touch-to-visible runs from its arrival to the end of the readback that shows it; the engine
+is driven like the render thread: stamp, read back, refine in the rest of the frame). A 4-core
+container shared with other builds: only runs taken under low load are reported. A final run at
+load average 15-42 was discarded. Absolute numbers say nothing about a phone.
+
+Cheap brushes (the full dab takes 1-3 ms per batch here), ms:
+
+| backend | brush | off p50 / p95 | multipass p50 / p95 | layer final after last batch | display settled | draft / composite / readback per frame |
+|---|---|---|---|---|---|---|
+| lavapipe | soft round r40 | 1.4 / 3.1 | 4.9 / 7.8 | 21 | 168 | 0.8 / 1.4 / 0.9 |
+| lavapipe | masked + grain + dual r48 | 2.8 / 5.4 | 5.7 / 8.7 | 22 | 169 | 1.4 / 1.6 / 1.1 |
+| llvmpipe | soft round r40 | 1.1 / 3.7 | 3.3 / 6.9 | 20 | 168 | 0.4 / 1.3 / 0.4 |
+| llvmpipe | masked + grain + dual r48 | 1.7 / 4.4 | 4.5 / 9.3 | 20 | 168 | 1.0 / 1.6 / 0.5 |
+
+Here multipass is a fixed 2-4 ms per frame of overhead (draft, per-tile composite, a wider readback)
+and first paint is slower. "Display settled" is dominated by the 150 ms cosmetic ease.
+
+Heavy brush (masked + grain + dual tip, r160, 24 dabs per frame: the full dab takes ~24 ms per batch,
+more than a frame), lavapipe, ms:
+
+| mode | touch-to-visible p50 | p95 | max | layer final after last batch |
+|---|---|---|---|---|
+| off | 525 | 965 | 1002 | 0 (every batch waits for the full dab; the backlog grows) |
+| multipass (draft 1/4, adapted) | 9.1 | 14.9 | 18.4 | 13,200 |
+| multipass, refinement 10x more expensive | 7.4 | 9.5 | 15.9 | 872,000 |
+
+The key property holds: first paint does not depend on refinement cost (10x more expensive
+refinement left p50/p95 flat or lower, because refinement simply got less of each frame). Time to
+full quality is where the cost goes. It is poor on a software renderer: ~13 s for ~3 s of full-dab
+work, and the 10x run was worse than 10x because its ballast then issued a submit per repeat; that
+was since moved into the chunk's own submit (not re-measured under low load).
 
 Tests (all on both lavapipe and llvmpipe): the layer is byte-identical with multipass on and off for
 random sessions of round, masked, smudge, row-restore and texture-upload calls, under random
