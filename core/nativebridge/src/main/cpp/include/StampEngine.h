@@ -8,6 +8,7 @@
 #include <vector>
 
 struct AHardwareBuffer;
+struct ANativeWindow;
 
 namespace graffux {
 
@@ -187,6 +188,19 @@ public:
     virtual bool flushMultipass() { return true; }
     // Diagnostics doubles written (0 = unsupported).
     virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
+    // ---- Optional: direct display (wgpu only; graffux_wgpu.h gfx_wgpu_direct_*) ---------------
+    // The engine presents the live stroke into a surface made from `window` (the overlay
+    // SurfaceView's), straight from its GPU buffers. Vulkan and GLES use LiveStrokeOverlay (their
+    // layer is an AHardwareBuffer) instead. Defaults: unsupported, callers keep readback display.
+    // Capability bits as GFX_WGPU_DIRECT_* (1 window, 2 adapter, 4 attached, 8 stroke, 16 surface).
+    virtual uint32_t directCapabilities() const { return 0; }
+    // Holds its own reference to `window` until directDetach()/destroy().
+    virtual bool directAttach(ANativeWindow* /*window*/, int /*width*/, int /*height*/) { return false; }
+    virtual void directDetach() {}
+    virtual bool directBeginStroke() { return false; }
+    // `matrix`: 6 floats surface px -> layer px, or nullptr to reuse the previous one.
+    virtual bool directPresent(const float* /*matrix*/, bool /*newBatch*/) { return false; }
+    virtual bool directEndStroke() { return false; }
     // ---- Optional: telemetry (GpuTelemetry.kt) -----------------------------------------------
     // key=value lines: engine, backend, renderer, vendor_id, device_id, driver, driver_info, api,
     // timestamps, timestamps_copy, shader_f16, stamp_tile. Empty = unknown.
