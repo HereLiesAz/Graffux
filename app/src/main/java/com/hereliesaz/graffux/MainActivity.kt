@@ -1368,6 +1368,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
                 if (showToolOptions) {
                     val previewAssets = vm.activeBrushPreviewAssets()
+                    val inkInHand = inkUtensilEntryForBrushName(uiState.activeBrushName) != null
                     ToolOptionsWindow(
                         stabilizerLevel = uiState.stabilizerLevel,
                         onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
@@ -1380,9 +1381,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onSetMagicWandTolerance = { vm.onSetMagicWandTolerance(it) },
                         selectionFeatherPx = uiState.selection?.featherPx,
                         onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
-                        brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null },
+                        // An Ink utensil has a whole-stroke opacity (folded into its colour) but no
+                        // per-dab flow, which is a stamp brush's parameter.
+                        brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null && !inkInHand },
                         onSetBrushFlow = { vm.setBrushFlow(it) },
-                        brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null },
+                        brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null || inkInHand },
                         onSetBrushOpacity = { vm.setBrushOpacity(it) },
                         previewBrush = vm.activeBrushForPreview(),
                         previewStampShape = previewAssets.shape,
@@ -1754,6 +1757,7 @@ internal fun activeRailClassifiers(
     com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
         .firstOrNull { it.name == uiState.activeBrushName }
         ?.let { add("brush.builtin.${it.name}") }
+    inkUtensilEntryForBrushName(uiState.activeBrushName)?.let { add(it.classifier) }
     brushes.firstOrNull { it.second == uiState.activeBrushName }?.let { add("brush.${it.first}") }
     customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }
         ?.let { add("brush.custom.${it.id}") }
@@ -2396,6 +2400,17 @@ private fun AzNavHostScope.ConfigureRailItems(
                 color = railColor("brush.builtin.${preset.name}"),
                 shape = AzButtonShape.SQUARE,
                 onClick = { vm.selectBuiltInBrush(preset.name) },
+            )
+        }
+        // Jetpack Ink's stock families, each its own art utensil (not a mode of the round brush).
+        INK_UTENSIL_CATALOG.forEach { entry ->
+            azRailSubItem(
+                id = entry.railId, hostId = "grp.brushRail", text = entry.label,
+                content = entry.icon,
+                classifiers = setOf(entry.classifier),
+                color = railColor(entry.classifier),
+                shape = AzButtonShape.SQUARE,
+                onClick = { vm.selectInkUtensil(entry.utensil) },
             )
         }
         customBrushes.forEach { custom ->

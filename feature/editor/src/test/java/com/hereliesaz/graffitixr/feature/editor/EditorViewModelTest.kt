@@ -713,4 +713,81 @@ class EditorViewModelTest {
 
         assertEquals(0, viewModel.uiState.value.selectedNodeIndex)
     }
+
+    // ── Jetpack Ink utensils ─────────────────────────────────────────────────────────────────────
+
+    /** A raster tool activates only once there's a layer to paint on (see setActiveTool). */
+    private fun withLayer() {
+        viewModel.onAddLayer(Uri.parse("content://test/image.png"))
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `no Ink utensil is in hand by default, so the Brush does not route through Ink`() {
+        withLayer()
+        assertNull(viewModel.activeInkUtensil.value)
+        viewModel.setActiveTool(Tool.BRUSH)
+        assertFalse(viewModel.usesJetpackInk())
+    }
+
+    @Test
+    fun `the brush catalogue lists every Ink utensil`() {
+        assertEquals(
+            com.hereliesaz.graffitixr.common.model.InkUtensil.entries.toList(),
+            viewModel.inkUtensils,
+        )
+    }
+
+    @Test
+    fun `selecting each Ink utensil routes the Brush through Ink with that family`() {
+        withLayer()
+        for (utensil in com.hereliesaz.graffitixr.common.model.InkUtensil.entries) {
+            viewModel.selectInkUtensil(utensil)
+            val state = viewModel.uiState.value
+            assertEquals(utensil, viewModel.activeInkUtensil.value)
+            assertEquals(Tool.BRUSH, state.activeTool)
+            assertEquals(utensil.displayName, state.activeBrushName)
+            assertTrue(viewModel.usesJetpackInk())
+            // The stamp brush is out of hand, so the stamp pipeline has nothing to paint with.
+            assertNull(viewModel.activeBrushForPreview())
+        }
+    }
+
+    @Test
+    fun `an Ink utensil only routes while the Brush tool is in hand`() {
+        withLayer()
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.MARKER)
+        viewModel.setActiveTool(Tool.ERASER)
+        assertFalse(viewModel.usesJetpackInk())
+        viewModel.setActiveTool(Tool.BRUSH)
+        assertTrue(viewModel.usesJetpackInk())
+    }
+
+    @Test
+    fun `picking a built-in brush after an Ink utensil leaves Ink and restores the stamp brush`() {
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.HIGHLIGHTER)
+        val round = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.first()
+        viewModel.selectBuiltInBrush(round.name)
+
+        assertNull(viewModel.activeInkUtensil.value)
+        assertFalse(viewModel.usesJetpackInk())
+        assertEquals(round.name, viewModel.uiState.value.activeBrushName)
+        assertEquals(round, viewModel.activeBrushForPreview())
+    }
+
+    @Test
+    fun `returning to the default brush via selectBrushExtension(null) leaves Ink`() {
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.DASHED_LINE)
+        viewModel.selectBrushExtension(null)
+        assertNull(viewModel.activeInkUtensil.value)
+        assertFalse(viewModel.usesJetpackInk())
+    }
+
+    @Test
+    fun `the Ink utensil no longer depends on any settings toggle`() {
+        // The retired Settings > Jetpack Ink toggle is not read: selection alone routes through Ink.
+        withLayer()
+        viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.PEN)
+        assertTrue(viewModel.usesJetpackInk())
+    }
 }

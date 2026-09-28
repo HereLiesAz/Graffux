@@ -197,6 +197,11 @@ data class BrushStroke(
     val opacity: Float = 1f,
     // Aligned 1:1 with `points` (one per x,y pair, not per float). Empty reads as full pressure.
     val pressures: List<Float> = emptyList(),
+    // [InkUtensil.id] of the Jetpack Ink utensil that drew this stroke; null for every other brush.
+    // A guest that knows the id re-renders the stroke through that Ink family; one that doesn't
+    // (unknown id) falls back to the round brush, as every Ink stroke did before this field existed.
+    // Null is the default and is not encoded, so round-brush strokes are byte-identical on the wire.
+    val inkUtensilId: String? = null,
 )
 
 /**

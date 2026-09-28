@@ -270,7 +270,7 @@ the whole layer).
   and uploads, wired or not. The mutation paths also invalidate explicitly: undo and redo (both
   Draw and layer-list), the full replay and tile-delta fast path, co-op ops that change pixels
   (stroke, text, bitmap replace, layer remove), clear layer, fill, colour-fill, LUT, curves, warp
-  (release, apply, cancel), transform-mode exit, selection move, Jetpack Ink commits, merge,
+  (release, apply, cancel), transform-mode exit, selection move, Ink utensil commits, merge,
   flatten, imports (single, layered, Figma), new project, background image, model paint, text
   re-rasterize and layer URI reload. `LayerStore` invalidates on `initStrokes` (every content
   reset pairs with it), `removeLastStroke`, `remove` and `clear`. It does not invalidate on
@@ -453,16 +453,72 @@ compile but are not exercised by any host test.
   contents on every driver (foreign-queue acquire from UNDEFINED), how front-buffer usage behaves
   per vendor, and the measured latency. The feel reports tag `display direct` / `display compose`.
 
-### Jetpack Ink brush (Settings → Jetpack Ink brush, off by default)
+### Jetpack Ink utensils (Ink Pen, Ink Marker, Ink Highlighter, Ink Dashed Line)
 
-An alternative live path for the **legacy** round Brush only: `EditorViewModel.usesJetpackInk`
-requires `activeStampBrush == null`. Note that since the GPU stamp Round became the default brush,
-nothing in the UI sets `activeStampBrush` to null, so this path is not currently reachable from the
-brush rail — the toggle takes effect only if the legacy round is selected again.
+Jetpack Ink is not a hidden takeover of the round brush. Each public stock `BrushFamily` in the
+pinned `androidx.ink` is its own art utensil in the brush rail (`grp.brushRail`), listed after the
+bundled presets and before custom and installed brushes. This replaced an earlier Settings toggle
+that routed only the legacy round brush through Ink, and that no longer had any effect because the
+brush rail could not select the legacy round.
 
-Code: `feature/editor/.../ink/`. `InkBrushCanvas` hosts Ink's front-buffered `InProgressStrokesView`;
-the finished stroke becomes an ordinary `StrokeCommand` carrying `inkStroke`, which `DrawingEngine`
-renders through `CanvasStrokeRenderer` on commit and on every replay.
+**What Ink 1.0.0 offers.** 1.0.0 is pinned in `gradle/libs.versions.toml` and is the newest stable
+release (1.1.0 is alpha). Its `StockBrushes` has four public families: `pressurePen`, `marker`,
+`highlighter(SelfOverlap)` and `dashedLine`. Each has only a `V1` version, and `LATEST` is `V1`.
+Two more exist but are not offered. `pencilUnstable` is `@RestrictTo(LIBRARY_GROUP)` and needs a
+client-supplied background texture. `emojiHighlighter` needs a client-supplied emoji texture.
+Neither can be used as a stock utensil. A later stable Ink with a public pencil would be one new
+`InkUtensil` entry.
+
+| Utensil | Family | Notes |
+|---|---|---|
+| Ink Pen | `pressurePen(V1)` | pressure → width |
+| Ink Marker | `marker(V1)` | constant width |
+| Ink Highlighter | `highlighter(SelfOverlap.DISCARD, V1)` | self-overlap does not darken |
+| Ink Dashed Line | `dashedLine(V1)` | |
+
+The families are pinned to `V1`, not `LATEST`. A stroke replayed on undo, redo or bake, or rendered
+by a co-op peer, then looks like the one that was drawn, even if a later Ink changes `LATEST`.
+
+**Catalogue and routing.** `InkUtensil` (`:core:common`) is the catalogue: a stable `id` and a
+display name, with no Ink import. `INK_UTENSIL_CATALOG` (`:app`) derives each utensil's rail id,
+classifier and glyph from it. Adding an `InkUtensil` entry therefore adds it to every brush list,
+including any list built from that catalogue, such as the bottom carousel. `InkStrokes.family` is
+the one place a utensil becomes a `BrushFamily`.
+
+`EditorViewModel.selectInkUtensil` does four things:
+
+- sets `activeInkUtensil`
+- clears `activeStampBrush` and its tip assets
+- sets `activeBrushName` to the utensil's name
+- selects the Brush tool
+
+Every other brush selection (built-in, custom, extension, a Brush Studio draft) clears
+`activeInkUtensil`, so exactly one of the two is ever in hand. `EditorScreen` hosts
+`InkBrushCanvas` while an Ink utensil is in hand and the Brush tool is active. It then skips the
+Direct display overlay, so the two never draw the same stroke.
+
+**Settings.** Size (`effectivePaintBrushSize`), colour, opacity and the stabilizer apply to every
+utensil. Opacity is folded into the colour's alpha, the only place a stock family takes it
+(`InkColor.withOpacity`). Tool Options shows the opacity dial for an Ink utensil and hides flow,
+which only a stamp brush has.
+
+**Soft edges are deliberately not applied.** Each stock family has its own fixed tip. Softening the
+Ink Pen would make it no longer a pen, and softening a highlighter or dashed line would make no
+sense. The soft-round custom family (`InkSoftRound`, `InkSoftRoundTextures`) existed only to make
+Ink imitate the legacy round's `BlurMaskFilter` edge, so it was removed together with the takeover
+it served. It remains in git history if an Ink soft brush is ever wanted as its own utensil. The
+hardness drag still changes `brushFeathering` for the other brushes. Ink strokes record
+feathering 0.
+
+**Settings migration.** The `jetpack_ink_brush` preference is deleted on the settings store's
+first read, by `RetiredSettingsMigration` (a DataStore `DataMigration`). Its value is not carried
+forward into "select the Ink Pen". The toggle only affected the unreachable legacy round, so an
+"on" never changed what anyone drew. Honouring it now would swap a user's brush for a setting that
+had no visible effect.
+
+Code: `feature/editor/.../ink/`. `InkBrushCanvas` hosts Ink's front-buffered `InProgressStrokesView`.
+The finished stroke becomes an ordinary `StrokeCommand` carrying `inkStroke` and `inkUtensil`.
+`DrawingEngine` renders it through `CanvasStrokeRenderer` on commit and on every replay.
 
 - **Input.** Touch reaches Ink through Compose (`motionEventSpy`), not the Android view, so the
   surface follows DrawingCanvas's rules: a second finger cancels the stroke and stops consuming,
@@ -472,32 +528,33 @@ renders through `CanvasStrokeRenderer` on commit and on every replay.
 - **Stabilizer.** At stabilizer level > 0 each sample goes through `InkStabilizer` — the editor's own
   `StrokeStabilizer`, on world-space points, reset per stroke — and into Ink's `StrokeInput` API
   instead of raw MotionEvents. At level 0 Ink gets the MotionEvents.
-- **Soft edges.** Feathering 0 is Ink's stock `pressurePen`. Feathering > 0 builds a custom family
-  (`InkStrokes.softRoundFamily`): a particle tip every 0.1 brush sizes, widened by `1 + feathering`,
-  stamping a radial texture served by `InkSoftRoundTextures`. Ink 1.0 has no tip-softness control and
-  particles accumulate, so the texture is solved (`InkSoftRound.solveStampProfile`) so that a
-  straight stroke's cross-section matches the legacy round's `BlurMaskFilter` edge within a few
-  percent (`InkSoftRoundTest`). Remaining gaps: tight curves run slightly denser on the inside of the
-  bend; a stroke crossing itself darkens at the crossing (the legacy path paints once); opacity is
-  baked into the texture in 5 % steps; and the particles' outlines, not the falloff, are what the
-  SVG export sees.
 - **Feel and prediction reports (TEMPORARY).** Ink's `LatencyData` feeds `StrokeFeelMeter`'s Ink
   series (touch→paint per input, first dab from the stroke's START input) and the stabilizer lag.
   The setter is `@RestrictTo` in Ink 1.0 and hidden from Kotlin, so it is reached reflectively. On
   the stabilized route Ink has no OS event time, so touch→paint starts at view receipt there. The
   same `PredictionTournament` DrawingCanvas uses (`rememberPredictionSession`) records every real
   sample, and each stroke's ranking is filed with engine `jetpack-ink`.
-- **History.** `InkStrokeLedger` keeps each layer's Ink strokes in effect: added on commit, removed
-  on an undo that went through, restored on redo, cleared on project change. It outlives the
-  stroke-list bake.
+- **History and brush identity.** `InkStrokeLedger` keeps each layer's Ink strokes in effect. A
+  stroke is added on commit, removed on an undo that went through, restored on redo, and cleared on
+  project change. The ledger outlives the stroke-list bake. Each Ink `StrokeCommand` records its
+  `inkUtensil`, as a stamp stroke records `stampBrush`; that is where the undo history keeps brush
+  identity. Stroke-data capture records `activeBrushName`, which is the utensil's name. Project
+  files save layers as bitmaps and do not persist strokes or the brush in hand, so they have no
+  per-stroke brush to record.
 - **Export.** Export for Figma writes `<project>-ink.svg` next to the bundle when the visible layers
   hold Ink strokes: one `<path>` per stroke, in document pixels (`InkAffine.worldToDocument`).
 - **Co-op.** An Ink stroke is sent as the same `Op.StrokeComplete` a round-brush stroke sends
-  (bitmap-space points, pressures, opacity, feathering). Peers replay it with the round brush, so
-  their copy is close to, not identical to, Ink's geometry; alpha lock, wrap-around and the
-  selection clip are not carried, as for every co-op stroke. Carrying Ink's exact geometry would
-  need a new `Op` variant with the serialized `StrokeInputBatch` and brush, and a guest that renders
-  it through Ink.
+  (bitmap-space points, pressures, opacity), plus `BrushStroke.inkUtensilId`. A guest that knows
+  the id rebuilds the stroke through the same stock family (`InkStrokes.strokeFromPoints`) and
+  commits it as an Ink `StrokeCommand`. A guest that doesn't know the id, or whose Ink fails, falls
+  back to the round brush, which is what every Ink stroke did before the id existed.
+  - The wire has no input timestamps, so the guest spaces its inputs evenly. The stock families
+    shape strokes by distance, so this is invisible.
+  - Alpha lock, wrap-around and the selection clip are not carried, as for every co-op stroke.
+  - The field is null on round-brush strokes and is not encoded, so those strokes are unchanged on
+    the wire.
+  - No co-op transport is bound yet (`NoOpOpEmitter`). A future transport that decodes strictly
+    needs `ignoreUnknownKeys` to accept the field from a newer build.
 
 Android's answer to `CAMetalLayer` + `presentsWithTransaction` is
 `androidx.graphics.lowlatency` (`GLFrontBufferedRenderer`, API 29+; wraps `SurfaceControl` +,

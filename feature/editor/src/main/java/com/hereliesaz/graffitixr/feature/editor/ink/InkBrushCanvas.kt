@@ -29,7 +29,6 @@ import androidx.ink.authoring.latency.LatencyData
 import androidx.ink.authoring.latency.LatencyDataCallback
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
-import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
@@ -40,8 +39,8 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionSession
 import com.hereliesaz.graffitixr.feature.editor.prediction.rememberPredictionSession
 
 /**
- * The Jetpack Ink brush's touch surface (Settings > Jetpack Ink brush): the in-progress stroke is
- * drawn by Ink's front-buffered [InProgressStrokesView], in world coordinates ([screenToWorld] is
+ * The Ink utensils' touch surface (see [com.hereliesaz.graffitixr.common.model.InkUtensil]): the
+ * in-progress stroke is drawn by Ink's front-buffered [InProgressStrokesView], in world coordinates ([screenToWorld] is
  * the viewport camera taken out, the same mapping every other brush point goes through), so the
  * finished [Stroke] lines up with the [com.hereliesaz.graffitixr.feature.editor.StrokeCommand] it
  * becomes. The live Ink copy stays on screen until [onStrokeFinished]'s callback says the layer
@@ -179,8 +178,6 @@ private class InkTouchHost(context: Context) : FrameLayout(context) {
 
     init {
         addView(inkView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        inkView.textureBitmapStore = InkSoftRoundTextures
-        inkView.rendererFactory = { CanvasStrokeRenderer.create(InkSoftRoundTextures) }
         inkView.addFinishedStrokesListener(
             object : InProgressStrokesFinishedListener {
                 override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {

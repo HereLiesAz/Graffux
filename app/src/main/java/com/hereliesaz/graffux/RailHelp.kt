@@ -93,7 +93,9 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     "layer.add" to "Add a new blank layer on top of the stack.",
     "grp.brushRail" to
         "Installed brushes, plus Brush Studio for making your own. The plain round brush is the " +
-        "one selected when none of the others are.",
+        "one selected when none of the others are. The Ink Pen, Ink Marker, Ink Highlighter and " +
+        "Ink Dashed Line are Android's low-latency Jetpack Ink utensils; they take size, colour, " +
+        "opacity and the stabiliser, but not softness.",
     "brush.studio" to
         "Edits the brush you are holding, or makes a new one if you are on the built-in round brush.",
 

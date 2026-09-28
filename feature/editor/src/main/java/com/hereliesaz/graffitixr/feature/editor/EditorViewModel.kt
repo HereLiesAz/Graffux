@@ -173,14 +173,19 @@ data class StrokeCommand(
     // Recorded rather than baked into the base so the deformation undoes by replay like everything
     // else — and so it replays *after* the strokes beneath it, which is the order it was applied in.
     val warpHandles: List<Offset>? = null,
-    // Set only on a Tool.BRUSH stroke drawn with the Jetpack Ink brush (Settings > Jetpack Ink
-    // brush): the finished Ink stroke, in the same world coordinates as [path]. DrawingEngine
+    // Set only on a Tool.BRUSH stroke drawn with a Jetpack Ink utensil (Ink Pen, Marker, ...):
+    // the finished Ink stroke, in the same world coordinates as [path]. DrawingEngine
     // renders THIS, through Ink's CanvasStrokeRenderer, instead of the round/stamp brush — on the
     // live commit and on every undo/redo/bake replay alike, which is what makes an Ink stroke an
     // ordinary replayable command. [path]/[pressures] still carry its inputs for anything that only
     // reads points. Ink strokes are immutable, so sharing one between the command and the
     // InkStrokeLedger is safe.
     val inkStroke: androidx.ink.strokes.Stroke? = null,
+    // Which Ink utensil drew [inkStroke] (null exactly when [inkStroke] is). The stroke already
+    // carries its Ink brush, so replay doesn't need this; it is the brush identity the command
+    // records — as [stampBrush] is for a stamp stroke — for co-op, stroke capture and anything else
+    // that asks what made a stroke.
+    val inkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil? = null,
 )
 
 /**
@@ -4457,9 +4462,9 @@ class EditorViewModel @Inject constructor(
                 val preStrokeBaseSeed = SafeBitmap.copy(work)
                 // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
                 // two full-layer GPU passes run here, off the main thread, before any dab lands.
-                // Never alongside Jetpack Ink: the two must not both draw one stroke. Never on an
+                // Never alongside an Ink utensil: the two must not both draw one stroke. Never on an
                 // engine without AHardwareBuffer output (wgpu): the overlay samples that buffer.
-                val directDisplay = LiveStrokeOverlay.enabled && !jetpackInkBrush.value &&
+                val directDisplay = LiveStrokeOverlay.enabled && activeInkUtensil.value == null &&
                     gpuEngine?.backend?.hardwareBufferOutput == true
                 val overlayMatrices = if (gpuDisplay != null && directDisplay && liveOverlay != null) {
                     withContext(dispatchers.main) { overlayMatricesFor(layerId) }
@@ -6489,27 +6494,50 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── Jetpack Ink brush (Settings > Jetpack Ink brush) ─────────────────────────────────────
+    // ── Jetpack Ink utensils (Ink Pen / Marker / Highlighter / Dashed Line in the brush list) ──
+
+    private val _activeInkUtensil = MutableStateFlow<com.hereliesaz.graffitixr.common.model.InkUtensil?>(null)
 
     /**
-     * Settings > Jetpack Ink brush. Off by default, and off means nothing below runs: the editor's
-     * own live-stroke pipeline (and Direct display, if on) draws the Brush exactly as before. On,
-     * the round Brush's in-progress stroke is Jetpack Ink's front-buffered InProgressStrokesView
-     * (see [InkBrushCanvas]) and the Direct display overlay is skipped, so the two never draw the
-     * same stroke.
+     * The Jetpack Ink utensil in hand, or null for every other brush. Set only by [selectInkUtensil]
+     * and cleared by every other brush selection ([selectBuiltInBrush], [selectCustomBrush],
+     * [selectBrushExtension], a Brush Studio draft), so exactly one of "an Ink utensil" and
+     * "[activeStampBrush]" is ever what the Brush tool paints with. While one is set, the Brush's
+     * in-progress stroke is Ink's front-buffered InProgressStrokesView (see [InkBrushCanvas]) and the
+     * Direct display overlay is skipped, so the two never draw the same stroke.
      */
-    val jetpackInkBrush: StateFlow<Boolean> = settingsRepository.jetpackInkBrush
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val activeInkUtensil: StateFlow<com.hereliesaz.graffitixr.common.model.InkUtensil?> =
+        _activeInkUtensil.asStateFlow()
 
-    /** Whether the next Brush stroke goes through Jetpack Ink: toggle on, round brush, Brush tool. */
+    /** The Ink utensils, in brush-list order — the catalogue the rail (and any brush picker) lists. */
+    val inkUtensils: List<com.hereliesaz.graffitixr.common.model.InkUtensil> =
+        com.hereliesaz.graffitixr.common.model.InkUtensil.entries
+
+    /**
+     * Picks [utensil] as the Brush: its own art utensil, listed with the brushes. The Azphalt stamp
+     * brush is dropped (its tip assets with it) so the stamp pipeline has nothing to paint with, and
+     * `activeBrushName` becomes the utensil's name, as it would for any other brush.
+     */
+    fun selectInkUtensil(utensil: com.hereliesaz.graffitixr.common.model.InkUtensil) {
+        activeStampBrush = null
+        activeStampShape = null
+        activeStampGrain = null
+        activeStampMaskShape = null
+        _activeInkUtensil.value = utensil
+        dispatch(EditorIntent.SetActiveBrush(utensil.displayName))
+        setActiveTool(Tool.BRUSH)
+    }
+
+    /** Whether the next Brush stroke goes through Jetpack Ink: an Ink utensil in hand, Brush tool. */
     fun usesJetpackInk(state: EditorUiState = _uiState.value): Boolean =
-        jetpackInkBrush.value && state.activeTool == Tool.BRUSH && activeStampBrush == null
+        _activeInkUtensil.value != null && state.activeTool == Tool.BRUSH
 
-    /** The Ink brush for the current Brush settings; sized in world units like a round stroke. */
+    /** The Ink brush for the utensil in hand at the current Brush settings, sized in world units. */
     fun inkBrushForCurrentState(): androidx.ink.brush.Brush {
         val s = _uiState.value
-        return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.roundBrush(
-            s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity, s.brushFeathering,
+        val utensil = _activeInkUtensil.value ?: com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+        return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.brush(
+            utensil, s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity,
         )
     }
 
@@ -6552,7 +6580,6 @@ class EditorViewModel @Inject constructor(
             brushColor = state.activeColor.toArgb(),
             intensity = 1f,
             opacity = state.brushOpacity,
-            feathering = state.brushFeathering,
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
@@ -6560,6 +6587,7 @@ class EditorViewModel @Inject constructor(
             wrapAroundMode = state.wrapAroundMode,
             selection = state.selection,
             inkStroke = stroke,
+            inkUtensil = _activeInkUtensil.value ?: com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -6577,21 +6605,25 @@ class EditorViewModel @Inject constructor(
             }
         }
         // Co-op: the same StrokeComplete a round-brush stroke sends, built from the Ink stroke's own
-        // inputs (points in layer-bitmap space, pressures, opacity, feathering). Peers replay it
-        // with the round brush, not Ink, so their copy is the round brush's rendering of the same
-        // stroke — see inkCoopStroke for what differs. A bitmap per stroke was far heavier.
+        // inputs (points in layer-bitmap space, pressures, opacity) plus the utensil's id. A guest
+        // rebuilds the stroke through that same Ink family — see inkCoopStroke for what differs.
+        // A bitmap per stroke was far heavier.
         if (opEmitter.isActive) {
             opEmitter.emit(Op.StrokeComplete(layerId, inkCoopStroke(command, base.width, base.height)))
         }
     }
 
     /**
-     * The co-op [BrushStroke] for an Ink [command]: exactly what [onStrokeEnd] sends for a Tool.BRUSH
-     * round stroke — points mapped into the layer's [bitmapWidth]×[bitmapHeight] pixels, the recorded
-     * pressures, opacity and feathering. What it can't carry, because [BrushStroke] has no field for
-     * it: Ink's own geometry (the guest re-renders with the round brush, whose pressure curve and
-     * soft edge are close to, not identical to, Ink's), and alpha lock / wrap-around / selection clip,
-     * which no co-op stroke carries today either.
+     * The co-op [BrushStroke] for an Ink [command]: what [onStrokeEnd] sends for a Tool.BRUSH round
+     * stroke — points mapped into the layer's [bitmapWidth]×[bitmapHeight] pixels, the recorded
+     * pressures and opacity — plus [BrushStroke.inkUtensilId], so the guest re-renders it through the
+     * same stock Ink family. What it still can't carry: the input timestamps (the guest spaces its
+     * inputs evenly — the stock families shape by distance, so this is invisible), and alpha lock /
+     * wrap-around / selection clip, which no co-op stroke carries today either. The id is a new
+     * optional field: round-brush strokes leave it null, which kotlinx-serialization does not encode.
+     * (No co-op transport is bound today — `CoopModule` binds `NoOpOpEmitter` — so there is no
+     * older peer to stay compatible with yet; a transport that decodes with a strict format would
+     * need `ignoreUnknownKeys` to accept this field from a newer build.)
      */
     private fun inkCoopStroke(command: StrokeCommand, bitmapWidth: Int, bitmapHeight: Int): BrushStroke {
         val mapped = ImageProcessor.mapScreenToBitmap(
@@ -6606,6 +6638,7 @@ class EditorViewModel @Inject constructor(
             blendModeOrdinal = Tool.BRUSH.ordinal,
             opacity = command.opacity,
             pressures = command.pressures,
+            inkUtensilId = command.inkUtensil?.id,
         )
     }
 
@@ -9734,6 +9767,7 @@ class EditorViewModel @Inject constructor(
     /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
     fun selectBuiltInBrush(name: String) {
         val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        _activeInkUtensil.value = null
         activeStampBrush = brush
         activeStampShape = null
         activeStampGrain = null
@@ -9856,6 +9890,7 @@ class EditorViewModel @Inject constructor(
             Toast.makeText(context, "That brush is no longer available", Toast.LENGTH_SHORT).show()
             return
         }
+        _activeInkUtensil.value = null
         activeStampBrush = brush
         activeStampShape = null
         activeStampGrain = null
@@ -9902,6 +9937,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun applyBrushDraft(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush) {
+        _activeInkUtensil.value = null
         activeStampBrush = brush
         // Brush Studio drafts are params-only. Never let assets from the previously selected extension
         // leak into a generated/custom draft.
@@ -9952,6 +9988,7 @@ class EditorViewModel @Inject constructor(
      *  uninstalled since the picker was drawn. */
     fun selectBrushExtension(compositeId: String?) {
         if (compositeId == null) {
+            _activeInkUtensil.value = null
             activeStampBrush = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
             activeStampShape = null
             activeStampGrain = null
@@ -9979,6 +10016,7 @@ class EditorViewModel @Inject constructor(
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
+                    _activeInkUtensil.value = null
                     activeStampBrush = runtime.brush
                     activeStampShape = runtime.shape
                     activeStampGrain = runtime.grain
@@ -10285,6 +10323,23 @@ class EditorViewModel @Inject constructor(
                     val tool = Tool.entries.getOrNull(stroke.blendModeOrdinal) ?: Tool.BRUSH
                     val bitmap = layer.bitmap ?: return@launch
                     
+                    // An Ink utensil's stroke: rebuilt through the same stock family the host drew
+                    // it with, from the points and pressures on the wire (bitmap space, which is
+                    // this command's world space given the identity transform below). An unknown
+                    // id (a newer peer's utensil) or an Ink failure leaves it null, and the stroke
+                    // falls back to the round brush, as every Ink stroke did before the id existed.
+                    val inkUtensil = com.hereliesaz.graffitixr.common.model.InkUtensil.fromId(stroke.inkUtensilId)
+                    val inkStroke = inkUtensil?.let { utensil ->
+                        runCatching {
+                            val ink = com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes
+                            ink.strokeFromPoints(
+                                ink.brush(utensil, stroke.brushSize, stroke.colorArgb.toInt(), stroke.opacity),
+                                stroke.points, stroke.pressures,
+                            )
+                        }.onFailure {
+                            android.util.Log.w("EditorViewModel", "Co-op Ink stroke fell back to the round brush", it)
+                        }.getOrNull()
+                    }
                     // The points are already in BITMAP space (mapped by the host).
                     // To bypass mapping in DrawingEngine, we set canvasSize to bitmap size
                     // and identity transform.
@@ -10300,7 +10355,9 @@ class EditorViewModel @Inject constructor(
                         pressures = stroke.pressures,
                         layerScale = 1f,
                         layerOffset = Offset.Zero,
-                        layerRotationZ = 0f
+                        layerRotationZ = 0f,
+                        inkStroke = inkStroke,
+                        inkUtensil = inkUtensil.takeIf { inkStroke != null },
                     )
                     
                     layerStore.addStroke(layerId, command)
