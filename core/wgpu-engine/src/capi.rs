@@ -97,14 +97,16 @@ pub extern "C" fn gfx_wgpu_create_tuned(
 /// `out` must point to `capacity` writable bytes (or be null with capacity 0).
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_gpu_info(e: *mut Engine, out: *mut c_char, capacity: usize) -> usize {
-    let Some(e) = engine(e) else { return 0 };
-    let text = e.gpu_info();
-    if !out.is_null() && capacity > 0 {
-        let n = text.len().min(capacity - 1);
-        std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
-        *out.add(n) = 0;
-    }
-    text.len()
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        let text = e.gpu_info();
+        if !out.is_null() && capacity > 0 {
+            let n = text.len().min(capacity - 1);
+            std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+            *out.add(n) = 0;
+        }
+        text.len()
+    })
 }
 
 /// Drains GPU pass timings into `out` as `{kind, nanoseconds}` pairs, at most `capacity_pairs`
@@ -118,8 +120,8 @@ pub unsafe extern "C" fn gfx_wgpu_take_pass_timings(
     out: *mut u64,
     capacity_pairs: usize,
 ) -> usize {
-    let Some(e) = engine(e) else { return 0 };
     guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
         let samples = e.take_pass_timings();
         let n = samples.len().min(capacity_pairs);
         if out.is_null() {
@@ -146,14 +148,14 @@ pub unsafe extern "C" fn gfx_wgpu_destroy(e: *mut Engine) {
 /// `e` must be a live engine.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_width(e: *mut Engine) -> i32 {
-    engine(e).map_or(0, |e| e.width())
+    guard(0, || engine(e).map_or(0, |e| e.width()))
 }
 
 /// # Safety
 /// `e` must be a live engine.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_height(e: *mut Engine) -> i32 {
-    engine(e).map_or(0, |e| e.height())
+    guard(0, || engine(e).map_or(0, |e| e.height()))
 }
 
 /// # Safety
@@ -350,17 +352,19 @@ pub unsafe extern "C" fn gfx_wgpu_color_smudge(
 /// `ids` must hold 3 u32s and `nanos` 2 u64s.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_benchmark_info(e: *mut Engine, ids: *mut u32, nanos: *mut u64) {
-    let Some(e) = engine(e) else { return };
-    let b = e.color_smudge_benchmark_info();
-    if !ids.is_null() {
-        *ids = b.vendor_id;
-        *ids.add(1) = b.device_id;
-        *ids.add(2) = b.selected_tile_size;
-    }
-    if !nanos.is_null() {
-        *nanos = b.nanos8;
-        *nanos.add(1) = b.nanos16;
-    }
+    guard((), || {
+        let Some(e) = engine(e) else { return };
+        let b = e.color_smudge_benchmark_info();
+        if !ids.is_null() {
+            *ids = b.vendor_id;
+            *ids.add(1) = b.device_id;
+            *ids.add(2) = b.selected_tile_size;
+        }
+        if !nanos.is_null() {
+            *nanos = b.nanos8;
+            *nanos.add(1) = b.nanos16;
+        }
+    })
 }
 
 /// # Safety
@@ -385,14 +389,16 @@ pub unsafe extern "C" fn gfx_wgpu_adapter_description(
     out: *mut c_char,
     capacity: usize,
 ) -> usize {
-    let Some(e) = engine(e) else { return 0 };
-    let text = e.adapter_description();
-    if !out.is_null() && capacity > 0 {
-        let n = text.len().min(capacity - 1);
-        std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
-        *out.add(n) = 0;
-    }
-    text.len()
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        let text = e.adapter_description();
+        if !out.is_null() && capacity > 0 {
+            let n = text.len().min(capacity - 1);
+            std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+            *out.add(n) = 0;
+        }
+        text.len()
+    })
 }
 
 // ---- Dirty-rect readback and resident layers (see resident.rs and Engine's docs) ----------
@@ -553,12 +559,14 @@ pub unsafe extern "C" fn gfx_wgpu_set_resident_budget(e: *mut Engine, bytes: u64
 /// `out` must point to 2 writable u64s.
 #[no_mangle]
 pub unsafe extern "C" fn gfx_wgpu_resident_stats(e: *mut Engine, out: *mut u64) {
-    let Some(e) = engine(e) else { return };
-    if !out.is_null() {
-        let (n, bytes) = e.resident_stats();
-        *out = n as u64;
-        *out.add(1) = bytes;
-    }
+    guard((), || {
+        let Some(e) = engine(e) else { return };
+        if !out.is_null() {
+            let (n, bytes) = e.resident_stats();
+            *out = n as u64;
+            *out.add(1) = bytes;
+        }
+    })
 }
 
 // ---- Multipass rendering (experimental; see multipass.rs) ------------------------------------

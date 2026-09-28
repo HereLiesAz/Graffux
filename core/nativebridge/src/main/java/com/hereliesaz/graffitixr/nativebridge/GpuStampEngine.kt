@@ -804,6 +804,14 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     fun supportsResidentLayers(): Boolean =
         isInitialized && backend == Backend.WGPU && onGpu { nativeSupportsResidentLayers(nativeHandle) }
 
+    /** (resident layer count, bytes they hold) -- 0 to 0 when not wgpu or the library lacks it. */
+    @get:Synchronized
+    val residentStats: Pair<Long, Long> get() {
+        if (!isInitialized || backend != Backend.WGPU) return 0L to 0L
+        val stats = onGpu { nativeResidentStats(nativeHandle) }
+        return if (stats == null || stats.size < 2) 0L to 0L else stats[0] to stats[1]
+    }
+
     /**
      * Starts a stroke on layer [layerKey] at content [generation] instead of [upload]: binds the
      * copy this engine already holds when it is resident at exactly that generation (no upload, no
@@ -986,6 +994,7 @@ class GpuStampEngine(val backend: Backend = Backend.preferred) {
     private external fun nativeFlushMultipass(handle: Long): Boolean
     private external fun nativeMultipassStats(handle: Long): DoubleArray?
     private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
+    private external fun nativeResidentStats(handle: Long): LongArray?
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?

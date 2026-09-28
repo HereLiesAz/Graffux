@@ -61,7 +61,7 @@ val Typography = Typography(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
-        lineHeight = 11.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     ),
     displayLarge = TextStyle(

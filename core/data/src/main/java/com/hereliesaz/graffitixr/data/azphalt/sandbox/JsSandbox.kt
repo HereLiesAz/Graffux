@@ -26,13 +26,17 @@ private const val MAX_GUEST_MEMORY_PAGES = 4096
 class JsSandbox(
     private val jsCode: String,
     quickjsWasmBytes: InputStream,
-    private val host: AzphaltSandboxHost,
+    host: AzphaltSandboxHost,
     grantedCapabilities: Set<String> = emptySet()
 ) {
     private val instance: Instance
     
     // Extracted host functions for quickjs capabilities
     private val hostFunctions = mutableListOf<HostFunction>()
+
+    // Every capability call goes through this proxy so a timed-out, abandoned worker loses host
+    // access (see runSandboxBounded's onTimeout).
+    private val host = RevocableSandboxHost(host)
     
     init {
         // QuickJS-wasi requires specific host imports in the "env" module
@@ -120,7 +124,7 @@ class JsSandbox(
             // eval_flags: JS_EVAL_TYPE_GLOBAL = 0
             // Bounded: see SandboxExecution.kt. Without this, extension JS that never returns
             // (an infinite loop) pinned a thread forever with no way to cancel it.
-            val resultPtr = runSandboxBounded {
+            val resultPtr = runSandboxBounded(onTimeout = this.host::revoke) {
                 qjsEval.apply(
                     codePtr.toLong(),
                     jsBytes.size.toLong(),
@@ -197,6 +201,9 @@ class JsSandbox(
         val arr = instance.export("qjs_new_array").apply()[0].toInt()
         val setProp = instance.export("qjs_set_prop_uint32")
         for (i in data.indices) {
+            // A large asset makes this loop long, and it runs in host code where Chicory's own
+            // interruption check never fires — so honour a timeout interrupt here too.
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("Sandbox execution interrupted")
             val elem = jsNewNumber((data[i].toInt() and 0xFF).toDouble())
             setProp.apply(arr.toLong(), i.toLong(), elem.toLong())
         }

@@ -73,7 +73,10 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    an extension's manifest didn't request is never mapped into its sandbox — not omitted from
    the WASM import list (that breaks module linking outright, since `quickjs.wasm` declares
    `clock_time_get`/`random_get` as mandatory imports), but replaced with a fixed, non-real
-   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`.
+   answer. See `JsSandbox.kt`'s `timeDenyHostFunctions()`. A granted `assets` capability reads
+   only the invoking extension's own manifest-listed files, via `ExtensionScopedSandboxHost` /
+   `ExtensionAssetReader` (path rules shared with `AzpInstaller`, 4 MiB per-read cap;
+   `spec/package-format.md` § 5.1.1).
 7. **`azNavRail` must stay pinned to `11.18` or newer.** `azRailRelocItem` items (every layer
    row in the `"grp.layers"` panel is one) were completely unclickable under an
    `azUnattachedHostItem` in `11.15` through `11.17` — `RailContent.kt` nulls `onClick` for
@@ -83,13 +86,16 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    `AzUnattachedRelocItemClickTest.kt`). This was never fixable from this repo —
    `dragModifier` isn't exposed through `azRailRelocItem`'s public API — so don't reintroduce
    the bug by downgrading the version pin below `11.18` for an unrelated reason.
-8. **Group layers are rail hosts, never nested rails.** In the `"grp.layers"` panel a `GROUP`
-   layer is an `azRailSubHostItem` (id `layer.<groupId>`) under its parent's host, and its
-   children are `azRailRelocItem`s whose `hostId` is that id — see `LayerRailPlan.kt`'s
-   `layerRailRows`. Do not use `azRailRelocItem`'s `nestedContent` / `keepNestedRailOpen` for
-   layers. AzNavRail has no item that is both a reloc item and a host, so a group itself can't be
-   dragged, and since a reloc cluster is a contiguous run of same-host reloc items, a group also
-   bounds how far its leaf siblings can be dragged past it.
+8. **Group layers are relocatable rail hosts, never nested rails.** In the `"grp.layers"` panel a
+   `GROUP` layer is an `azRailRelocSubHostItem` (id `layer.<groupId>`, AzNavRail `11.52`+) under
+   its parent's host, and its children are `azRailRelocItem`s / `azRailRelocSubHostItem`s whose
+   `hostId` is that id — see `LayerRailPlan.kt`'s `layerRailRows`. Do not use `azRailRelocItem`'s
+   `nestedContent` / `keepNestedRailOpen` for layers. AzNavRail treats a relocatable sub-host plus
+   every descendant declared *immediately after it* as one block that occupies one slot of its
+   parent's reloc cluster, so `layerRailRows` must stay depth-first (each group followed directly
+   by its whole subtree): that is what makes a dragged group carry its children and keeps each
+   host's siblings — leaves and groups alike — in one draggable cluster. Keep the pin at `11.52`
+   or newer; below it there is no draggable host and a group would again block its siblings.
 
 ---
 

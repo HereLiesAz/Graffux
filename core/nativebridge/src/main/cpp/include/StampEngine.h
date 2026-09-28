@@ -176,6 +176,8 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
+    /** Writes {resident layer count, bytes they hold}; engines without residency report 0/0. */
+    virtual void residentStats(uint64_t out[2]) const { out[0] = 0; out[1] = 0; }
 
     // ---- Optional: multipass rendering (wgpu only, experimental) -------------------------------
     // Draft now, full quality in the time left over; see graffux_wgpu.h. Defaults: unsupported, and

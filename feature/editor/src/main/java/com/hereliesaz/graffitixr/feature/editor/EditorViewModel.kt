@@ -2071,6 +2071,8 @@ class EditorViewModel @Inject constructor(
             // Unused for now, but should dispatch intent
         }
         
+        // Not reached: ExtensionRepository.executeCodeExtension wraps this host in an
+        // ExtensionScopedSandboxHost that serves assetRead from the invoking extension's own dir.
         override fun assetRead(path: String): ByteArray? = null
         override fun selectionSize(): Int = 0
         override fun selectionRead(): ByteArray = ByteArray(0)
@@ -3268,7 +3270,9 @@ class EditorViewModel @Inject constructor(
                 }
 
                 val success = saveBitmapToGallery(context, exportBitmap)
-                exportBitmap.recycle()
+                // Only recycle what this function allocated: on the AR path exportBitmap *is* the
+                // caller's backgroundBitmap, which the caller still owns.
+                if (exportBitmap !== backgroundBitmap) exportBitmap.recycle()
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -3468,28 +3472,6 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.ReorderLayers(newOrder))
         opEmitter.emit(Op.LayerReorder(newOrder))
         saveProject()
-    }
-
-    private fun updateLayerUri(id: String, uri: Uri) {
-        invalidateResident(id)
-        viewModelScope.launch(dispatchers.io) {
-            val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            withContext(dispatchers.main) {
-                _uiState.update { state ->
-                    val updatedLayers = state.layers.map {
-                        if (it.id == id) {
-                            bitmap?.let { bmp ->
-                                putLayerBase(id, bmp)
-                                layerStore.initStrokes(id)
-                            }
-                            it.copy(uri = uri, bitmap = bitmap)
-                        } else it
-                    }
-                    state.copy(layers = updatedLayers)
-                }
-            }
-            saveProject()
-        }
     }
 
     fun setAnchorExtent(halfW: Float, halfH: Float) {
@@ -4335,6 +4317,7 @@ class EditorViewModel @Inject constructor(
                 stampGpuEngine?.destroy()
                 stampGpuEngine = null
                 stampGpuActive = false
+                stampGpuJob = null
             }
             stampGpuUsesMaskedPipeline = false
             stampGpuMaskAlpha8 = null
@@ -4345,7 +4328,6 @@ class EditorViewModel @Inject constructor(
             stampGpuHasDualBrush = false
             stampGpuSecondaryMaskAlpha8 = null
             stampGpuSecondaryMaskSize = 0
-            stampGpuJob = null
             stampMappedPoints.clear()
             stampPendingMovementDabs.clear()
             stampPendingHeldDabs.clear()
@@ -8378,6 +8360,7 @@ class EditorViewModel @Inject constructor(
             stampGpuEngine?.destroy()
             stampGpuEngine = null
             stampGpuActive = false
+            stampGpuJob = null
         }
         stampGpuUsesMaskedPipeline = false
         stampGpuMaskAlpha8 = null
@@ -8388,7 +8371,6 @@ class EditorViewModel @Inject constructor(
         stampGpuHasDualBrush = false
         stampGpuSecondaryMaskAlpha8 = null
         stampGpuSecondaryMaskSize = 0
-        stampGpuJob = null
 
         // Shares liveCurveLock with onStrokeStart's publish and drawCurveRun's read/fallback-
         // disable of these same two fields — see onStrokeStart's GPU live-preview comment for why:

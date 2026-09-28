@@ -270,10 +270,7 @@ class AzpInstaller(
         }
     }
 
-    private fun isUnsafePath(name: String): Boolean {
-        if (name.startsWith("/") || name.startsWith("\\") || name.contains(":")) return true
-        return name.split('/', '\\').any { it == ".." }
-    }
+    private fun isUnsafePath(name: String): Boolean = ExtensionPaths.isUnsafePath(name)
 
     // Reverse-DNS ids are filesystem-safe, but defend anyway: keep only [A-Za-z0-9._-].
     private fun safeId(id: String): String = id.replace(Regex("[^A-Za-z0-9._-]"), "_")

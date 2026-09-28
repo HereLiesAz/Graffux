@@ -23,13 +23,17 @@ private const val MAX_GUEST_MEMORY_PAGES = 4096
  */
 class WasmSandbox(
     wasmBytes: InputStream,
-    private val host: AzphaltSandboxHost,
+    host: AzphaltSandboxHost,
     grantedCapabilities: Set<String> = emptySet()
 ) {
     private val instance: Instance
 
     // Extracted host functions mapped to capabilities
     private val hostFunctions = mutableListOf<HostFunction>()
+
+    // Every capability call goes through this proxy so a timed-out, abandoned worker loses host
+    // access (see runSandboxBounded's onTimeout).
+    private val host = RevocableSandboxHost(host)
 
     init {
         bindCapabilities(grantedCapabilities)
@@ -68,7 +72,94 @@ class WasmSandbox(
         // Bounded: see SandboxExecution.kt. Without this, a guest `run` export that never
         // returns (an infinite loop is one WASM instruction) pins a thread forever with no way
         // to cancel it — this class had no execution-time bound of any kind before.
-        runSandboxBounded { entry.apply() }
+        runSandboxBounded(onTimeout = this.host::revoke) { entry.apply() }
+    }
+
+    private fun bindParamFunctions() {
+        hostFunctions.add(
+            HostFunction(
+                "env", "paramNumber",
+                FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.F64)),
+                { _: Instance, args: LongArray ->
+                    val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
+                    val value = host.paramNumber(key) ?: 0.0
+                    longArrayOf(java.lang.Double.doubleToRawLongBits(value))
+                }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "paramBool",
+                FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
+                { _: Instance, args: LongArray ->
+                    val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
+                    val value = host.paramBool(key) ?: false
+                    longArrayOf(if (value) 1L else 0L)
+                }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "paramString",
+                FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32)),
+                { _: Instance, args: LongArray ->
+                    val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
+                    val outPtr = args[2].toInt()
+                    val outCap = args[3].toInt()
+                    
+                    val value = host.paramString(key)
+                    if (value == null) {
+                        longArrayOf(-1L)
+                    } else {
+                        val bytes = value.toByteArray(StandardCharsets.UTF_8)
+                        val toCopy = Math.min(bytes.size, outCap)
+                        instance.memory().write(outPtr, bytes, 0, toCopy)
+                        longArrayOf(bytes.size.toLong())
+                    }
+                }
+            )
+        )
+    }
+
+    private fun bindOptionalParamFunctions() {
+        // paramNumber/paramBool collapse "unset" into 0.0/false and are kept unchanged for
+        // guests already built against them. These Opt variants distinguish absence, following
+        // paramString's convention: they return -1 when the key has no value.
+        //   paramNumberOpt(keyPtr, keyLen, outPtr) -> i32: 1 and writes the f64 at outPtr, or -1.
+        //   paramBoolOpt(keyPtr, keyLen) -> i32: 1 (true), 0 (false), or -1 (unset).
+        hostFunctions.add(
+            HostFunction(
+                "env", "paramNumberOpt",
+                FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32)),
+                { _: Instance, args: LongArray ->
+                    val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
+                    val value = host.paramNumber(key)
+                    if (value == null) {
+                        longArrayOf(-1L)
+                    } else {
+                        instance.memory().writeF64(args[2].toInt(), value)
+                        longArrayOf(1L)
+                    }
+                }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "paramBoolOpt",
+                FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
+                { _: Instance, args: LongArray ->
+                    val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
+                    val value = host.paramBool(key)
+                    longArrayOf(
+                        when (value) {
+                            null -> -1L
+                            true -> 1L
+                            false -> 0L
+                        }
+                    )
+                }
+            )
+        )
     }
 
     private fun bindCapabilities(grantedCapabilities: Set<String>) {
@@ -125,51 +216,10 @@ class WasmSandbox(
         }
 
         if ("params" in grantedCapabilities) {
-            hostFunctions.add(
-                HostFunction(
-                    "env", "paramNumber",
-                    FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.F64)),
-                    { _: Instance, args: LongArray ->
-                        val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
-                        val value = host.paramNumber(key) ?: 0.0
-                        longArrayOf(java.lang.Double.doubleToRawLongBits(value))
-                    }
-                )
-            )
-            hostFunctions.add(
-                HostFunction(
-                    "env", "paramBool",
-                    FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
-                    { _: Instance, args: LongArray ->
-                        val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
-                        val value = host.paramBool(key) ?: false
-                        longArrayOf(if (value) 1L else 0L)
-                    }
-                )
-            )
-            hostFunctions.add(
-                HostFunction(
-                    "env", "paramString",
-                    FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32)),
-                    { _: Instance, args: LongArray ->
-                        val key = instance.memory().readString(args[0].toInt(), args[1].toInt())
-                        val outPtr = args[2].toInt()
-                        val outCap = args[3].toInt()
-                        
-                        val value = host.paramString(key)
-                        if (value == null) {
-                            longArrayOf(-1L)
-                        } else {
-                            val bytes = value.toByteArray(StandardCharsets.UTF_8)
-                            val toCopy = Math.min(bytes.size, outCap)
-                            instance.memory().write(outPtr, bytes, 0, toCopy)
-                            longArrayOf(bytes.size.toLong())
-                        }
-                    }
-                )
-            )
+            bindParamFunctions()
+            bindOptionalParamFunctions()
         }
-        
+
         if ("color" in grantedCapabilities) {
             hostFunctions.add(
                 HostFunction(
