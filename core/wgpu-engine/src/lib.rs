@@ -10,10 +10,12 @@ pub mod engine;
 pub mod jni_api;
 pub mod reference;
 pub mod resident;
+pub mod timing;
 
 pub use wgpu;
 
 pub use engine::{
-    BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams,
-    SubstrateParams,
+    BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams,
+    SubstrateParams, DEFAULT_STAMP_TILE,
 };
+pub use timing::PassKind;

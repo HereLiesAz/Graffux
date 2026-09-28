@@ -27,6 +27,16 @@ typedef struct GfxWgpuSubstrate {
 // backend: 0 = auto (Vulkan/Metal/DX12 first, then GL; WGPU_BACKEND overrides), 1 = Vulkan, 2 = GL.
 // Returns NULL when no adapter with compute support exists.
 GfxWgpuEngine* gfx_wgpu_create(int32_t width, int32_t height, int32_t backend);
+// gfx_wgpu_create with per-device tuning: stampTile 8 or 16 (anything else = 16; the WGSL
+// STAMP_TILE override constant), timestamps = time passes when the adapter has TIMESTAMP_QUERY.
+GfxWgpuEngine* gfx_wgpu_create_tuned(int32_t width, int32_t height, int32_t backend,
+                                     int32_t stampTile, bool timestamps);
+// NUL-terminated key=value lines (engine, backend, renderer, vendor_id, device_id, driver,
+// driver_info, api, timestamps, timestamps_copy, shader_f16, stamp_tile); returns full length.
+size_t gfx_wgpu_gpu_info(GfxWgpuEngine* e, char* out, size_t capacity);
+// Drains GPU pass timings as {kind, nanoseconds} pairs (kind: 0 stamp, 1 readback, 2 composite,
+// 3 smudge, 4 multipass); returns pairs written. 0 without timestamp support.
+size_t gfx_wgpu_take_pass_timings(GfxWgpuEngine* e, uint64_t* out, size_t capacityPairs);
 void gfx_wgpu_destroy(GfxWgpuEngine* e);
 int32_t gfx_wgpu_width(GfxWgpuEngine* e);
 int32_t gfx_wgpu_height(GfxWgpuEngine* e);

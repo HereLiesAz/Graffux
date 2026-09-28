@@ -5,6 +5,7 @@
 #include <android/log.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "StampSpv.h"
@@ -114,6 +115,7 @@ bool VulkanStampEngine::init(int width, int height) {
     // buffer, so command resources must exist before pipeline/descriptor initialization.
     if (!allocateCommandBuffer()) { destroy(); return false; }
     if (!createDescriptorAndPipeline()) { destroy(); return false; }
+    createTimestampPool();
 
     markLayerFullyDirty();
     LOGI("VulkanStampEngine initialized: %dx%d layer", width, height);
@@ -140,6 +142,7 @@ bool VulkanStampEngine::initWithHardwareBuffer(int width, int height) {
     if (!createLayerImageFromHardwareBuffer(width, height)) { destroy(); return false; }
     if (!allocateCommandBuffer()) { destroy(); return false; }
     if (!createDescriptorAndPipeline()) { destroy(); return false; }
+    createTimestampPool();
 
     markLayerFullyDirty();
     LOGI("VulkanStampEngine initialized (AHardwareBuffer-backed): %dx%d layer", width, height);
@@ -194,7 +197,27 @@ bool VulkanStampEngine::pickPhysicalDeviceAndQueueFamily() {
                 bool canUse16x16 = limits.maxComputeWorkGroupInvocations >= 256 &&
                     limits.maxComputeWorkGroupSize[0] >= 16 &&
                     limits.maxComputeWorkGroupSize[1] >= 16;
-                stampTileSize_ = canUse16x16 ? 16 : 8;
+                // GpuTuning (per GPU family) may ask for 8x8; it never forces 16x16 past the limit.
+                stampTileSize_ = (canUse16x16 && stampTuning().stampTile.load() != 8) ? 16 : 8;
+                deviceProps_ = props;
+                timestampsSupported_ = queueFamilies[i].timestampValidBits > 0 &&
+                                       limits.timestampPeriod > 0.0f;
+                if (deviceSupportsExtensions({"VK_KHR_shader_float16_int8"})) {
+                    // Reported only: there is no fp16 shader variant (GpuTierTable keeps it off).
+                    VkPhysicalDeviceShaderFloat16Int8Features f16{};
+                    f16.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+                    VkPhysicalDeviceFeatures2 features2{};
+                    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                    features2.pNext = &f16;
+                    // Looked up rather than linked: this module links against minSdk 26's
+                    // libvulkan stubs, which predate the 1.1 entry points.
+                    auto getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                        vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceFeatures2"));
+                    if (getFeatures2 != nullptr) {
+                        getFeatures2(physicalDevice_, &features2);
+                        shaderFloat16Supported_ = f16.shaderFloat16 == VK_TRUE;
+                    }
+                }
                 if (!canUse16x16) {
                     LOGE("Device maxComputeWorkGroupInvocations=%u (or a per-axis limit) is below "
                          "the 256 the 16x16 stamp shaders need; falling back to the 8x8 variant",
@@ -1057,6 +1080,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
     if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer")) {
         return false;
     }
+    beginTimedPass(commandBuffer_);
 
     VkBufferCopy copyRegion{0, 0, uploadSize};
     vkCmdCopyBuffer(commandBuffer_, dabStagingBuffer_, dabBuffer_, 1, &copyRegion);
@@ -1161,6 +1185,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
         vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
     }
 
+    endTimedPass(commandBuffer_);
     if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer")) return false;
 
     VkSubmitInfo submitInfo{};
@@ -1174,6 +1199,7 @@ bool VulkanStampEngine::stampDabs(const std::vector<GpuDab>& dabs, uint32_t colo
                       "vkWaitForFences(stampDabs)")) {
         return false;
     }
+    collectTimedPass(PassKind::Stamp);
     if (clearStrokeState) strokeStateDirty_ = false;
     expandDirtyRect(originX, originY, regionW, regionH);
     return true;
@@ -2882,6 +2908,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
     if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(stampMasked)")) {
         return false;
     }
+    beginTimedPass(commandBuffer_);
 
     VkBufferCopy copyRegion{0, 0, uploadSize};
     vkCmdCopyBuffer(commandBuffer_, maskedDabStagingBuffer_, maskedDabBuffer_, 1, &copyRegion);
@@ -2973,6 +3000,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
         vkCmdDispatch(commandBuffer_, groupsX, groupsY, 1);
     }
 
+    endTimedPass(commandBuffer_);
     if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(stampMasked)")) return false;
 
     VkSubmitInfo submitInfo{};
@@ -2986,6 +3014,7 @@ bool VulkanStampEngine::stampMaskedDabs(const std::vector<GpuDab>& dabs, uint32_
                       "vkWaitForFences(stampMasked)")) {
         return false;
     }
+    collectTimedPass(PassKind::Stamp);
     expandDirtyRect(originX, originY, regionW, regionH);
     return true;
 }
@@ -3085,6 +3114,7 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     if (!checkResult(vkBeginCommandBuffer(commandBuffer_, &beginInfo), "vkBeginCommandBuffer(readback)")) {
         return false;
     }
+    beginTimedPass(commandBuffer_);
 
     // Handles both cases: an engine that never had stampDabs()/upload() called on it yet (image
     // still UNDEFINED — the transition itself, dstAccessMask below doesn't matter since there's no
@@ -3123,6 +3153,7 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     vkCmdCopyImageToBuffer(commandBuffer_, layerImage_, VK_IMAGE_LAYOUT_GENERAL, stagingBuffer_, 1,
                             &region);
 
+    endTimedPass(commandBuffer_);
     if (!checkResult(vkEndCommandBuffer(commandBuffer_), "vkEndCommandBuffer(readback)")) return false;
 
     VkSubmitInfo submitInfo{};
@@ -3136,6 +3167,7 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
                       "vkWaitForFences(readback)")) {
         return false;
     }
+    collectTimedPass(PassKind::Readback);
 
     void* mapped = nullptr;
     if (!checkResult(vkMapMemory(device_, stagingBufferMemory_, 0, requiredBytes, 0, &mapped),
@@ -3158,6 +3190,68 @@ bool VulkanStampEngine::readback(uint8_t* outRgba8, size_t outCapacityBytes) {
     return true;
 }
 
+void VulkanStampEngine::createTimestampPool() {
+    if (!timestampsSupported_ || !stampTuning().timestamps.load() || timestampPool_ != VK_NULL_HANDLE) return;
+    VkQueryPoolCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    info.queryCount = 2;
+    if (vkCreateQueryPool(device_, &info, nullptr, &timestampPool_) != VK_SUCCESS) {
+        timestampPool_ = VK_NULL_HANDLE;  // Untimed; telemetry falls back to CPU wall time.
+    }
+}
+
+void VulkanStampEngine::beginTimedPass(VkCommandBuffer cmd) {
+    if (timestampPool_ == VK_NULL_HANDLE) return;
+    vkCmdResetQueryPool(cmd, timestampPool_, 0, 2);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_, 0);
+}
+
+void VulkanStampEngine::endTimedPass(VkCommandBuffer cmd) {
+    if (timestampPool_ == VK_NULL_HANDLE) return;
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool_, 1);
+}
+
+void VulkanStampEngine::collectTimedPass(PassKind kind) {
+    if (timestampPool_ == VK_NULL_HANDLE) return;
+    uint64_t ticks[2] = {};
+    // The fence already signalled, so the results are available without waiting.
+    if (vkGetQueryPoolResults(device_, timestampPool_, 0, 2, sizeof(ticks), ticks, sizeof(uint64_t),
+                              VK_QUERY_RESULT_64_BIT) != VK_SUCCESS || ticks[1] <= ticks[0]) {
+        return;
+    }
+    const double ns = static_cast<double>(ticks[1] - ticks[0]) * deviceProps_.limits.timestampPeriod;
+    constexpr size_t kMaxSamples = 1024;
+    if (passTimings_.size() >= kMaxSamples) passTimings_.erase(passTimings_.begin());
+    passTimings_.emplace_back(static_cast<uint32_t>(kind), static_cast<uint64_t>(ns));
+}
+
+size_t VulkanStampEngine::takePassTimings(uint64_t* out, size_t capacityPairs) {
+    const size_t n = std::min(capacityPairs, passTimings_.size());
+    for (size_t i = 0; i < n && out != nullptr; ++i) {
+        out[i * 2] = passTimings_[i].first;
+        out[i * 2 + 1] = passTimings_[i].second;
+    }
+    passTimings_.clear();
+    return out == nullptr ? 0 : n;
+}
+
+std::string VulkanStampEngine::gpuInfo() const {
+    if (physicalDevice_ == VK_NULL_HANDLE) return {};
+    const auto& p = deviceProps_;
+    char buf[768];
+    std::snprintf(buf, sizeof(buf),
+                  "engine=vulkan\nbackend=Vulkan\nrenderer=%s\nvendor_id=%u\ndevice_id=%u\n"
+                  "driver=0x%08x\ndriver_info=\napi=%u.%u.%u\ntimestamps=%d\ntimestamps_copy=%d\n"
+                  "shader_f16=%d\nstamp_tile=%u",
+                  p.deviceName, p.vendorID, p.deviceID, p.driverVersion,
+                  VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion),
+                  VK_API_VERSION_PATCH(p.apiVersion), timestampPool_ != VK_NULL_HANDLE ? 1 : 0,
+                  timestampPool_ != VK_NULL_HANDLE ? 1 : 0, shaderFloat16Supported_ ? 1 : 0,
+                  stampTileSize_);
+    return buf;
+}
+
 void VulkanStampEngine::destroy() {
     if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
@@ -3166,6 +3260,8 @@ void VulkanStampEngine::destroy() {
         destroyStrokeStateBuffer();
     }
 
+    if (timestampPool_ != VK_NULL_HANDLE) { vkDestroyQueryPool(device_, timestampPool_, nullptr); timestampPool_ = VK_NULL_HANDLE; }
+    passTimings_.clear();
     if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }
     if (commandPool_ != VK_NULL_HANDLE) { vkDestroyCommandPool(device_, commandPool_, nullptr); commandPool_ = VK_NULL_HANDLE; }
     commandBuffer_ = VK_NULL_HANDLE;

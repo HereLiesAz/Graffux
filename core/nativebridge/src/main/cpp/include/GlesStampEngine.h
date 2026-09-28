@@ -114,8 +114,12 @@ public:
     bool isInitialized() const override { return context_ != EGL_NO_CONTEXT && layerBuffer_ != 0; }
     int width() const override { return width_; }
     int height() const override { return height_; }
+    // GL_RENDERER / GL_VENDOR / GL_VERSION captured at init. No GPU pass timings: GLES timer
+    // queries (GL_EXT_disjoint_timer_query) are not wired, so telemetry reports CPU wall time.
+    std::string gpuInfo() const override { return gpuInfo_; }
 
 private:
+    std::string gpuInfo_;
     friend class ScopedCurrent;
 
     bool createContext();

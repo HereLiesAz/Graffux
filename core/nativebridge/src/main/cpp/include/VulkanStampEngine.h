@@ -193,7 +193,19 @@ public:
     int width() const override { return width_; }
     int height() const override { return height_; }
 
+    // Telemetry (StampEngine.h): VkPhysicalDeviceProperties plus what this engine chose, and the
+    // stamp/masked/readback passes timed with vkCmdWriteTimestamp when the queue supports it.
+    std::string gpuInfo() const override;
+    size_t takePassTimings(uint64_t* out, size_t capacityPairs) override;
+
 private:
+    // vkCmdWriteTimestamp around one submitted pass. No-ops without a query pool.
+    void beginTimedPass(VkCommandBuffer cmd);
+    void endTimedPass(VkCommandBuffer cmd);
+    // After the fence wait: read the pair and keep it as a `kind` sample.
+    void collectTimedPass(PassKind kind);
+    void createTimestampPool();
+
     bool createInstance();
     bool pickPhysicalDeviceAndQueueFamily();
     bool createLogicalDeviceAndQueue(const std::vector<const char*>& requiredExtensions);
@@ -283,6 +295,13 @@ private:
     // color_smudge, which already ships an 8x8 fallback). Falls back to 8 (64 invocations) then,
     // which fits the guaranteed minimum with headroom.
     uint32_t stampTileSize_ = 16;
+
+    // Telemetry (see gpuInfo / takePassTimings).
+    VkPhysicalDeviceProperties deviceProps_{};
+    bool timestampsSupported_ = false;
+    bool shaderFloat16Supported_ = false;
+    VkQueryPool timestampPool_ = VK_NULL_HANDLE;
+    std::vector<std::pair<uint32_t, uint64_t>> passTimings_;
 
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;

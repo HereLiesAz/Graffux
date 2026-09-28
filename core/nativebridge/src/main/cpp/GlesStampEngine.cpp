@@ -370,6 +370,16 @@ bool GlesStampEngine::init(int width, int height) {
     {
         ScopedCurrent current(*this);
         ok = current.ok() && createPrograms() && createLayer(width, height);
+        if (ok) {
+            // Telemetry (gpuInfo): GL has no numeric ids or Vulkan API version, only strings.
+            auto str = [](GLenum name) {
+                const char* v = reinterpret_cast<const char*>(glGetString(name));
+                return std::string(v != nullptr ? v : "");
+            };
+            gpuInfo_ = "engine=gles\nbackend=Gl\nrenderer=" + str(GL_RENDERER) +
+                       "\nvendor=" + str(GL_VENDOR) + "\ndriver=" + str(GL_VERSION) +
+                       "\ndriver_info=\napi=\ntimestamps=0\ntimestamps_copy=0\nshader_f16=0";
+        }
     }
     if (!ok) {
         destroy();

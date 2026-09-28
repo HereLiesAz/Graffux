@@ -57,6 +57,11 @@ struct Api {
     bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
     void (*invalidateAllLayers)(GfxWgpuEngine*);
     void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
+    // Optional (per-device tuning, telemetry): an older library creates untuned and reports
+    // no GPU info or timings, so telemetry falls back to CPU wall time.
+    GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
+    size_t (*gpuInfo)(GfxWgpuEngine*, char*, size_t);
+    size_t (*takePassTimings)(GfxWgpuEngine*, uint64_t*, size_t);
 };
 
 std::once_flag gLoadOnce;
@@ -105,6 +110,9 @@ void load() {
                               optional(lib, "gfx_wgpu_invalidate_all_layers", a.invalidateAllLayers) &&
                               optional(lib, "gfx_wgpu_set_resident_budget", a.setResidentBudget);
         if (!resident) a.bindLayer = nullptr;  // all or nothing
+        optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
+        optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
+        optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
         gApi = a;  // The library stays loaded for the process lifetime.
     }
 }
@@ -126,7 +134,10 @@ WgpuStampEngine::~WgpuStampEngine() { destroy(); }
 bool WgpuStampEngine::init(int width, int height) {
     destroy();
     if (width <= 0 || height <= 0 || !libraryAvailable()) return false;
-    engine_ = gApi.create(width, height, 0);
+    const StampTuning& tuning = stampTuning();
+    engine_ = gApi.createTuned != nullptr
+                  ? gApi.createTuned(width, height, 0, tuning.stampTile.load(), tuning.timestamps.load())
+                  : gApi.create(width, height, 0);
     if (engine_ == nullptr) {
         WGPU_LOGW("no wgpu adapter with compute support");
         return false;
@@ -255,6 +266,19 @@ void WgpuStampEngine::invalidateAllLayers() {
 
 void WgpuStampEngine::setResidentBudget(uint64_t bytes) {
     if (supportsResidentLayers()) gApi.setResidentBudget(engine_, bytes);
+}
+
+std::string WgpuStampEngine::gpuInfo() const {
+    if (engine_ == nullptr || gApi.gpuInfo == nullptr) return {};
+    std::string text(1024, '\0');
+    const size_t n = gApi.gpuInfo(engine_, text.data(), text.size());
+    text.resize(n < text.size() ? n : text.size() - 1);
+    return text;
+}
+
+size_t WgpuStampEngine::takePassTimings(uint64_t* out, size_t capacityPairs) {
+    if (engine_ == nullptr || gApi.takePassTimings == nullptr) return 0;
+    return gApi.takePassTimings(engine_, out, capacityPairs);
 }
 
 void WgpuStampEngine::destroy() {

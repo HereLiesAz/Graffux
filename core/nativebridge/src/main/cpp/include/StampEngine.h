@@ -1,8 +1,10 @@
 // FILE: core/nativebridge/src/main/cpp/include/StampEngine.h
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 struct AHardwareBuffer;
@@ -173,6 +175,15 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
+
+    // ---- Optional: telemetry (GpuTelemetry.kt) -----------------------------------------------
+    // key=value lines: engine, backend, renderer, vendor_id, device_id, driver, driver_info, api,
+    // timestamps, timestamps_copy, shader_f16, stamp_tile. Empty = unknown.
+    virtual std::string gpuInfo() const { return {}; }
+    // Drains GPU-timed passes as {kind, nanoseconds} pairs into `out` (PassKind below); returns
+    // the pairs written. 0 = no GPU timestamps; the Kotlin side then reports CPU wall time.
+    virtual size_t takePassTimings(uint64_t* /*out*/, size_t /*capacityPairs*/) { return 0; }
+
     virtual bool isInitialized() const = 0;
     virtual int width() const = 0;
     virtual int height() const = 0;
@@ -181,6 +192,18 @@ public:
 // Backend ids shared with the Kotlin wrapper (GpuStampEngine.Backend.nativeId).
 // Wgpu = the Rust engine in core/wgpu-engine behind the WgpuStampEngine adapter.
 enum class StampBackend : int { Vulkan = 0, Gles = 1, Wgpu = 2 };
+
+// Pass kinds for takePassTimings, shared with wgpu's timing.rs and Kotlin GpuPassKind.
+enum class PassKind : uint32_t { Stamp = 0, Readback = 1, Composite = 2, Smudge = 3, Multipass = 4 };
+
+// Process-wide per-device tuning (GpuTuning.kt via JNI), read by each engine at init().
+// stampTile: 8 or 16 (Vulkan picks its 8x8 or 16x16 SPIR-V variant, wgpu the WGSL override
+// constant; GLES has fixed local sizes and ignores it). timestamps: time passes on the GPU.
+struct StampTuning {
+    std::atomic<int> stampTile{16};
+    std::atomic<bool> timestamps{true};
+};
+StampTuning& stampTuning();
 
 // Allocates an uninitialized engine for `backend` (Vulkan for any unknown id).
 StampEngine* createStampEngine(int backend);
