@@ -70,7 +70,7 @@ private fun canvasContext(s: EditorUiState, displayRotation: Int): JSONObject = 
     .put("rotationDeg", s.viewportRotation.toDouble())
     .put("displayRotation", displayRotation)
     .put("sampleRateHz", s.inputSampleRateHz)
-    .put("gpu", GpuStampEngine.Backend.preferred.label)
+    .put("gpu", GpuStampEngine.BACKEND_LABEL)
 
 private fun sessionHeader(context: Context, view: android.view.View, heatmap: HeatmapSource?): JSONObject {
     val metrics: DisplayMetrics = context.resources.displayMetrics

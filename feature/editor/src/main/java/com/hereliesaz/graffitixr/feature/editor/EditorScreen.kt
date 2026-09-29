@@ -408,12 +408,13 @@ fun EditorScreen(
         // landed under the finger only at the camera's identity pose: pan, zoom or rotate the
         // viewport first and the paint appeared at the finger's *pre-camera* position instead —
         // the "comparative area of the screen" a still frame and a live finger no longer agree on.
-        // Direct display (Settings): a SurfaceControl layer above the window for the live stroke.
+        // Direct display (Settings): the wgpu engine presents the live stroke into a surface above the window.
         // Composed before the drawing surface so touches still land on the canvas.
-        // An Ink utensil (Ink Pen, Marker, ... in the brush list) replaces it: Ink and the overlay
-        // must never both draw the same stroke, so with one in hand the overlay isn't hosted at all.
+        // A Jetpack Ink stroke (an Ink utensil with the Brush tool) replaces it: Ink and the overlay
+        // must never both draw the same stroke, so then the overlay isn't hosted at all. Other
+        // tools keep it even with an Ink utensil remembered (EditorViewModel.directDisplayAllowed).
         val inkUtensil by vm.activeInkUtensil.collectAsState()
-        if (com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay.enabled && inkUtensil == null) {
+        if (vm.directDisplayAllowed(uiState)) {
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked

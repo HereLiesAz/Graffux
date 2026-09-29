@@ -20,94 +20,9 @@ FetchContent_MakeAvailable(ink_stroke_modeler)
 find_package(OpenCV REQUIRED CONFIG)
 set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
-# GLSL source is authoritative. NDK glslc compiles the stamp shader plus two semantically identical
-# Color Smudge workgroup strategies. The generated C++ headers live in the build tree, not source,
-# so configuring a build never dirties the checkout. `-mfmt=c` already emits `{ ... }`.
-find_program(GRAFFUX_GLSLC glslc
-    HINTS
-        "${ANDROID_NDK}/shader-tools/linux-x86_64"
-        "${ANDROID_NDK}/shader-tools/windows-x86_64"
-        "${ANDROID_NDK}/shader-tools/darwin-x86_64"
-    NO_DEFAULT_PATH
-)
-if(NOT GRAFFUX_GLSLC)
-    message(FATAL_ERROR "NDK glslc not found")
-endif()
-set(GENERATED_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated-shaders")
-file(MAKE_DIRECTORY "${GENERATED_SHADER_DIR}")
-
-function(graffux_embed_shader SOURCE OUTPUT_HEADER SYMBOL)
-    set(BODY "${GENERATED_SHADER_DIR}/${SYMBOL}.inc")
-    execute_process(
-        COMMAND "${GRAFFUX_GLSLC}" -O -mfmt=c --target-env=vulkan1.1 ${ARGN}
-                -o "${BODY}" "${SOURCE}"
-        RESULT_VARIABLE GLSLC_RESULT
-    )
-    if(NOT GLSLC_RESULT EQUAL 0)
-        message(FATAL_ERROR "glslc failed for ${SOURCE}: ${GLSLC_RESULT}")
-    endif()
-    file(READ "${BODY}" WORDS)
-    file(WRITE "${GENERATED_SHADER_DIR}/${OUTPUT_HEADER}"
-"#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace graffux {\ninline constexpr uint32_t ${SYMBOL}[] = ${WORDS};\ninline constexpr size_t ${SYMBOL}Words = sizeof(${SYMBOL}) / sizeof(${SYMBOL}[0]);\n}  // namespace graffux\n")
-endfunction()
-
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
-    "StampSpv.h"
-    "kStampCompSpv"
-    -DTILE_SIZE=16
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp.comp"
-    "StampSpv8.h"
-    "kStampComp8Spv"
-    -DTILE_SIZE=8
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp_masked.comp"
-    "StampMaskedSpv.h"
-    "kStampMaskedCompSpv"
-    -DTILE_SIZE=16
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/stamp_masked.comp"
-    "StampMaskedSpv8.h"
-    "kStampMaskedComp8Spv"
-    -DTILE_SIZE=8
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
-    "ColorSmudge8Spv.h"
-    "kColorSmudge8CompSpv"
-    -DTILE_SIZE=8
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/live_overlay.comp"
-    "LiveOverlaySpv.h"
-    "kLiveOverlayCompSpv"
-)
-graffux_embed_shader(
-    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_smudge.comp"
-    "ColorSmudge16Spv.h"
-    "kColorSmudge16CompSpv"
-    -DTILE_SIZE=16
-)
-
-# GlesStampEngine's shaders are GLSL ES source compiled by the driver at runtime, embedded as raw
-# string literals. They are generated from the Vulkan shaders (shaders/gles/port_from_vulkan.py)
-# and committed, so this build step only wraps them.
-set(GLES_SHADERS_HEADER "#pragma once\nnamespace graffux {\n")
-foreach(PAIR "stamp.comp:kStampCompSrc" "stamp_masked.comp:kStampMaskedCompSrc" "color_smudge.comp:kColorSmudgeCompSrc")
-    string(REPLACE ":" ";" PAIR_LIST "${PAIR}")
-    list(GET PAIR_LIST 0 GLES_FILE)
-    list(GET PAIR_LIST 1 GLES_SYMBOL)
-    set(GLES_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/gles/${GLES_FILE}")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GLES_SOURCE}")
-    file(READ "${GLES_SOURCE}" GLES_TEXT)
-    string(APPEND GLES_SHADERS_HEADER "inline constexpr const char* ${GLES_SYMBOL} = R\"GLSL(${GLES_TEXT})GLSL\";\n")
-endforeach()
-string(APPEND GLES_SHADERS_HEADER "}  // namespace graffux\n")
-file(WRITE "${GENERATED_SHADER_DIR}/GlesShaders.h" "${GLES_SHADERS_HEADER}")
+# GPU stamp engine: only the wgpu adapter (WgpuStampEngine.cpp, which dlopen()s
+# libgraffux_wgpu.so). The Vulkan and GLES 3.1 engines, their GLSL shaders and the glslc
+# shader-embedding step were retired (docs/Native Rendering Engine Design.md, "Retired backends").
 
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
@@ -118,27 +33,20 @@ add_library(graffitixr SHARED
     LowLightEnhancer.cpp
     ImageWarper.cpp
     MlasStub.cpp
-    VulkanStampEngine.cpp
-    VulkanStampEngineReuse.cpp
-    VulkanStampDynamicsJNI.cpp
-    VulkanColorSmudge.cpp
-    VulkanColorSmudgeJNI.cpp
-    GlesStampEngine.cpp
+    StampDynamicsJNI.cpp
+    ColorSmudgeJNI.cpp
     StampEngineFactory.cpp
     WgpuStampEngine.cpp
-    LiveStrokeOverlay.cpp
     InkStrokePredictorJNI.cpp
 )
 
 target_include_directories(graffitixr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${GENERATED_SHADER_DIR}
     ${GLM_DIR}
     ${ink_stroke_modeler_SOURCE_DIR}
 )
 
 find_library(log-lib log)
-find_library(vulkan-lib vulkan)
 
 target_link_libraries(graffitixr
     ${log-lib}
@@ -147,7 +55,6 @@ target_link_libraries(graffitixr
     EGL
     android
     jnigraphics
-    ${vulkan-lib}
     InkStrokeModeler::stroke_modeler
     # InkStrokePredictorJNI.cpp uses the Kalman predictor directly.
     InkStrokeModeler::kalman_predictor

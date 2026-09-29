@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-struct AHardwareBuffer;
 struct ANativeWindow;
 
 namespace graffux {
@@ -15,13 +14,13 @@ namespace graffux {
 // One dab. The first five fields are the historical ABI. The resolved paint fields widen the
 // buffer to 16 floats / 64 bytes; old aggregate initializers that provide only five values leave
 // `resolved` at zero, so the shader falls back to the stroke-level colour exactly as before. New
-// callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to
-// shaders/stamp.comp AND shaders/stamp_masked.comp (both share this exact struct layout).
+// callers set resolved=1 and provide per-dab RGBA + flow. Keep this binary-identical to the wgpu
+// engine's Dab record (core/wgpu-engine stamp.wgsl AND stamp_masked.wgsl share this layout).
 // The fourth vec4 carries material state; it is ignored unless a dispatch explicitly enables
 // substrate sampling, preserving every historical/legacy dab path.
 //
-// `tipRatio` is read only by stamp_masked.comp (height/width of the tip -- see AzphaltBrush.
-// tipRatio). stamp.comp instead repurposes this same trailing float, for a *resolved* dab only, as
+// `tipRatio` is read only by the masked shader (height/width of the tip -- see AzphaltBrush.
+// tipRatio). The round shader instead repurposes this same trailing float, for a *resolved* dab only, as
 // that dab's own hardness override (see AzphaltBrush.hardness / a HARDNESS BrushSensorBinding) --
 // the two shaders never share a dab list, so the two interpretations never conflict.
 struct GpuDab {
@@ -56,7 +55,7 @@ struct SubstrateStampParams {
 };
 
 // Masked/dual-brush secondary tip, one entry per primary dab (same index, parallel arrays) -- see
-// shaders/stamp_masked.comp's SecondaryDab struct, which this must stay binary-identical to.
+// the wgpu engine's stamp_masked.wgsl SecondaryDab struct, which this must stay binary-identical to.
 // `keepInside` is pre-resolved on the host from MaskedBrushBlendMode + invert (>0.5 = DST_IN).
 struct GpuSecondaryDab {
     float x;
@@ -88,8 +87,7 @@ struct ColorSmudgeDab {
     float pickupRate = 0.0f;
 };
 
-// GL exposes no numeric vendor/device ids, so vendorId/deviceId are 0 and the choice is keyed on
-// the GL_RENDERER string instead; the timings and tile choice mean what they always did.
+// The Color Smudge workgroup benchmark: adapter vendor/device ids, chosen tile, and both timings.
 struct ColorSmudgeBenchmarkInfo {
     uint32_t vendorId = 0;
     uint32_t deviceId = 0;
@@ -99,12 +97,11 @@ struct ColorSmudgeBenchmarkInfo {
 };
 
 /**
- * The GPU stamp engine contract, implemented by two interchangeable backends: VulkanStampEngine
- * (Vulkan 1.1 compute) and GlesStampEngine (OpenGL ES 3.1 compute). Same shaders in spirit, same
- * dab/struct layouts, same pixels (docs/Native Rendering Engine Design.md §2); which one runs is a
- * Settings choice so they can be compared on a real device. The JNI bridge only ever sees this
- * interface. Not thread-safe: the Kotlin wrapper serializes every call on one instance. See the
- * implementations for each call's full contract.
+ * The GPU stamp engine contract the JNI bridge sees. One implementation: WgpuStampEngine, the
+ * adapter over the Rust wgpu engine (core/wgpu-engine). The Vulkan 1.1 and OpenGL ES 3.1 compute
+ * implementations were retired (docs/Native Rendering Engine Design.md, "Retired backends"); the
+ * interface stays so tools/stamp-engine-diff and the JNI bridge are engine-agnostic. Not
+ * thread-safe: the Kotlin wrapper serializes every call on one instance.
  */
 class StampEngine {
 public:
@@ -112,11 +109,8 @@ public:
 
     // false = no usable GPU/API on this device; the caller falls back to the CPU path.
     virtual bool init(int width, int height) = 0;
-    // init() plus an AHardwareBuffer the layer is displayed from with no CPU readback.
-    virtual bool initWithHardwareBuffer(int width, int height) = 0;
     // Transparent layer, new stroke; used when a pooled engine is reused.
     virtual bool clear() = 0;
-    virtual struct AHardwareBuffer* hardwareBuffer() const = 0;
     virtual bool upload(const uint8_t* inRgba8, size_t inSizeBytes) = 0;
     virtual bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) = 0;
     virtual bool uploadPaintHeight(const float* heightMap, int width, int height) = 0;
@@ -141,8 +135,8 @@ public:
     virtual bool readback(uint8_t* outRgba8, size_t outCapacityBytes) = 0;
     virtual void destroy() = 0;
 
-    // ---- Optional: resident layers and rectangle readback (wgpu only for now) ---------------
-    // Defaults keep Vulkan and GLES exactly as they were: no resident layers (every bind misses and
+    // ---- Optional: resident layers and rectangle readback ----------------------------------
+    // Defaults (for a wgpu library that predates them): no resident layers (every bind misses and
     // every upload fails, so callers take the plain upload() path) and readbackRect() is readback()
     // reporting the whole layer. See core/wgpu-engine/include/graffux_wgpu.h for the contract.
 
@@ -176,10 +170,8 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
-    /** Writes {resident layer count, bytes they hold}; engines without residency report 0/0. */
-    virtual void residentStats(uint64_t out[2]) const { out[0] = 0; out[1] = 0; }
 
-    // ---- Optional: multipass rendering (wgpu only, experimental) -------------------------------
+    // ---- Optional: multipass rendering (experimental) -----------------------------------------
     // Draft now, full quality in the time left over; see graffux_wgpu.h. Defaults: unsupported, and
     // every other call behaves exactly as without it.
     virtual bool setMultipass(const float* /*params*/, size_t /*count*/) { return false; }
@@ -188,10 +180,10 @@ public:
     virtual bool flushMultipass() { return true; }
     // Diagnostics doubles written (0 = unsupported).
     virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
-    // ---- Optional: direct display (wgpu only; graffux_wgpu.h gfx_wgpu_direct_*) ---------------
+    // ---- Optional: direct display (graffux_wgpu.h gfx_wgpu_direct_*) -------------------------
     // The engine presents the live stroke into a surface made from `window` (the overlay
-    // SurfaceView's), straight from its GPU buffers. Vulkan and GLES use LiveStrokeOverlay (their
-    // layer is an AHardwareBuffer) instead. Defaults: unsupported, callers keep readback display.
+    // SurfaceView's), straight from its GPU buffers. Defaults: unsupported, callers keep readback
+    // display.
     // Capability bits as GFX_WGPU_DIRECT_* (1 window, 2 adapter, 4 attached, 8 stroke, 16 surface).
     virtual uint32_t directCapabilities() const { return 0; }
     // Holds its own reference to `window` until directDetach()/destroy().
@@ -214,23 +206,18 @@ public:
     virtual int height() const = 0;
 };
 
-// Backend ids shared with the Kotlin wrapper (GpuStampEngine.Backend.nativeId).
-// Wgpu = the Rust engine in core/wgpu-engine behind the WgpuStampEngine adapter.
-enum class StampBackend : int { Vulkan = 0, Gles = 1, Wgpu = 2 };
-
 // Pass kinds for takePassTimings, shared with wgpu's timing.rs and Kotlin GpuPassKind.
 enum class PassKind : uint32_t { Stamp = 0, Readback = 1, Composite = 2, Smudge = 3, Multipass = 4 };
 
 // Process-wide per-device tuning (GpuTuning.kt via JNI), read by each engine at init().
-// stampTile: 8 or 16 (Vulkan picks its 8x8 or 16x16 SPIR-V variant, wgpu the WGSL override
-// constant; GLES has fixed local sizes and ignores it). timestamps: time passes on the GPU.
+// stampTile: 8 or 16 (the WGSL workgroup override constant). timestamps: time passes on the GPU.
 struct StampTuning {
     std::atomic<int> stampTile{16};
     std::atomic<bool> timestamps{true};
 };
 StampTuning& stampTuning();
 
-// Allocates an uninitialized engine for `backend` (Vulkan for any unknown id).
-StampEngine* createStampEngine(int backend);
+// Allocates an uninitialized engine (the wgpu adapter).
+StampEngine* createStampEngine();
 
 }  // namespace graffux

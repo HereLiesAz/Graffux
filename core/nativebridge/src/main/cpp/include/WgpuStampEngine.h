@@ -12,18 +12,17 @@ struct GfxWgpuEngine;
 namespace graffux {
 
 /**
- * The third StampEngine backend: an adapter over the Rust wgpu engine (core/wgpu-engine), the
- * long-term single brush engine shared with the desktop app. Its WGSL shaders are ports of the
- * same stamp.comp / stamp_masked.comp / color_smudge.comp math; tools/stamp-engine-diff compares
- * its pixels against the Vulkan and GLES engines.
+ * The StampEngine implementation: an adapter over the Rust wgpu engine (core/wgpu-engine), the
+ * single brush engine shared with the desktop app and the only GPU backend on Android (the Vulkan
+ * and GLES engines whose GLSL its WGSL shaders were ported from are retired).
+ * tools/stamp-engine-diff checks its pixels across wgpu's Vulkan and GL backends.
  *
  * libgraffux_wgpu.so is dlopen()ed on first use rather than linked, so a build without the Rust
  * library (no cargo / Android targets on the build host) still links and runs: init() just returns
  * false and the caller falls back to the CPU path, exactly as with no usable GPU.
  *
- * No AHardwareBuffer output: initWithHardwareBuffer() returns false, so LiveStrokeOverlay (raw
- * Vulkan interop) never sees a wgpu layer. wgpu has its own direct display instead (direct*():
- * a wgpu surface on the overlay SurfaceView's window; see graffux_wgpu.h and the design doc §3).
+ * Direct display (direct*()): a wgpu surface on the overlay SurfaceView's window; see
+ * graffux_wgpu.h and the design doc §3.
  */
 class WgpuStampEngine final : public StampEngine {
 public:
@@ -37,9 +36,7 @@ public:
     static bool libraryAvailable();
 
     bool init(int width, int height) override;
-    bool initWithHardwareBuffer(int width, int height) override;
     bool clear() override;
-    struct AHardwareBuffer* hardwareBuffer() const override { return nullptr; }
     bool upload(const uint8_t* inRgba8, size_t inSizeBytes) override;
     bool uploadSubstrateHeight(const uint8_t* heightR8, int width, int height) override;
     bool uploadPaintHeight(const float* heightMap, int width, int height) override;

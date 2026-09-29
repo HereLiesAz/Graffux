@@ -56,8 +56,7 @@ import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
-import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
-import com.hereliesaz.graffitixr.nativebridge.VulkanStampEngineSelfTest
+import com.hereliesaz.graffitixr.nativebridge.GpuStampEngineSelfTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,7 +86,7 @@ fun SettingsScreen(
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
     var showNotices by remember { mutableStateOf(false) }
     var gpuTestRunning by remember { mutableStateOf(false) }
-    var gpuTestResult by remember { mutableStateOf<VulkanStampEngineSelfTest.Result?>(null) }
+    var gpuTestResult by remember { mutableStateOf<GpuStampEngineSelfTest.Result?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     if (showNotices) {
@@ -213,8 +212,8 @@ fun SettingsScreen(
             )
             ActionRow(
                 title = if (gpuTestRunning) "Testing…" else "Test GPU Engine",
-                subtitle = "Runs the native Vulkan compute dab-stamping engine " +
-                    "(docs/Native Rendering Engine Design.md §9 Phase 3) end to end on this " +
+                subtitle = "Runs the native wgpu dab-stamping engine " +
+                    "(docs/Native Rendering Engine Design.md) end to end on this " +
                     "device — init, stamp three overlapping dabs, read the result back — and " +
                     "shows what it produced. This is the same engine every live stroke already " +
                     "runs on when GPU stamping is active, so a failure here points to a real " +
@@ -223,7 +222,7 @@ fun SettingsScreen(
                     if (!gpuTestRunning) {
                         gpuTestRunning = true
                         coroutineScope.launch {
-                            gpuTestResult = withContext(Dispatchers.Default) { VulkanStampEngineSelfTest.run() }
+                            gpuTestResult = withContext(Dispatchers.Default) { GpuStampEngineSelfTest.run() }
                             gpuTestRunning = false
                         }
                     }
@@ -236,7 +235,7 @@ fun SettingsScreen(
             HorizontalDivider()
             StrokeDataRow(vm)
             HorizontalDivider()
-            GpuBackendRow()
+            GpuEngineRows()
             GpuTierRow()
             HorizontalDivider()
 
@@ -377,51 +376,30 @@ private fun PredictionSoloRow() {
 }
 
 /**
- * Which GPU backend paints the stamp brushes: Vulkan, OpenGL ES or wgpu (same shader math, same
- * pixels). A comparison switch: reports name the backend, and new strokes pick the change up
- * immediately. The default stays Vulkan.
+ * GPU engine settings. There is no engine choice: wgpu is the only GPU backend (the Vulkan and
+ * OpenGL ES engines and their selector were retired; RetiredGpuBackendMigration drops the old
+ * stored choice), and a device where it can't start draws on the CPU.
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
-private fun GpuBackendRow() {
+private fun GpuEngineRows() {
     val context = LocalContext.current
     val prefs = remember(context) {
-        context.getSharedPreferences(GpuStampEngine.Backend.PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(GpuStampEngine.PREFS, Context.MODE_PRIVATE)
     }
-    var backend by remember { mutableStateOf(GpuStampEngine.Backend.preferred) }
-    ChoiceRow(
-        title = "GPU engine",
-        subtitle = "Which graphics API paints the brushes. All three produce the same pixels; switch " +
-            "to compare how drawing feels. wgpu is the engine the desktop app shares; with it, " +
-            "direct display is off. Applies to the next stroke.",
-        options = GpuStampEngine.Backend.entries.toList(),
-        selected = backend,
-        label = {
-            when (it) {
-                GpuStampEngine.Backend.VULKAN -> "Vulkan"
-                GpuStampEngine.Backend.GLES -> "OpenGL ES"
-                GpuStampEngine.Backend.WGPU -> "wgpu"
-            }
-        },
-        onSelect = {
-            backend = it
-            GpuStampEngine.Backend.preferred = it
-            prefs.edit().putString(GpuStampEngine.Backend.KEY, it.label).apply()
-        },
-    )
-    var direct by remember { mutableStateOf(LiveStrokeOverlay.enabled) }
+    var direct by remember { mutableStateOf(GpuStampEngine.DirectSurface.enabled) }
     ChoiceRow(
         title = "Direct display",
-        subtitle = "Draws the stroke in progress straight to the screen through Vulkan, skipping " +
-            "the app's own frame. Normal-blend layers with nothing visible above them; everything " +
-            "else draws as before. Not with the wgpu engine. Takes effect next time the canvas opens.",
+        subtitle = "Draws the stroke in progress straight to the screen from the GPU engine, " +
+            "skipping the app's own frame. Normal-blend layers with nothing visible above them; " +
+            "everything else draws as before. Takes effect next time the canvas opens.",
         options = listOf(false, true),
         selected = direct,
         label = { if (it) "On" else "Off" },
         onSelect = {
             direct = it
-            LiveStrokeOverlay.enabled = it
-            prefs.edit().putBoolean(LiveStrokeOverlay.ENABLED_KEY, it).apply()
+            GpuStampEngine.DirectSurface.enabled = it
+            prefs.edit().putBoolean(GpuStampEngine.DirectSurface.ENABLED_KEY, it).apply()
         },
     )
     MultipassRows(prefs)
@@ -463,11 +441,11 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
     )
 }
 
-/** Shows [VulkanStampEngineSelfTest.run]'s outcome: the stamped bitmap on success, the failure
- *  reason (with a pointer to the `GpuStampEngine` logcat tag for the underlying VkResult) on
+/** Shows [GpuStampEngineSelfTest.run]'s outcome: the stamped bitmap on success, the failure
+ *  reason (with a pointer to the `GpuStampEngine` logcat tag for the underlying error) on
  *  failure. */
 @Composable
-private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -> Unit) {
+private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
@@ -479,7 +457,7 @@ private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDism
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "Expect a soft red blob with two firmer, darker-edged lobes overlapping it — " +
-                            "that's the hardness falloff and SRC_OVER build-up stamp.comp is responsible for.",
+                            "that's the hardness falloff and SRC_OVER build-up the stamp shader is responsible for.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

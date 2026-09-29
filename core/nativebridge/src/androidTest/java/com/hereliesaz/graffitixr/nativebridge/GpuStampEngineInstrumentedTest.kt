@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class VulkanStampEngineInstrumentedTest {
+class GpuStampEngineInstrumentedTest {
 
     private val engines = mutableListOf<GpuStampEngine>()
 
@@ -27,7 +27,7 @@ class VulkanStampEngineInstrumentedTest {
 
     private fun initializedEngine(width: Int = SIZE, height: Int = SIZE): GpuStampEngine {
         val engine = engine()
-        assumeTrue("Device does not expose a usable Vulkan compute path", engine.init(width, height))
+        assumeTrue("Device has no usable wgpu adapter", engine.init(width, height))
         return engine
     }
 
@@ -200,7 +200,7 @@ class VulkanStampEngineInstrumentedTest {
         val second = engine()
         assertTrue(second.init(SIZE, SIZE))
         assertEquals(
-            "Same-size engine recreation reached native Vulkan init instead of the reuse pool",
+            "Same-size engine recreation reached native engine init instead of the reuse pool",
             afterFirstInit,
             GpuStampEngine.nativeCreationCountForTesting(),
         )
@@ -211,31 +211,10 @@ class VulkanStampEngineInstrumentedTest {
     }
 
     @Test
-    fun hardwareBufferBackedEngineIsAlsoReusedWhenSupported() {
-        GpuStampEngine.trimPool()
-        val first = engine()
-        assumeTrue(
-            "Device does not support the AHardwareBuffer-backed Vulkan path",
-            first.initHardwareBufferBacked(SIZE, SIZE),
-        )
-        val afterFirstInit = GpuStampEngine.nativeCreationCountForTesting()
-        first.destroy()
-
-        val second = engine()
-        assertTrue(second.initHardwareBufferBacked(SIZE, SIZE))
-        assertEquals(
-            "AHardwareBuffer-backed engine was recreated instead of reused",
-            afterFirstInit,
-            GpuStampEngine.nativeCreationCountForTesting(),
-        )
-    }
-
-
-    @Test
     fun substrateHeightGatesResolvedAndMaskedDabsAndRefreshesSameSizeTileContent() {
         val engine = initializedEngine()
         val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
-        val substrate = VulkanSubstrateParams(heightScale = 1f, textureScale = 1f)
+        val substrate = SubstrateStampParams(heightScale = 1f, textureScale = 1f)
         val shallow = ResolvedBrushDab(
             x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
             colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
@@ -290,7 +269,7 @@ class VulkanStampEngineInstrumentedTest {
     fun existingPaintHeightLowersSubstrateBarrierForResolvedAndMaskedDabs() {
         val engine = initializedEngine()
         val blank = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888).apply { eraseColor(0x00000000) }
-        val substrate = VulkanSubstrateParams(heightScale = 1f, textureScale = 1f)
+        val substrate = SubstrateStampParams(heightScale = 1f, textureScale = 1f)
         val shallow = ResolvedBrushDab(
             x = SIZE / 2f, y = SIZE / 2f, radius = 8f, alpha = 1f, angleDeg = 0f,
             colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
@@ -361,7 +340,7 @@ class VulkanStampEngineInstrumentedTest {
             colorArgb = COLOR_RED, flow = 1f, hardness = 1f,
             contactDepth = 0.2f, reservoirLoad = 1f, depositionRate = 1f, substrateResponse = 1f,
         )
-        assertTrue(second.stampResolvedDabs(listOf(shallow), substrate = VulkanSubstrateParams(heightScale = 1f)))
+        assertTrue(second.stampResolvedDabs(listOf(shallow), substrate = SubstrateStampParams(heightScale = 1f)))
         val result = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         assertTrue(second.readback(result))
         assertEquals(
@@ -386,7 +365,7 @@ class VulkanStampEngineInstrumentedTest {
         )
         assertFalse(
             "new wrapper silently reused the previous owner's substrate tile",
-            second.stampResolvedDabs(listOf(dab), substrate = VulkanSubstrateParams(heightScale = 1f)),
+            second.stampResolvedDabs(listOf(dab), substrate = SubstrateStampParams(heightScale = 1f)),
         )
     }
 

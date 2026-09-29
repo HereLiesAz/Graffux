@@ -1,7 +1,5 @@
 // FILE: core/nativebridge/src/main/cpp/StampEngineFactory.cpp
-#include "include/GlesStampEngine.h"
 #include "include/StampEngine.h"
-#include "include/VulkanStampEngine.h"
 #include "include/WgpuStampEngine.h"
 
 namespace graffux {
@@ -11,10 +9,8 @@ StampTuning& stampTuning() {
     return tuning;
 }
 
-StampEngine* createStampEngine(int backend) {
-    if (backend == static_cast<int>(StampBackend::Gles)) return new GlesStampEngine();
-    if (backend == static_cast<int>(StampBackend::Wgpu)) return new WgpuStampEngine();
-    return new VulkanStampEngine();
-}
+// wgpu is the only GPU backend; the Vulkan and GLES engines were retired. When it cannot start,
+// init() returns false and the Kotlin side draws on the CPU.
+StampEngine* createStampEngine() { return new WgpuStampEngine(); }
 
 }  // namespace graffux

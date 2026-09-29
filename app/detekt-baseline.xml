@@ -12,7 +12,7 @@
     <ID>FunctionNaming:SettingsScreen.kt$@Composable fun SettingsScreen( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun &lt;T&gt; ChoiceRow( title: String, subtitle: String, options: List&lt;T&gt;, selected: T, label: (T) -&gt; String, onSelect: (T) -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ActionRow(title: String, subtitle: String, onClick: () -&gt; Unit)</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun GpuTestResultDialog(result: VulkanStampEngineSelfTest.Result, onDismiss: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss: () -&gt; Unit)</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun OpenSourceNotices(onDismiss: () -&gt; Unit)</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SwitchRow( title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ShortcutsSheet.kt$@Composable internal fun ShortcutsSheet( activeTool: Tool, usage: ToolUsage, favorites: List&lt;String&gt;, onPickTool: (Tool) -&gt; Unit, onToggleFavorite: (Tool) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
