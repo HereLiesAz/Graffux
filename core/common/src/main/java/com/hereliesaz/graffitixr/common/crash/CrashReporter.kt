@@ -13,10 +13,32 @@ import java.util.Locale
 /**
  * Intercepts uncaught exceptions and dumps logs to a file for reporting on next launch.
  */
-class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHandler {
-    private val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+class CrashReporter internal constructor(
+    private val cacheDir: () -> File,
+    private val versionName: () -> String,
+    private val logcat: () -> String,
+    private val isMainThread: (Thread) -> Boolean,
+) : Thread.UncaughtExceptionHandler {
 
+    constructor(context: Context) : this(
+        cacheDir = { context.cacheDir },
+        versionName = {
+            runCatching {
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                "${info.versionName} (${androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info)})"
+            }.getOrDefault("?")
+        },
+        logcat = ::collectLogcat,
+        isMainThread = { it === Looper.getMainLooper().thread },
+    )
+
+    private var defaultHandler: Thread.UncaughtExceptionHandler? = null
+
+    /** Installs this as the default handler, chaining to whatever was installed before. */
     fun initialize() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        if (previous === this) return
+        defaultHandler = previous
         Thread.setDefaultUncaughtExceptionHandler(this)
     }
 
@@ -31,64 +53,58 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
         // foreground is broken. Record it for diagnostics, but let the process keep running instead of
         // crashing to a full-screen report. The faulting worker thread is already unwinding; not
         // delegating to the default handler simply restores plain-JVM "only that thread dies" semantics.
-        if (thread !== Looper.getMainLooper().thread && isRecoverableArCameraCrash(throwable)) {
-            try {
+        if (!isMainThread(thread) && isRecoverableArCameraCrash(throwable)) {
+            runCatching {
                 // fatal = false indicates a recovered event, not a force-close.
-                saveReport(buildReport(throwable, fatal = false))
-            } catch (e: Exception) {
-                Log.e("CrashReporter", "Failed to save crash report", e)
+                saveReport(buildReport(thread, throwable, fatal = false))
             }
-            Log.w("CrashReporter", "Swallowed recoverable ARCore camera-pipe crash on ${thread.name}", throwable)
+            runCatching {
+                Log.w("CrashReporter", "Swallowed recoverable ARCore camera-pipe crash on ${thread.name}", throwable)
+            }
             return
         }
         try {
-            val report = buildReport(throwable, fatal = true)
+            // Written in two steps, synchronously, before chaining: the trace and breadcrumbs first
+            // (cheap, no subprocess), then logcat appended. If collecting logcat hangs or dies, the
+            // file on disk already says what crashed.
+            val report = buildReport(thread, throwable, fatal = true)
             saveReport(report)
-        } catch (e: Exception) {
-            Log.e("CrashReporter", "Failed to save crash report", e)
+            runCatching { appendToReport("\n\nLOGCAT:\n" + redactSensitive(logcat())) }
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            runCatching { Log.e("CrashReporter", "Failed to save crash report", t) }
         } finally {
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }
 
-    private fun buildReport(throwable: Throwable, fatal: Boolean): String {
+    private fun buildReport(thread: Thread, throwable: Throwable, fatal: Boolean): String {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        val stackTrace = Log.getStackTraceString(throwable)
-        val logcat = collectLogcat()
-
+        val stackTrace = throwable.stackTraceToString()
+        val crumbs = Breadcrumbs.snapshot().joinToString("\n").ifEmpty { "(none)" }
         // FATAL is the first line: true = the process was killed, false = the exception was caught
-        val report = """
-            FATAL: $fatal
-            TIMESTAMP: $timestamp
-            DEVICE: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE})
-            VERSION: ${context.packageManager.getPackageInfo(context.packageName, 0).versionName}
-
-            STACK TRACE:
-            $stackTrace
-
-            LOGCAT:
-            $logcat
-        """.trimIndent()
+        val report = buildString {
+            appendLine("FATAL: $fatal")
+            appendLine("TIMESTAMP: $timestamp")
+            appendLine("DEVICE: ${deviceLabel()}")
+            appendLine("VERSION: ${runCatching(versionName).getOrDefault("?")}")
+            appendLine("THREAD: ${thread.name}")
+            appendLine()
+            appendLine("STACK TRACE:")
+            appendLine(stackTrace)
+            appendLine("BREADCRUMBS (oldest first):")
+            append(crumbs)
+        }
         // Scrub known-sensitive shapes before saving crash report to disk; this is defense-in-depth,
         // not a substitute for not logging secrets in the first place.
         return redactSensitive(report)
     }
 
-    private fun collectLogcat(): String {
-        var process: Process? = null
-        return try {
-            process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}"))
-            InputStreamReader(process.inputStream).use { it.readText() }
-        } catch (e: Exception) {
-            "Failed to collect Logcat: ${e.message}"
-        } finally {
-            // Release the subprocess's pipes/FDs; readText() above already drained stdout.
-            process?.destroy()
-        }
+    private fun appendToReport(text: String) {
+        File(cacheDir(), CRASH_FILE).appendText(text)
     }
 
     private fun saveReport(report: String) {
-        val file = File(context.cacheDir, "last_crash.txt")
+        val file = File(cacheDir(), CRASH_FILE)
         if (file.exists() && report.contains("FATAL: false")) {
             try {
                 val existing = file.readText()
@@ -101,6 +117,27 @@ class CrashReporter(private val context: Context) : Thread.UncaughtExceptionHand
     }
 
     companion object {
+        /** In the cache dir; CrashIssueUploader files it on the next launch. */
+        const val CRASH_FILE = "last_crash.txt"
+
+        /** "Google Pixel 5, Android 16" (null-safe: JVM unit tests have no Build values). */
+        fun deviceLabel(): String =
+            "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}"
+
+        private fun collectLogcat(): String {
+            var process: Process? = null
+            return try {
+                process = Runtime.getRuntime()
+                    .exec(arrayOf("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}"))
+                InputStreamReader(process.inputStream).use { it.readText() }
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                "Failed to collect Logcat: ${e.message}"
+            } finally {
+                // Release the subprocess's pipes/FDs; readText() above already drained stdout.
+                process?.destroy()
+            }
+        }
+
         // Best-effort scrub of shapes that are sensitive if they end up in a public crash report:
         // GPS coordinates, bearer/session/API tokens, and email addresses. Not exhaustive (there is
         // no reliable way to redact arbitrary PII from free-form log text), but it removes the

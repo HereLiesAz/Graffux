@@ -307,4 +307,47 @@ class CalibrationCoordinatorTest {
         advanceUntilIdle()
         assertFalse(waited.await().calibrated)
     }
+
+    /** A probe whose "engine" lives for the whole step and, like a native call, ignores cancellation. */
+    private inner class EngineProbe : CalibrationProbe {
+        var alive = 0
+        var steps = 0
+        override suspend fun identity(): GpuInfo = info
+        override suspend fun measure(step: CalibrationStep): StepOutcome =
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                alive += 1
+                steps += 1
+                try {
+                    delay(1_000)
+                    StepOutcome.Measured(1.0)
+                } finally {
+                    alive -= 1
+                }
+            }
+    }
+
+    @Test
+    fun `stopForCanvas returns only once the step in flight has destroyed its engine`() = runTest {
+        val probe = EngineProbe()
+        val h = Harness(this, probe)
+        h.coordinator.onProjectDialogShown()
+        advanceTimeBy(300)
+        assertEquals("a calibration engine is alive mid-step", 1, probe.alive)
+        val stopped = async { h.coordinator.stopForCanvas() }
+        advanceTimeBy(100)
+        assertFalse("waits for the native step, never abandons a live engine", stopped.isCompleted)
+        advanceUntilIdle()
+        assertTrue(stopped.isCompleted)
+        assertEquals("no calibration engine left for the canvas to overlap", 0, probe.alive)
+        assertFalse(h.coordinator.isRunning)
+        assertEquals("no step started after the stop", 1, probe.steps)
+        assertEquals(CalibrationState.IDLE, h.coordinator.state.value)
+    }
+
+    @Test
+    fun `stopForCanvas is a no-op when nothing runs`() = runTest {
+        val h = Harness(this, FakeProbe())
+        h.coordinator.stopForCanvas()
+        assertEquals(CalibrationState.IDLE, h.coordinator.state.value)
+    }
 }
