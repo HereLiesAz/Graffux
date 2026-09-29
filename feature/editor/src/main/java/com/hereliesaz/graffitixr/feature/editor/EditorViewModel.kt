@@ -8155,6 +8155,10 @@ class EditorViewModel @Inject constructor(
                 uri = localUri,
             )
 
+            // Wait for the currentProject collector to publish the new (layerless) project first, as
+            // ensureProjectId does: otherwise its LoadedProject can land after AddLayer below and
+            // wipe the Background layer, and the first save then persists a project with no layers.
+            _uiState.first { it.projectId == projectId }
             withContext(dispatchers.main) {
                 putLayerBase(bgLayer.id, blankBitmap)
                 layerStore.initStrokes(bgLayer.id)
