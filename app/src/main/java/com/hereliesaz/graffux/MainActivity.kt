@@ -615,7 +615,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // Four-finger tap (see the multiFingerTaps observer above): full-screen art. Folding the
             // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
             // same flag.
-            isFoldedUp = uiState.hideUiForCapture
+            // A live stroke folds it too, and unfolds it again on stroke end or cancel — see
+            // DrawingRailFold. strokeActive is snapshot state the canvas already maintains.
+            isFoldedUp = DrawingRailFold.mainRailFolded(uiState.hideUiForCapture, strokeGate.strokeActive)
 
             ConfigureRailItems(
                 vm = vm,
@@ -643,6 +645,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
                 onOpenBrushTipsManager = { showBrushTipsManager = true },
+                strokeActive = { strokeGate.strokeActive },
             )
 
             // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
@@ -1997,6 +2000,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
     onOpenBrushTipsManager: () -> Unit,
+    /** Read lazily inside `expandWhen` so a stroke does not rebuild this whole DSL. */
+    strokeActive: () -> Boolean,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     // activeInkUtensil is collected by GraffuxApp and passed in (this builder isn't composable), so
@@ -2492,7 +2497,13 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
             initiallyExpanded = railExpansion["grp.layers"] ?: false,
-            onExpandedChange = { vm.onRailHostExpansionChanged("grp.layers", it) },
+            // Collapses while a stroke is live, re-expands after, only if the user had it open.
+            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: false, strokeActive()) },
+            onExpandedChange = {
+                if (DrawingRailFold.persistExpansionChange(it, strokeActive())) {
+                    vm.onRailHostExpansionChanged("grp.layers", it)
+                }
+            },
         )
         val layerRailEnv = LayerRailEnv(
             vm, navItemColor, strings, railExpansion,
@@ -2563,7 +2574,13 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
             initiallyExpanded = railExpansion["grp.brushRail"] ?: false,
-            onExpandedChange = { vm.onRailHostExpansionChanged("grp.brushRail", it) },
+            // Collapses while a stroke is live, re-expands after, only if the user had it open.
+            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.brushRail"] ?: false, strokeActive()) },
+            onExpandedChange = {
+                if (DrawingRailFold.persistExpansionChange(it, strokeActive())) {
+                    vm.onRailHostExpansionChanged("grp.brushRail", it)
+                }
+            },
         )
         // "Round" is the first bundled preset (BuiltInBrushes.round) -- the GPU stamp Round, which
         // replaced the legacy Catmull-Rom round that used to have its own entry here.
