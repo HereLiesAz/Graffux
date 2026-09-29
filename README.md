@@ -57,7 +57,8 @@ orchestrates side effects (history, persistence, OpenCV) around each dispatch.
 | `:core:nativebridge` | JNI bridge to the native (OpenCV) world used by Liquify and drawing, and to the GPU brush engine. |
 
 Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app),
-and on the CPU on any device where wgpu can't start. wgpu is the only GPU backend: the earlier
+and on the CPU on any device where wgpu can't start. The wgpu library ships for both 64-bit
+(arm64-v8a) and 32-bit (armeabi-v7a) devices, so both paint on the GPU. wgpu is the only GPU backend: the earlier
 Vulkan and OpenGL ES engines, and the Settings switch between them, were retired (see
 `ARCHITECTURE.md`, Decisions, and `docs/Native Rendering Engine Design.md` §2c).
 

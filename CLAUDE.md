@@ -50,3 +50,16 @@ reach. Deriving the number from Play needs no new privilege at all.
 If the Play query fails, `publish_play.py` warns and falls back to the floor, which is the old
 behaviour; the pre-publish guard still catches a collision. So a transient Play blip degrades to
 the previous failure mode rather than breaking a release outright.
+
+## AzNavRail
+
+Before writing or changing any AzNavRail code (rail items, pages, bottom sheets, overlays,
+anything from `com.hereliesaz.aznavrail`), read the AzNavRail complete guide in full and follow
+its API and conventions. It ships inside the library at `assets/AZNAVRAIL_COMPLETE_GUIDE.md`. For
+the version in `gradle/libs.versions.toml`, find the extracted copy with:
+
+~~~
+find ~/.gradle -path '*aznavrail-<version>*' -name AZNAVRAIL_COMPLETE_GUIDE.md
+~~~
+
+If you delegate AzNavRail work to another agent, pass it the guide too.
