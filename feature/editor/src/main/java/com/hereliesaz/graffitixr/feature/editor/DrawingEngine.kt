@@ -573,13 +573,13 @@ internal class DrawingEngine(
                 } else null
             } else null
 
-            // Correctness-first Vulkan path: one upload, all ordered read/modify/write plans stay on
-            // the persistent layer image, one readback. If Vulkan is unavailable or any stage fails,
+            // Correctness-first GPU (wgpu) path: one upload, all ordered read/modify/write plans stay on
+            // the persistent layer image, one readback. If the GPU is unavailable or any stage fails,
             // discard the possibly-partial target and recompute from the pristine CPU source below.
             // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact RYB
             // material mixer. Stateful reservoir load/pickup now runs inside this same native
             // Color Smudge pipeline; a failed native stage still falls back to the CPU reference.
-            // Persistent wetness is still CPU-reference-only. Do not let Vulkan silently paint the
+            // Persistent wetness is still CPU-reference-only. Do not let the GPU silently paint the
             // colour while skipping canonical wetness state; legacy/dry Smudge remains GPU eligible.
             val gpuPainted = if (persistentWetness != null) false else runCatching {
                 val engine = GpuStampEngine()

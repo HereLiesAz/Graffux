@@ -8,7 +8,6 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
-import com.hereliesaz.graffitixr.nativebridge.LiveStrokeOverlay
 import com.hereliesaz.graffitixr.nativebridge.NativeCrashHandler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -43,13 +42,13 @@ class GraffuxApplication : Application() {
         // Graffux has no work without a project: when there is none, the editor asks for one with
         // the mandatory project dialog instead of silently creating "Untitled".
         EditorViewModel.projectGateEnabled = true
-        // GPU backend chosen in Settings (Vulkan / OpenGL ES / wgpu) for every stamp engine created from now on.
-        val gpuPrefs = getSharedPreferences(GpuStampEngine.Backend.PREFS, MODE_PRIVATE)
-        GpuStampEngine.Backend.preferred =
-            GpuStampEngine.Backend.fromLabel(gpuPrefs.getString(GpuStampEngine.Backend.KEY, null))
+        // wgpu is the only GPU engine (the CPU draws where it can't start); the old backend
+        // selector's stored choice is dropped once, before any engine is created.
+        val gpuPrefs = getSharedPreferences(GpuStampEngine.PREFS, MODE_PRIVATE)
+        RetiredGpuBackendMigration.migrate(gpuPrefs)
         // Direct display of the live stroke (Settings), off unless turned on.
-        LiveStrokeOverlay.enabled = gpuPrefs.getBoolean(LiveStrokeOverlay.ENABLED_KEY, false)
-        // Multipass drying (experimental, wgpu only), off unless turned on.
+        GpuStampEngine.DirectSurface.enabled = gpuPrefs.getBoolean(GpuStampEngine.DirectSurface.ENABLED_KEY, false)
+        // Multipass drying (experimental), off unless turned on.
         GpuStampEngine.multipass = MultipassSettings(
             enabled = gpuPrefs.getBoolean(GpuStampEngine.KEY_MULTIPASS, false),
             transitionMs = gpuPrefs.getFloat(

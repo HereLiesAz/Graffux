@@ -93,11 +93,11 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // ---------------------------------------------------------------------------------------------
 // The wgpu stamp engine (core/wgpu-engine, Rust): cross-compiled with cargo for arm64-v8a and fed
 // into this library's jniLibs, so libgraffux_wgpu.so lands in the APK beside libgraffitixr.so.
-// WgpuStampEngine.cpp dlopen()s it when "wgpu" is the selected GPU engine.
+// WgpuStampEngine.cpp dlopen()s it on first use; it is the only GPU stamp engine.
 //
 // Optional by design: a build host without cargo or the aarch64-linux-android Rust target (or with
-// -Pgraffux.wgpu.skip=true) builds exactly as before, minus the library -- selecting wgpu then
-// falls back to the CPU path like a device with no usable GPU. Set -Pgraffux.wgpu.require=true to
+// -Pgraffux.wgpu.skip=true) builds exactly as before, minus the library -- every stroke then
+// draws on the CPU path like a device with no usable GPU. Set -Pgraffux.wgpu.require=true to
 // make a missing library a build failure instead. One-time host setup:
 //     rustup target add aarch64-linux-android
 // Only arm64-v8a is built: armeabi-v7a devices (the APK's other ABI) fall back the same way, and

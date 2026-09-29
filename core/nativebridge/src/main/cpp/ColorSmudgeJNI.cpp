@@ -37,7 +37,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudge(
 
     // Item 11 (Sample Merged): a null sampleSourceRgba8 (or non-positive dims, or too few bytes)
     // disables it for this call, same "null disables" optionality every other optional-array JNI
-    // entry point in this codebase follows -- see VulkanStampDynamicsJNI.cpp's grain/secondary-tip
+    // entry point in this codebase follows -- see StampDynamicsJNI.cpp's grain/secondary-tip
     // handling for the fuller precedent this mirrors.
     jbyte* sampleSourceData = nullptr;
     bool hasSampleSource =

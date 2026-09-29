@@ -79,6 +79,11 @@ parity everywhere (§8).
 
 ## 2. GPU compute backbone: Vulkan compute for stamping/wet-mix, GL for presentation
 
+> **Retired (2026-09).** The Vulkan compute engine this section argues for was built, shipped as
+> the default, and then retired together with the GLES engine (§2a) once the wgpu engine (§2b)
+> was confirmed on the owner's devices. wgpu is now the only GPU backend. The reasoning below is
+> kept as the record of why Vulkan was chosen then; see §2c for what was removed and why.
+
 **Revised from this document's first draft.** The original version of this section recommended
 GLES 3.1 compute across the board and treated `CMakeLists.txt`'s `# Removed VulkanBackend.cpp`
 comment as an unknown risk worth avoiding. You've since confirmed that code predates this repo —
@@ -162,38 +167,22 @@ the stored best re-composites base-over-best, which is identical to one max-comb
 whole stroke. Cost: width x height x 8 bytes, allocated on first use. Above
 `maxStorageBufferRange`, the call returns false and the stroke falls back to the CPU.
 
-### 2a. Second backend: OpenGL ES 3.1 (selectable)
+### 2a. Second backend: OpenGL ES 3.1 (retired)
 
-The stamp engine now has two interchangeable native backends behind one C++ interface
-(`include/StampEngine.h`): `VulkanStampEngine` (above) and `GlesStampEngine` (OpenGL ES 3.1
-compute). Settings → "GPU engine" picks which one new engines use (`GpuStampEngine.Backend`, Kotlin);
-the feel reports name it (`gpu vulkan` / `gpu gles`), so the two can be compared on a real device.
-Vulkan stays the default, and nothing is removed while a Vulkan/GLES hybrid and other options are
-evaluated.
+**Retired (2026-09), see §2c.** `GlesStampEngine` was an OpenGL ES 3.1 compute implementation of
+the same `StampEngine` interface, selectable in Settings → GPU engine beside Vulkan so the two
+could be compared on a device. Its shaders were generated from the Vulkan GLSL by a port script
+and held the layer in an SSBO of packed RGBA8 words (ES 3.1 forbids load+store on an rgba8 image);
+the wgpu engine inherited that layout (§2b, "Shader port"). On Mesa it matched the Vulkan engine
+byte for byte apart from ±1–2 levels on exact-half rounding. It was never measured against Vulkan
+on a device before it was retired.
 
-- **Shaders.** `shaders/gles/*.comp` are generated from the Vulkan GLSL by
-  `shaders/gles/port_from_vulkan.py`: same math, with the layer held in an SSBO of packed RGBA8
-  words, because ES 3.1 forbids load+store on an rgba8 image. `unpack/packUnorm4x8` does the same
-  unorm conversion. Edit the Vulkan source and re-run the script; the two can't drift apart.
-- **Context.** Private EGL context, surfaceless or a 1x1 pbuffer. Every call makes it current and
-  restores whatever the thread had current before (e.g. a GLSurfaceView's context).
-- **Zero-copy display.** `initWithHardwareBuffer` publishes each written region into an
-  AHardwareBuffer-backed texture, GPU-side via a pixel-unpack buffer, so `AzphaltGpuDisplay` works
-  unchanged.
-- **Verified on host.** `tools/stamp-engine-diff/run.sh` runs 26 scenarios through both backends on
-  Mesa. All are byte-identical except ±1–2 levels in a few dozen bytes: `round()` on exact halves,
-  which GLSL leaves implementation-defined. The comparison also found that the Vulkan engine
-  crashes on lavapipe in `uploadPaintHeight` (`vkUpdateDescriptorSets`). Whether real drivers hit
-  the same crash is unverified.
-- **Not yet measured:** on-device speed of either backend against the other. The feel reports
-  answer that.
+### 2b. The single engine: wgpu
 
-### 2b. Third backend and long-term single engine: wgpu
-
-**Decision.** wgpu (`core/wgpu-engine`, Rust, WGSL compute shaders) is the long-term single brush
-engine for both the Android app and the desktop app. Vulkan and GLES stay selectable for now, for
-comparison and as fallbacks, and are not being deleted yet. Direct display (§3) for Vulkan/GLES
-stays raw Vulkan through AHardwareBuffer interop; wgpu presents its own (§3, "wgpu direct
+**Decision.** wgpu (`core/wgpu-engine`, Rust, WGSL compute shaders) is the single brush engine for
+both the Android app and the desktop app, and the only GPU backend on Android. The Vulkan and GLES
+engines it was first built beside were retired (§2c). Where wgpu cannot start, the stroke draws on
+the CPU. Direct display (§3) is wgpu presenting into the overlay window (§3, "wgpu direct
 display").
 
 Why wgpu rather than consolidating on Vulkan alone:
@@ -212,19 +201,24 @@ Why wgpu rather than consolidating on Vulkan alone:
 **How it plugs in.**
 
 - **Android.** `WgpuStampEngine.cpp` implements `StampEngine` over the crate's C ABI
-  (`core/wgpu-engine/include/graffux_wgpu.h`), so every existing JNI entry point and Kotlin caller
-  works unchanged. `StampEngineFactory` maps backend id 2 to it. Settings → GPU engine offers
-  "wgpu" next to Vulkan and OpenGL ES; the default stays Vulkan. `libgraffux_wgpu.so` is
-  `dlopen`ed on first use, so a build without it still links and runs: `init()` returns false and
-  the stroke uses the CPU path. Gradle (`:core:nativebridge:cargoBuildWgpuAndroid`) cross-compiles
-  it for arm64-v8a with cargo and the NDK clang. armeabi-v7a devices fall back to the CPU.
+  (`core/wgpu-engine/include/graffux_wgpu.h`), and `StampEngineFactory` always creates it; there
+  is no Settings choice. `libgraffux_wgpu.so` is `dlopen`ed on first use, so a build without it
+  still links and runs: `init()` returns false and the stroke uses the CPU path. Gradle
+  (`:core:nativebridge:cargoBuildWgpuAndroid`) cross-compiles it for arm64-v8a with cargo and the
+  NDK clang. armeabi-v7a devices, and any device where wgpu finds no adapter, fall back to the CPU.
+- **The CPU fallback.** `GpuStampEngine.init()` is false when the library is missing, no adapter
+  exists or setup fails; `EditorViewModel.createSeededGpuEngine` then returns null and the live
+  stroke is drawn by the CPU renderers (`StampBrushRenderer`, the round-dab canvas path). The
+  commit was always the CPU's (`DrawingEngine`), and `DrawingEngine`'s own GPU attempt for Color
+  Smudge commits falls back to its CPU path the same way. A GPU failure mid-stroke drops to the
+  CPU for the rest of that stroke only.
 - **Desktop.** `:desktop` builds the crate for the host and bundles it as a classpath resource. The
   JNI wrapper `WgpuStampEngine` lives in `core:engine`'s `jvmShared` source set, the same class on
   Android and desktop. The canvas uses it whenever an adapter exists and keeps the tile-parallel CPU
   compositor as the fallback.
-- **No AHardwareBuffer output.** `initWithHardwareBuffer()` returns false, so `LiveStrokeOverlay`
-  and `AzphaltGpuDisplay`'s zero-copy path never see a wgpu layer. Direct display for wgpu is its
-  own path instead (§3, "wgpu direct display").
+- **No AHardwareBuffer output.** The wgpu engine's layer is its own storage buffer. The
+  AHardwareBuffer zero-copy paths (`LiveStrokeOverlay`, `AzphaltGpuDisplay`) served only the
+  retired engines and went with them (§2c); direct display is wgpu's own (§3).
 
 **Shader port.** `stamp.wgsl`, `stamp_masked.wgsl` and `color_smudge.wgsl` port the GLSL statement
 for statement. Layout decisions come from the GLES port: the layer is a storage buffer of packed
@@ -233,8 +227,11 @@ phases). One deliberate change: substrate wrapping uses an explicit floored modu
 `((c % s) + s) % s`. A remainder with a negative operand is undefined in GLSL, and naga's GL output
 passes `%` through; on llvmpipe that sampled the wrong substrate texel.
 
-**Verified on host (Mesa 25.2.8, no GPU).** `tools/stamp-engine-diff/run.sh` now runs all 26
-scenarios through the wgpu engine on wgpu's Vulkan backend (lavapipe) and GL backend (llvmpipe):
+**Verified on host (Mesa 25.2.8, no GPU), before the retirement.** `tools/stamp-engine-diff/run.sh`
+ran all 26 scenarios through the wgpu engine on wgpu's Vulkan backend (lavapipe) and GL backend
+(llvmpipe) and compared them with the C++ engines. Since the retirement it checks wgpu alone:
+Vulkan against GL, multipass and direct display against the plain run, resident layers against
+full uploads, and the paint-height scenario against the NumPy reference.
 
 | pair | worst byte difference | bytes that differ (of 112,684) |
 |---|---|---|
@@ -246,15 +243,14 @@ scenarios through the wgpu engine on wgpu's Vulkan backend (lavapipe) and GL bac
 backends), and `:desktop:test` compares the desktop GPU path with `RoundStampCompositor` through JNI
 (alpha within 1 level, premultiplied colour within 2).
 
-**Not verified:** anything on a real GPU or an Android device. That covers speed against the
-Vulkan and GLES engines, driver quirks on Adreno/Mali/PowerVR, and whether wgpu's GL backend on
-Android picks up EGL correctly.
+**Not verified here:** anything on a real GPU or an Android device (the owner has since confirmed
+wgpu works on their devices). Driver quirks on other Adreno/Mali/PowerVR devices, and whether
+wgpu's GL backend on Android picks up EGL correctly, remain open.
 
 #### Resident layers, rectangle readback and the render thread (wgpu only)
 
-Built for the wgpu engine; Vulkan and GLES are unchanged. `StampEngine.h` gained optional methods
-whose defaults keep the old behaviour (no resident layers, `readbackRect` = `readback` reporting
-the whole layer).
+Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resident layers and
+`readbackRect` = `readback` reporting the whole layer, for a wgpu library that predates them.
 
 - **Layers stay on the GPU across strokes.** `core/wgpu-engine/src/resident.rs` keeps one storage
   buffer per recently painted layer, keyed by a layer key and tagged with a content generation.
@@ -652,9 +648,39 @@ steady load.
   composite and wider readback are fixed per-frame costs); it pays off where the full dab does not
   fit a frame.
 
+### 2c. Retired backends: Vulkan and OpenGL ES 3.1
+
+**Decision (2026-09).** wgpu is the only GPU backend. Removed with the two C++ engines:
+
+- `VulkanStampEngine` (+ its Color Smudge half and pool-reuse file) and `GlesStampEngine`, their
+  GLSL shaders (`shaders/*.comp`, `shaders/gles/`, the port script), CMake's glslc embedding step
+  and the `vulkan` link.
+- The `GpuStampEngine.Backend` enum, Settings → GPU engine, and the `backend` key of the
+  `gpu_engine` preferences (deleted once at startup by `RetiredGpuBackendMigration`).
+- `LiveStrokeOverlay` (the Vulkan SurfaceControl direct display, `live_overlay.comp`) and
+  `AzphaltGpuDisplay` (hardware-bitmap zero-copy preview): both read the retired engines'
+  AHardwareBuffer layer, which wgpu never had. Settings → Direct display stays and now means wgpu
+  direct display only.
+- The Vulkan/GLES comparisons in `tools/stamp-engine-diff`.
+
+**Why.** Three engines meant three copies of the stamp, masked and smudge math, hand-written
+Vulkan barriers, a GLSL port step, AHardwareBuffer interop and a Settings switch that only existed
+to compare them. wgpu matched them on Mesa within 1–2 levels, runs on the desktop too, and was
+confirmed on the owner's devices. Devices where wgpu cannot start lose nothing a user relied on:
+they draw on the CPU, which every GPU path already fell back to.
+
+**What the retired engines taught, kept for next time:** the Vulkan engine crashed on lavapipe in
+`uploadPaintHeight` (`vkUpdateDescriptorSets`); GLSL leaves `round()` on exact halves and `%` on
+negative operands implementation-defined (the wgpu port uses a floored modulo because of it);
+`stamp.comp`'s max-combine only held within one dispatch until stroke-max mode (§2) made it hold
+across frame batches, which the wgpu engine kept. The code is in git history before the
+retirement commit.
+
 ## 3. Front-buffer / low-latency presentation
 
-**Built (Vulkan, behind Settings → Direct display, off by default):** `LiveStrokeOverlay`.
+**Retired (2026-09, §2c): `LiveStrokeOverlay`,** the Vulkan/GLES direct display below. The
+Settings switch it sat behind now drives wgpu direct display (next section) only. The notes are
+kept because wgpu direct display reuses its geometry, eligibility rules and two-frame handoff.
 
 - **Where it draws.** A transparent SurfaceView over the canvas parents an `ASurfaceControl` child
   layer. Its buffer is an AHardwareBuffer allocated with `FRONT_BUFFER | COMPOSER_OVERLAY` usage,
@@ -740,8 +766,8 @@ duty-cycle measurements, just as a readback does.
 it is that `mp_readback_rect`'s frame bookkeeping moved into `Multipass::begin_frame`, now shared
 with present. The Android commit is still the CPU commit.
 
-**Android flow.** `LiveStrokeOverlayHost` now always hosts the SurfaceView while Direct display is
-on. It hands the surface to both `LiveStrokeOverlay` (child SurfaceControl, Vulkan/GLES) and
+**Android flow.** `LiveStrokeOverlayHost` hosts the SurfaceView while Direct display is on and
+no Jetpack Ink stroke is in hand (`EditorViewModel.directDisplayAllowed`). It hands the surface to
 `GpuStampEngine.DirectSurface.set` (wgpu swapchain on the SurfaceView's own surface). At wgpu
 stroke start, after the layer is seeded or resident-bound, `beginDirectDisplay` attaches the
 engine and snapshots the base. A window has one producer, but the pool holds two wgpu handles, so
@@ -749,8 +775,8 @@ engine and snapshots the base. A window has one producer, but the pool holds two
 `presentDirect`. On the first failure, direct display turns off for the rest of the stroke, and one
 catch-up readback brings `work` up to date. Nothing was read back while direct display ran, so the
 engine's dirty rectangle spans the whole stroke. The Compose path then takes over. If the engine
-itself fails, the batch replays the stroke on the CPU as the zero-copy path does. At commit, the
-surface is cleared two frames after the committed layer is published, as the Vulkan overlay is.
+itself fails, the batch replays the stroke on the CPU. At commit, the surface is cleared two
+frames after the committed layer is published, as the retired Vulkan overlay was.
 `surfaceDestroyed` blocks until the swapchain has let go of the window.
 
 **Verified on host (Mesa 25.2.8 lavapipe and llvmpipe, no GPU, no window).** `cargo test`

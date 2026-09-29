@@ -213,6 +213,36 @@ class EditorViewModelInkUtensilTest {
     }
 
     @Test
+    fun `direct display is off only for a Jetpack Ink stroke, not for other tools after an Ink pick`() {
+        val direct = com.hereliesaz.graffitixr.nativebridge.GpuStampEngine.DirectSurface
+        val before = direct.enabled
+        try {
+            direct.enabled = true
+            withLayer()
+            viewModel.setActiveTool(Tool.BRUSH)
+            assertTrue(viewModel.directDisplayAllowed())
+
+            viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.MARKER)
+            assertFalse("Ink and the overlay must never draw one stroke", viewModel.directDisplayAllowed())
+
+            // The utensil stays remembered, but Eraser and Smudge strokes aren't Ink strokes.
+            viewModel.setActiveTool(Tool.ERASER)
+            assertTrue(viewModel.directDisplayAllowed())
+            viewModel.setActiveTool(Tool.SMUDGE)
+            assertTrue(viewModel.directDisplayAllowed())
+
+            viewModel.setActiveTool(Tool.BRUSH)
+            assertFalse(viewModel.directDisplayAllowed())
+
+            direct.enabled = false
+            viewModel.setActiveTool(Tool.ERASER)
+            assertFalse("the Settings switch still governs", viewModel.directDisplayAllowed())
+        } finally {
+            direct.enabled = before
+        }
+    }
+
+    @Test
     fun `picking a built-in brush after an Ink utensil leaves Ink and restores the stamp brush`() {
         viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.HIGHLIGHTER)
         val round = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.first()

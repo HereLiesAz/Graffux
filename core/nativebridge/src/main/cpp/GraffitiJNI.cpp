@@ -2,7 +2,6 @@
 #include <android/log.h>
 #include <android/asset_manager_jni.h>
 #include <android/bitmap.h>
-#include <android/hardware_buffer_jni.h>
 #include <android/native_window_jni.h>
 #include <opencv2/opencv.hpp>
 #include <GLES3/gl3.h>
@@ -1401,7 +1400,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativePrepareLiquify(JNI
     // mirrors the checks bitmapToMat already does above.
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
     // setSourceImage takes no stride parameter, so it can only handle a tightly-packed RGBA_8888
-    // buffer -- same requirement (and same checks) as the Vulkan stamp-engine upload/readback path
+    // buffer -- same requirement (and same checks) as the GPU stamp-engine upload/readback path
     // below. A padded-stride or non-RGBA bitmap reaching here would otherwise read rows shifted
     // from where they actually are, or read past the buffer entirely.
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
@@ -1457,11 +1456,11 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
 
 // ---------------------------------------------------------------------------------------------
 // GPU stamp engine bridge (docs/Native Rendering Engine Design.md §2/§9). Drives a
-// graffux::StampEngine -- VulkanStampEngine or GlesStampEngine, picked per instance by the
-// `backend` id nativeInit receives (GpuStampEngine.Backend on the Kotlin side).
+// graffux::StampEngine -- the WgpuStampEngine adapter over core/wgpu-engine, the only GPU backend
+// (the Vulkan and GLES engines were retired).
 //
-// Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above -- both backends own
-// their own headless context/device -- created/destroyed per drawing session by the Kotlin-side
+// Independent lifecycle from gSlamEngine/gStereoProcessor/gImageWarper above -- the engine owns
+// its own headless device -- created/destroyed per drawing session by the Kotlin-side
 // GpuStampEngine wrapper, not tied to AR session start/stop.
 //
 // Per-instance, NOT a single global: nativeInit allocates its own graffux::StampEngine and
@@ -1474,10 +1473,11 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
 // here either — that contract, not a lock, is what makes per-instance handles safe.
 extern "C" {
 
+// 0 = the engine could not start (no wgpu library, no adapter): Kotlin falls back to the CPU.
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
-    JNIEnv*, jobject, jint width, jint height, jint backend) {
-    auto* engine = graffux::createStampEngine(backend);
+    JNIEnv*, jobject, jint width, jint height) {
+    auto* engine = graffux::createStampEngine();
     if (!engine->init(width, height)) {
         delete engine;
         return 0;
@@ -1485,37 +1485,10 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
     return reinterpret_cast<jlong>(engine);
 }
 
-// Same contract as nativeInit, but the layer image's memory is an imported AHardwareBuffer (see
-// StampEngine::initWithHardwareBuffer) — docs/Native Rendering Engine Design.md §2's
-// zero-copy interop. Falling back to nativeInit on failure is expected and safe.
-JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInitHardwareBuffer(
-    JNIEnv*, jobject, jint width, jint height, jint backend) {
-    auto* engine = graffux::createStampEngine(backend);
-    if (!engine->initWithHardwareBuffer(width, height)) {
-        delete engine;
-        return 0;
-    }
-    return reinterpret_cast<jlong>(engine);
-}
-
-// Returns an android.hardware.HardwareBuffer wrapping the same memory the compute shader writes
-// into, or null if `handle` wasn't created via nativeInitHardwareBuffer (a plain nativeInit engine
-// has no AHardwareBuffer to hand back). AHardwareBuffer_toHardwareBuffer acquires its own
-// reference internally, so the returned Java object stays valid independent of this engine's own
-// lifetime/destroy() — the caller is responsible for eventually letting it go (HardwareBuffer.close()
-// or GC), same as any other AHardwareBuffer-backed Java object.
-JNIEXPORT jobject JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGetHardwareBuffer(
-    JNIEnv* env, jobject, jlong handle) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    if (!engine || !engine->hardwareBuffer()) return nullptr;
-    return AHardwareBuffer_toHardwareBuffer(env, engine->hardwareBuffer());
-}
-
-// Seeds the layer with `inBitmap`'s current pixels — the reverse of nativeReadback below, same
-// requirements (ARGB_8888, non-hardware, exactly width x height, tight stride) and same "no
-// channel reordering needed" reasoning.
+// Seeds the layer with `inBitmap`'s current pixels — the reverse of nativeReadbackRect below.
+// Requires an ARGB_8888, non-hardware bitmap sized exactly width x height with a tight stride.
+// Android's ARGB_8888 native byte layout is R,G,B,A per pixel, bit-for-bit the engine's rgba8
+// layer, so no channel reordering is needed.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
     JNIEnv* env, jobject, jlong handle, jobject inBitmap) {
@@ -1570,44 +1543,8 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampDabs(
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-// Reads the layer back directly into `outBitmap`'s pixels. Requires an ARGB_8888, non-hardware
-// bitmap sized exactly width x height (the size passed to nativeInit) — Android's ARGB_8888
-// native byte layout is R,G,B,A per pixel (low to high address on the little-endian devices this
-// app targets), which is bit-for-bit what the shader's rgba8 imageStore writes, so this is a
-// straight memcpy with no channel reordering.
-JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadback(
-    JNIEnv* env, jobject, jlong handle, jobject outBitmap) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    if (!engine || !engine->isInitialized()) return JNI_FALSE;
-
-    AndroidBitmapInfo info;
-    void* pixels = nullptr;
-    if (AndroidBitmap_getInfo(env, outBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
-    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
-    // The engine's readback() writes a tightly-packed width*4-byte-stride buffer; a bitmap whose
-    // native stride pads each row wider than that would silently corrupt rows below the first, so
-    // require an exact match rather than special-casing a row-by-row copy for a case that never
-    // arises from Bitmap.createBitmap()-allocated bitmaps in practice.
-    if (info.stride != info.width * 4) return JNI_FALSE;
-    // Same dimension check as nativeUpload above, for the same reason: a bitmap merely BIG ENOUGH
-    // in total bytes but the wrong width/height would still silently misplace every row after the
-    // first instead of failing loudly.
-    if (static_cast<int32_t>(info.width) != engine->width() ||
-        static_cast<int32_t>(info.height) != engine->height()) {
-        return JNI_FALSE;
-    }
-    if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
-        return JNI_FALSE;
-    }
-    size_t capacity = static_cast<size_t>(info.stride) * info.height;
-    bool ok = engine->readback(static_cast<uint8_t*>(pixels), capacity);
-    AndroidBitmap_unlockPixels(env, outBitmap);
-    return ok ? JNI_TRUE : JNI_FALSE;
-}
-
 // ---- Resident layers and rectangle readback (StampEngine's optional methods; wgpu only) ------
-// Same bitmap requirements as nativeUpload/nativeReadback above. Locks `bitmap` and returns its
+// Same bitmap requirements as nativeUpload above. Locks `bitmap` and returns its
 // pixels, or nullptr (nothing locked) when it does not match the engine's layer exactly.
 static uint8_t* gfxLockLayerBitmap(JNIEnv* env, graffux::StampEngine* engine, jobject bitmap,
                                    size_t* capacity) {

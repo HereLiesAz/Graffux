@@ -1,10 +1,13 @@
-import numpy as np, math
+import numpy as np, math, sys
+# Checks the paint-height scenario output in DIR (default out_wgpu_ph_vk) against this independent
+# NumPy implementation of the shader math.
+D=sys.argv[1] if len(sys.argv)>1 else "out_wgpu_ph_vk"
 W,H=197,143
-seed=np.frombuffer(open("out_gl/ph_seed.raw","rb").read(),np.uint8).reshape(H,W,4).astype(np.float64)/255
-tooth=np.frombuffer(open("out_gl/ph_tooth.raw","rb").read(),np.uint8).reshape(31,29).astype(np.float64)/255
-ph=np.frombuffer(open("out_gl/ph_height.raw","rb").read(),np.float32).reshape(H,W)
-dabs=np.frombuffer(open("out_gl/ph_dabs.raw","rb").read(),np.float32).reshape(-1,16)
-out=np.frombuffer(open("out_gl/ph_out.raw","rb").read(),np.uint8).reshape(H,W,4)
+seed=np.frombuffer(open(D+"/ph_seed.raw","rb").read(),np.uint8).reshape(H,W,4).astype(np.float64)/255
+tooth=np.frombuffer(open(D+"/ph_tooth.raw","rb").read(),np.uint8).reshape(31,29).astype(np.float64)/255
+ph=np.frombuffer(open(D+"/ph_height.raw","rb").read(),np.float32).reshape(H,W)
+dabs=np.frombuffer(open(D+"/ph_dabs.raw","rb").read(),np.float32).reshape(-1,16)
+out=np.frombuffer(open(D+"/ph_out.raw","rb").read(),np.uint8).reshape(H,W,4)
 f32=np.float32
 base,hs,ts,ox,oy=0.2,0.7,1.7,-13.3,5.2
 def cov(t,h):
@@ -35,4 +38,4 @@ for y in range(H):
       ref[y][x]=np.round(np.concatenate([rgb,[al]])*255)/255
 refb=np.round(ref*255).astype(int)
 d=np.abs(refb-out.astype(int))
-print("GL vs python ref: differ",(d>0).sum(),"max",d.max())
+print(D+" vs python ref: differ",(d>0).sum(),"max",d.max())
