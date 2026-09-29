@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.data.repository
 
+import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -74,6 +75,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val TOOL_USAGE = stringPreferencesKey("tool_usage")
     private val FAVORITE_TOOLS = stringPreferencesKey("favorite_tools")
     private val carouselFavoritesKey = stringPreferencesKey("carousel_favorites")
+    private val carouselItemSettingsKey = stringPreferencesKey("carousel_item_settings")
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -338,6 +340,14 @@ class SettingsRepositoryImpl @Inject constructor(
             val next = if (key in current) current - key else current + key
             prefs[carouselFavoritesKey] = next.joinToString(CAROUSEL_FAVORITES_SEPARATOR)
         }
+    }
+
+    override val carouselItemSettings: Flow<Map<String, CarouselItemSettings>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { prefs -> CarouselItemSettings.decode(prefs[carouselItemSettingsKey]) }
+
+    override suspend fun setCarouselItemSettings(settings: Map<String, CarouselItemSettings>) {
+        context.dataStore.edit { prefs -> prefs[carouselItemSettingsKey] = CarouselItemSettings.encode(settings) }
     }
 
     // Newline-separated, not comma: the keys embed brush names, and a user can put a comma in one.
