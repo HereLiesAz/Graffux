@@ -1,55 +1,38 @@
 package com.hereliesaz.graffux
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CarouselKeylinesTest {
 
-    // 411dp at xxhdpi (3x), 6dp spacing.
-    private val width = 1233f
-    private val spacing = 18f
-    private val sizes = carouselKeylineSizes(width, spacing)
-
-    private fun tierAt(offset: Float) =
-        carouselTier(carouselSlot(offset, width, spacing).size, sizes.hero, sizes.smallCeiling)
+    // Small cards at most 168px (56dp at xxhdpi), the hero keyline 861px.
+    private val small = 168f
+    private val hero = 861f
 
     @Test
-    fun `at rest the row is small, medium, HERO, medium, small`() {
-        assertEquals(
-            listOf(CarouselTier.SMALL, CarouselTier.MEDIUM, CarouselTier.HERO, CarouselTier.MEDIUM, CarouselTier.SMALL),
-            (-2..2).map { tierAt(it.toFloat()) },
-        )
+    fun `at rest the position is exactly the hero's index`() {
+        assertEquals(4f, carouselHeroPosition(mapOf(3 to small, 4 to hero, 5 to small), small, hero))
+        // At the start M3 shifts the keylines so item 0 is the large one; the smalls still weigh nothing.
+        assertEquals(0f, carouselHeroPosition(mapOf(0 to hero, 1 to small, 2 to 30f), small, hero))
     }
 
     @Test
-    fun `the five visible keylines fill the strip and are symmetric about the centre`() {
-        val slots = (-2..2).map { carouselSlot(it.toFloat(), width, spacing) }
-        val left = slots.first().center - slots.first().size / 2f
-        val right = slots.last().center + slots.last().size / 2f
-        assertEquals(0f, left, 0.5f)
-        assertEquals(width, right, 0.5f)
-        for (k in 1..2) {
-            val l = carouselSlot(-k.toFloat(), width, spacing)
-            val r = carouselSlot(k.toFloat(), width, spacing)
-            assertEquals(width / 2f - l.center, r.center - width / 2f, 0.01f)
-            assertEquals(l.size, r.size, 0.01f)
-        }
-        assertEquals(width / 2f, slots[2].center, 0.01f)
+    fun `mid-scroll the position lies between the two items trading places`() {
+        val mid = (small + hero) / 2f
+        val half = carouselHeroPosition(mapOf(3 to small, 4 to mid, 5 to mid, 6 to small), small, hero)!!
+        assertEquals(4.5f, half, 1e-4f)
+        val span = hero - small
+        val quarter = carouselHeroPosition(mapOf(4 to small + span * 0.75f, 5 to small + span * 0.25f), small, hero)!!
+        assertEquals(4.25f, quarter, 1e-4f)
     }
 
     @Test
-    fun `mid-scroll sizes interpolate between keylines`() {
-        val half = carouselSlot(0.5f, width, spacing).size
-        assertEquals((sizes.hero + sizes.medium) / 2f, half, 0.01f)
-    }
-
-    @Test
-    fun `snap moves one item per fling, else to the nearest, within bounds`() {
-        assertEquals(3, carouselSnapTarget(2.2f, velocity = 5f, count = 10))
-        assertEquals(1, carouselSnapTarget(1.8f, velocity = -5f, count = 10))
-        assertEquals(2, carouselSnapTarget(2.4f, velocity = 0.2f, count = 10))
-        assertEquals(9, carouselSnapTarget(9f, velocity = 5f, count = 10))
-        assertEquals(0, carouselSnapTarget(0f, velocity = -5f, count = 10))
+    fun `sub-pixel noise at rest reads as resting, and nothing laid out reads as unknown`() {
+        assertEquals(2f, carouselHeroPosition(mapOf(2 to hero, 3 to small + 0.1f), small, hero))
+        assertNull(carouselHeroPosition(emptyMap(), small, hero))
+        assertNull(carouselHeroPosition(mapOf(1 to small), small, hero))
+        assertNull(carouselHeroPosition(mapOf(1 to hero), hero, hero))
     }
 
     @Test

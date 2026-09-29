@@ -67,6 +67,14 @@ internal fun carouselTier(size: Float, heroSize: Float, smallMax: Float): Carous
     else -> CarouselTier.MEDIUM
 }
 
+/**
+ * Whether a card wears the accent highlight: only the hero, and only while its entry is the active
+ * one ([CarouselEntry.selected], the same state the rail reads), never by position alone. A
+ * tap-only option or an installed effect the row merely settled on is the hero but not active.
+ */
+internal fun carouselHeroHighlighted(entry: CarouselEntry, tier: CarouselTier): Boolean =
+    tier == CarouselTier.HERO && entry.selected
+
 /** What a card shows beside its tip visual, per tier. */
 internal data class CarouselCardContent(val name: String?, val details: List<String>)
 

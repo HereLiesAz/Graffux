@@ -29,6 +29,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performClick
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.SelectionShape
@@ -106,12 +107,16 @@ class BottomCarouselUiTest {
             File(path).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
 
-        // small · medium · HERO · medium · small at 411dp.
+        // M3's HorizontalCenteredHeroCarousel at 411dp, at rest: small · HERO · small, no medium
+        // (its hero keylines have no medium slot). Items past the smalls sit on the 10dp anchor
+        // keylines, so they count as small too.
         fun count(tier: CarouselTier) =
             rule.onAllNodesWithTag("carousel.card.${tier.name}", useUnmergedTree = true).fetchSemanticsNodes().size
         assertEquals(1, count(CarouselTier.HERO))
-        assertEquals(2, count(CarouselTier.MEDIUM))
+        assertEquals(0, count(CarouselTier.MEDIUM))
         assertTrue(count(CarouselTier.SMALL) >= 2)
+        // The hero is the active brush, so it wears the accent highlight; nothing else does.
+        assertEquals(1, tagged("carousel.hero.active"))
         // Details render only on the hero card, so exactly one card carries a details line.
         assertEquals(1, rule.onAllNodesWithText("Built-in · round tip").fetchSemanticsNodes().size)
         // And it is the selected brush's card: its name is on screen.
@@ -170,14 +175,16 @@ class BottomCarouselUiTest {
             .fetchSemanticsNodes()
             .map { it.config[SemanticsProperties.TestTag].removePrefix("carousel.preview.") }
 
-        /** Drags the row one item towards higher indices, slowly, so it settles by position alone. */
-        fun dragOneItemForward() {
+        /** Drags the row [items] of an item towards higher indices, slowly, so it settles by position alone. */
+        fun dragForward(items: Float = 1f) {
             rule.onNodeWithTag("carousel.row").performTouchInput {
                 val y = centerY
-                swipe(Offset(width * 0.75f, y), Offset(width * 0.75f - STEP_PX, y), durationMillis = 1_500)
+                swipe(Offset(width * 0.9f, y), Offset(width * 0.9f - STEP_PX * items, y), durationMillis = 1_500)
             }
             rule.waitForIdle()
         }
+
+        fun dragOneItemForward() = dragForward(1f)
     }
 
     @Test
@@ -195,11 +202,31 @@ class BottomCarouselUiTest {
     }
 
     @Test
+    fun `a partial drag lets go onto an item, never between two`() {
+        val h = Harness()
+        val n = h.entries.indexOfFirst { it.selected }
+
+        // Under half an item: M3's snapping springs back to the same hero, and nothing is selected.
+        h.dragForward(0.3f)
+        assertEquals(listOf(h.entries[n].key), h.previews())
+        assertTrue(h.clicks.isEmpty())
+
+        // Past half an item: it lands on the next one, exactly (one preview, fully in the hero slot).
+        h.dragForward(0.7f)
+        assertEquals(listOf(h.entries[n + 1].key), h.previews())
+        assertEquals(listOf(h.entries[n + 1].key), h.clicks)
+        assertEquals(1, tagged("carousel.card.HERO"))
+        assertEquals(0, tagged("carousel.card.MEDIUM"))
+    }
+
+    @Test
     fun `tapping a non-hero card scrolls it into the hero slot, then selects it`() {
         val h = Harness()
         val n = h.entries.indexOfFirst { it.selected }
         val next = BuiltInBrushes.presets[n + 1].name
-        rule.onAllNodesWithContentDescription(next)[0].performClick()
+        // M3 lays every item out at the hero width and masks it down, so the small card's node spans
+        // under the hero. Tap its visible strip at the right edge, as a finger would.
+        rule.onAllNodesWithContentDescription(next)[0].performTouchInput { click(Offset(width - 20f, centerY)) }
         rule.waitForIdle()
         assertEquals(next, h.brushName)
         assertEquals("one selection, no loop", listOf(h.entries[n + 1].key), h.clicks)
@@ -225,10 +252,17 @@ class BottomCarouselUiTest {
         assertEquals(before, h.stabilizerLevel)
         assertTrue(h.clicks.isEmpty())
         assertTrue("options have no stroke preview", h.previews().isEmpty())
+        rule.mainClock.advanceTimeBy(1_000)
+        // A tap-only stop the row merely settled on is the hero but not active: no highlight.
+        assertEquals(0, tagged("carousel.hero.active"))
     }
 
+    private fun tagged(tag: String) =
+        rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
+
     private companion object {
-        // One item's travel at 411dp xxhdpi: hero/2 + spacing + medium/2 (see carouselSlot).
-        const val STEP_PX = 1233f * (0.42f + 0.16f) / 2f + 18f
+        // One item's travel at 411dp xxhdpi: M3 lays every item out at the hero width and scrolls
+        // one hero width plus spacing per item. The hero is 411dp less two 56dp smalls and two 6dp gaps.
+        const val STEP_PX = (411f - 2 * 56f - 2 * 6f) * 3f + 18f
     }
 }
