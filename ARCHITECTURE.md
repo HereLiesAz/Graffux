@@ -189,6 +189,14 @@ codebase is deferred scope or a real gap in the install-report flow.
   Undo and Redo are declared only when `railHistoryItemsVisible` holds: the sheet is shut, or the
   carousel is off screen. So they never duplicate the tab row's pair. Each is disabled when there is
   nothing to undo or redo, and Fit is disabled while the view is already fitted.
+- **The rails get out of the way while a stroke is painted (`DrawingRailFold`, `:app`).** The
+  signal is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
+  stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. The main
+  rail uses AzNavRail's own `isFoldedUp` (OR'd with the four-finger `hideUiForCapture` fold). The
+  right-hand `grp.layers` / `grp.brushRail` OPPOSITE hosts use the library's `expandWhen`
+  (`userExpanded && !strokeActive`), so a host the user collapsed is never force-expanded, and a
+  collapse reported mid-stroke is not persisted to `railExpansion`. Nothing is added to the pointer
+  path; the UI just observes the flag.
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —
