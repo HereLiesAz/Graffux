@@ -86,8 +86,14 @@ class GpuTuningController private constructor(context: Context) {
     /** Report block appended to the prediction-ranking "feel" section. */
     fun report(): String {
         val info = GpuInfo.parse(GpuStampEngine.lastGpuInfo).takeIf { it.isKnown } ?: gpuInfo
-        return telemetry.report(info, _tuning.value, thermal.sample())
+        // The build line lets a report be tied to a commit without guessing from timestamps.
+        return "  build: $buildLabel\n" + telemetry.report(info, _tuning.value, thermal.sample())
     }
+
+    private val buildLabel: String = runCatching {
+        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+        "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})"
+    }.getOrDefault("?")
 
     private fun applyTuning(next: GpuTuning, info: GpuInfo) {
         gpuInfo = info

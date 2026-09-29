@@ -39,6 +39,29 @@ class GpuTelemetryTest {
     }
 
     @Test
+    fun `direct display presents close batches, so the frame budget is not blind without readback`() {
+        // #512/#514: direct display on, no readback ever ran -> "frame budget: no data".
+        val t = GpuTelemetry { 16 * ms }
+        t.onPass(PassKind.STAMP.ordinal, 5 * ms, false)
+        t.onPass(PassKind.COMPOSITE.ordinal, 4 * ms, false) // presentDirect: 9ms batch, fine
+        t.onPass(PassKind.STAMP.ordinal, 12 * ms, false)
+        t.onPass(PassKind.COMPOSITE.ordinal, 10 * ms, false) // 22ms batch, a miss
+        val report = t.report(GpuInfo(), null, null)
+        assertTrue(report, report.contains("frame budget: 1 of 2 batches over 16.0ms"))
+    }
+
+    @Test
+    fun `render-thread wait is reported on its own and not double-counted in batches`() {
+        val t = GpuTelemetry { 16 * ms }
+        t.onPass(PassKind.RENDER_THREAD_WAIT.ordinal, 14 * ms, false) // inside the stamp's 15ms
+        t.onPass(PassKind.STAMP.ordinal, 15 * ms, false)
+        t.onPass(PassKind.COMPOSITE.ordinal, 0 * ms, false)
+        val report = t.report(GpuInfo(), null, null)
+        assertTrue(report, report.contains("render-thread wait p50 14.00ms p95 14.00ms (n=1) cpu"))
+        assertTrue(report, report.contains("frame budget: 0 of 1 batches over 16.0ms"))
+    }
+
+    @Test
     fun `sample count is the window the percentiles cover, not the lifetime`() {
         val t = GpuTelemetry { 16 * ms }
         repeat(600) { t.onPass(PassKind.STAMP.ordinal, 1 * ms, gpu = true) }

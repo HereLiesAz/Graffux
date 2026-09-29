@@ -34,8 +34,13 @@ class GpuTelemetry(private val frameBudgetNanos: () -> Long) : PassTimingSink {
     }
 
     private fun onCpuPass(k: PassKind, nanos: Long) {
+        // Already counted inside the stamp/present wall time that waited.
+        if (k == PassKind.RENDER_THREAD_WAIT) return
         batchNanos += nanos
-        if (k == PassKind.READBACK) {
+        // A batch ends when it reaches the screen: a readback (Compose display) or, with direct
+        // display, the present (GpuStampEngine.presentDirect, timed as COMPOSITE). No readback
+        // runs under direct display, so ending only on readback reported "no data" (#512, #514).
+        if (k == PassKind.READBACK || k == PassKind.COMPOSITE) {
             batches += 1
             if (batchNanos > frameBudgetNanos()) misses += 1
             batchNanos = 0L
