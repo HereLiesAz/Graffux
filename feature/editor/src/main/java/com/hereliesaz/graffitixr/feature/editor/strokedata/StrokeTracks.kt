@@ -41,15 +41,24 @@ internal class PointerTrack(val pointerId: Int) {
         cols.getValue("buttons").add(e.buttonState)
     }
 
-    fun samplesJson(): JSONObject = JSONObject().apply { cols.forEach { (k, v) -> put(k, JSONArray(v)) } }
+    /**
+     * The columns as JSON. [clockShiftNs] is added to every `t`: the recorder passes the uptime to
+     * elapsedRealtime offset so samples land on the sensors' clock (schema 4).
+     */
+    fun samplesJson(clockShiftNs: Long = 0L): JSONObject = JSONObject().apply {
+        cols.forEach { (k, v) ->
+            val shifted = k == "t" && clockShiftNs != 0L
+            put(k, if (shifted) JSONArray(v.map { it.toLong() + clockShiftNs }) else JSONArray(v))
+        }
+    }
 
     /** A secondary pointer as it appears in a stroke's `pointers` array. */
-    fun toJson(): JSONObject = JSONObject()
+    fun toJson(clockShiftNs: Long = 0L): JSONObject = JSONObject()
         .put("pointerId", pointerId)
         .put("tool", toolName(toolType))
         .put("canceled", canceled)
         .put("palm", palm)
-        .put("samples", samplesJson())
+        .put("samples", samplesJson(clockShiftNs))
 
     companion object {
         private const val CURRENT = -1
@@ -138,7 +147,8 @@ internal class StrokeBuilder(val hovering: Boolean, val approach: StrokeBuilder?
         active[pointerId] = it
     }
 
-    fun toJson(): JSONObject {
+    /** The stroke as JSON; [clockShiftNs] is added to every sample time (see [PointerTrack.samplesJson]). */
+    fun toJson(clockShiftNs: Long = 0L): JSONObject {
         val first = primary ?: PointerTrack(0)
         return JSONObject().apply {
             put("type", if (hovering) "hover" else "stroke")
@@ -149,9 +159,9 @@ internal class StrokeBuilder(val hovering: Boolean, val approach: StrokeBuilder?
             put("pointerId", first.pointerId)
             put("canceled", first.canceled)
             put("palm", first.palm)
-            put("samples", first.samplesJson())
-            put("pointers", JSONArray(tracks.drop(1).map { it.toJson() }))
-            approach?.takeIf { it.lastTimeNs > 0L }?.let { put("hover", it.toJson()) }
+            put("samples", first.samplesJson(clockShiftNs))
+            put("pointers", JSONArray(tracks.drop(1).map { it.toJson(clockShiftNs) }))
+            approach?.takeIf { it.lastTimeNs > 0L }?.let { put("hover", it.toJson(clockShiftNs)) }
         }
     }
 }

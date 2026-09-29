@@ -185,6 +185,48 @@ class StrokeDataRecorderTest {
         assertEquals(StrokeDataRecorder.FLUSH_NONE, r.getString("flush"))
     }
 
+    @Test
+    fun `samples and hover share the sensors' elapsedRealtime clock`() {
+        // Pretend the device slept 5 s: elapsedRealtime runs 5 s ahead of uptime.
+        val sleptNs = 5_000_000_000L
+        val plain = StrokeDataRecorder(
+            null, { JSONObject() }, { records.add(it) },
+            elapsedRealtimeNs = { SystemClock.uptimeMillis() * 1_000_000L + sleptNs },
+            sensorThread = false,
+        )
+        val down = SystemClock.uptimeMillis()
+        val hover = MotionEvent.obtain(down - 10, down - 10, MotionEvent.ACTION_HOVER_MOVE, 90f, 100f, 0)
+        plain.onMotionEvent(hover)
+        plain.onMotionEvent(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, 100f, 100f, 0))
+        plain.onMotionEvent(MotionEvent.obtain(down, down + 20, MotionEvent.ACTION_UP, 120f, 100f, 0))
+        idle(200)
+
+        val r = records.single()
+        assertEquals(4, StrokeDataRecorder.SCHEMA_VERSION)
+        assertEquals(StrokeDataRecorder.CLOCK_ELAPSED_REALTIME, r.getString("clock"))
+        assertEquals(0L, r.getLong("clockOffsetNs"))
+        assertEquals(sleptNs, r.getLong("uptimeToElapsedNs"))
+        val t = r.getJSONObject("samples").getJSONArray("t")
+        assertEquals(down * 1_000_000L + sleptNs, t.getLong(0))
+        assertEquals((down + 20) * 1_000_000L + sleptNs, t.getLong(1))
+        val h = r.getJSONObject("hover").getJSONObject("samples")
+        assertEquals((down - 10) * 1_000_000L + sleptNs, h.getJSONArray("t").getLong(0))
+        assertEquals(1, h.getJSONArray("distance").length())
+    }
+
+    @Test
+    fun `shiftTimes moves every listed time array and leaves the rest alone`() {
+        val obj = JSONObject()
+            .put("t", org.json.JSONArray(listOf(1L, 2L)))
+            .put("a", org.json.JSONArray(listOf(3L)))
+            .put("w", 16)
+        StrokeDataRecorder.shiftTimes(obj, 10L, "t", "a", "missing")
+        assertEquals(11L, obj.getJSONArray("t").getLong(0))
+        assertEquals(12L, obj.getJSONArray("t").getLong(1))
+        assertEquals(13L, obj.getJSONArray("a").getLong(0))
+        assertEquals(16, obj.getInt("w"))
+    }
+
     private data class Touch(val id: Int, val x: Float, val tool: Int = MotionEvent.TOOL_TYPE_FINGER)
 
     private fun event(down: Long, time: Long, action: Int, touches: List<Touch>, flags: Int = 0): MotionEvent {
