@@ -64,6 +64,25 @@ class StrokeStabilizerTest {
     }
 
     @Test
+    fun `StreamLine pressure starts at the stroke's own pressure, not full pressure`() {
+        // The start-of-stroke blob: a constant light pen pressure must give a constant width from
+        // the very first sample. The filter used to be seeded with 1f, so the first dab was drawn
+        // at nearly full pressure and only eased down to 0.3 over the next dozens of samples.
+        val s = StrokeStabilizer()
+        repeat(3) { stroke ->
+            s.reset()
+            val first = s.stabilizePressure(0.3f, level = 90, algorithm = StabilizerAlgorithm.STREAMLINE)
+            assertEquals("stroke $stroke first sample", 0.3f, first, 0f)
+            repeat(20) {
+                val steady = s.stabilizePressure(0.3f, level = 90, algorithm = StabilizerAlgorithm.STREAMLINE)
+                assertEquals("stroke $stroke steady state", 0.3f, steady, 1e-6f)
+            }
+            // A heavy end to this stroke must not leak into the next one's start either.
+            repeat(50) { s.stabilizePressure(1f, level = 90, algorithm = StabilizerAlgorithm.STREAMLINE) }
+        }
+    }
+
+    @Test
     fun `reset clears lag state so a new stroke does not inherit the old one's position`() {
         val s = StrokeStabilizer()
         s.stabilize(Offset(1000f, 1000f), level = 90, algorithm = StabilizerAlgorithm.STREAMLINE)
