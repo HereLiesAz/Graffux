@@ -32,7 +32,11 @@ class StrokeStabilizer {
     // history window — the previous call's OUTPUT is this call's starting point, which is what
     // makes both of them local (O(1) per point) rather than windowed.
     private var lagged: Offset? = null
-    private var laggedPressure: Float = 1f
+    // Null until the stroke's first sample: StreamLine's pressure filter starts AT that sample's
+    // pressure. Seeding it with a constant (it used to be 1f) made every stroke begin at full
+    // pressure and ease down to the real one over the first dozens of samples -- a fat blob at the
+    // start of every pressure-sensitive stroke.
+    private var laggedPressure: Float? = null
 
     /**
      * Stabilizes a raw input point.
@@ -69,8 +73,10 @@ class StrokeStabilizer {
             laggedPressure = rawPressure
             return rawPressure
         }
-        laggedPressure += (rawPressure - laggedPressure) * tensionAlpha(level)
-        return laggedPressure
+        val prev = laggedPressure ?: rawPressure
+        val next = prev + (rawPressure - prev) * tensionAlpha(level)
+        laggedPressure = next
+        return next
     }
 
     private fun movingAverage(rawPoint: Offset, level: Int): Offset {
@@ -140,7 +146,7 @@ class StrokeStabilizer {
     fun reset() {
         history.clear()
         lagged = null
-        laggedPressure = 1f
+        laggedPressure = null
     }
 
     private companion object {
