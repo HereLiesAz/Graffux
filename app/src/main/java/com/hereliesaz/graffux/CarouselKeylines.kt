@@ -78,3 +78,31 @@ internal fun carouselSnapTarget(position: Float, velocity: Float, count: Int): I
     }
     return target.coerceIn(0, (count - 1).coerceAtLeast(0))
 }
+
+/**
+ * Which previews the stroke area above the hero blends at a continuous row [position]: the entry
+ * nearest the centre ([heroIndex]) and, while between two rest positions, the one the row is
+ * nearest after it ([neighborIndex], null at rest). The neighbour shows at [neighborAlpha] (0 at
+ * rest, 0.5 halfway) and the hero at [heroAlpha].
+ */
+internal data class CarouselHeroBlend(val heroIndex: Int, val neighborIndex: Int?, val neighborAlpha: Float) {
+    val heroAlpha: Float get() = 1f - neighborAlpha
+}
+
+/** [CarouselHeroBlend] for a row of [count] items at [position] (clamped to the ends); null if empty. */
+internal fun carouselHeroBlend(position: Float, count: Int): CarouselHeroBlend? {
+    if (count <= 0) return null
+    val p = position.coerceIn(0f, (count - 1).toFloat())
+    val hero = p.roundToInt()
+    val delta = p - hero
+    val neighbor = when {
+        delta > 0f -> hero + 1
+        delta < 0f -> hero - 1
+        else -> null
+    }
+    return CarouselHeroBlend(hero, neighbor, abs(delta))
+}
+
+/** Item [index]'s preview opacity at [position]: 1 in the hero slot, fading to 0 one item away. */
+internal fun carouselPreviewAlpha(position: Float, index: Int): Float =
+    (1f - abs(position - index)).coerceIn(0f, 1f)

@@ -1,15 +1,17 @@
 package com.hereliesaz.graffux
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.Layout
@@ -28,24 +30,31 @@ import kotlin.math.roundToInt
  * `keylineListOf`, `CarouselAlignment`) is `internal`. So each item's size and centre come from its
  * distance to the centre ([carouselSlot], pure and tested), and the row snaps one item at a time.
  *
- * [centredIndex] is the item to hold in the hero slot; the row animates there whenever it changes.
+ * [position] is the row's continuous scroll position (the fractional index in the hero slot),
+ * hoisted so the caller can read it too (the preview crossfade above the hero). [centredIndex] is
+ * the item to hold in the hero slot; the row animates there whenever it changes. When a drag or
+ * fling comes to rest, [onSettle] gets the index now in the hero slot.
  * [itemContent] gets the item's laid-out width in px, which the caller turns into a tier.
  */
 @Suppress("FunctionNaming", "LongParameterList")
 @Composable
 internal fun CenteredHeroRow(
     count: Int,
+    position: Animatable<Float, AnimationVector1D>,
     centredIndex: Int?,
     widthPx: Float,
     spacing: Dp,
+    onSettle: (Int) -> Unit,
     modifier: Modifier = Modifier,
     itemContent: @Composable (index: Int, sizePx: Float) -> Unit,
 ) {
     val spacingPx = with(LocalDensity.current) { spacing.toPx() }
     val sizes = carouselKeylineSizes(widthPx, spacingPx)
-    val position = remember { Animatable((centredIndex ?: 0).toFloat()) }
     val scope = rememberCoroutineScope()
     val maxIndex = (count - 1).coerceAtLeast(0).toFloat()
+    val settle by rememberUpdatedState(onSettle)
+    // External selection changes (the rail, undo, a settle's own pick) re-centre the row. A settle
+    // selects the index it already rests on, so this animates nowhere and nothing loops.
     LaunchedEffect(centredIndex, count) {
         if (centredIndex != null) position.animateTo(centredIndex.toFloat().coerceIn(0f, maxIndex))
     }
@@ -66,6 +75,7 @@ internal fun CenteredHeroRow(
                 onDragStopped = { velocity ->
                     val target = carouselSnapTarget(position.value, -velocity / stepPx, count)
                     position.animateTo(target.toFloat())
+                    if (count > 0) settle(target)
                 },
             ),
         content = {

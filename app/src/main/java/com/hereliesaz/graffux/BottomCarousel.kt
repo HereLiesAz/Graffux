@@ -27,9 +27,17 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,9 +93,10 @@ internal data class CarouselHistory(
 /**
  * M3 Expressive hero carousel of brushes, Ink utensils, effect tools and tool options.
  *
- * Top to bottom: the selected entry's stroke preview (drawn *above* the hero card, not inside it),
- * the [HorizontalCenteredHeroCarousel] — one large item in the exact centre, smaller items browsing
- * off either side, the selection snapped into the centre — and the tab row (see [CAROUSEL_TABS]).
+ * Top to bottom: the hero entry's stroke preview (drawn *above* the hero card, not inside it, and
+ * crossfading as the row scrolls), the [CenteredHeroRow] — one large item in the exact centre,
+ * smaller items browsing off either side, the selection snapped into the centre and whatever
+ * settles there selected (see [carouselSettleSelects]) — and the tab row (see [CAROUSEL_TABS]).
  * The host places this across the full window width (an AzNavRail `background` page), so "centre"
  * means the centre of the screen, not of the strip beside the rail.
  *
@@ -111,33 +120,70 @@ internal fun BottomCarousel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        val selected = selectedCarouselIndex(content.entries)?.let { content.entries[it] }
-        SelectedPreview(selected, content)
-        when {
-            content.entries.isNotEmpty() -> key(ui.category) {
-                CarouselStrip(content, onEntryClick, onToggleFavorite)
+        if (content.entries.isNotEmpty()) {
+            key(ui.category) {
+                // The row's continuous scroll position, shared by the strip and the hero preview.
+                val position = remember {
+                    Animatable((selectedCarouselIndex(content.entries) ?: 0).toFloat())
+                }
+                HeroPreview(position, content)
+                CarouselStrip(position, content, onEntryClick, onToggleFavorite)
             }
-            ui.category == CarouselCategory.FAVORITES -> EmptyHint(
-                "No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.",
-            )
+        } else {
+            Box(Modifier.fillMaxWidth().height(PreviewHeight))
+            if (ui.category == CarouselCategory.FAVORITES) {
+                EmptyHint("No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.")
+            }
         }
         CarouselTabRow(ui, onUiChange, history)
     }
 }
 
-/** The selected entry's stroke, above the hero card. Fixed height, so the strip never jumps. */
+/**
+ * The stroke of whichever entry is in the hero slot right now, above the hero card, crossfading
+ * with its neighbour as the row scrolls ([carouselHeroBlend]). Which entries are composed changes
+ * only when the row crosses an item ([derivedStateOf]); their opacity is read in the draw phase
+ * ([graphicsLayer]), so scrolling does not recompose this every frame. Fixed height, so the strip
+ * never jumps. Entries with no stroke (effects, options) draw nothing, so the stroke fades out.
+ */
 @Suppress("FunctionNaming")
 @Composable
-private fun SelectedPreview(entry: CarouselEntry?, content: CarouselContent) {
-    Box(Modifier.fillMaxWidth().height(PreviewHeight), contentAlignment = Alignment.Center) {
-        val bitmap = (entry?.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
-        when {
-            entry?.brush != null -> Box(Modifier.widthIn(max = HeroItemWidth * 2).fillMaxWidth()) {
-                BrushPreview(entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight)
-            }
-            bitmap != null ->
-                Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.height(PreviewHeight))
+private fun HeroPreview(position: Animatable<Float, AnimationVector1D>, content: CarouselContent) {
+    val count = content.entries.size
+    val shown by remember(count) {
+        derivedStateOf {
+            carouselHeroBlend(position.value, count)?.let { listOfNotNull(it.heroIndex, it.neighborIndex) }.orEmpty()
         }
+    }
+    Box(Modifier.fillMaxWidth().height(PreviewHeight), contentAlignment = Alignment.Center) {
+        shown.forEach { index ->
+            val entry = content.entries[index]
+            key(entry.key) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = carouselPreviewAlpha(position.value, index) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    StrokePreview(entry, content)
+                }
+            }
+        }
+    }
+}
+
+/** One entry's stroke preview, or nothing for entries without one. */
+@Suppress("FunctionNaming")
+@Composable
+private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
+    val bitmap = (entry.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
+    val tag = Modifier.testTag("carousel.preview.${entry.key}")
+    when {
+        entry.brush != null -> Box(tag.widthIn(max = HeroItemWidth * 2).fillMaxWidth()) {
+            BrushPreview(entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight)
+        }
+        bitmap != null ->
+            Image(bitmap.asImageBitmap(), contentDescription = null, modifier = tag.height(PreviewHeight))
     }
 }
 
@@ -235,6 +281,7 @@ private const val DISABLED_ALPHA = 0.38f
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CarouselStrip(
+    position: Animatable<Float, AnimationVector1D>,
     content: CarouselContent,
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
@@ -242,6 +289,14 @@ private fun CarouselStrip(
     val entries = content.entries
     val selected = selectedCarouselIndex(entries)
     val spacingPx = with(LocalDensity.current) { ItemSpacing.toPx() }
+    val scope = rememberCoroutineScope()
+    val currentEntries by rememberUpdatedState(entries)
+    val click by rememberUpdatedState(onEntryClick)
+    // Whatever comes to rest in the hero slot becomes the selection (see carouselSettleSelects).
+    fun settle(index: Int, byTap: Boolean) {
+        val entry = currentEntries.getOrNull(index) ?: return
+        if (carouselSettleSelects(entry, byTap)) click(entry)
+    }
     BoxWithConstraints(Modifier.fillMaxWidth().height(CarouselHeight)) {
         val widthPx = constraints.maxWidth.toFloat()
         val sizes = carouselKeylineSizes(widthPx, spacingPx)
@@ -249,10 +304,12 @@ private fun CarouselStrip(
         // the rail, the shortcuts sheet or the Tool Options window).
         CenteredHeroRow(
             count = entries.size,
+            position = position,
             centredIndex = selected,
             widthPx = widthPx,
             spacing = ItemSpacing,
-            modifier = Modifier.fillMaxSize(),
+            onSettle = { settle(it, byTap = false) },
+            modifier = Modifier.fillMaxSize().testTag("carousel.row"),
         ) { index, sizePx ->
             // The tier comes from the size the keylines gave this item right now, never its index.
             val tier = carouselTier(sizePx, sizes.hero, sizes.smallCeiling)
@@ -260,7 +317,18 @@ private fun CarouselStrip(
                 entries[index],
                 tier,
                 content,
-                onEntryClick,
+                { entry ->
+                    // The hero runs its action (a second tap on a tool puts it down); any other
+                    // card scrolls into the hero slot first, and the settle then selects it.
+                    if (position.value == index.toFloat()) {
+                        click(entry)
+                    } else {
+                        scope.launch {
+                            position.animateTo(index.toFloat())
+                            settle(index, byTap = true)
+                        }
+                    }
+                },
                 onToggleFavorite,
                 Modifier.fillMaxSize().clip(CardShape).testTag("carousel.card.${tier.name}"),
             )
