@@ -162,7 +162,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`); entries without a
   stroke show none. Whatever settles in the hero slot becomes the selection: a drag or fling runs
   the entry's action only for brushes, Ink utensils and effect tools (`carouselAutoActivates`);
-  stabilizer, smudge and shape stops and Tool Options need a tap. Tapping a non-hero card scrolls
+  stabilizer, smudge and shape stops need a tap. Tapping a non-hero card scrolls
   it into the hero slot and then runs it. Selection changed elsewhere (rail, undo) re-centres the
   row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop. Tabs sit below the strip, in the order Undo ·
   Favorites · Brushes · Ink · Effects · Options · Redo (`CAROUSEL_TABS`). Undo and Redo are actions,
@@ -187,24 +187,33 @@ codebase is deferred scope or a real gap in the install-report flow.
   three reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
   painting. Its detents step on to HALF/FULL. And the shortcuts sheet already owns the bottom edge.
   The areas dropdown's "Carousel" toggle still removes it entirely.
-  **More grows the hero (`CarouselHeroExpanded.kt`).** "More" no longer opens Tool Options. The
+  **More grows the hero (`CarouselHeroExpanded.kt`).** "More" grows the card; there is no Tool Options window. The
   hero card grows in place (M3 Expressive `defaultSpatialSpec`), from its own size to 1.5x as wide
   and up over where the stroke preview rests. The preview is always `PreviewGap` (48dp) above the
   hero card: at rest in the carousel column, and, while the card is grown or growing, lifted onto
   the expanded card's page. There it is placed in the same layout pass as the card, from the one
   animation's progress, so it rides above the card frame by frame and is never hidden behind it or
   the neighbours. The carousel's own copy hides while `HeroExpansion.progress > 0`, and the lifted
-  copy still crossfades and draws each item at its own settings. It shows `heroFullAdjustments`, which covers what Tool Options
-  showed for that item: the inline sliders plus Stabilize, and for Smudge also Load and Smudge
-  opacity. It edits the item's own settings and scrolls if it overflows. It is drawn by
+  copy still crossfades and draws each item at its own settings. It shows `heroSections` (`CarouselHeroSections.kt`): every setting
+  of that item, under small section headers, with segmented buttons for enums, compact sliders, and
+  switches. Brush (Size, Flow/Opacity, Softness); Smudge (mode, Strength, Load, Smudge opacity, and
+  Sample radius in Dulling); Wet mix (charge decay, dilution, pickup, pigment mixing); Sampling
+  (carry alpha, sample merged); Stabilizer (level, and the algorithm while it is on); Selection
+  (threshold for Automatic, and feather while a selection exists). Per-item fields edit the item's
+  own settings; the rest edit their one global value. The card scrolls if it overflows. It is drawn by
   `ExpandedHeroLayer` on its own AzNavRail page, `background(weight = 1, page = -0.5f)`, in front of
   the carousel's page 0. So it overlaps the neighbouring cards without the carousel reflowing, and
   never pushes the tabs. `HeroExpansion` is shared by both pages: the carousel publishes its content
   and the hero's anchor to it. It closes on Less, on a second More, on Back, when another card takes
-  the hero slot, when a stroke starts, or when the carousel leaves the screen. The Tool Options
-  window stays for the rail's Tool Options item, for the "All options" card, and for the settings
-  only it has: Smudge's dilution, pickup, radius, mixing model and alpha carry, the stabilizer
-  algorithm, and selection feather.
+  the hero slot, when a stroke starts, or when the carousel leaves the screen.
+  **Tool Options is the card.** The Tool Options window (`ToolOptionsWindow`) and the brush-size
+  pad's `SizePickerDialog` are gone. The rail's Tool Options item, and a tap on the brush-size pad,
+  call `openToolOptionsCard`. That takes `toolOptionsTarget`: the page and key of the item in hand
+  (Brushes, Ink or Effects), or else the lit option stop (a selection shape, a stabilizer stop). It
+  shows the carousel, opens the sheet, switches to that page, and calls `HeroExpansion.request`,
+  which grows that card once it rests in the hero slot. Pressed again, it shrinks the card. The
+  rail item is lit while any card is grown. The Options page's old "All options" card is removed,
+  since every card's More now shows all of its settings.
   **Collapse while drawing.** `CarouselSheet(strokeActive = { strokeGate.strokeActive })` reads the
   flag in the sheet, not in the page, so a stroke does not recompose the carousel. While it is true
   the sheet is shown shut (`carouselSheetShownOpen(userOpen, strokeActive)`): it snaps shut with no

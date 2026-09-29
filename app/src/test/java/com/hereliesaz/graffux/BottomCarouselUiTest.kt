@@ -70,7 +70,6 @@ class BottomCarouselUiTest {
         stabilizerAlgorithm = StabilizerAlgorithm.STREAMLINE,
         smudgeMode = ColorSmudgeEngine.Mode.DULLING,
         selectionShape = SelectionShape.ELLIPSE,
-        toolOptionsOpen = false,
         favorites = favorites,
     )
 

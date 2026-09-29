@@ -32,7 +32,6 @@ class CarouselItemSettingsTest {
         stabilizerAlgorithm = StabilizerAlgorithm.STREAMLINE,
         smudgeMode = ColorSmudgeEngine.Mode.DULLING,
         selectionShape = SelectionShape.ELLIPSE,
-        toolOptionsOpen = false,
     )
 
     // --- persistence ---------------------------------------------------------------------------
@@ -90,7 +89,6 @@ class CarouselItemSettingsTest {
         assertEquals("k", keyOf(CarouselAction.PickTool(Tool.BLUR)))
         assertEquals(smudge, keyOf(CarouselAction.SmudgeMode(ColorSmudgeEngine.Mode.DULLING)))
         assertNull(keyOf(CarouselAction.StabilizerLevel(25)))
-        assertNull(keyOf(CarouselAction.OpenToolOptions))
     }
 
     @Test

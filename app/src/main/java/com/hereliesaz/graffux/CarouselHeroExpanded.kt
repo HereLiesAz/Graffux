@@ -72,6 +72,25 @@ internal class HeroExpansion {
 
     fun collapse() {
         expandedKey = null
+        pendingKey = null
+    }
+
+    /**
+     * A card to grow once it is in the hero slot (Tool Options). The carousel may first have to
+     * switch page and centre it; [HeroExpansionEffects] opens it when the hero is [key].
+     */
+    var pendingKey: String? by mutableStateOf(null)
+        private set
+
+    fun request(key: String) {
+        pendingKey = key
+    }
+
+    /** Opens [key] now (it is the hero): [request]'s second half. */
+    internal fun openPending(key: String) {
+        pendingKey = null
+        expandedKey = key
+        shownKey = key
     }
 
     /** What the carousel page last drew (its entries and callbacks), for the expanded layer to draw. */
@@ -105,6 +124,11 @@ internal fun HeroExpansionEffects(expansion: HeroExpansion, position: State<Floa
         snapshotFlow { entries.getOrNull(position.value.roundToInt())?.key to expansion.expandedKey }
             .collect { (hero, open) -> if (heroExpansionStale(open, hero)) expansion.collapse() }
     }
+    // A requested card (Tool Options) opens once it has come to rest in the hero slot.
+    LaunchedEffect(expansion) {
+        snapshotFlow { entries.getOrNull(position.value.roundToInt())?.key to expansion.pendingKey }
+            .collect { (hero, pending) -> if (pending != null && hero == pending) expansion.openPending(pending) }
+    }
     // A stroke starting closes it; the sheet itself shuts at the same moment (CarouselSheet).
     LaunchedEffect(expansion) {
         snapshotFlow { strokeActive() }.collect { if (it) expansion.collapse() }
@@ -115,7 +139,7 @@ internal fun HeroExpansionEffects(expansion: HeroExpansion, position: State<Floa
 /**
  * The hero card grown in place: it starts at the hero's own size, over the hero, and grows (M3
  * Expressive's default spatial spring) upward over the stroke preview and a little wider, never
- * down into the tabs. It shows everything [heroFullAdjustments] lists for the item, editing that
+ * down into the tabs. It shows everything [heroSections] lists for the item, editing that
  * item's own settings through [CarouselContent.onAdjust] exactly as the inline sliders do, and
  * scrolls if it overflows. "Less" (or "More" again, or anything in [HeroExpansion]) shrinks it.
  */
@@ -183,7 +207,7 @@ private fun ExpandedHeroCard(
     expandedSize: DpSize,
 ) {
     val state = content.heroState ?: return
-    val adjustments = heroFullAdjustments(entry, state.withItem(content.itemSettings(entry)))
+    val sections = heroSections(entry, state.withItem(content.itemSettings(entry)))
     val colors = MaterialTheme.colorScheme
     val bg = if (entry.selected) colors.onSurface else colors.surfaceVariant
     val tint = if (entry.selected) colors.surface else colors.onSurface
@@ -226,7 +250,7 @@ private fun ExpandedHeroCard(
                     maxLines = 1,
                 )
             }
-            HeroControls(entry, adjustments, content, tint, tagPrefix = "carousel.expanded")
+            HeroSectionsView(entry, sections, content, tint)
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 TextButton(
                     onClick = { expansion.collapse() },

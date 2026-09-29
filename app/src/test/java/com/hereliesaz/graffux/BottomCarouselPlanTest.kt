@@ -25,7 +25,6 @@ class BottomCarouselPlanTest {
         stabilizerAlgorithm = StabilizerAlgorithm.STREAMLINE,
         smudgeMode = ColorSmudgeEngine.Mode.DULLING,
         selectionShape = SelectionShape.ELLIPSE,
-        toolOptionsOpen = false,
     )
 
     private fun inputs(tool: Tool = Tool.BRUSH, brushName: String? = null, stabilizer: Int = 0) =
@@ -109,13 +108,12 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `options always end with the full Tool Options window`() {
+    fun `options offer no All options card - every setting is on its item's card`() {
         Tool.entries.forEach { tool ->
             val entries = carouselEntries(CarouselCategory.OPTIONS, inputs(tool = tool))
-            assertEquals(CarouselAction.OpenToolOptions, entries.last().action)
+            assertTrue(entries.none { it.key == "toolOptions" })
         }
-        val open = carouselEntries(CarouselCategory.OPTIONS, base.copy(activeTool = Tool.NONE, toolOptionsOpen = true))
-        assertEquals(listOf(true), open.map { it.selected })
+        assertTrue(carouselEntries(CarouselCategory.OPTIONS, base.copy(activeTool = Tool.NONE)).isEmpty())
     }
 
     @Test
@@ -128,7 +126,7 @@ class BottomCarouselPlanTest {
     @Test
     fun `select options are the selection shapes`() {
         val entries = carouselEntries(CarouselCategory.OPTIONS, inputs(tool = Tool.SELECT))
-        assertEquals(SelectionShape.entries.size + 1, entries.size)
+        assertEquals(SelectionShape.entries.size, entries.size)
         val selected = entries[selectedCarouselIndex(entries)!!]
         assertEquals(CarouselAction.SelectShape(SelectionShape.ELLIPSE), selected.action)
     }

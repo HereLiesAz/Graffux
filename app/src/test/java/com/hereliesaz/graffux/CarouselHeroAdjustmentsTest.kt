@@ -56,7 +56,6 @@ class CarouselHeroAdjustmentsTest {
         assertEquals(listOf("strength"), ids(CarouselAction.SmudgeMode(ColorSmudgeEngine.Mode.SMEAR)))
         assertEquals(listOf("threshold"), ids(CarouselAction.SelectShape(SelectionShape.AUTOMATIC)))
         assertTrue(ids(CarouselAction.SelectShape(SelectionShape.ELLIPSE)).isEmpty())
-        assertTrue(ids(CarouselAction.OpenToolOptions).isEmpty())
     }
 
     @Test
@@ -71,7 +70,6 @@ class CarouselHeroAdjustmentsTest {
             assertFalse(heroHasMore(entry(it)))
         }
         assertTrue(heroHasMore(entry(CarouselAction.PickTool(Tool.BLUR))))
-        assertFalse(heroHasMore(entry(CarouselAction.OpenToolOptions)))
     }
 
     @Test

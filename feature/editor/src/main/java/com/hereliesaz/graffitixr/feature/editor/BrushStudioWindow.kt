@@ -530,10 +530,11 @@ private fun ParamSlider(
  * bitmaps and passes them in via [stampShape]/[stampGrain]/[stampMaskShape] -- this composable
  * itself stays stateless and does no IO. A draft-in-progress brush in Brush Studio that has no
  * installed extension id yet has nothing to pass, so it still falls back to the generated
- * gradient-oval tip below. Callers previewing an *installed* brush (ToolOptionsWindow, via
+ * gradient-oval tip below. Callers previewing an *installed* brush (Brush Studio, via
  * EditorViewModel.activeBrushPreviewAssets) do have the decoded runtime assets already and pass
- * them through, so the Tool Options preview matches what will actually paint.
+ * them through, so the preview matches what will actually paint.
  */
+@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 @Composable
 fun BrushPreview(
     brush: AzphaltBrush,
@@ -542,13 +543,13 @@ fun BrushPreview(
     height: androidx.compose.ui.unit.Dp = 72.dp,
     // Flow is a per-session paint setting (EditorUiState.brushFlow), not stored on AzphaltBrush
     // itself, so it isn't reflected by `brush` alone -- callers previewing a live Flow slider
-    // (ToolOptionsWindow) pass the current value here; everyone else keeps the default, which
+    // (the bottom carousel) pass the current value here; everyone else keeps the default, which
     // matches flow's own default of fully-opaque (StampBrushRenderer.paintDabs' `baseFlow`).
     flow: Float = 1f,
     // The dab diameter this preview strokes with is normally derived from the strip's own
     // height (canvasHeight / 3f) purely so the S-curve reads at a sensible scale regardless of
     // brush size -- accurate for Brush Studio/My Brushes, where no single "current size" exists
-    // yet. A caller previewing a live Size slider (SizePickerDialog) passes the real value here
+    // yet. A caller previewing a live Size slider (the bottom carousel) passes the real value here
     // instead, so the preview shows the brush at the size it's actually about to paint at.
     sizeOverridePx: Float? = null,
     // Decoded runtime assets for an *installed* brush's custom tip/grain/masked secondary tip.

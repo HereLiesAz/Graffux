@@ -27,7 +27,7 @@ internal fun carouselSettingsKey(entry: CarouselEntry): String? = when (entry.ac
     -> entry.key
     is CarouselAction.SmudgeMode -> SMUDGE_SETTINGS_KEY
     is CarouselAction.StabilizerLevel, is CarouselAction.Stabilizer, is CarouselAction.SelectShape,
-    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut, CarouselAction.OpenToolOptions,
+    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut,
     -> null
 }
 
@@ -83,7 +83,10 @@ internal fun CarouselItemSettings.adjusted(setter: HeroSetter, value: Float): Ca
     HeroSetter.BRUSH_OPACITY -> copy(opacity = value)
     HeroSetter.BRUSH_SOFTNESS -> copy(softness = value)
     HeroSetter.SMUDGE_STRENGTH -> copy(strength = value)
-    HeroSetter.SMUDGE_LOAD, HeroSetter.SMUDGE_OPACITY, HeroSetter.STABILIZER, HeroSetter.WAND_TOLERANCE -> null
+    HeroSetter.SMUDGE_LOAD, HeroSetter.SMUDGE_OPACITY, HeroSetter.STABILIZER, HeroSetter.WAND_TOLERANCE,
+    HeroSetter.SMUDGE_CHARGE_DECAY, HeroSetter.SMUDGE_DILUTION, HeroSetter.SMUDGE_PICKUP, HeroSetter.SMUDGE_RADIUS,
+    HeroSetter.SELECTION_FEATHER,
+    -> null
 }?.sanitized()
 
 /** [this] hero state with the per-item fields replaced by [s]'s; the global ones are kept. */
@@ -170,4 +173,24 @@ internal class CarouselItemSettingsSync {
         pending = target
         return ItemSettingsDecision.Apply(target, includeStrength = activeKey == SMUDGE_SETTINGS_KEY)
     }
+}
+
+/**
+ * Where Tool Options (the rail item, or a tap on the brush-size pad) takes the carousel: the page
+ * holding what is in hand and that entry's key, whose card it grows. The paint item in hand first;
+ * with none (Select, Eraser, ...), the lit option stop that has settings of its own. Null when
+ * nothing in hand has any.
+ */
+internal fun toolOptionsTarget(input: CarouselInputs): Pair<CarouselCategory, String>? {
+    val key = activeCarouselSettingsKey(input)
+    if (key != null) {
+        val page = when {
+            key.startsWith("ink.") -> CarouselCategory.INK
+            input.activeTool in EFFECT_TOOLS -> CarouselCategory.EFFECTS
+            else -> CarouselCategory.BRUSHES
+        }
+        return page to key
+    }
+    val option = carouselEntries(CarouselCategory.OPTIONS, input).firstOrNull { it.selected && heroHasMore(it) }
+    return option?.let { CarouselCategory.OPTIONS to it.key }
 }
