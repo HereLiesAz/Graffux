@@ -1,6 +1,6 @@
-"""Writes schema-exact synthetic sessions (SCHEMA.md, version 3) for smoke-testing the pipeline.
+"""Writes schema-exact synthetic sessions (SCHEMA.md, version 4) for smoke-testing the pipeline.
 
-  python synth.py OUT_DIR [--sessions 6] [--strokes 40] [--schema 3]
+  python synth.py OUT_DIR [--sessions 6] [--strokes 40] [--schema 4]
 
 Each stroke has a planted pose that the recorded shape reveals, so the onset ablation has real
 signal to find (and a broken pipeline shows up as none):
@@ -16,7 +16,9 @@ Schema 3 adds a raw touch heatmap to every stroke of every session but the last 
 "off"): an egg-shaped blob -- blunt end behind, narrow end leading along the stroke's initial
 direction, major axis along the finger -- on a GRID_W x GRID_H grid over the screen, at 120 Hz,
 from 100 ms before touchdown to 200 ms after the first report (the onset; real files cover the
-whole stroke). --schema 1 / 2 write the older layouts, to check the loader still reads them.
+whole stroke). Schema 4 moves every input and heatmap time onto the sensors' elapsedRealtime clock
+(`clock`, `clockOffsetNs` 0). --schema 1 / 2 / 3 write the older layouts, to check the loader still
+reads them.
 Not a substitute for recorded data.
 """
 from __future__ import annotations
@@ -193,7 +195,20 @@ def stroke(rng: random.Random, t0: int, offset: int, report_orient: bool, missin
         if with_heatmap:
             # The narrow end leads: along the direction the stroke actually sets off in.
             rec["heatmap"] = heatmap(rng, cols, kind, scale, heading)
+    if schema >= 4:
+        to_elapsed(rec, offset)
     return rec
+
+
+def to_elapsed(rec: dict, offset: int) -> None:
+    """Schema 4: input and heatmap times move onto the sensors' elapsedRealtime clock."""
+    tracks = [rec["samples"]] + [p["samples"] for p in rec.get("pointers", [])]
+    for cols in tracks:
+        cols["t"] = [t + offset for t in cols["t"]]
+    if "heatmap" in rec:
+        for k in ("t", "a"):
+            rec["heatmap"][k] = [t + offset for t in rec["heatmap"][k]]
+    rec.update({"clock": "elapsedRealtime", "clockOffsetNs": 0, "uptimeToElapsedNs": offset})
 
 
 def sensors(rng: random.Random, first: int, last: int, offset: int, missing: str, schema: int):
@@ -220,7 +235,7 @@ def main():
     ap.add_argument("out", type=Path)
     ap.add_argument("--sessions", type=int, default=6)
     ap.add_argument("--strokes", type=int, default=40)
-    ap.add_argument("--schema", type=int, choices=[1, 2, 3], default=3)
+    ap.add_argument("--schema", type=int, choices=[1, 2, 3, 4], default=4)
     a = ap.parse_args()
     rng = random.Random(1)
     d = a.out / "Synthetic"

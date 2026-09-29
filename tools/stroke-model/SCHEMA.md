@@ -1,4 +1,4 @@
-# Stroke data schema (version 3)
+# Stroke data schema (version 4)
 
 Written on the device by `StrokeDataRecorder` (feature/editor) and `StrokeDataStore` (core/data).
 Uploaded to the `stroke-data` branch as `stroke-data/<device-model>/session-<ms>.jsonl.gz`.
@@ -10,7 +10,7 @@ Python's `gzip` module reads the concatenation transparently.
 
 | field | meaning |
 |---|---|
-| `schema` | this document's version (3; files written as 1 or 2 are still read, see below) |
+| `schema` | this document's version (4; files written as 1, 2 or 3 are still read, see below) |
 | `manufacturer`, `model`, `sdk` | device |
 | `displayHz` | display refresh rate; one frame = `1000 / displayHz` ms |
 | `widthPx`, `heightPx`, `xdpi`, `ydpi`, `density` | screen geometry (px ↔ mm) |
@@ -33,7 +33,9 @@ One touch from `ACTION_DOWN` to `ACTION_UP` / `ACTION_CANCEL`.
 | `samples` | the primary pointer: columns, same length, one entry per raw input sample (historical samples included) |
 | `pointers` | v2: every other pointer that touched during the stroke, see below |
 | `hover` | optional: the stylus hover approach just before contact, same layout as a stroke |
-| `clockOffsetNs` | `elapsedRealtimeNanos − uptime` at the stroke's end; sensor time − this = input time |
+| `clock` | v4: `elapsedRealtime`: every time in the stroke (samples, `hover`, `pointers`, `sensors`, `heatmap`) is `SystemClock.elapsedRealtimeNanos` ns, the SensorEvent clock. Absent before v4 (input times were uptime) |
+| `clockOffsetNs` | what to subtract from a sensor time to get an input time. v4: always 0. v1–v3: `elapsedRealtimeNanos − uptime` at the stroke's end |
+| `uptimeToElapsedNs` | v4: the `elapsedRealtimeNanos − uptime` offset (sampled at the stroke's end) that was added to the MotionEvent and heatmap times to move them onto elapsedRealtime |
 | `context` | what it was drawn with: `tool` (editor tool), `brush`, `brushSize`, `brushOpacity`, `stabilizer`, `stabilizerLevel`, `zoom`, `rotationDeg`, `displayRotation`, `sampleRateHz`, `gpu` |
 | `sensors` | per sensor, `{t: [ns elapsedRealtime], a: [ns elapsedRealtime], v: [[values...]]}`, see below |
 | `sensorsRegistered` | v2: the sensors the recorder successfully registered for this stroke |
@@ -46,7 +48,7 @@ One touch from `ACTION_DOWN` to `ACTION_UP` / `ACTION_CANCEL`.
 
 | column | MotionEvent source | notes |
 |---|---|---|
-| `t` | event time, ns, uptime clock | ns precision on API 34+, ms × 10⁶ before |
+| `t` | event time, ns | v4: elapsedRealtime (MotionEvent time + `uptimeToElapsedNs`); v1–v3: uptime. ns precision on API 34+, ms × 10⁶ before |
 | `action` | `actionMasked` | historical samples are reported as MOVE (2) |
 | `x`, `y` | `AXIS_X/Y` | view pixels |
 | `pressure` | `AXIS_PRESSURE` | fingers usually report a synthetic value |
@@ -121,8 +123,8 @@ from 100 ms before `ACTION_DOWN` to 50 ms after the last sample.
 | `source` | `v4l2` (`/dev/v4l-touch0` streamed directly) or `sec_delta` (Samsung factory interface, `run_delta_read_all` polled) |
 | `w`, `h` | grid columns and rows as the driver reports them (sec: `get_x_num`, `get_y_num`) |
 | `dtype` | `int16le`: signed 16-bit little-endian, row-major, `w` per row |
-| `t` | per frame, ns, **uptime clock (same as `samples.t`)**: the driver's buffer timestamp when it is CLOCK_MONOTONIC (v4l2), else when the helper read the frame |
-| `a` | per frame, ns, uptime clock: when the helper read it |
+| `t` | per frame, ns, **same clock as `samples.t`** (v4: elapsedRealtime, shifted by `uptimeToElapsedNs`; v3: uptime): the driver's buffer timestamp when it is CLOCK_MONOTONIC (v4l2), else when the helper read the frame |
+| `a` | per frame, ns, same clock: when the helper read it |
 | `frames` | base64 of all frames' cells packed back to back: `len(t) × h × w` int16 |
 | `truncated` | more frames fell in the window than the per-stroke cap (360 frames or 384 KiB raw, whichever is fewer); the EARLIEST are kept |
 
@@ -149,6 +151,13 @@ In the session header (`heatmap`) and on each stroke (`heatmapStatus`):
 | `w`, `h` | grid size once streaming, else 0 |
 | `frames` | frames received so far (updated every 30) |
 | `clockCheckNs` | app uptime minus the helper's CLOCK_MONOTONIC at its first record (pipe latency; expected well under 1 ms); null before that |
+
+## Reading version 3
+
+v3 input and heatmap times are on the uptime clock and sensors on elapsedRealtime; a sensor time
+minus the stroke's `clockOffsetNs` is an input time. `strokemodel.data.sensor_clock_offset` returns
+that offset for v1–v3 and 0 for v4 (`clock: "elapsedRealtime"`), so every reader aligns both the same
+way. Nothing else changed: v3 and v4 strokes give identical training examples (tests/test_train.py).
 
 ## Reading version 2
 

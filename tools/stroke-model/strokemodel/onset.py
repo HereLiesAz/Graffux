@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import heatmap as hm
-from .data import Stroke
+from .data import Stroke, sensor_clock_offset
 
 ONSET_MS = 30.0
 DIR_HORIZONS_MS = (50.0, 100.0, 200.0)
@@ -256,7 +256,7 @@ def sensor_at(rec: dict, name: str, input_t_ns: float, tol_ns: float = 250e6):
     s = (rec.get("sensors") or {}).get(name)
     if not s or not s.get("t"):
         return None
-    off = float(rec.get("clockOffsetNs", 0))
+    off = sensor_clock_offset(rec)
     for key in ("t", "a"):
         if key not in s:
             continue

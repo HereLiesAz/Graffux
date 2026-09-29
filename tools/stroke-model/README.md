@@ -33,8 +33,12 @@ git fetch origin stroke-data && git worktree add ../stroke-data origin/stroke-da
 python train.py ../stroke-data/stroke-data --epochs 30 --out stroke_predictor.onnx
 ~~~
 
-Output per epoch: mean pixel error at each horizon on held-out sessions, next to two baselines
-(constant velocity, linear least squares). Ship only if the model beats both at every horizon.
+Output: mean pixel error at each horizon (1–4 display frames ahead) on held-out sessions, for three
+baselines -- last point (no prediction: the pen stays put), constant velocity from the last two
+samples, linear least squares on the model's own features -- and then the model after every epoch.
+Ship only if the model beats all three at every horizon. `--report metrics.json` also writes the
+per-horizon numbers as JSON. The model is exported to ONNX (`history`, `sensors`, `context` →
+`offsets`) and checked with `onnx.checker`.
 
 With a single session a session split is impossible; `--split strokes` splits its strokes instead
 (numbers are then within-session and optimistic).
@@ -129,13 +133,16 @@ always 0, no hover, no stylus, 6 multi-touch strokes and attitude for 20 strokes
 python synth.py /tmp/synth && python train.py /tmp/synth --epochs 3 && python onset_eval.py /tmp/synth
 ~~~
 
-`synth.py` writes schema 3 (`--schema 1` / `2` for the old layouts) with planted pose -> type and
+`synth.py` writes schema 4 (`--schema 1` / `2` / `3` for the old layouts; 4 differs from 3 only in
+putting every time on the sensors' elapsedRealtime clock) with planted pose -> type and
 yaw -> direction relations, so the onset pipeline has signal to find. Schema 3 adds an egg-shaped
 heatmap blob (narrow end leading along the initial direction) on a 16 × 34 grid to all sessions but
 the last. On that coarse grid the lead is recoverable for pad-sized contacts and not for small round
 tips, so expect the direct heatmap-lead test to be significant while the ridge "heatmap" row stays weak.
 
-Unit tests (moment extraction on synthetic blobs, v1/v2/v3 loading):
+Unit tests (moment extraction on synthetic blobs, v1-v4 loading, the v4 clock, and an end-to-end
+run in `tests/test_train.py` that writes synthetic sessions, trains two epochs, checks the per-horizon
+baseline and model errors, exports ONNX and, if `onnxruntime` is installed, runs the exported model):
 
 ~~~
 python -m unittest discover -s tests -v

@@ -16,7 +16,9 @@ import org.json.JSONObject
  * Records strokes for training Graffux's own stroke-prediction model (tools/stroke-model). For every
  * stroke: each raw input sample of every pointer with every axis the hardware reports -- position,
  * pressure, contact size and ellipse, orientation and tilt of the finger or stylus, tool type,
- * stylus hover before contact -- plus the phone's motion sensors around the stroke, on one clock.
+ * stylus hover before contact -- plus the phone's motion sensors around the stroke, on one clock:
+ * from schema 4 every time in the record (samples, hover, pointers, sensors, heatmap) is
+ * elapsedRealtime ns, the clock of [SystemClock.elapsedRealtimeNanos] and SensorEvent timestamps.
  * Schema: tools/stroke-model/SCHEMA.md.
  *
  * MotionEvents come from the canvas (main thread). Sensor events arrive on a dedicated thread. A
@@ -114,11 +116,15 @@ class StrokeDataRecorder(
     }
 
     private fun finish(builder: StrokeBuilder) {
-        val record = builder.toJson()
-        // Sensor timestamps are elapsedRealtimeNanos; MotionEvent times are uptime. The offset
-        // between the clocks is sampled here and stored so training aligns them exactly.
+        // Sensor timestamps are elapsedRealtimeNanos; MotionEvent times are uptime. The two differ
+        // only by time spent in deep sleep, so one offset sampled here moves the whole stroke onto
+        // the sensor clock (schema 4). `clockOffsetNs` is what a reader must still subtract from a
+        // sensor time to reach a sample time: 0 now; `uptimeToElapsedNs` keeps the offset applied.
         val clockOffsetNs = elapsedRealtimeNs() - SystemClock.uptimeMillis() * NS_PER_MS
-        record.put("clockOffsetNs", clockOffsetNs)
+        val record = builder.toJson(clockShiftNs = clockOffsetNs)
+        record.put("clock", CLOCK_ELAPSED_REALTIME)
+        record.put("clockOffsetNs", 0L)
+        record.put("uptimeToElapsedNs", clockOffsetNs)
         record.put("context", context())
         val pending = PendingStroke(
             record = record,
@@ -170,8 +176,11 @@ class StrokeDataRecorder(
         pending.record.put("sensorStatus", status)
         pending.record.put("flush", flush)
         heatmap?.let { source ->
-            // Uptime ns, like the samples. Capped per stroke in HeatmapCapture.slice.
-            source.slice(pending.heatFromNs, pending.heatToNs)?.let { pending.record.put("heatmap", it.toJson()) }
+            // Sliced on uptime (the helper's clock), then moved onto elapsedRealtime like the samples.
+            // Capped per stroke in HeatmapCapture.slice.
+            source.slice(pending.heatFromNs, pending.heatToNs)?.let {
+                pending.record.put("heatmap", shiftTimes(it.toJson(), pending.clockShiftNs, "t", "a"))
+            }
             pending.record.put("heatmapStatus", source.status().toJson())
         }
         sink(pending.record)
@@ -185,6 +194,8 @@ class StrokeDataRecorder(
         val heatFromNs: Long,
         val heatToNs: Long,
     ) {
+        /** The uptime to elapsedRealtime shift the samples got; the heatmap gets the same. */
+        val clockShiftNs: Long get() = record.optLong("uptimeToElapsedNs")
         val awaiting = HashSet<Int>()
         val flushed = HashSet<Int>()
         var done = false
@@ -192,7 +203,19 @@ class StrokeDataRecorder(
 
     companion object {
         /** Bumped whenever the record layout changes; the dataset loader checks it. */
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
+
+        /** A stroke's `clock` (schema 4): every time in it is elapsedRealtime ns. */
+        const val CLOCK_ELAPSED_REALTIME = "elapsedRealtime"
+
+        /** Adds [shiftNs] to every number in the arrays [keys] of [obj]; returns [obj]. */
+        internal fun shiftTimes(obj: JSONObject, shiftNs: Long, vararg keys: String): JSONObject {
+            for (key in keys) {
+                val arr = obj.optJSONArray(key) ?: continue
+                obj.put(key, JSONArray(List(arr.length()) { arr.getLong(it) + shiftNs }))
+            }
+            return obj
+        }
 
         private const val NS_PER_MS = 1_000_000L
         private const val SENSOR_LEAD_NS = 500 * NS_PER_MS

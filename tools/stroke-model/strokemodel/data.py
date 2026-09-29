@@ -21,9 +21,11 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA_VERSION = 3
-# v1: no `pointers`/`sensorStatus`/arrival times; v2: no `heatmap`. See SCHEMA.md.
-READABLE_SCHEMAS = (1, 2, 3)
+SCHEMA_VERSION = 4
+# v1: no `pointers`/`sensorStatus`/arrival times; v2: no `heatmap`; v3: input times on the uptime
+# clock (sensor time - clockOffsetNs = input time). v4: every time is elapsedRealtime. See SCHEMA.md.
+READABLE_SCHEMAS = (1, 2, 3, 4)
+CLOCK_ELAPSED_REALTIME = "elapsedRealtime"
 HISTORY = 16
 HORIZONS = 4
 POS_SCALE = 100.0  # px per unit
@@ -81,6 +83,17 @@ def read_dir(root: Path) -> list[Stroke]:
     return out
 
 
+def sensor_clock_offset(rec: dict) -> float:
+    """What to subtract from a sensor time (`t`, `a`) to get the stroke's sample clock.
+
+    v1-v3 samples are on uptime and `clockOffsetNs` is elapsedRealtime - uptime. v4 records
+    (`clock: "elapsedRealtime"`) already share the sensors' clock, so the answer is 0 whatever
+    `clockOffsetNs` says."""
+    if rec.get("clock") == CLOCK_ELAPSED_REALTIME:
+        return 0.0
+    return float(rec.get("clockOffsetNs", 0))
+
+
 def _interp_columns(t: np.ndarray, cols: np.ndarray, at: float) -> np.ndarray | None:
     """Linear interpolation of rows of `cols` (N x C) at time `at`; None outside [t0, tN]."""
     if at < t[0] or at > t[-1]:
@@ -97,7 +110,7 @@ def _interp_columns(t: np.ndarray, cols: np.ndarray, at: float) -> np.ndarray | 
 
 def _sensor_features(rec: dict, anchor_ns: float) -> np.ndarray:
     sensors = rec.get("sensors") or {}
-    offset = float(rec.get("clockOffsetNs", 0))
+    offset = sensor_clock_offset(rec)
     out: list[float] = []
     present: list[float] = []
     for name, n in SENSOR_SPECS:
