@@ -85,6 +85,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -4114,6 +4116,10 @@ class EditorViewModel @Inject constructor(
                 l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
                 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
             )))
+            // Frame/shape geometry too: undoing a frame resize restores its box and its children's
+            // shapes, and without this a peer keeps the resized geometry. Sent for every layer,
+            // like the ops above — a resync has no "before" to diff against, unlike emitGeometryChanges.
+            opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
         }
     }
 
@@ -6624,6 +6630,9 @@ class EditorViewModel @Inject constructor(
         commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
     }
 
+    /** Serialises [commitInkStroke]'s bitmap work per layer id. */
+    private val inkCommitLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
     /** [onInkStrokeFinished] once the stroke's inputs are read out (the seam tests drive, as Ink's are native). */
     @Suppress("LongParameterList")
     internal fun commitInkStroke(
@@ -6667,13 +6676,19 @@ class EditorViewModel @Inject constructor(
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         viewModelScope.launch(dispatchers.default) {
-            val target = drawingEngine.applySingleStroke(base, command)
-            withContext(dispatchers.main) {
-                _uiState.update { s ->
-                    s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+            // One commit per layer at a time, each on the bitmap the previous one published: two
+            // strokes lifted close together both used to start from the same pre-stroke `base`, and
+            // whichever published second erased the other.
+            inkCommitLocks.getOrPut(layerId) { Mutex() }.withLock {
+                val latest = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: base
+                val target = drawingEngine.applySingleStroke(latest, command)
+                withContext(dispatchers.main) {
+                    _uiState.update { s ->
+                        s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                    }
+                    scheduleDiskSave(layerId, target, layer.uri)
+                    onCommitted()
                 }
-                scheduleDiskSave(layerId, target, layer.uri)
-                onCommitted()
             }
         }
         // Co-op: the same StrokeComplete a round-brush stroke sends, built from the Ink stroke's own

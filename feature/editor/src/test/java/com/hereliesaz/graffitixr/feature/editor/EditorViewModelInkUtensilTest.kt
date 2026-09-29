@@ -135,20 +135,22 @@ class EditorViewModelInkUtensilTest {
         every { context.contentResolver } returns contentResolver
         every { contentResolver.openInputStream(any()) } returns inputStream
 
-        val testDispatcherProvider = object : DispatcherProvider {
-            override val main: CoroutineDispatcher = testDispatcher
-            override val io: CoroutineDispatcher = testDispatcher
-            override val default: CoroutineDispatcher = testDispatcher
-            override val unconfined: CoroutineDispatcher = testDispatcher
-        }
-
-        viewModel = EditorViewModel(
-            projectRepository, settingsRepository, projectManager, exportManager, context,
-            slamManager, testDispatcherProvider, opEmitter, extensionRepository,
-            mockk(relaxed = true), customBrushRepository,
-            figmaRepository, projectFileScanner,
-        )
+        viewModel = newViewModel()
     }
+
+    private val testDispatcherProvider = object : DispatcherProvider {
+        override val main: CoroutineDispatcher = testDispatcher
+        override val io: CoroutineDispatcher = testDispatcher
+        override val default: CoroutineDispatcher = testDispatcher
+        override val unconfined: CoroutineDispatcher = testDispatcher
+    }
+
+    private fun newViewModel() = EditorViewModel(
+        projectRepository, settingsRepository, projectManager, exportManager, context,
+        slamManager, testDispatcherProvider, opEmitter, extensionRepository,
+        mockk(relaxed = true), customBrushRepository,
+        figmaRepository, projectFileScanner,
+    )
 
     @After
     fun tearDown() {
@@ -264,6 +266,41 @@ class EditorViewModelInkUtensilTest {
             com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
             viewModel.inkLedgerStrokes(layerId).single().inkUtensil,
         )
+    }
+
+    @Test
+    fun `two Ink strokes committed back to back both survive`() {
+        io.mockk.mockkConstructor(DrawingEngine::class)
+        try {
+            // Each commit's output is a fresh bitmap; record which base each one was applied to.
+            val bases = mutableListOf<Bitmap>()
+            val outputs = mutableListOf<Bitmap>()
+            coEvery {
+                anyConstructed<DrawingEngine>().applySingleStroke(any(), any(), any(), any(), any(), any(), any())
+            } answers {
+                bases += firstArg<Bitmap>()
+                mockk<Bitmap>(relaxed = true).also { outputs += it }
+            }
+            viewModel = newViewModel() // picks up the constructor mock
+            withLayer()
+            val layerId = viewModel.uiState.value.activeLayerId!!
+            val stroke = mockk<androidx.ink.strokes.Stroke>(relaxed = true)
+            val pen = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+
+            // Both lifted before either commit's background work has run.
+            repeat(2) {
+                viewModel.commitInkStroke(stroke, listOf(Offset(1f, 1f)), listOf(1f), pen, IntSize(100, 100)) {}
+            }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // The second stroke painted onto the first's result, not the shared pre-stroke bitmap.
+            val inkBases = bases.takeLast(2)
+            val inkOutputs = outputs.takeLast(2)
+            assertEquals(inkOutputs[0], inkBases[1])
+            assertEquals(inkOutputs[1], viewModel.uiState.value.layers.first { it.id == layerId }.bitmap)
+        } finally {
+            io.mockk.unmockkConstructor(DrawingEngine::class)
+        }
     }
 
     @Test

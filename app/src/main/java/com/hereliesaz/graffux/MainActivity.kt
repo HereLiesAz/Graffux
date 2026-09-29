@@ -615,6 +615,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ConfigureRailItems(
                 vm = vm,
                 uiState = uiState,
+                activeInkUtensil = activeInkUtensil,
                 railExpansion = railExpansion,
                 brushes = brushes,
                 brushPreviews = brushPreviews,
@@ -971,6 +972,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             CarouselInputs(
                                 activeTool = uiState.activeTool,
                                 activeBrushName = uiState.activeBrushName,
+                                activeInkUtensil = activeInkUtensil,
                                 builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
                                 customBrushes = customBrushes.map { it.id to it.brush },
                                 extensionBrushes = brushes,
@@ -995,6 +997,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
                                     is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
                                     is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
+                                    is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
                                     is CarouselAction.PickTool -> vm.setActiveTool(
                                         if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
                                     )
@@ -1894,6 +1897,7 @@ internal fun secondaryRailClassifiers(uiState: EditorUiState): Set<String> = bui
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
+    activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?,
     brushes: List<Pair<String, String>>,
     brushPreviews: Map<String, android.graphics.Bitmap>,
     customBrushes: List<CustomBrush>,
@@ -1924,9 +1928,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     onOpenBrushTipsManager: () -> Unit,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
-    // Not collected here (this builder isn't composable); selecting a utensil also changes
-    // activeBrushName, so uiState recomposes the rail whenever this changes.
-    val activeInkUtensil = vm.activeInkUtensil.value
+    // activeInkUtensil is collected by GraffuxApp and passed in (this builder isn't composable), so
+    // a utensil change recomposes the rail on its own rather than relying on uiState changing too.
     val activeIds = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,

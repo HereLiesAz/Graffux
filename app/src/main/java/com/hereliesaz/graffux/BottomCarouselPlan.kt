@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.model.InkUtensil
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
@@ -24,6 +25,9 @@ internal sealed interface CarouselAction {
     data class BuiltInBrush(val name: String) : CarouselAction
     data class CustomBrush(val id: String) : CarouselAction
     data class ExtensionBrush(val id: String) : CarouselAction
+
+    /** A Jetpack Ink utensil (`vm.selectInkUtensil`) — not a stamp brush, whatever its name. */
+    data class InkUtensilPick(val utensil: InkUtensil) : CarouselAction
 
     /** Arms [tool], or puts it down when it is already in hand — the rail's own second-tap rule. */
     data class PickTool(val tool: Tool) : CarouselAction
@@ -53,6 +57,11 @@ internal data class CarouselEntry(
 internal data class CarouselInputs(
     val activeTool: Tool,
     val activeBrushName: String?,
+    /**
+     * The Ink utensil in hand (`vm.activeInkUtensil`), or null. While one is, only its entry is lit:
+     * [activeBrushName] then carries the utensil's display name, which the built-in "Ink Pen" shares.
+     */
+    val activeInkUtensil: InkUtensil? = null,
     val builtInBrushes: List<AzphaltBrush>,
     /** Saved Brush Studio brushes, as (id, brush). */
     val customBrushes: List<Pair<String, AzphaltBrush>>,
@@ -101,8 +110,9 @@ internal fun selectedCarouselIndex(entries: List<CarouselEntry>): Int? =
 
 private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList {
     // Same precedence as the rail's classifiers: a name can collide across the three sources, and
-    // only the first match is lit, so at most one item is ever "current".
-    var lit = false
+    // only the first match is lit, so at most one item is ever "current". While an Ink utensil is in
+    // hand, name matching is skipped entirely: only that utensil's entry below is lit.
+    var lit = input.activeInkUtensil != null
     fun isActive(name: String): Boolean = (!lit && name == input.activeBrushName).also { if (it) lit = true }
     input.builtInBrushes.forEach { brush ->
         add(
@@ -128,6 +138,15 @@ private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList
                 key = "ext.$id", label = name,
                 action = CarouselAction.ExtensionBrush(id),
                 selected = isActive(name), icon = GraffuxIcons.BrushImport,
+            ),
+        )
+    }
+    INK_UTENSIL_CATALOG.forEach { entry ->
+        add(
+            CarouselEntry(
+                key = "ink.${entry.utensil.id}", label = entry.label,
+                action = CarouselAction.InkUtensilPick(entry.utensil),
+                selected = input.activeInkUtensil == entry.utensil, icon = entry.icon,
             ),
         )
     }
