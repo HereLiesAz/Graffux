@@ -113,8 +113,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let uv = vec2<f32>(rotated.x / (2.0 * half_w) + 0.5, rotated.y / (2.0 * half_h) + 0.5);
         // Mask texels per draft texel, along the tip's long axis.
-        // Never coarser than an 8x8 level (draft.rs MIN_DRAFT_MIP_TEXELS): a 1x1 or 2x2 level averages
-        // the falloff to one constant and the dab rectangle then clips it to a solid shape.
+        // Never coarser than 3 levels below the 1x1 top of the chain (8x8 for a square mask; this
+        // line is the only source of that bound): a 1x1 or 2x2 level averages the falloff to one
+        // constant and the dab rectangle then clips it to a solid shape.
         let lod_max = max(pc.mask_levels - 4.0, 0.0);
         let lod = clamp(log2(max(pc.mask_width * pc.scale / (2.0 * half_w), 1.0)), 0.0, lod_max);
         let mask_value = textureSampleLevel(tip_mask, linear_mip_clamp, uv, lod).r;

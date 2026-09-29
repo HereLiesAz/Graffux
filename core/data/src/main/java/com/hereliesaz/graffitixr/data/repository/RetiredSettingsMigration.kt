@@ -5,7 +5,8 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 
 /**
- * Drops settings keys that no longer mean anything, the first time the settings store is read.
+ * Drops settings keys that no longer mean anything. The migration runs only while a retired key is
+ * present in the store ([shouldMigrate]); once they are gone, DataStore's check finds nothing to do.
  *
  * `jetpack_ink_brush` was the Settings > Jetpack Ink toggle, which made the legacy round Brush draw
  * through `androidx.ink`. Ink is now a set of art utensils in the brush list (Ink Pen, Ink Marker,
@@ -18,7 +19,10 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
  */
 internal object RetiredSettingsMigration : DataMigration<Preferences> {
 
-    /** Retired keys, by name. Only ever append: a key listed here is wiped on every launch. */
+    /**
+     * Retired keys, by name. Only ever append: a key listed here is wiped whenever it is found in the
+     * store, so reusing its name for a new setting would erase that setting.
+     */
     val RETIRED_KEYS: List<Preferences.Key<Boolean>> = listOf(
         booleanPreferencesKey("jetpack_ink_brush"),
     )

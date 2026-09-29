@@ -68,12 +68,23 @@ class CanvasState {
      *  native save/save-as file-chooser dialog (Compose Desktop has none built in, and a blocking
      *  AWT `FileDialog` is a real thing to wire up on its own -- see DESKTOP.md), just a genuine
      *  file landing on disk, not a placeholder. */
-    fun exportPng(directory: File = File(System.getProperty("user.home"), "Graffux")): File? {
+    fun exportPng(directory: File = File(System.getProperty("user.home"), "Graffux")): File? =
+        exportPng(directory) { image, file -> ImageIO.write(image, "png", file) }
+
+    /** [exportPng] with the encoder injectable, so a test can make it fail. If [write] throws, the
+     *  name [reserveUniqueFile] claimed is deleted rather than left behind as a zero-byte file. */
+    internal fun exportPng(directory: File, write: (BufferedImage, File) -> Unit): File? {
         val frame = committed ?: return null
         directory.mkdirs()
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
         val file = reserveUniqueFile(directory, "graffux-$timestamp")
-        ImageIO.write(frame, "png", file)
+        var written = false
+        try {
+            write(frame, file)
+            written = true
+        } finally {
+            if (!written) file.delete()
+        }
         return file
     }
 
