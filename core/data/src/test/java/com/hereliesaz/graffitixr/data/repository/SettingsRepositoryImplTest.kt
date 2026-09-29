@@ -121,6 +121,25 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
+    fun `toggleCarouselFavorite keeps starring order, survives a new instance, and allows commas in keys`() = runTest {
+        repo.toggleCarouselFavorite("ink.pen")
+        repo.toggleCarouselFavorite("builtin.Soft, Round")
+        repo.toggleCarouselFavorite("blur")
+        assertEquals(listOf("ink.pen", "builtin.Soft, Round", "blur"), repo.carouselFavorites.first())
+
+        repo.toggleCarouselFavorite("ink.pen")
+        assertEquals(listOf("builtin.Soft, Round", "blur"), repo.carouselFavorites.first())
+
+        // Persisted, not held in memory: a fresh repository (a relaunch) reads the same list back.
+        val relaunched = SettingsRepositoryImpl(RuntimeEnvironment.getApplication())
+        assertEquals(listOf("builtin.Soft, Round", "blur"), relaunched.carouselFavorites.first())
+
+        // Blank keys are ignored rather than stored as an empty favourite.
+        repo.toggleCarouselFavorite(" ")
+        assertEquals(listOf("builtin.Soft, Round", "blur"), repo.carouselFavorites.first())
+    }
+
+    @Test
     fun `setCanvasRenderScale coerces out-of-range values into 0point25 to 1`() = runTest {
         repo.setCanvasRenderScale(5f)
         assertEquals(1f, repo.canvasRenderScale.first())

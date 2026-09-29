@@ -73,6 +73,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
     private val TOOL_USAGE = stringPreferencesKey("tool_usage")
     private val FAVORITE_TOOLS = stringPreferencesKey("favorite_tools")
+    private val carouselFavoritesKey = stringPreferencesKey("carousel_favorites")
 
     override val language: Flow<AppLanguage> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -324,5 +325,26 @@ class SettingsRepositoryImpl @Inject constructor(
             val next = if (tool.name in current) current - tool.name else current + tool.name
             prefs[FAVORITE_TOOLS] = next.joinToString(",")
         }
+    }
+
+    override val carouselFavorites: Flow<List<String>> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { prefs -> decodeCarouselFavorites(prefs[carouselFavoritesKey]) }
+
+    override suspend fun toggleCarouselFavorite(key: String) {
+        if (key.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = decodeCarouselFavorites(prefs[carouselFavoritesKey])
+            val next = if (key in current) current - key else current + key
+            prefs[carouselFavoritesKey] = next.joinToString(CAROUSEL_FAVORITES_SEPARATOR)
+        }
+    }
+
+    // Newline-separated, not comma: the keys embed brush names, and a user can put a comma in one.
+    private fun decodeCarouselFavorites(raw: String?): List<String> =
+        raw?.split(CAROUSEL_FAVORITES_SEPARATOR)?.filter { it.isNotBlank() } ?: emptyList()
+
+    private companion object {
+        const val CAROUSEL_FAVORITES_SEPARATOR = "\n"
     }
 }
