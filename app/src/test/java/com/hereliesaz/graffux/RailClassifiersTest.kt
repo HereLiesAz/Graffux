@@ -24,13 +24,13 @@ import org.junit.Test
 class RailClassifiersTest {
 
     private fun classifiers(state: EditorUiState, modelOpen: Boolean = false, optionsOpen: Boolean = false) =
-        activeRailClassifiers(
+        activeRailClassifiers(RailClassifierInputs(
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = modelOpen,
             toolOptionsOpen = optionsOpen,
-        )
+        ))
 
     @Test
     fun `the armed tool lights its own item`() {
@@ -194,13 +194,13 @@ class SecondaryRailClassifiersTest {
         // The built-in stamp "Ink Pen" shares InkUtensil.PEN's display name; Ink is keyed on the
         // utensil in hand, never on the name.
         val state = EditorUiState(activeTool = Tool.BRUSH, activeBrushName = "Ink Pen")
-        val lit = activeRailClassifiers(
+        val lit = activeRailClassifiers(RailClassifierInputs(
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = false,
             toolOptionsOpen = false,
-        )
+        ))
         assertFalse("brush.ink.pen" in lit)
         assertTrue("brush.builtin.Ink Pen" in lit)
     }
@@ -208,14 +208,14 @@ class SecondaryRailClassifiersTest {
     @Test
     fun `the Ink utensil in hand lights its own item and no same-named stamp brush`() {
         val state = EditorUiState(activeTool = Tool.BRUSH, activeBrushName = "Ink Pen")
-        val lit = activeRailClassifiers(
+        val lit = activeRailClassifiers(RailClassifierInputs(
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = false,
             toolOptionsOpen = false,
             activeInkUtensil = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
-        )
+        ))
         assertTrue("brush.ink.pen" in lit)
         assertFalse("brush.builtin.Ink Pen" in lit)
     }

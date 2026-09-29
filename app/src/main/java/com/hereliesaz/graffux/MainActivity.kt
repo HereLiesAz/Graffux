@@ -520,9 +520,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The same set the rail items tag themselves with; azConfig is what actually makes the library
     // render them active, and it is declared here rather than in the item builder.
     val activeClassifiers = activeRailClassifiers(
-        uiState, brushes, customBrushes,
-        modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
-        activeInkUtensil = activeInkUtensil,
+        RailClassifierInputs(
+            uiState, brushes, customBrushes,
+            modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
+            activeInkUtensil = activeInkUtensil,
+        ),
     ).toMutableSet().apply {
         if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
         if (showModelDialog) add("area.model")
@@ -1795,24 +1797,26 @@ private fun activeBrushClassifiers(
         ?.let { add("brush.custom.${it.id}") }
 }
 
-@Suppress("LongParameterList") // Each is a separate source of "what is lit"; see the parameter notes.
-internal fun activeRailClassifiers(
-    uiState: EditorUiState,
-    brushes: List<Pair<String, String>>,
-    customBrushes: List<CustomBrush>,
+/** Everything [activeRailClassifiers] reads. Each is a separate source of "what is lit". */
+internal data class RailClassifierInputs(
+    val uiState: EditorUiState,
+    val brushes: List<Pair<String, String>>,
+    val customBrushes: List<CustomBrush>,
     // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is
     // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other
     // floating window's. It is here at all because an item that opens a window has to light up while
     // that window is open, or the rail says nothing about a panel sitting over the artwork.
-    modelWindowOpen: Boolean,
+    val modelWindowOpen: Boolean,
     /** Whether the Tool Options window is open — same reasoning as [modelWindowOpen]. */
-    toolOptionsOpen: Boolean,
+    val toolOptionsOpen: Boolean,
     /**
      * The view-model's `activeInkUtensil`. Ink is classified by this, never by `activeBrushName`: a
      * stamp brush may share a utensil's name (the built-in "Ink Pen" does).
      */
-    activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil? = null,
-): Set<String> = buildSet {
+    val activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil? = null,
+)
+
+internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = with(inputs) { buildSet {
     // The active tool. One of these at a time, by construction; Tool.NONE has no item, because it is
     // the absence of one.
     TOOL_IDS[uiState.activeTool]?.let { add(it) }
@@ -1861,7 +1865,7 @@ internal fun activeRailClassifiers(
     add("selectShape.${uiState.selectionShape.name}")
     add("selectOp.${uiState.selectionOp.name}")
     add("transform.${uiState.transformMode.name}")
-}
+} }
 
 /**
  * Every rail item that is currently **secondary** — a condition that is true of it, as opposed to
@@ -1924,9 +1928,11 @@ private fun AzNavHostScope.ConfigureRailItems(
     // activeBrushName, so uiState recomposes the rail whenever this changes.
     val activeInkUtensil = vm.activeInkUtensil.value
     val activeIds = activeRailClassifiers(
-        uiState, brushes, customBrushes,
-        modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
-        activeInkUtensil = activeInkUtensil,
+        RailClassifierInputs(
+            uiState, brushes, customBrushes,
+            modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
+            activeInkUtensil = activeInkUtensil,
+        ),
     )
     val navStrings = strings.nav
 
