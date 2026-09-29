@@ -869,8 +869,20 @@ class GpuStampEngine {
         }
     }
 
-    /** Runs [block] on [GpuRenderThread], where every wgpu native call runs. */
-    private inline fun <T> onGpu(crossinline block: () -> T): T = GpuRenderThread.call { block() }
+    /**
+     * Runs [block] on [GpuRenderThread], where every wgpu native call runs. With a
+     * [passTimingSink], also reports how long the call queued for the render thread
+     * ([PassKind.RENDER_THREAD_WAIT]): stamp/composite wall times include that wait, and this
+     * separates "the GPU call was slow" from "it waited behind other render-thread work".
+     */
+    private inline fun <T> onGpu(crossinline block: () -> T): T {
+        val sink = passTimingSink ?: return GpuRenderThread.call { block() }
+        val enqueued = System.nanoTime()
+        return GpuRenderThread.call {
+            sink.onPass(PassKind.RENDER_THREAD_WAIT.ordinal, System.nanoTime() - enqueued, false)
+            block()
+        }
+    }
 
     private external fun nativeInit(width: Int, height: Int): Long
     private external fun nativeClear(handle: Long): Boolean
@@ -959,6 +971,12 @@ enum class PassKind(val label: String) {
 
     /** Reserved for the multipass draft/clarity scheduler. */
     MULTIPASS("multipass"),
+
+    /**
+     * Kotlin-only, never emitted natively: how long a call queued for [GpuRenderThread] before it
+     * ran. CPU wall time, already inside the pass it waited for.
+     */
+    RENDER_THREAD_WAIT("render-thread wait"),
 }
 
 /** See [GpuStampEngine.passTimingSink]. [kind] = [PassKind] ordinal. */
