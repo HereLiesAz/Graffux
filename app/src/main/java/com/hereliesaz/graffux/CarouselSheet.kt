@@ -33,6 +33,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 
 /**
  * An invisible bottom sheet: no surface, no scrim — only [content] and a small grab pill above it.
@@ -75,11 +81,33 @@ internal fun CarouselSheet(
     val dragState = rememberDraggableState { delta ->
         scope.launch { offset.snapTo((offset.value + delta).coerceIn(0f, contentHeight.toFloat())) }
     }
+    // A card's vertical scroll (BottomCarousel) consumes first; what it leaves over drags the sheet,
+    // and a fling after the sheet moved settles it as a direct drag would.
+    val settleNow by rememberUpdatedState(::settle)
+    val nested = remember(dragState) {
+        object : NestedScrollConnection {
+            var moved = false
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
+                moved = true
+                dragState.dispatchRawDelta(available.y)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (!moved) return Velocity.Zero
+                moved = false
+                settleNow(available.y)
+                return Velocity(0f, available.y)
+            }
+        }
+    }
     Box(modifier = modifier.clipToBounds()) {
         Column(
             modifier = Modifier
                 .offset { IntOffset(0, offset.value.roundToInt()) }
-                .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) }),
+                .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
+                .nestedScroll(nested),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             GrabHandle(open) { onOpenChange(!open) }

@@ -249,7 +249,7 @@ class BottomCarouselUiTest {
         val h = Harness()
         val n = h.entries.indexOfFirst { it.selected }
         fun tapAt(x: Float, expected: Int) {
-            rule.onNodeWithTag("carousel.row").performTouchInput { click(Offset(x, centerY + height / 4f)) }
+            rule.onNodeWithTag("carousel.row").performTouchInput { click(Offset(x, centerY + height / 8f)) }
             rule.waitForIdle()
             assertEquals("tap at x=$x", BuiltInBrushes.presets[expected].name, h.brushName)
             assertEquals(listOf(h.entries[expected].key), h.previews())

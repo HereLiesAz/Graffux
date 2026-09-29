@@ -21,9 +21,17 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
+import androidx.compose.ui.test.swipeDown
+import org.robolectric.RuntimeEnvironment
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -138,6 +146,94 @@ class CarouselHeroSliderUiTest {
         rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
         rule.waitForIdle()
         assertEquals(listOf("builtin.$selectedName"), mores)
+        assertTrue(clicks.isEmpty())
+    }
+
+    private fun cardBounds(tier: CarouselTier) = rule
+        .onAllNodesWithTag("carousel.card.${tier.name}", useUnmergedTree = true)
+        .fetchSemanticsNodes()
+        .map { it.boundsInRoot }
+
+    @Test
+    fun `every card shares one vertical centre line`() {
+        compose()
+        val hero = cardBounds(CarouselTier.HERO).single()
+        val sides = cardBounds(CarouselTier.MEDIUM) + cardBounds(CarouselTier.SMALL)
+        assertTrue(cardBounds(CarouselTier.MEDIUM).size == 2 && cardBounds(CarouselTier.SMALL).isNotEmpty())
+        sides.forEach { assertEquals(hero.center.y, it.center.y, 1f) }
+        // The stroke preview sits wholly above the row, the tabs wholly below it.
+        val row = rule.onNodeWithTag("carousel.row", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val preview = rule.onNodeWithTag("carousel.preview.builtin.$selectedName", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("preview ${preview.bottom} above row ${row.top}", preview.bottom <= row.top + 1f)
+        assertEquals("the row is as tall as the hero", row.height, hero.height, 1f)
+        val undo = rule.onNodeWithContentDescription("Undo", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("tabs ${undo.top} below row ${row.bottom}", undo.top >= row.bottom - 1f)
+    }
+
+    @Test
+    fun `card heights order small, medium, hero`() {
+        compose()
+        // Set CAROUSEL_HERO_SCREENSHOT to a .png path to also save a render with the sliders on.
+        System.getenv("CAROUSEL_HERO_SCREENSHOT")?.let { path ->
+            val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
+            java.io.File(path).outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+        val hero = cardBounds(CarouselTier.HERO).single().height
+        val medium = cardBounds(CarouselTier.MEDIUM).map { it.height }
+        val small = cardBounds(CarouselTier.SMALL).map { it.height }
+        assertTrue("small $small < medium $medium", small.max() < medium.min())
+        assertTrue("medium $medium < hero $hero", medium.max() < hero)
+        // The hero is about one and a half medium cards.
+        assertTrue("hero/medium ${hero / medium.min()}", hero / medium.min() in 1.4f..1.6f)
+        // More is on screen, inside the hero card.
+        val card = cardBounds(CarouselTier.HERO).single()
+        val more = bounds("carousel.hero.more")
+        assertTrue("More inside the hero", more.bottom <= card.bottom + 1f && more.top >= card.top - 1f)
+        rule.onAllNodesWithText("Built-in · round tip", useUnmergedTree = true).assertCountEquals(1)
+    }
+
+    private fun bounds(tag: String) =
+        rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+
+    @Test
+    fun `the hero's controls sit below its tip, name and details`() {
+        compose()
+        val identity = bounds("carousel.hero.identity")
+        val details = rule.onAllNodesWithText("Built-in · round tip", useUnmergedTree = true)
+            .fetchSemanticsNodes().single().boundsInRoot
+        val sliders = listOf("size", "flow", "softness").map { bounds("carousel.hero.slider.$it") }
+        val more = bounds("carousel.hero.more")
+        assertTrue("details inside the identity block", details.bottom <= identity.bottom + 1f)
+        sliders.forEach {
+            assertTrue("slider ${it.top} below identity ${identity.bottom}", it.top >= identity.bottom - 1f)
+        }
+        assertTrue("More below the sliders", more.top >= sliders.maxOf { it.bottom } - 1f)
+    }
+
+    private fun heroScroll() = rule.onNode(
+        hasTestTag("carousel.card.scroll") and hasAnyAncestor(hasTestTag("carousel.card.HERO")),
+        useUnmergedTree = true,
+    )
+
+    @Test
+    fun `an overflowing card scrolls vertically without moving the carousel`() {
+        // Doubled text makes the hero's content taller than its card.
+        RuntimeEnvironment.setFontScale(2f)
+        compose()
+        val heroKey = "builtin.$selectedName"
+        fun range() = heroScroll().fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        val start = range()
+        assertTrue("the hero overflows", start.maxValue() > 0f)
+        assertEquals("it starts at its foot, controls showing", start.maxValue(), start.value(), 1f)
+
+        heroScroll().performTouchInput { swipeDown(startY = top + 10f, endY = bottom - 10f, durationMillis = 400) }
+        rule.waitForIdle()
+
+        assertTrue("the card scrolled up, was ${range().value()}", range().value() < start.maxValue())
+        assertEquals("the row stayed on the same hero", listOf(heroKey), previews())
         assertTrue(clicks.isEmpty())
     }
 }

@@ -105,4 +105,25 @@ class CarouselKeylinesTest {
         assertTrue(list.first().offset + 5f <= 0f && list.last().offset - 5f >= 411f)
         assertTrue(centredHeroKeylineList(100f, 6f, 40f, 56f, 10f).isEmpty())
     }
+
+    @Test
+    fun `card height is continuous across the keylines and ordered small, medium, hero`() {
+        val h = CarouselCardHeights(104f, 136f, 200f)
+        fun at(size: Float) = carouselCardHeight(size, 43f, 86f, 129f, h)
+        assertEquals(104f, at(10f), 1e-3f)
+        assertEquals(104f, at(43f), 1e-3f)
+        assertEquals(136f, at(86f), 1e-3f)
+        assertEquals(200f, at(129f), 1e-3f)
+        assertEquals(120f, at(64.5f), 1e-3f)
+        assertEquals(168f, at(107.5f), 1e-3f)
+        // Monotonic, with no jump anywhere between anchor and hero.
+        var last = at(0f)
+        var size = 0f
+        while (size <= 140f) {
+            val next = at(size)
+            assertTrue(next >= last && next - last < 2f)
+            last = next
+            size += 0.5f
+        }
+    }
 }

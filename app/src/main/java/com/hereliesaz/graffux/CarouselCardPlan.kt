@@ -67,6 +67,33 @@ internal fun carouselTier(size: Float, heroSize: Float, smallMax: Float): Carous
     else -> CarouselTier.MEDIUM
 }
 
+/** The card heights (any unit) at the small, medium and hero keylines; small < medium < hero. */
+internal data class CarouselCardHeights(val small: Float, val medium: Float, val hero: Float)
+
+/**
+ * A card's height for its laid-out width [size], interpolated linearly between the keyline widths
+ * [smallSize] · [mediumSize] · [heroSize] onto [heights]. Widths below the small keyline (items
+ * shrinking onto the anchors) stay at the small height. Continuous in [size], so a card grows or
+ * shrinks smoothly as it moves through the slots mid-scroll, with no jump at a tier boundary.
+ */
+internal fun carouselCardHeight(
+    size: Float,
+    smallSize: Float,
+    mediumSize: Float,
+    heroSize: Float,
+    heights: CarouselCardHeights,
+): Float {
+    fun lerp(from: Float, to: Float, lo: Float, hi: Float): Float {
+        val t = if (hi > lo) ((size - lo) / (hi - lo)).coerceIn(0f, 1f) else 1f
+        return from + (to - from) * t
+    }
+    return when {
+        size <= smallSize -> heights.small
+        size <= mediumSize -> lerp(heights.small, heights.medium, smallSize, mediumSize)
+        else -> lerp(heights.medium, heights.hero, mediumSize, heroSize)
+    }
+}
+
 /**
  * Whether a card wears the accent highlight: only the hero, and only while its entry is the active
  * one ([CarouselEntry.selected], the same state the rail reads), never by position alone. A
