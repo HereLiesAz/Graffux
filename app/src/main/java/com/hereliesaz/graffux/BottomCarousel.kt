@@ -80,6 +80,8 @@ internal data class CarouselContent(
     val extensionPreviews: Map<String, Bitmap>,
     /** Installed brushes' tip thumbnails (`EditorViewModel.installedBrushTips`), by composite id. */
     val extensionTips: Map<String, Bitmap> = emptyMap(),
+    /** Installed extensions' manifest `preview.image` thumbnails, by extension id. */
+    val extensionIcons: Map<String, Bitmap> = emptyMap(),
 )
 
 /** The history state the Undo/Redo tabs read, and the calls they make. */

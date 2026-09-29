@@ -80,6 +80,11 @@ internal fun selectedCarouselIndex(entries: List<CarouselEntry>): Int? =
  * Whether scrolling [action] into the hero slot, with no tap, may run it. Only picks that simply
  * replace the thing in hand do: brushes, Ink utensils and effect tools. Stabilizer, smudge and
  * selection-shape stops change a setting and Tool Options opens a window, so those need a tap.
+ *
+ * Installed azphalt effects need a tap too, every kind. A LUT (`applyInstalledLut`) regrades and
+ * replaces the active layer's pixels. A filter *and* an extension tool both go through
+ * `onExtensionContributionSelected`, which executes the contribution's sandbox entry once (or opens
+ * its params panel) — an extension "tool" arms nothing the way `setActiveTool` does, it runs.
  */
 internal fun carouselAutoActivates(action: CarouselAction): Boolean = when (action) {
     is CarouselAction.BuiltInBrush,
@@ -93,6 +98,8 @@ internal fun carouselAutoActivates(action: CarouselAction): Boolean = when (acti
     is CarouselAction.SmudgeMode,
     is CarouselAction.SelectShape,
     CarouselAction.OpenToolOptions,
+    is CarouselAction.ExtensionContribution,
+    is CarouselAction.ExtensionLut,
     -> false
 }
 

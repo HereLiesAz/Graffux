@@ -468,6 +468,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val brushes by vm.installedBrushes.collectAsState()
     val brushPreviews by vm.installedBrushPreviews.collectAsState()
     val brushTips by vm.installedBrushTips.collectAsState()
+    val runnableExtensions by vm.installedExtensions.collectAsState()
+    val extensionIcons by vm.installedExtensionIcons.collectAsState()
+    val extensionEffects = remember(runnableExtensions) { extensionEffectsOf(runnableExtensions, vm::hasUsableLut) }
     val customBrushes by vm.customBrushes.collectAsState()
 
     // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
@@ -894,6 +897,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     smudgeMode = colorSmudgeSettings.mode,
                                     selectionShape = uiState.selectionShape,
                                     toolOptionsOpen = showToolOptions,
+                                    extensionEffects = extensionEffects,
                                     favorites = carouselFavorites,
                                 ),
                             )
@@ -906,6 +910,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     secondaryColor = uiState.secondaryColor,
                                     extensionPreviews = brushPreviews,
                                     extensionTips = brushTips,
+                                    extensionIcons = extensionIcons,
                                 ),
                                 history = CarouselHistory(
                                     undoCount = uiState.undoCount,
@@ -928,6 +933,26 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                         is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
                                         CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
+                                        // The Extensions panel's LUT branch (onExtensionSelected), minus its
+                                        // DismissPanel: the carousel opened no panel to dismiss.
+                                        is CarouselAction.ExtensionLut -> vm.applyInstalledLut(action.extensionId)
+                                        is CarouselAction.ExtensionContribution -> {
+                                            val contribution = runnableExtensions
+                                                .find { it.id == action.extensionId }
+                                                ?.let(vm::contributionsOf)
+                                                ?.map { it.second }
+                                                ?.find { it.id == action.contributionId }
+                                            if (contribution != null) {
+                                                // A contribution with its own params panel shows it inside the
+                                                // Extensions panel, so that has to be open for it to appear.
+                                                if (contribution.ui != null &&
+                                                    uiState.activePanel != EditorPanel.EXTENSIONS
+                                                ) {
+                                                    vm.onExtensionsClicked()
+                                                }
+                                                vm.onExtensionContributionSelected(action.extensionId, contribution)
+                                            }
+                                        }
                                     }
                                 },
                             )
