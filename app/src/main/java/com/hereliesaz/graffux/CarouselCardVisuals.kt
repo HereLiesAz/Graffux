@@ -70,6 +70,14 @@ internal fun TipVisual(tip: CarouselTip, content: CarouselContent, tint: Color, 
         is CarouselTip.Round -> RoundTip(tip, tint, size)
         is CarouselTip.Ink -> Icon(painterResource(tip.icon), null, tint = tint, modifier = Modifier.size(size))
         is CarouselTip.Glyph -> Icon(painterResource(tip.icon), null, tint = tint, modifier = Modifier.size(size))
+        is CarouselTip.Preview -> {
+            val bitmap = content.extensionIcons[tip.extensionId]
+            if (bitmap != null) {
+                Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.size(size))
+            } else {
+                Icon(painterResource(tip.fallbackIcon), null, tint = tint, modifier = Modifier.size(size))
+            }
+        }
     }
 }
 

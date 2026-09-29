@@ -257,6 +257,17 @@ class BottomCarouselPlanTest {
     }
 
     @Test
+    fun `only the active hero is highlighted`() {
+        val brush = carouselEntries(CarouselCategory.BRUSHES, base).first()
+        val active = brush.copy(selected = true)
+        val idle = brush.copy(selected = false)
+        for (tier in CarouselTier.entries) {
+            assertEquals(tier == CarouselTier.HERO, carouselHeroHighlighted(active, tier))
+            assertEquals(false, carouselHeroHighlighted(idle, tier))
+        }
+    }
+
+    @Test
     fun `hero shows name and details, medium the name, small the tip alone`() {
         val brush = carouselEntries(CarouselCategory.BRUSHES, base).first()
         val hero = carouselCardContent(brush, CarouselTier.HERO)

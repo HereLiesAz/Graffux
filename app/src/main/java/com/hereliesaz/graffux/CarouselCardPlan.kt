@@ -21,6 +21,12 @@ internal sealed interface CarouselTip {
     data class Round(val hardness: Float, val tipRatio: Float, val angleDeg: Float) : CarouselTip
     data class Ink(val utensil: InkUtensil, val icon: Int) : CarouselTip
     data class Glyph(val icon: Int) : CarouselTip
+
+    /**
+     * An installed azphalt filter, tool or LUT: its extension's manifest `preview.image`, looked up
+     * by [extensionId], drawn untinted; [fallbackIcon] when the manifest declares none.
+     */
+    data class Preview(val extensionId: String, val fallbackIcon: Int) : CarouselTip
 }
 
 internal fun carouselTip(entry: CarouselEntry): CarouselTip = when (val action = entry.action) {
@@ -34,6 +40,9 @@ internal fun carouselTip(entry: CarouselEntry): CarouselTip = when (val action =
         }
     }
     is CarouselAction.InkUtensilPick -> CarouselTip.Ink(action.utensil, entry.icon ?: GraffuxIcons.PenInk)
+    is CarouselAction.ExtensionContribution ->
+        CarouselTip.Preview(action.extensionId, entry.icon ?: GraffuxIcons.FilterGallery)
+    is CarouselAction.ExtensionLut -> CarouselTip.Preview(action.extensionId, entry.icon ?: GraffuxIcons.ColorLookup)
     else -> CarouselTip.Glyph(entry.icon ?: GraffuxIcons.BrushSettings)
 }
 
@@ -57,6 +66,14 @@ internal fun carouselTier(size: Float, heroSize: Float, smallMax: Float): Carous
     size <= smallMax -> CarouselTier.SMALL
     else -> CarouselTier.MEDIUM
 }
+
+/**
+ * Whether a card wears the accent highlight: only the hero, and only while its entry is the active
+ * one ([CarouselEntry.selected], the same state the rail reads), never by position alone. A
+ * tap-only option or an installed effect the row merely settled on is the hero but not active.
+ */
+internal fun carouselHeroHighlighted(entry: CarouselEntry, tier: CarouselTier): Boolean =
+    tier == CarouselTier.HERO && entry.selected
 
 /** What a card shows beside its tip visual, per tier. */
 internal data class CarouselCardContent(val name: String?, val details: List<String>)
@@ -88,6 +105,14 @@ internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val
     is CarouselAction.SmudgeMode -> listOf("Option · smudge mode")
     is CarouselAction.SelectShape -> listOf("Option · selection shape")
     CarouselAction.OpenToolOptions -> listOf("Every tool setting")
+    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> extensionDetails(entry.extensionEffect)
+}
+
+/** An installed effect's hero lines: its extension and kind, then the manifest's description. */
+private fun extensionDetails(effect: ExtensionEffect?): List<String> = if (effect == null) {
+    listOf("Installed")
+} else {
+    listOfNotNull("${effect.extensionName} · ${effect.kind.label}", effect.description?.takeIf { it.isNotBlank() })
 }
 
 private fun brushParams(brush: AzphaltBrush?): List<String> = if (brush == null) {

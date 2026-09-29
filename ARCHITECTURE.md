@@ -127,15 +127,20 @@ codebase is deferred scope or a real gap in the install-report flow.
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
-  `BottomCarousel.kt` (`:app`) lays out small · medium · HERO · medium · small, symmetric about the
-  screen centre, with the selected entry snapped into the hero. It uses `CenteredHeroRow`, a small
-  custom row, instead of an M3 carousel. material3 `1.5.0-alpha29`'s `HorizontalCenteredHeroCarousel`
-  drops the medium keylines at phone width, and the custom-keyline API behind it (`Carousel`,
-  `keylineListOf`, `CarouselAlignment`) is `internal`. Each item's width and centre come from its
-  distance to the centre (`carouselSlot` in `CarouselKeylines.kt`: hero 42%, medium 16%, small cards
-  share the rest, interpolated while scrolling). A drag settles one item per gesture
-  (`carouselSnapTarget`). The card tier comes from the laid-out width (`carouselTier`), never from
-  the item's index. All of these are pure and tested. Tip visuals: installed brushes show their bundled tip
+  `BottomCarousel.kt` (`:app`) is M3's own `HorizontalCenteredHeroCarousel` (material3
+  `1.5.0-alpha29`, the latest published), with `rememberCarouselState`, `maskClip`/`maskBorder` on
+  each card and `CarouselDefaults.singleAdvanceFlingBehavior` for snapping: one item per fling,
+  a slow release springs to the nearest item, and a haptic `SegmentTick` fires each time a new item
+  takes the hero slot under the finger. At phone width it lays out small · HERO · small (411dp:
+  two 56dp smalls, a ~287dp hero); there are no medium cards at rest. M3's hero keylines have no
+  medium slot, and the custom-keyline API that could add one (`Carousel`, `keylineListOf`) is still
+  `internal`, so the earlier custom small · medium · HERO · medium · small row was dropped in favour
+  of M3's motion and snapping. The medium tier now shows only mid-scroll. At the list ends M3
+  shifts its keylines, so the first and last items rest off-centre. `CarouselState` exposes only
+  the integer `currentItem`, so the row's continuous position comes from the widths M3 gives the
+  composed items (`carouselHeroPosition` in `CarouselKeylines.kt`). The card tier comes from the
+  laid-out width (`carouselItemDrawInfo` into `carouselTier`), never from the item's index. All of
+  these are pure and tested. Tip visuals: installed brushes show their bundled tip
   bitmap (`EditorViewModel.installedBrushTips`, or a rendered round tip if none is bundled); built-in and
   Brush Studio brushes (no tip bitmap) a round dab rendered with the engine's hardness falloff; Ink
   utensils their tip glyph; effects and options their icon. The stroke preview (`BrushPreview`)

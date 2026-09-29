@@ -8633,6 +8633,42 @@ class EditorViewModel @Inject constructor(
         return Bitmap.createScaledBitmap(shape, w, h, true)
     }
 
+    /**
+     * Installed extensions' manifest `preview.image` thumbnails, by extension id — for the bottom
+     * carousel's installed-effect cards. Only an in-package path is read (an `https:` preview is a
+     * store-card asset, not fetched here); one that is absent or fails to decode is simply missing,
+     * and the card falls back to a generic glyph.
+     */
+    val installedExtensionIcons: StateFlow<Map<String, Bitmap>> =
+        extensionRepository.installed
+            .map { list ->
+                withContext(dispatchers.io) {
+                    list.mapNotNull { ext ->
+                        val image = ext.manifest.preview?.image?.takeUnless { it.contains("://") }
+                            ?: return@mapNotNull null
+                        val path = extensionRepository.assetFilePath(ext.id, image) ?: return@mapNotNull null
+                        decodeThumb(path)?.let { ext.id to it }
+                    }.toMap()
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private fun decodeThumb(path: String): Bitmap? = runCatching {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= TIP_THUMB_PX) sample *= 2
+        val decoded = android.graphics.BitmapFactory.decodeFile(
+            path,
+            android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return@runCatching null
+        scaleTipBitmap(decoded).also { if (it !== decoded) decoded.recycle() }
+    }.getOrNull()
+
+    /** Does [ext] carry a LUT this host can apply ([applyInstalledLut])? */
+    fun hasUsableLut(ext: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension): Boolean =
+        extensionRepository.hasUsableLut(ext)
+
     /** A round dab with StampBrushRenderer's generated-round falloff: solid to [hardness], then fade. */
     private fun renderRoundTip(hardness: Float): Bitmap {
         val out = Bitmap.createBitmap(TIP_THUMB_PX, TIP_THUMB_PX, Bitmap.Config.ARGB_8888)

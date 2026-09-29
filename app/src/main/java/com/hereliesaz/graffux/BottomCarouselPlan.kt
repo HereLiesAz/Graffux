@@ -41,6 +41,20 @@ internal sealed interface CarouselAction {
     data class SmudgeMode(val mode: ColorSmudgeEngine.Mode) : CarouselAction
     data class SelectShape(val shape: SelectionShape) : CarouselAction
 
+    /**
+     * One declared filter or tool of an installed azphalt code/mixed extension, run the way the
+     * Extensions panel runs it: `vm.onExtensionContributionSelected`, which shows the contribution's
+     * own params panel when it declares one, else executes it in the sandbox straight away.
+     */
+    data class ExtensionContribution(
+        val extensionId: String,
+        val contributionId: String,
+        val kind: ExtensionEffectKind,
+    ) : CarouselAction
+
+    /** An installed LUT extension, graded onto the active layer by `vm.applyInstalledLut`. */
+    data class ExtensionLut(val extensionId: String) : CarouselAction
+
     /** The full Tool Options window — every slider the carousel's discrete stops don't cover. */
     data object OpenToolOptions : CarouselAction
 }
@@ -58,6 +72,8 @@ internal data class CarouselEntry(
     val brush: AzphaltBrush? = null,
     /** Starred by the user; drawn as a star on the card and listed on the Favorites page. */
     val favorite: Boolean = false,
+    /** Set on installed-extension effects: what the hero card's details and tip visual read. */
+    val extensionEffect: ExtensionEffect? = null,
 )
 
 /** The editor state the carousel reads — a narrow slice, so the derivation stays unit-testable. */
@@ -79,6 +95,8 @@ internal data class CarouselInputs(
     val smudgeMode: ColorSmudgeEngine.Mode,
     val selectionShape: SelectionShape,
     val toolOptionsOpen: Boolean,
+    /** Installed azphalt filters, tools and LUTs, listed on the Effects page after [EFFECT_TOOLS]. */
+    val extensionEffects: List<ExtensionEffect> = emptyList(),
     /** Starred entry keys, in the order they were starred (`SettingsRepository.carouselFavorites`). */
     val favorites: List<String> = emptyList(),
 )
@@ -182,7 +200,7 @@ private fun effectEntries(input: CarouselInputs): List<CarouselEntry> = EFFECT_T
         action = CarouselAction.PickTool(tool),
         selected = input.activeTool == tool, icon = entry.icon,
     )
-}
+} + input.extensionEffects.distinctBy(::extensionEffectKey).map(::extensionEffectEntry)
 
 private fun optionEntries(input: CarouselInputs, allOptions: Boolean): List<CarouselEntry> = buildList {
     val tool = input.activeTool
