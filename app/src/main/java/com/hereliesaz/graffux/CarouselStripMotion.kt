@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.carousel.CarouselState
+import com.hereliesaz.graffux.carousel.CarouselState
+import com.hereliesaz.graffux.carousel.KeylineList
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,15 +56,20 @@ internal fun CarouselGestureEffects(state: CarouselState, programmatic: Programm
 /** The key in the strip's width map that carries the hero keyline's width, not an item's. */
 internal const val HERO_WIDTH_KEY = -1
 
+/** The key in the strip's width map that carries the medium keyline's width, not an item's. */
+internal const val MEDIUM_WIDTH_KEY = -2
+
 /**
  * [carouselHeroPosition] over the widths the strip reports (item index to width, plus the hero
- * keyline's under [HERO_WIDTH_KEY]), or [fallback] before layout. The floor is the small cards'
- * max width, not M3's `minSize`: that one counts the 10dp anchor keylines, which would give the
- * resting small cards weight and skew the position at the ends.
+ * keyline's under [HERO_WIDTH_KEY] and the medium keyline's under [MEDIUM_WIDTH_KEY]), or
+ * [fallback] before layout. The floor is the medium keyline's width (else [smallMax]): only the
+ * two cards trading the hero slot are ever wider, so the resting medium cards carry no weight
+ * and the position is exact at rest, the ends included.
  */
 internal fun carouselStripPosition(widths: Map<Int, Float>, smallMax: Float, fallback: Int): Float {
     val max = widths[HERO_WIDTH_KEY]
-    val position = max?.let { carouselHeroPosition(widths.filterKeys { k -> k >= 0 }, smallMax, it) }
+    val floor = widths[MEDIUM_WIDTH_KEY] ?: smallMax
+    val position = max?.let { carouselHeroPosition(widths.filterKeys { k -> k >= 0 }, floor, it) }
     return position ?: fallback.toFloat()
 }
 
@@ -91,3 +100,17 @@ internal fun BoxScope.ActiveHighlight(active: Boolean) {
 
 private val HighlightWidth = 2.dp
 private const val HIGHLIGHT_TINT_ALPHA = 0.14f
+
+/**
+ * The strip's keyline list for the fork's `Carousel` (see [centredHeroKeylineList]), taking the
+ * row's width and item spacing in px.
+ */
+@Composable
+internal fun rememberCentredKeylines(minSmall: Dp, maxSmall: Dp, anchor: Dp): (Float, Float) -> KeylineList {
+    val density = LocalDensity.current
+    return remember(density, minSmall, maxSmall, anchor) {
+        { space: Float, spacing: Float ->
+            with(density) { centredHeroKeylineList(space, spacing, minSmall.toPx(), maxSmall.toPx(), anchor.toPx()) }
+        }
+    }
+}

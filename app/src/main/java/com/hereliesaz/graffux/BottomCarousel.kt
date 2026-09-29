@@ -26,10 +26,12 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.material3.carousel.CarouselDefaults
-import androidx.compose.material3.carousel.CarouselState
-import androidx.compose.material3.carousel.HorizontalCenteredHeroCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.hereliesaz.graffux.carousel.Carousel
+import com.hereliesaz.graffux.carousel.CarouselDefaults
+import com.hereliesaz.graffux.carousel.CarouselState
+import com.hereliesaz.graffux.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +70,8 @@ private val CarouselHeight = 124.dp
 private val HeroItemWidth = 168.dp
 private val SmallItemMinWidth = 40.dp
 private val SmallItemMaxWidth = 56.dp
+/** M3's `CarouselDefaults.AnchorSize`: the off-screen keylines items shrink into. */
+private val AnchorWidth = 10.dp
 private val ItemSpacing = 6.dp
 private val TipSize = 36.dp
 private val HeroTipSize = 44.dp
@@ -146,7 +150,7 @@ internal fun BottomCarousel(
                     count
                 }
                 // The row's continuous scroll position, shared by the strip and the hero preview:
-                // read off the widths M3's carousel gives its items (see carouselHeroPosition).
+                // read off the widths the forked carousel gives its items (see carouselHeroPosition).
                 val widths = remember { mutableStateMapOf<Int, Float>() }
                 val smallMaxPx = with(LocalDensity.current) { SmallItemMaxWidth.toPx() }
                 val position = remember(state, smallMaxPx) {
@@ -345,13 +349,26 @@ private fun CarouselStrip(
     val heroIndex by remember { derivedStateOf { kotlin.math.round(position.value).toInt() } }
     val heroExtra = currentEntries.getOrNull(heroIndex)?.let { heroControlsHeight(it, content) } ?: 0.dp
     val rowHeight by animateDpAsState(CarouselHeight + heroExtra, label = "heroHeight")
-    HorizontalCenteredHeroCarousel(
+    val density = LocalDensity.current
+    val keylines = rememberCentredKeylines(SmallItemMinWidth, SmallItemMaxWidth, AnchorWidth)
+    BoxWithConstraints(Modifier.fillMaxWidth().height(rowHeight)) {
+        // The medium keyline's width floors the hero position's weights (carouselStripPosition).
+        // Index 2 of anchor · small · medium · HERO · … is the medium keyline.
+        val medium = keylines(constraints.maxWidth.toFloat(), with(density) { ItemSpacing.toPx() }).getOrNull(2)?.size
+        SideEffect { if (medium != null) widths[MEDIUM_WIDTH_KEY] = medium else widths.remove(MEDIUM_WIDTH_KEY) }
+    // The fork of M3's Carousel with custom, centred keylines: small · medium · HERO · medium ·
+    // small, the focal range pinned so the first and last items rest centred too.
+    Carousel(
         state = state,
-        modifier = Modifier.fillMaxWidth().height(rowHeight).testTag("carousel.row"),
+        orientation = Orientation.Horizontal,
+        keylineList = keylines,
+        contentPadding = PaddingValues(0.dp),
+        // One medium and one small item on each side of the hero.
+        maxNonFocalVisibleItemCount = 2,
+        modifier = Modifier.fillMaxSize().testTag("carousel.row"),
         itemSpacing = ItemSpacing,
         flingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state),
-        minSmallItemWidth = SmallItemMinWidth,
-        maxSmallItemWidth = SmallItemMaxWidth,
+        pinFocalRange = true,
     ) { index ->
         // The tier is read off the width M3's keylines gave this item right now, never its index.
         val info = carouselItemDrawInfo
@@ -363,9 +380,13 @@ private fun CarouselStrip(
         }
         DisposableEffect(index) { onDispose { widths.remove(index) } }
         val entry = entries[index]
+        // Every item is laid out at the hero width and masked down about its centre: keep the
+        // name, tip and star inside the visible part (a medium card's star would sit off-mask).
+        val maskInset = with(density) { info.maskRect.left.coerceAtLeast(0f).toDp() }
         CarouselItem(
             entry,
             tier,
+            maskInset,
             content,
             { tapped ->
                 // The hero runs its action (a second tap on a tool puts it down); any other card
@@ -391,6 +412,7 @@ private fun CarouselStrip(
                 )
                 .testTag("carousel.card.${tier.name}"),
         )
+    }
     }
 }
 
@@ -429,6 +451,7 @@ private fun heroControlsHeight(entry: CarouselEntry, content: CarouselContent): 
 private fun CarouselItem(
     entry: CarouselEntry,
     tier: CarouselTier,
+    maskInset: androidx.compose.ui.unit.Dp,
     content: CarouselContent,
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
@@ -453,9 +476,14 @@ private fun CarouselItem(
             if (isHero && state != null) {
                 HeroControls(entry, heroAdjustments(entry, state), content, tint)
             }
-            // The click target is the tip-and-name area, not the sliders above it.
+            // The click target is the tip-and-name area, not the sliders above it: on a side card
+            // that is the whole visible card.
             Box(
-                Modifier.fillMaxWidth().weight(1f).clickable(role = Role.Tab) { onEntryClick(entry) },
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clickable(role = Role.Tab) { onEntryClick(entry) }
+                    .padding(horizontal = maskInset),
                 contentAlignment = Alignment.Center,
             ) {
                 CardIdentity(entry, tier, content, tint, onToggleFavorite)

@@ -100,6 +100,11 @@ allprojects {
         // entries and re-running `./gradlew detektBaseline`; never regenerate it to hide new ones.
         baseline = file("$projectDir/detekt-baseline.xml")
     }
+    // :app's com.hereliesaz.graffux.carousel is a verbatim fork of AOSP material3's carousel
+    // (see its NOTICE.md). Excluded rather than baselined, so re-syncing it never churns the baseline.
+    tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+        exclude("**/com/hereliesaz/graffux/carousel/**")
+    }
 
     @Suppress("UNCHECKED_CAST")
     val commonForcedDependencies = rootProject.extra["commonForcedDependencies"] as List<String>
