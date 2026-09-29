@@ -1,0 +1,214 @@
+package com.hereliesaz.graffux
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import kotlin.math.roundToInt
+
+/**
+ * Which hero card, if any, is grown to its full adjustments. Owned by [BottomCarousel] per page.
+ *
+ * It collapses (see [rememberHeroExpansion]) on "Less" or a second "More", on Back, when the row
+ * moves another card into the hero slot, when that entry leaves the page, and when a stroke starts.
+ */
+@Stable
+internal class HeroExpansion {
+    var expandedKey: String? by mutableStateOf(null)
+        private set
+
+    /** The last key that was expanded, so the card can finish shrinking after [collapse]. */
+    var shownKey: String? by mutableStateOf(null)
+        private set
+
+    /** Opens [key], or closes it if it is already open. Returns whether it is now open. */
+    fun toggle(key: String): Boolean {
+        expandedKey = if (expandedKey == key) null else key
+        if (expandedKey != null) shownKey = expandedKey
+        return expandedKey != null
+    }
+
+    fun collapse() {
+        expandedKey = null
+    }
+
+    /** What the carousel page last drew (its entries and callbacks), for the expanded layer to draw. */
+    var content: CarouselContent? by mutableStateOf(null)
+    var onToggleFavorite: (CarouselEntry) -> Unit by mutableStateOf({})
+
+    /** Where the hero card rests, in window pixels: the card grows out from here. */
+    var anchor: HeroAnchor? by mutableStateOf(null)
+}
+
+/** The hero card's bottom-centre, in window pixels. */
+internal data class HeroAnchor(val centerX: Float, val bottom: Float)
+
+/** Whether an expanded card must close: the hero slot now holds another entry, or none. */
+internal fun heroExpansionStale(expandedKey: String?, heroKey: String?): Boolean =
+    expandedKey != null && expandedKey != heroKey
+
+@Suppress("FunctionNaming")
+@Composable
+internal fun HeroExpansionEffects(expansion: HeroExpansion, position: State<Float>, content: CarouselContent) {
+    val entries by rememberUpdatedState(content.entries)
+    val strokeActive by rememberUpdatedState(content.strokeActive)
+    // Moving another card into the hero slot (or the entry leaving the page) closes it.
+    LaunchedEffect(expansion) {
+        snapshotFlow { entries.getOrNull(position.value.roundToInt())?.key to expansion.expandedKey }
+            .collect { (hero, open) -> if (heroExpansionStale(open, hero)) expansion.collapse() }
+    }
+    // A stroke starting closes it; the sheet itself shuts at the same moment (CarouselSheet).
+    LaunchedEffect(expansion) {
+        snapshotFlow { strokeActive() }.collect { if (it) expansion.collapse() }
+    }
+    BackHandler(enabled = expansion.expandedKey != null) { expansion.collapse() }
+}
+
+/**
+ * The hero card grown in place: it starts at the hero's own size, over the hero, and grows (M3
+ * Expressive's default spatial spring) upward over the stroke preview and a little wider, never
+ * down into the tabs. It shows everything [heroFullAdjustments] lists for the item, editing that
+ * item's own settings through [CarouselContent.onAdjust] exactly as the inline sliders do, and
+ * scrolls if it overflows. "Less" (or "More" again, or anything in [HeroExpansion]) shrinks it.
+ */
+@Suppress("FunctionNaming")
+@Composable
+internal fun ExpandedHeroLayer(
+    expansion: HeroExpansion,
+    collapsedSize: DpSize = HeroRestSize,
+    expandedSize: DpSize = HeroExpandedSize,
+) {
+    // A full-window layer with no pointer input of its own: only the card takes touches.
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInWindow() }) {
+        val anchor = expansion.anchor ?: return@Box
+        val content = expansion.content ?: return@Box
+        Box(
+            Modifier.layout { measurable, constraints ->
+                val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                layout(p.width, p.height) {
+                    val x = anchor.centerX - origin.x - p.width / 2f
+                    p.place(x.roundToInt(), (anchor.bottom - origin.y - p.height).roundToInt())
+                }
+            },
+        ) {
+            ExpandedHeroCard(expansion, content, expansion.onToggleFavorite, collapsedSize, expandedSize)
+        }
+    }
+}
+
+@Suppress("FunctionNaming", "LongMethod")
+@Composable
+private fun ExpandedHeroCard(
+    expansion: HeroExpansion,
+    content: CarouselContent,
+    onToggleFavorite: (CarouselEntry) -> Unit,
+    collapsedSize: DpSize,
+    expandedSize: DpSize,
+) {
+    val progress = remember { Animatable(0f) }
+    val open = expansion.expandedKey != null
+    LaunchedEffect(open) {
+        progress.animateTo(if (open) 1f else 0f, MotionScheme.expressive().defaultSpatialSpec())
+    }
+    val entry = content.entries.firstOrNull { it.key == expansion.shownKey }
+    if (entry == null || (!open && progress.value <= 0f)) return
+    val state = content.heroState ?: return
+    val adjustments = heroFullAdjustments(entry, state.withItem(content.itemSettings(entry)))
+    val colors = MaterialTheme.colorScheme
+    val bg = if (entry.selected) colors.onSurface else colors.surfaceVariant
+    val tint = if (entry.selected) colors.surface else colors.onSurface
+    val t = progress.value
+    Box(
+        Modifier
+            .size(lerp(collapsedSize.width, expandedSize.width, t), lerp(collapsedSize.height, expandedSize.height, t))
+            .clip(CardShape)
+            .background(bg)
+            // Swallow taps between controls, so nothing reaches the strip underneath.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            .testTag("carousel.expanded"),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .testTag("carousel.expanded.scroll"),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = StarTouchSize)) {
+                    TipVisual(carouselTip(entry), content, tint, ExpandedTipSize)
+                    Text(
+                        entry.label,
+                        color = tint,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                FavoriteToggle(entry, tint, onToggleFavorite, Modifier.align(Alignment.TopEnd))
+            }
+            carouselCardContent(entry, CarouselTier.HERO).details.forEach {
+                Text(
+                    it,
+                    color = tint.copy(alpha = DETAIL_ALPHA),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                )
+            }
+            HeroControls(entry, adjustments, content, tint, tagPrefix = "carousel.expanded")
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                TextButton(
+                    onClick = { expansion.collapse() },
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier.height(MORE_ROW_DP.dp).testTag("carousel.expanded.less"),
+                ) {
+                    Text("Less", color = tint, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+private val ExpandedTipSize = 40.dp

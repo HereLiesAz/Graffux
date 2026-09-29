@@ -317,6 +317,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)) }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && uiState.activePanel == EditorPanel.NONE
+    // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
+    val heroExpansion = remember { HeroExpansion() }
+    LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -997,6 +1000,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         smudgeRate = colorSmudgeSettings.smudgeRate,
                                         stabilizerLevel = uiState.stabilizerLevel,
                                         magicWandTolerance = uiState.magicWandTolerance,
+                                        smudgeColorRate = colorSmudgeSettings.colorRate,
+                                        smudgeOpacity = colorSmudgeSettings.opacity,
                                     ),
                                     itemSettings = { entry ->
                                         carouselSettingsKey(entry)?.let {
@@ -1019,19 +1024,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                             HeroSetter.BRUSH_OPACITY -> vm.setBrushOpacity(value)
                                             HeroSetter.BRUSH_SOFTNESS -> vm.setBrushFeathering(value)
                                             HeroSetter.SMUDGE_STRENGTH -> vm.setColorSmudgeRate(value)
+                                            HeroSetter.SMUDGE_LOAD -> vm.setColorSmudgeColorRate(value)
+                                            HeroSetter.SMUDGE_OPACITY -> vm.setColorSmudgeOpacity(value)
                                             HeroSetter.STABILIZER -> vm.setStabilizerLevel(value.roundToInt())
                                             HeroSetter.WAND_TOLERANCE -> vm.onSetMagicWandTolerance(value.roundToInt())
                                         }
                                     },
-                                    // "More": the Tool Options window, which shows whatever is in hand, so
-                                    // an unpicked brush/utensil/tool is picked first. Carousel state is
-                                    // host-owned (carouselUi), so opening the window loses none of it.
-                                    onMore = { entry ->
-                                        if (!entry.selected && carouselAutoActivates(entry.action)) {
-                                            runCarouselEntry(entry)
-                                        }
-                                        showToolOptions = true
-                                    },
+                                    // "More" grows the hero card in place to that item's full
+                                    // settings (ExpandedHeroLayer, on the page in front of this
+                                    // one); it no longer opens Tool Options, and needs no selection
+                                    // first, since the card edits the item's own settings.
+                                    onMore = {},
+                                    strokeActive = { strokeGate.strokeActive },
                                 ),
                                 history = CarouselHistory(
                                     undoCount = uiState.undoCount,
@@ -1041,10 +1045,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 ),
                                 onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
                                 onEntryClick = runCarouselEntry,
+                                expansion = heroExpansion,
                             )
                         }
                     }
                 }
+            }
+
+            // The carousel's expanded ("More") hero card, as its own page in front of the carousel's
+            // (guide §10 Pages: a lower page draws in front, and items on different pages may
+            // overlap). It grows over the neighbouring cards and the stroke preview without the
+            // carousel's own layout moving at all.
+            background(weight = 1, page = -0.5f) {
+                if (carouselOnScreen) ExpandedHeroLayer(heroExpansion)
             }
 
             // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)

@@ -34,13 +34,14 @@ internal fun HeroControls(
     adjustments: List<HeroAdjustment>,
     content: CarouselContent,
     tint: Color,
+    tagPrefix: String = "carousel.hero",
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
-            .testTag("carousel.hero.controls"),
+            .testTag("$tagPrefix.controls"),
     ) {
         adjustments.forEach { a ->
             Column(Modifier.fillMaxWidth().height(SLIDER_ROW_DP.dp)) {
@@ -61,7 +62,7 @@ internal fun HeroControls(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(SLIDER_TRACK_DP.dp)
-                        .testTag("carousel.hero.slider.${a.id}"),
+                        .testTag("$tagPrefix.slider.${a.id}"),
                 )
             }
         }

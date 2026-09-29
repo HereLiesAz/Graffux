@@ -67,6 +67,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -92,6 +94,16 @@ internal val StarTouchSize = 32.dp
 internal val StarSize = 18.dp
 private val MaxCarouselWidth = 560.dp
 private val PreviewHeight = 40.dp
+
+private const val EXPANDED_WIDTH_FACTOR = 1.5f
+
+/** The hero card's size at rest: what the expanded card grows from. */
+internal val HeroRestSize = androidx.compose.ui.unit.DpSize(168.dp, 200.dp)
+
+/** The expanded ("More") card: wider, over the neighbours, and taller, over the stroke preview. */
+// Height: the hero, plus the stroke preview, the gap, and the column's two 4dp spacings above it.
+internal val HeroExpandedSize =
+    androidx.compose.ui.unit.DpSize(168.dp * EXPANDED_WIDTH_FACTOR, 200.dp + 40.dp + 24.dp + 8.dp)
 
 /** Clear space between the stroke preview and the top of the hero card. */
 private val PreviewGap = 24.dp
@@ -120,8 +132,14 @@ internal data class CarouselContent(
     val itemSettings: (CarouselEntry) -> CarouselItemSettings? = { null },
     /** A hero slider on [CarouselEntry] moved: its setter and new value. */
     val onAdjust: (CarouselEntry, HeroSetter, Float) -> Unit = { _, _, _ -> },
-    /** The hero's "More": that item's full adjustments. Null hides the button. */
+    /**
+     * Whether the hero offers "More", and what to tell the host when it is pressed. Pressing it
+     * grows the hero card in place to that item's full adjustments; this runs as the card opens.
+     * Null hides the button.
+     */
     val onMore: ((CarouselEntry) -> Unit)? = null,
+    /** Read (not observed by the host) to close an expanded card when a stroke starts. */
+    val strokeActive: () -> Boolean = { false },
 )
 
 /** The history state the Undo/Redo tabs read, and the calls they make. */
@@ -158,6 +176,7 @@ internal fun BottomCarousel(
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
     modifier: Modifier = Modifier,
+    expansion: HeroExpansion = remember { HeroExpansion() },
 ) {
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
@@ -177,9 +196,31 @@ internal fun BottomCarousel(
                 val position = remember(state, smallMaxPx) {
                     derivedStateOf { carouselStripPosition(widths, smallMaxPx, state.currentItem) }
                 }
+                // "More" grows the hero card in place (CarouselHeroExpanded.kt) instead of opening
+                // the Tool Options window. Keyed by entry, so it belongs to one card.
+                HeroExpansionEffects(expansion, position, content)
+                val stripContent = content.copy(
+                    onMore = content.onMore?.let { hostMore ->
+                        { entry: CarouselEntry -> if (expansion.toggle(entry.key)) hostMore(entry) }
+                    },
+                )
+                // The grown card is drawn by ExpandedHeroLayer on its own AzNavRail page, in front
+                // of this one; publish what it draws and where the hero sits.
+                SideEffect {
+                    expansion.content = stripContent
+                    expansion.onToggleFavorite = onToggleFavorite
+                }
                 HeroPreview(position, content)
                 Spacer(Modifier.height(PreviewGap))
-                CarouselStrip(state, widths, position, content, onEntryClick, onToggleFavorite)
+                Box(
+                    Modifier.onGloballyPositioned { row ->
+                        val r = row.boundsInWindow()
+                        // The hero is centred in the row, as tall as it, HeroItemWidth wide.
+                        expansion.anchor = HeroAnchor(r.center.x, r.bottom)
+                    },
+                ) {
+                    CarouselStrip(state, widths, position, stripContent, onEntryClick, onToggleFavorite)
+                }
             }
         } else {
             Box(Modifier.fillMaxWidth().height(PreviewHeight + PreviewGap))
