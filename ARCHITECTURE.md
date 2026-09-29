@@ -127,18 +127,26 @@ codebase is deferred scope or a real gap in the install-report flow.
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
-  `BottomCarousel.kt` (`:app`) is M3's own `HorizontalCenteredHeroCarousel` (material3
-  `1.5.0-alpha29`, the latest published), with `rememberCarouselState`, `maskClip`/`maskBorder` on
-  each card and `CarouselDefaults.singleAdvanceFlingBehavior` for snapping: one item per fling,
-  a slow release springs to the nearest item, and a haptic `SegmentTick` fires each time a new item
-  takes the hero slot under the finger. At phone width it lays out small · HERO · small (411dp:
-  two 56dp smalls, a ~287dp hero); there are no medium cards at rest. M3's hero keylines have no
-  medium slot, and the custom-keyline API that could add one (`Carousel`, `keylineListOf`) is still
-  `internal`, so the earlier custom small · medium · HERO · medium · small row was dropped in favour
-  of M3's motion and snapping. The medium tier now shows only mid-scroll. At the list ends M3
-  shifts its keylines, so the first and last items rest off-centre. `CarouselState` exposes only
-  the integer `currentItem`, so the row's continuous position comes from the widths M3 gives the
-  composed items (`carouselHeroPosition` in `CarouselKeylines.kt`). The card tier comes from the
+  `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
+  `androidx.compose.material3.carousel` sources, copied into `com.hereliesaz.graffux.carousel`
+  with `internal` visibility. Its `NOTICE.md` lists the files, the source and every change. The
+  reason for the fork: stock `HorizontalCenteredHeroCarousel` has no medium keyline slot, and it
+  shifts its keylines at the list ends. The API for custom keylines (`Carousel(keylineList = …)`,
+  `keylineListOf`) is `internal` to material3. With the fork, the strip passes its own centred,
+  symmetric keylines (`centredHeroKeylineList` in `CarouselKeylines.kt`): small · medium · HERO ·
+  medium · small, in M3's hero proportions. Small is a third of the hero, clamped to 40–56dp;
+  medium sits halfway between small and hero. At 411dp that gives 43 · 86 · 129 · 86 · 43dp with
+  6dp gaps. The fork's one behavioural change is `pinFocalRange`: no edge shift steps, with the
+  pager padded instead, so the first and last items also rest centred. **Re-sync the fork whenever
+  material3 is bumped** (see its `NOTICE.md`); detekt excludes that package. Otherwise the strip
+  works as it did on stock M3. `maskClip`/`maskBorder` go on each card, and
+  `CarouselDefaults.singleAdvanceFlingBehavior` does the snapping: one item per fling, and a slow
+  release springs to the nearest item. A haptic `SegmentTick` fires each time a new item takes the
+  hero slot under the finger. The row's continuous position comes from the widths the carousel
+  gives the composed items (`carouselHeroPosition` in `CarouselKeylines.kt`). Each width is
+  weighed from the medium keyline up, so the position is exact at rest. Each card's content is
+  inset to its visible mask, which keeps a medium card's star on screen and makes the whole
+  visible side card a tap target. The card tier comes from the
   laid-out width (`carouselItemDrawInfo` into `carouselTier`), never from the item's index. All of
   these are pure and tested. Tip visuals: installed brushes show their bundled tip
   bitmap (`EditorViewModel.installedBrushTips`, or a rendered round tip if none is bundled); built-in and

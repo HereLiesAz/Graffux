@@ -2,6 +2,7 @@ package com.hereliesaz.graffux
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CarouselKeylinesTest {
@@ -71,5 +72,37 @@ class CarouselKeylinesTest {
         assertEquals(CarouselHeroBlend(9, null, 0f), carouselHeroBlend(9.6f, count = 10))
         assertEquals(CarouselHeroBlend(0, null, 0f), carouselHeroBlend(0f, count = 1))
         assertEquals(null, carouselHeroBlend(0f, count = 0))
+    }
+
+    @Test
+    fun `centred hero sizes at 411dp follow M3 hero proportions and fill the row`() {
+        val s = centredHeroSizes(411f, 6f, 40f, 56f)!!
+        assertEquals(129f, s.hero, 1e-3f)
+        assertEquals(86f, s.medium, 1e-3f)
+        assertEquals(43f, s.small, 1e-3f)
+        assertEquals(411f, s.hero + 2 * s.medium + 2 * s.small + 4 * 6f, 1e-3f)
+    }
+
+    @Test
+    fun `small clamps to its range on wide and narrow rows`() {
+        val wide = centredHeroSizes(560f, 6f, 40f, 56f)!!
+        assertEquals(56f, wide.small, 1e-3f)
+        assertEquals(560f, wide.hero + 2 * wide.medium + 2 * wide.small + 24f, 1e-3f)
+        val narrow = centredHeroSizes(300f, 6f, 40f, 56f)!!
+        assertEquals(40f, narrow.small, 1e-3f)
+        assertNull(centredHeroSizes(100f, 6f, 40f, 56f))
+    }
+
+    @Test
+    fun `the keyline list is symmetric about a centred hero`() {
+        val list = centredHeroKeylineList(411f, 6f, 40f, 56f, 10f)
+        assertEquals(7, list.size)
+        assertEquals(listOf(10f, 43f, 86f, 129f, 86f, 43f, 10f), list.map { it.size })
+        assertEquals(3, list.firstFocalIndex)
+        assertEquals(3, list.lastFocalIndex)
+        assertEquals(205.5f, list.firstFocal.offset, 1e-3f)
+        for (i in 0..2) assertEquals(411f, list[i].offset + list[6 - i].offset, 1e-3f)
+        assertTrue(list.first().offset + 5f <= 0f && list.last().offset - 5f >= 411f)
+        assertTrue(centredHeroKeylineList(100f, 6f, 40f, 56f, 10f).isEmpty())
     }
 }

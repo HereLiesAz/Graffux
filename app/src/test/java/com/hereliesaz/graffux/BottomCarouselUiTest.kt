@@ -107,13 +107,12 @@ class BottomCarouselUiTest {
             File(path).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
 
-        // M3's HorizontalCenteredHeroCarousel at 411dp, at rest: small · HERO · small, no medium
-        // (its hero keylines have no medium slot). Items past the smalls sit on the 10dp anchor
-        // keylines, so they count as small too.
+        // The forked carousel's custom keylines at 411dp, at rest: small · medium · HERO · medium ·
+        // small. Items past the smalls sit on the 10dp anchor keylines, so they count as small too.
         fun count(tier: CarouselTier) =
             rule.onAllNodesWithTag("carousel.card.${tier.name}", useUnmergedTree = true).fetchSemanticsNodes().size
         assertEquals(1, count(CarouselTier.HERO))
-        assertEquals(0, count(CarouselTier.MEDIUM))
+        assertEquals(2, count(CarouselTier.MEDIUM))
         assertTrue(count(CarouselTier.SMALL) >= 2)
         // The hero is the active brush, so it wears the accent highlight; nothing else does.
         assertEquals(1, tagged("carousel.hero.active"))
@@ -184,7 +183,10 @@ class BottomCarouselUiTest {
             rule.waitForIdle()
         }
 
-        fun dragOneItemForward() = dragForward(1f)
+        // Foundation's pager settles a slow drag by the fraction of a page it crossed past the
+        // last whole one (drag / page width, spacing and touch slop not counted), so a drag of
+        // exactly one item reads as ~0 past a page and springs back. 0.8 of an item lands one on.
+        fun dragOneItemForward() = dragForward(0.8f)
     }
 
     @Test
@@ -216,7 +218,7 @@ class BottomCarouselUiTest {
         assertEquals(listOf(h.entries[n + 1].key), h.previews())
         assertEquals(listOf(h.entries[n + 1].key), h.clicks)
         assertEquals(1, tagged("carousel.card.HERO"))
-        assertEquals(0, tagged("carousel.card.MEDIUM"))
+        assertEquals(2, tagged("carousel.card.MEDIUM"))
     }
 
     @Test
@@ -224,13 +226,57 @@ class BottomCarouselUiTest {
         val h = Harness()
         val n = h.entries.indexOfFirst { it.selected }
         val next = BuiltInBrushes.presets[n + 1].name
-        // M3 lays every item out at the hero width and masks it down, so the small card's node spans
-        // under the hero. Tap its visible strip at the right edge, as a finger would.
-        rule.onAllNodesWithContentDescription(next)[0].performTouchInput { click(Offset(width - 20f, centerY)) }
+        // The carousel lays every item out at the hero width and masks it down about its centre,
+        // so the middle of the medium card's node is on its visible part.
+        rule.onAllNodesWithContentDescription(next)[0].performTouchInput { click(center) }
         rule.waitForIdle()
         assertEquals(next, h.brushName)
         assertEquals("one selection, no loop", listOf(h.entries[n + 1].key), h.clicks)
         assertEquals(listOf(h.entries[n + 1].key), h.previews())
+    }
+
+    @Test
+    fun `anywhere on a visible side card centres it`() {
+        // Row x (px) of each resting keyline: the medium card right of the hero spans
+        // [W/2 + hero/2 + gap, + medium], the small one after it the next [small].
+        val half = ROW_W_PX / 2f
+        val mediumStart = half + HERO_PX / 2f + GAP_PX
+        val smallStart = mediumStart + MEDIUM_PX + GAP_PX
+        val spots = listOf(
+            1 to mediumStart + 4f, 1 to mediumStart + MEDIUM_PX / 2f, 1 to mediumStart + MEDIUM_PX - 4f,
+            2 to smallStart + 4f, 2 to smallStart + SMALL_PX / 2f, 2 to smallStart + SMALL_PX - 4f,
+        )
+        val h = Harness()
+        val n = h.entries.indexOfFirst { it.selected }
+        fun tapAt(x: Float, expected: Int) {
+            rule.onNodeWithTag("carousel.row").performTouchInput { click(Offset(x, centerY + height / 4f)) }
+            rule.waitForIdle()
+            assertEquals("tap at x=$x", BuiltInBrushes.presets[expected].name, h.brushName)
+            assertEquals(listOf(h.entries[expected].key), h.previews())
+        }
+        // Each spot on the right, then its mirror on the left to come back.
+        for ((ahead, x) in spots) {
+            tapAt(x, n + ahead)
+            tapAt(ROW_W_PX - x, n)
+        }
+    }
+
+    @Test
+    fun `the first and last items rest centred`() {
+        val h = Harness()
+        for (target in listOf(0, h.entries.lastIndex)) {
+            h.brushName = BuiltInBrushes.presets[target].name
+            rule.waitForIdle()
+            assertEquals(listOf(h.entries[target].key), h.previews())
+            val hero = rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true).fetchSemanticsNode()
+            val row = rule.onNodeWithTag("carousel.row").fetchSemanticsNode()
+            assertEquals("item $target is centred", row.boundsInRoot.center.x, hero.boundsInRoot.center.x, 2f)
+            val heroName = hero.config[SemanticsProperties.ContentDescription].single()
+            assertEquals(BuiltInBrushes.presets[target].name, heroName)
+            // Still one medium on the side that has a neighbour, and no gap-filling shift.
+            assertEquals(1, tagged("carousel.card.HERO"))
+            assertEquals(1, tagged("carousel.card.MEDIUM"))
+        }
     }
 
     @Test
@@ -261,8 +307,15 @@ class BottomCarouselUiTest {
         rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
 
     private companion object {
-        // One item's travel at 411dp xxhdpi: M3 lays every item out at the hero width and scrolls
-        // one hero width plus spacing per item. The hero is 411dp less two 56dp smalls and two 6dp gaps.
-        const val STEP_PX = (411f - 2 * 56f - 2 * 6f) * 3f + 18f
+        // The keylines at 411dp xxhdpi (3px/dp), from centredHeroSizes: the 411dp row less four
+        // 6dp gaps is 387dp = 2·hero + 3·small with small = hero / 3, so hero 129dp, small 43dp
+        // and medium 86dp.
+        const val ROW_W_PX = 411f * 3f
+        const val GAP_PX = 6f * 3f
+        const val HERO_PX = 129f * 3f
+        const val MEDIUM_PX = 86f * 3f
+        const val SMALL_PX = 43f * 3f
+        // One item's travel: every item is laid out at the hero width, one hero plus a gap apart.
+        const val STEP_PX = HERO_PX + GAP_PX
     }
 }
