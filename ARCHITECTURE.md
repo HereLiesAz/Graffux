@@ -189,7 +189,12 @@ codebase is deferred scope or a real gap in the install-report flow.
   The areas dropdown's "Carousel" toggle still removes it entirely.
   **More grows the hero (`CarouselHeroExpanded.kt`).** "More" no longer opens Tool Options. The
   hero card grows in place (M3 Expressive `defaultSpatialSpec`), from its own size to 1.5x as wide
-  and up over the stroke preview. It shows `heroFullAdjustments`, which covers what Tool Options
+  and up over where the stroke preview rests. The preview is always `PreviewGap` (48dp) above the
+  hero card: at rest in the carousel column, and, while the card is grown or growing, lifted onto
+  the expanded card's page. There it is placed in the same layout pass as the card, from the one
+  animation's progress, so it rides above the card frame by frame and is never hidden behind it or
+  the neighbours. The carousel's own copy hides while `HeroExpansion.progress > 0`, and the lifted
+  copy still crossfades and draws each item at its own settings. It shows `heroFullAdjustments`, which covers what Tool Options
   showed for that item: the inline sliders plus Stabilize, and for Smudge also Load and Smudge
   opacity. It edits the item's own settings and scrolls if it overflows. It is drawn by
   `ExpandedHeroLayer` on its own AzNavRail page, `background(weight = 1, page = -0.5f)`, in front of

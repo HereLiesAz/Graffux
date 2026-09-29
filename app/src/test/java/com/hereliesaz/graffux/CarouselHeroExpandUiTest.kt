@@ -165,6 +165,49 @@ class CarouselHeroExpandUiTest {
         assertEquals(0, expandedCount())
     }
 
+    private fun gapPx() = PreviewGap.value * rule.density.density
+
+    private fun heroPreview() = bounds("carousel.preview.$heroKey")
+
+    @Test
+    fun `the stroke preview rides PreviewGap above the card, at rest, partway and grown`() {
+        compose()
+        val restPreview = heroPreview().single()
+        val restHero = bounds("carousel.card.HERO").single()
+        assertEquals("at rest, PreviewGap above the hero", restHero.top - gapPx(), restPreview.bottom, 1f)
+
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
+        // Reading the tree each frame syncs it, as a drawn frame would.
+        repeat(PARTWAY_FRAMES) { rule.mainClock.advanceTimeByFrame(); expandedCount() }
+        rule.waitForIdle()
+        val midCard = bounds("carousel.expanded").single()
+        val midPreview = bounds("carousel.expanded.preview").single()
+        assertTrue("partway: ${midCard.height} between ${restHero.height} and grown", midCard.height > restHero.height + 2f)
+        assertEquals("partway, the gap holds", midCard.top - gapPx(), midPreview.bottom, 1f)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+
+        val card = bounds("carousel.expanded").single()
+        val lifted = bounds("carousel.expanded.preview").single()
+        assertTrue("it rose", lifted.bottom < restPreview.bottom - 50f)
+        assertEquals("grown, the gap holds", card.top - gapPx(), lifted.bottom, 1f)
+
+        System.getenv("CAROUSEL_MORE_PREVIEW_SCREENSHOT")?.let { path ->
+            val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
+            File(path).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+
+        rule.onNodeWithTag("carousel.expanded.less", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        assertEquals(0, expandedCount())
+        assertEquals("back exactly where it was", listOf(restPreview), heroPreview())
+    }
+
+    private companion object {
+        const val PARTWAY_FRAMES = 4
+    }
+
     @Test
     fun `Back collapses it`() {
         compose()

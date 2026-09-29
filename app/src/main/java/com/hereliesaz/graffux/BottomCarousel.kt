@@ -97,16 +97,26 @@ private val PreviewHeight = 40.dp
 
 private const val EXPANDED_WIDTH_FACTOR = 1.5f
 
+/**
+ * Clear space between the stroke preview and the top of the hero card — at rest, while the card
+ * grows, and grown (ExpandedHeroLayer keeps the lifted preview exactly this far above the card).
+ */
+internal val PreviewGap = 48.dp
+
+/** The carousel column's spacing between its children (see [BottomCarousel]). */
+private val ColumnSpacing = 4.dp
+
+/** The preview's height, for the expanded layer that lifts it. */
+internal val HeroPreviewHeight = PreviewHeight
+
 /** The hero card's size at rest: what the expanded card grows from. */
-internal val HeroRestSize = androidx.compose.ui.unit.DpSize(168.dp, 200.dp)
+internal val HeroRestSize = androidx.compose.ui.unit.DpSize(HeroItemWidth, HeroCardHeight)
 
-/** The expanded ("More") card: wider, over the neighbours, and taller, over the stroke preview. */
-// Height: the hero, plus the stroke preview, the gap, and the column's two 4dp spacings above it.
-internal val HeroExpandedSize =
-    androidx.compose.ui.unit.DpSize(168.dp * EXPANDED_WIDTH_FACTOR, 200.dp + 40.dp + 24.dp + 8.dp)
-
-/** Clear space between the stroke preview and the top of the hero card. */
-private val PreviewGap = 24.dp
+/** The expanded ("More") card: wider, over the neighbours, and up to where the preview's top rests. */
+internal val HeroExpandedSize = androidx.compose.ui.unit.DpSize(
+    HeroItemWidth * EXPANDED_WIDTH_FACTOR,
+    HeroCardHeight + PreviewHeight + PreviewGap,
+)
 private val TabRowHeight = 36.dp
 internal val CardShape = RoundedCornerShape(20.dp)
 
@@ -181,7 +191,7 @@ internal fun BottomCarousel(
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
         if (content.entries.isNotEmpty()) {
             key(ui.category) {
@@ -208,15 +218,19 @@ internal fun BottomCarousel(
                 // of this one; publish what it draws and where the hero sits.
                 SideEffect {
                     expansion.content = stripContent
+                    expansion.position = position
                     expansion.onToggleFavorite = onToggleFavorite
                 }
-                HeroPreview(position, content)
-                Spacer(Modifier.height(PreviewGap))
+                // While the card is grown (or growing), ExpandedHeroLayer draws this same preview
+                // riding above the card, so this one steps aside.
+                HeroPreview(position, content) { expansion.progress > 0f }
+                // The column spaces each side of this spacer too; together they make PreviewGap.
+                Spacer(Modifier.height(PreviewGap - ColumnSpacing * 2))
                 Box(
                     Modifier.onGloballyPositioned { row ->
                         val r = row.boundsInWindow()
                         // The hero is centred in the row, as tall as it, HeroItemWidth wide.
-                        expansion.anchor = HeroAnchor(r.center.x, r.bottom)
+                        expansion.anchor = HeroAnchor(r.center.x, r.bottom, r.width)
                     },
                 ) {
                     CarouselStrip(state, widths, position, stripContent, onEntryClick, onToggleFavorite)
@@ -241,7 +255,7 @@ internal fun BottomCarousel(
  */
 @Suppress("FunctionNaming")
 @Composable
-private fun HeroPreview(position: State<Float>, content: CarouselContent) {
+internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidden: () -> Boolean = { false }) {
     val count = content.entries.size
     val shown by remember(count) {
         derivedStateOf {
@@ -255,7 +269,7 @@ private fun HeroPreview(position: State<Float>, content: CarouselContent) {
                 Box(
                     Modifier
                         .matchParentSize()
-                        .graphicsLayer { alpha = carouselPreviewAlpha(position.value, index) },
+                        .graphicsLayer { alpha = if (hidden()) 0f else carouselPreviewAlpha(position.value, index) },
                     contentAlignment = Alignment.Center,
                 ) {
                     StrokePreview(entry, content)

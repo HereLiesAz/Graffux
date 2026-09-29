@@ -25,7 +25,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.layout.Layout
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -34,7 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.layout.fillMaxSize
@@ -77,10 +80,16 @@ internal class HeroExpansion {
 
     /** Where the hero card rests, in window pixels: the card grows out from here. */
     var anchor: HeroAnchor? by mutableStateOf(null)
+
+    /** The row's scroll position, for the preview's crossfade. */
+    var position: State<Float>? by mutableStateOf(null)
+
+    /** The grow animation's progress, 0 at rest, 1 grown: the card and its preview both follow it. */
+    var progress: Float by mutableFloatStateOf(0f)
 }
 
 /** The hero card's bottom-centre, in window pixels. */
-internal data class HeroAnchor(val centerX: Float, val bottom: Float)
+internal data class HeroAnchor(val centerX: Float, val bottom: Float, val rowWidth: Float)
 
 /** Whether an expanded card must close: the hero slot now holds another entry, or none. */
 internal fun heroExpansionStale(expandedKey: String?, heroKey: String?): Boolean =
@@ -117,47 +126,67 @@ internal fun ExpandedHeroLayer(
     collapsedSize: DpSize = HeroRestSize,
     expandedSize: DpSize = HeroExpandedSize,
 ) {
+    // One animation drives the card's size and, through it, the preview's position: both are placed
+    // in the same layout pass from the card's measured height, so they move together frame by frame.
+    val progress = remember { Animatable(0f) }
+    val open = expansion.expandedKey != null
+    LaunchedEffect(open) {
+        progress.animateTo(if (open) 1f else 0f, MotionScheme.expressive().defaultSpatialSpec()) {
+            expansion.progress = value
+        }
+        expansion.progress = progress.value
+    }
     // A full-window layer with no pointer input of its own: only the card takes touches.
     var origin by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
     Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInWindow() }) {
         val anchor = expansion.anchor ?: return@Box
         val content = expansion.content ?: return@Box
-        Box(
-            Modifier.layout { measurable, constraints ->
-                val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
-                layout(p.width, p.height) {
-                    val x = anchor.centerX - origin.x - p.width / 2f
-                    p.place(x.roundToInt(), (anchor.bottom - origin.y - p.height).roundToInt())
-                }
+        val position = expansion.position ?: return@Box
+        val entry = content.entries.firstOrNull { it.key == expansion.shownKey }
+        if (entry == null || (!open && progress.value <= 0f)) return@Box
+        Layout(
+            content = {
+                // The same crossfading, per-item preview the carousel draws at rest, lifted onto
+                // this page so it is never hidden behind the card or the neighbours.
+                Box(Modifier.testTag("carousel.expanded.preview")) { HeroPreview(position, content) }
+                ExpandedHeroCard(
+                    expansion, entry, content, progress.value, expansion.onToggleFavorite, collapsedSize, expandedSize,
+                )
             },
-        ) {
-            ExpandedHeroCard(expansion, content, expansion.onToggleFavorite, collapsedSize, expandedSize)
+        ) { measurables, constraints ->
+            val previewH = with(density) { HeroPreviewHeight.roundToPx() }
+            val gap = with(density) { PreviewGap.toPx() }
+            val preview = measurables[0].measure(Constraints.fixed(anchor.rowWidth.roundToInt(), previewH))
+            val card = measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val cardTop = anchor.bottom - origin.y - card.height
+                card.place((anchor.centerX - origin.x - card.width / 2f).roundToInt(), cardTop.roundToInt())
+                preview.place(
+                    (anchor.centerX - origin.x - preview.width / 2f).roundToInt(),
+                    (cardTop - gap - preview.height).roundToInt(),
+                )
+            }
         }
     }
 }
 
-@Suppress("FunctionNaming", "LongMethod")
+@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 @Composable
 private fun ExpandedHeroCard(
     expansion: HeroExpansion,
+    entry: CarouselEntry,
     content: CarouselContent,
+    t: Float,
     onToggleFavorite: (CarouselEntry) -> Unit,
     collapsedSize: DpSize,
     expandedSize: DpSize,
 ) {
-    val progress = remember { Animatable(0f) }
-    val open = expansion.expandedKey != null
-    LaunchedEffect(open) {
-        progress.animateTo(if (open) 1f else 0f, MotionScheme.expressive().defaultSpatialSpec())
-    }
-    val entry = content.entries.firstOrNull { it.key == expansion.shownKey }
-    if (entry == null || (!open && progress.value <= 0f)) return
     val state = content.heroState ?: return
     val adjustments = heroFullAdjustments(entry, state.withItem(content.itemSettings(entry)))
     val colors = MaterialTheme.colorScheme
     val bg = if (entry.selected) colors.onSurface else colors.surfaceVariant
     val tint = if (entry.selected) colors.surface else colors.onSurface
-    val t = progress.value
     Box(
         Modifier
             .size(lerp(collapsedSize.width, expandedSize.width, t), lerp(collapsedSize.height, expandedSize.height, t))
