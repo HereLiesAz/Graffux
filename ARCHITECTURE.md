@@ -187,6 +187,24 @@ codebase is deferred scope or a real gap in the install-report flow.
   three reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
   painting. Its detents step on to HALF/FULL. And the shortcuts sheet already owns the bottom edge.
   The areas dropdown's "Carousel" toggle still removes it entirely.
+  **More grows the hero (`CarouselHeroExpanded.kt`).** "More" no longer opens Tool Options. The
+  hero card grows in place (M3 Expressive `defaultSpatialSpec`), from its own size to 1.5x as wide
+  and up over where the stroke preview rests. The preview is always `PreviewGap` (48dp) above the
+  hero card: at rest in the carousel column, and, while the card is grown or growing, lifted onto
+  the expanded card's page. There it is placed in the same layout pass as the card, from the one
+  animation's progress, so it rides above the card frame by frame and is never hidden behind it or
+  the neighbours. The carousel's own copy hides while `HeroExpansion.progress > 0`, and the lifted
+  copy still crossfades and draws each item at its own settings. It shows `heroFullAdjustments`, which covers what Tool Options
+  showed for that item: the inline sliders plus Stabilize, and for Smudge also Load and Smudge
+  opacity. It edits the item's own settings and scrolls if it overflows. It is drawn by
+  `ExpandedHeroLayer` on its own AzNavRail page, `background(weight = 1, page = -0.5f)`, in front of
+  the carousel's page 0. So it overlaps the neighbouring cards without the carousel reflowing, and
+  never pushes the tabs. `HeroExpansion` is shared by both pages: the carousel publishes its content
+  and the hero's anchor to it. It closes on Less, on a second More, on Back, when another card takes
+  the hero slot, when a stroke starts, or when the carousel leaves the screen. The Tool Options
+  window stays for the rail's Tool Options item, for the "All options" card, and for the settings
+  only it has: Smudge's dilution, pickup, radius, mixing model and alpha carry, the stabilizer
+  algorithm, and selection feather.
   **Collapse while drawing.** `CarouselSheet(strokeActive = { strokeGate.strokeActive })` reads the
   flag in the sheet, not in the page, so a stroke does not recompose the carousel. While it is true
   the sheet is shown shut (`carouselSheetShownOpen(userOpen, strokeActive)`): it snaps shut with no

@@ -83,7 +83,7 @@ internal fun CarouselItemSettings.adjusted(setter: HeroSetter, value: Float): Ca
     HeroSetter.BRUSH_OPACITY -> copy(opacity = value)
     HeroSetter.BRUSH_SOFTNESS -> copy(softness = value)
     HeroSetter.SMUDGE_STRENGTH -> copy(strength = value)
-    HeroSetter.STABILIZER, HeroSetter.WAND_TOLERANCE -> null
+    HeroSetter.SMUDGE_LOAD, HeroSetter.SMUDGE_OPACITY, HeroSetter.STABILIZER, HeroSetter.WAND_TOLERANCE -> null
 }?.sanitized()
 
 /** [this] hero state with the per-item fields replaced by [s]'s; the global ones are kept. */
