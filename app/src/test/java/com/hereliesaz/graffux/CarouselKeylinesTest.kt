@@ -51,4 +51,42 @@ class CarouselKeylinesTest {
         assertEquals(9, carouselSnapTarget(9f, velocity = 5f, count = 10))
         assertEquals(0, carouselSnapTarget(0f, velocity = -5f, count = 10))
     }
+
+    @Test
+    fun `at an exact position only the hero preview shows, fully opaque`() {
+        assertEquals(CarouselHeroBlend(3, null, 0f), carouselHeroBlend(3f, count = 10))
+        assertEquals(1f, carouselPreviewAlpha(3f, 3), 0f)
+        assertEquals(0f, carouselPreviewAlpha(3f, 4), 0f)
+        assertEquals(0f, carouselPreviewAlpha(3f, 2), 0f)
+    }
+
+    @Test
+    fun `between positions the hero and its neighbour blend`() {
+        val quarter = carouselHeroBlend(3.25f, count = 10)!!
+        assertEquals(3, quarter.heroIndex)
+        assertEquals(4, quarter.neighborIndex)
+        assertEquals(0.25f, quarter.neighborAlpha, 1e-5f)
+        assertEquals(0.75f, quarter.heroAlpha, 1e-5f)
+        val back = carouselHeroBlend(2.8f, count = 10)!!
+        assertEquals(3, back.heroIndex)
+        assertEquals(2, back.neighborIndex)
+        assertEquals(0.2f, back.neighborAlpha, 1e-5f)
+    }
+
+    @Test
+    fun `halfway the two previews share the stroke evenly`() {
+        val half = carouselHeroBlend(3.5f, count = 10)!!
+        assertEquals(setOf(3, 4), setOf(half.heroIndex, half.neighborIndex))
+        assertEquals(0.5f, half.neighborAlpha, 1e-5f)
+        assertEquals(0.5f, carouselPreviewAlpha(3.5f, 3), 1e-5f)
+        assertEquals(0.5f, carouselPreviewAlpha(3.5f, 4), 1e-5f)
+    }
+
+    @Test
+    fun `the list ends clamp, and an empty row has no preview`() {
+        assertEquals(CarouselHeroBlend(0, null, 0f), carouselHeroBlend(-0.4f, count = 10))
+        assertEquals(CarouselHeroBlend(9, null, 0f), carouselHeroBlend(9.6f, count = 10))
+        assertEquals(CarouselHeroBlend(0, null, 0f), carouselHeroBlend(0f, count = 1))
+        assertEquals(null, carouselHeroBlend(0f, count = 0))
+    }
 }

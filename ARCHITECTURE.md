@@ -138,8 +138,14 @@ codebase is deferred scope or a real gap in the install-report flow.
   the item's index. All of these are pure and tested. Tip visuals: installed brushes show their bundled tip
   bitmap (`EditorViewModel.installedBrushTips`, or a rendered round tip if none is bundled); built-in and
   Brush Studio brushes (no tip bitmap) a round dab rendered with the engine's hardness falloff; Ink
-  utensils their tip glyph; effects and options their icon. The selected entry's stroke preview
-  (`BrushPreview`) is drawn above the hero card. Tabs sit below the strip, in the order Undo ·
+  utensils their tip glyph; effects and options their icon. The stroke preview (`BrushPreview`)
+  above the hero card always shows the entry in the hero slot, crossfading with its neighbour by
+  the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`); entries without a
+  stroke show none. Whatever settles in the hero slot becomes the selection: a drag or fling runs
+  the entry's action only for brushes, Ink utensils and effect tools (`carouselAutoActivates`);
+  stabilizer, smudge and shape stops and Tool Options need a tap. Tapping a non-hero card scrolls
+  it into the hero slot and then runs it. Selection changed elsewhere (rail, undo) re-centres the
+  row; a settle never re-runs the already-selected entry (`carouselSettleSelects`), so no loop. Tabs sit below the strip, in the order Undo ·
   Favorites · Brushes · Ink · Effects · Options · Redo (`CAROUSEL_TABS`). Undo and Redo are actions,
   not pages. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
   the star on hero and medium cards and stored as entry keys, in starring order, in
