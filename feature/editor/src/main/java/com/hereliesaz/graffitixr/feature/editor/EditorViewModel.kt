@@ -9707,26 +9707,46 @@ class EditorViewModel @Inject constructor(
      * brush built before there's anything to paint with).
      */
     // TEMPORARY: see PredictionRankingReporter / PredictionReportRepository.
+    /**
+     * Latest unfiled ranking; filed on next launch (CrashIssueUploader) if the app dies first.
+     * The reporter clears it once a post succeeds. Writes go through one serial dispatcher so a
+     * clear can never land before an older save.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val pendingRankingStore = object :
+        com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.PendingStore {
+        private val file by lazy {
+            java.io.File(
+                context.cacheDir,
+                com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.PENDING_FILE,
+            )
+        }
+        private val serialIo = dispatchers.io.limitedParallelism(1)
+
+        override fun save(title: String, body: String) {
+            if (predictionReports == null) return
+            // First line title, rest body -- CrashIssueUploader's format for this file.
+            viewModelScope.launch(serialIo) { runCatching { file.writeText(title + "\n" + body) } }
+        }
+
+        override fun clear() {
+            viewModelScope.launch(serialIo) { runCatching { file.delete() } }
+        }
+    }
+
     private val predictionRankingReporter =
         com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter(
             device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                 "Android ${android.os.Build.VERSION.RELEASE}",
-        ) { title, body ->
-            val reports = predictionReports ?: return@PredictionRankingReporter
+            pendingStore = pendingRankingStore,
+        ) { title, body, done ->
+            val reports = predictionReports ?: return@PredictionRankingReporter done(false)
             viewModelScope.launch(dispatchers.io) {
-                reports.fileIssue(title, body).onFailure {
-                    android.util.Log.w("StrokePrediction", "ranking issue not filed", it)
-                }
+                val result = reports.fileIssue(title, body)
+                result.onFailure { android.util.Log.w("StrokePrediction", "ranking issue not filed", it) }
+                done(result.isSuccess)
             }
         }
-
-    /** Latest unfiled ranking, rewritten every stroke; filed on next launch if the app dies first. */
-    private val pendingRankingFile by lazy {
-        java.io.File(
-            context.cacheDir,
-            com.hereliesaz.graffitixr.feature.editor.prediction.PredictionRankingReporter.PENDING_FILE,
-        )
-    }
 
     /**
      * A Brush stroke ended; [report] is the tournament's current per-horizon ranking. [engine] is
@@ -9741,18 +9761,6 @@ class EditorViewModel @Inject constructor(
     ) {
         val report = predictionReport + "\n" + feelReport(engine)
         predictionRankingReporter.onBrushStroke(report, refreshRateHz, engine)
-        if (predictionReports == null) return
-        val pending = predictionRankingReporter.pendingIssue(report, refreshRateHz)
-        viewModelScope.launch(dispatchers.io) {
-            runCatching {
-                if (pending == null) {
-                    pendingRankingFile.delete()
-                } else {
-                    // First line title, rest body -- CrashIssueUploader's format for this file.
-                    pendingRankingFile.writeText(pending.first + "\n" + pending.second)
-                }
-            }
-        }
     }
 
     /** The canvas that owned the tournament went away; file what's unreported if it's enough. */
