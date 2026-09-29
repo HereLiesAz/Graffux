@@ -3806,15 +3806,14 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.SetLoading(true))
         viewModelScope.launch(dispatchers.default) {
-            val lut = extensionRepository.loadLut(extensionId)
-            if (lut == null) {
+            val graded = gradeWithInstalledLut(extensionId, bitmap)
+            if (graded == null) {
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
                     Toast.makeText(context, "Couldn't load that filter — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
                 }
                 return@launch
             }
-            val graded = bitmap.applyCubeLut(lut)
             putLayerBase(layerId, graded)
             graded.recycle()
             layerStore.initStrokes(layerId)
@@ -3822,6 +3821,20 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.SetLoading(false))
         }
     }
+
+    /**
+     * The grade [applyInstalledLut] commits: [source] through extension [extensionId]'s `.cube` LUT,
+     * as a new bitmap ([source] is untouched). Null when the LUT is missing or corrupt.
+     */
+    private fun gradeWithInstalledLut(extensionId: String, source: Bitmap): Bitmap? =
+        extensionRepository.loadLut(extensionId)?.let { source.applyCubeLut(it) }
+
+    /**
+     * [applyInstalledLut] without committing: grades [source] (the carousel's downscaled layer
+     * snapshot) on the default dispatcher and returns the result, touching no layer or history.
+     */
+    suspend fun previewInstalledLut(extensionId: String, source: Bitmap): Bitmap? =
+        withContext(dispatchers.default) { gradeWithInstalledLut(extensionId, source) }
 
     /**
      * Applies a curves adjustment (see [CurvesDialog]) to the active layer's bitmap. [points] are the
@@ -9980,21 +9993,6 @@ class EditorViewModel @Inject constructor(
 
     /** Current resolved Azphalt brush for topology-aware hover/tool previews; null = basic round brush. */
     fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
-
-    /** The decoded custom-tip assets (if any) the active installed brush will actually paint with. */
-    data class ActiveBrushPreviewAssets(
-        val shape: Bitmap?,
-        val grain: Bitmap?,
-        val maskShape: Bitmap?,
-    )
-
-    /**
-     * Runtime assets for [activeBrushForPreview], so Tool Options can preview the installed brush
-     * as it will actually paint -- BrushPreview otherwise has no access to a custom tip/grain/
-     * masked secondary tip and always falls back to generated gradient ovals.
-     */
-    fun activeBrushPreviewAssets(): ActiveBrushPreviewAssets =
-        ActiveBrushPreviewAssets(activeStampShape, activeStampGrain, activeStampMaskShape)
 
     private data class InstalledBrushRuntime(
         val brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
