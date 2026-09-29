@@ -27,14 +27,13 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.CarouselDefaults
-import androidx.compose.material3.carousel.HorizontalCenteredHeroCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
@@ -52,15 +51,7 @@ import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 
 private val CarouselHeight = 124.dp
 private val HeroItemWidth = 168.dp
-
-/**
- * The hero's share of the strip. At 0.48 the centred-hero strategy still laid out two large items
- * (verified in BottomCarouselUiTest's render); at 0.6 two cannot fit, so it lays out exactly one,
- * in the centre, with the smaller keylines on either side.
- */
-private const val HERO_WIDTH_FRACTION = 0.6f
-private val SmallItemMinWidth = 40.dp
-private val SmallItemMaxWidth = 56.dp
+private val ItemSpacing = 6.dp
 private val TipSize = 36.dp
 private val HeroTipSize = 44.dp
 internal val StarTouchSize = 32.dp
@@ -250,35 +241,28 @@ private fun CarouselStrip(
 ) {
     val entries = content.entries
     val selected = selectedCarouselIndex(entries)
-    val state = rememberCarouselState(initialItem = selected ?: 0) { entries.size }
-    // The hero slot follows the current selection, whichever surface changed it (this strip, the
-    // rail, the shortcuts sheet or the Tool Options window).
-    LaunchedEffect(selected, entries.size) {
-        if (selected != null) state.animateScrollToItem(selected)
-    }
-    val smallMaxPx = with(LocalDensity.current) { SmallItemMaxWidth.toPx() }
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val heroWidth = maxWidth * HERO_WIDTH_FRACTION
-        HorizontalCenteredHeroCarousel(
-            state = state,
-            modifier = Modifier.fillMaxWidth().height(CarouselHeight),
-            maxItemWidth = heroWidth,
-            itemSpacing = 6.dp,
-            flingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state),
-            minSmallItemWidth = SmallItemMinWidth,
-            maxSmallItemWidth = SmallItemMaxWidth,
-        ) { index ->
-            // The tier is read off the size the keyline strategy gave this item right now, so hero,
-            // medium and small are the carousel's own keylines, not a guess from the index.
-            val info = carouselItemDrawInfo
-            val tier = carouselTier(info.size, info.maxSize, smallMaxPx)
+    val spacingPx = with(LocalDensity.current) { ItemSpacing.toPx() }
+    BoxWithConstraints(Modifier.fillMaxWidth().height(CarouselHeight)) {
+        val widthPx = constraints.maxWidth.toFloat()
+        val sizes = carouselKeylineSizes(widthPx, spacingPx)
+        // The hero slot follows the current selection, whichever surface changed it (this strip,
+        // the rail, the shortcuts sheet or the Tool Options window).
+        CenteredHeroRow(
+            count = entries.size,
+            centredIndex = selected,
+            widthPx = widthPx,
+            spacing = ItemSpacing,
+            modifier = Modifier.fillMaxSize(),
+        ) { index, sizePx ->
+            // The tier comes from the size the keylines gave this item right now, never its index.
+            val tier = carouselTier(sizePx, sizes.hero, sizes.smallCeiling)
             CarouselItem(
                 entries[index],
                 tier,
                 content,
                 onEntryClick,
                 onToggleFavorite,
-                Modifier.fillMaxSize().maskClip(CardShape),
+                Modifier.fillMaxSize().clip(CardShape).testTag("carousel.card.${tier.name}"),
             )
         }
     }

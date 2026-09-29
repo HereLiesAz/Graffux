@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -98,6 +99,12 @@ class BottomCarouselUiTest {
             File(path).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
 
+        // small · medium · HERO · medium · small at 411dp.
+        fun count(tier: CarouselTier) =
+            rule.onAllNodesWithTag("carousel.card.${tier.name}", useUnmergedTree = true).fetchSemanticsNodes().size
+        assertEquals(1, count(CarouselTier.HERO))
+        assertEquals(2, count(CarouselTier.MEDIUM))
+        assertTrue(count(CarouselTier.SMALL) >= 2)
         // Details render only on the hero card, so exactly one card carries a details line.
         assertEquals(1, rule.onAllNodesWithText("Built-in · round tip").fetchSemanticsNodes().size)
         // And it is the selected brush's card: its name is on screen.

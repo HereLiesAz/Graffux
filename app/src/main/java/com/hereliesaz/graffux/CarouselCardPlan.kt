@@ -103,3 +103,4 @@ private fun inkTrait(utensil: InkUtensil): String = when (utensil) {
     InkUtensil.HIGHLIGHTER -> "Chisel tip, translucent"
     InkUtensil.DASHED_LINE -> "Dashed, constant width"
 }
+
