@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.verticalScroll
@@ -90,6 +91,9 @@ internal val StarTouchSize = 32.dp
 internal val StarSize = 18.dp
 private val MaxCarouselWidth = 560.dp
 private val PreviewHeight = 40.dp
+
+/** Clear space between the stroke preview and the top of the hero card. */
+private val PreviewGap = 24.dp
 private val TabRowHeight = 36.dp
 internal val CardShape = RoundedCornerShape(20.dp)
 
@@ -168,10 +172,11 @@ internal fun BottomCarousel(
                     derivedStateOf { carouselStripPosition(widths, smallMaxPx, state.currentItem) }
                 }
                 HeroPreview(position, content)
+                Spacer(Modifier.height(PreviewGap))
                 CarouselStrip(state, widths, position, content, onEntryClick, onToggleFavorite)
             }
         } else {
-            Box(Modifier.fillMaxWidth().height(PreviewHeight))
+            Box(Modifier.fillMaxWidth().height(PreviewHeight + PreviewGap))
             if (ui.category == CarouselCategory.FAVORITES) {
                 EmptyHint("No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.")
             }
