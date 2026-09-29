@@ -170,8 +170,10 @@ jobs:
           dependency-graph: disabled
 
       # The wgpu stamp engine (core/wgpu-engine) is cross-compiled by Gradle with cargo; the runner
-      # image ships rustup/cargo but not the Android target. Without it the APK still builds, just
-      # without libgraffux_wgpu.so (Settings -> GPU engine -> wgpu then falls back to the CPU).
+      # image ships rustup/cargo but not the Android target. The build below passes
+      # -Pgraffux.wgpu.require=true (read by core/nativebridge/build.gradle.kts), so a missing
+      # target or a cargo failure fails the build loudly instead of silently shipping an APK
+      # without libgraffux_wgpu.so (where Settings -> GPU engine -> wgpu falls back to the CPU).
       - name: Add the Rust Android target
         run: rustup target add aarch64-linux-android
 
@@ -196,7 +198,7 @@ jobs:
           set +e
 
           # Build the APK (signing comes from the env-driven signingConfigs.release in Gradle)
-          ./gradlew assembleDebug --build-cache > build.log 2>&1
+          ./gradlew assembleDebug --build-cache -Pgraffux.wgpu.require=true > build.log 2>&1
 
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
