@@ -510,7 +510,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `a frame resize sends peers the children's changes, not just the frame's`() = runTest {
+    fun `a frame resize and its undo send peers the children's changes, not just the frame's`() = runTest {
         seedFrame()
         viewModel.onSetFrameSize(800f, 200f)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -523,6 +523,12 @@ class EditorViewModelTest {
         }
         verify {
             opEmitter.emit(match { it is Op.LayerTransform && it.layerId == "end" && it.matrix[1] == 330f })
+        }
+        // Undo's resync must carry the restored geometry too, or a peer keeps the resized frame.
+        viewModel.onUndoClicked(); testDispatcher.scheduler.advanceUntilIdle()
+        verify { opEmitter.emit(match { it is Op.LayerGeometry && it.layerId == "F" && it.layoutWidth == 400f }) }
+        verify {
+            opEmitter.emit(match { it is Op.LayerGeometry && it.layerId == "fill" && it.shapes.first().width == 360f })
         }
     }
 

@@ -132,7 +132,9 @@ codebase is deferred scope or a real gap in the install-report flow.
   GraffitiXR is untouched. A segmented switch picks the page by hand. It is not inferred from the
   tool: effect tools paint with the current brush, so auto-switching would pull the Brushes page away
   exactly when it's wanted. What each page shows, and which item is selected, is derived in
-  `BottomCarouselPlan.kt` (pure, tested). Every tap goes through an existing `EditorViewModel` call.
+  `BottomCarouselPlan.kt` (pure, tested). The Brushes page ends with `INK_UTENSIL_CATALOG`; an Ink
+  utensil in hand is lit from `activeInkUtensil`, never by name (the built-in stamp "Ink Pen" shares
+  the Ink Pen's name). Every tap goes through an existing `EditorViewModel` call.
   The brush rail and the Tool Options window stay; the carousel's "All options" item opens that
   window. The carousel pads itself clear of the rail via `LocalRailInset`. It hides with the other
   bottom chrome while a panel is open or the UI is hidden. It collapses with its chevron, and the
