@@ -174,8 +174,10 @@ jobs:
       # -Pgraffux.wgpu.require=true (read by core/nativebridge/build.gradle.kts), so a missing
       # target or a cargo failure fails the build loudly instead of silently shipping an APK
       # without libgraffux_wgpu.so (where Settings -> GPU engine -> wgpu falls back to the CPU).
-      - name: Add the Rust Android target
-        run: rustup target add aarch64-linux-android
+      - name: Add the Rust Android targets (arm64-v8a, armeabi-v7a)
+        run: |
+          rustup target add aarch64-linux-android
+          rustup target add armv7-linux-androideabi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
