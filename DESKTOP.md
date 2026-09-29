@@ -37,7 +37,7 @@ sound finished — see each claim's own verification note.
   design doc, §2b "Multipass drying".
 - **GPU compositing through wgpu, CPU as the fallback.** The canvas composites strokes on the
   GPU with the wgpu stamp engine (`core/wgpu-engine`, Rust + WGSL), the same engine the Android
-  app offers under Settings → GPU engine → wgpu. wgpu picks Vulkan, DX12, Metal or GL on each
+  app uses (its only GPU backend). wgpu picks Vulkan, DX12, Metal or GL on each
   machine. `:desktop` builds the crate for the host with cargo (`cargoBuildWgpuHost`) and bundles
   the library as a classpath resource (`native/<os>-<arch>/`). `WgpuLibrary` (core:engine's
   `jvmShared` source set) extracts and loads it. `GpuStrokeRenderer` uploads the pre-stroke canvas,
@@ -377,7 +377,7 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   desktop canvas itself only draws round stamp brushes, so only that path is wired. An earlier
   version of this document ruled out a desktop GPU engine as a from-scratch second backend. The
   decision since is the opposite: wgpu is the long-term single engine for Android and desktop
-  (ARCHITECTURE.md, Decisions), with Vulkan and GLES kept on Android for now.
+  (ARCHITECTURE.md, Decisions); Android's Vulkan and GLES engines have since been retired.
 - **No stylus tilt.** Compose Multiplatform Desktop currently exposes pointer pressure and
   `PointerType`, not tilt/orientation, so tilt-driven brush behavior (available on Android via
   `BrushSample.tiltRadians`) has no desktop input source yet.
@@ -454,8 +454,9 @@ stands after these fixes, not the first draft glee reviewed.
 wgpu engine pass:
 
 - `cargo test` in `core/wgpu-engine`: 8 tests, both wgpu backends (lavapipe Vulkan, llvmpipe GL).
-- `tools/stamp-engine-diff/run.sh`: wgpu on GL is byte-identical to `GlesStampEngine` in all 26
-  scenarios. wgpu on Vulkan is within 1 level of `VulkanStampEngine`.
+- `tools/stamp-engine-diff/run.sh`: before their retirement, wgpu on GL was byte-identical to
+  `GlesStampEngine` in all 26 scenarios and wgpu on Vulkan within 1 level of `VulkanStampEngine`.
+  It now checks wgpu alone (Vulkan against GL, multipass, direct display, resident layers).
 - `:desktop:test` (`GpuStrokeParityTest`) on `WGPU_BACKEND=vulkan` and `WGPU_BACKEND=gl`.
 - `:desktop:run` under Xvfb: the canvas reports the wgpu adapter and paints a `java.awt.Robot`
   drag. The same drag with `-Dgraffux.gpu=false` paints through the CPU compositor.

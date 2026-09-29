@@ -30,7 +30,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
-| `:core:nativebridge` | JNI bridge to the native (OpenCV/Vulkan) world used by Liquify, drawing, and GPU compositing. Hosts the three GPU stamp engines behind `StampEngine.h`: Vulkan, OpenGL ES, and the wgpu adapter. |
+| `:core:nativebridge` | JNI bridge to the native (OpenCV/wgpu) world used by Liquify, drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
 | `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
 | `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. Its `jvmShared` source set (Android + desktop) holds the JNI wrapper of the wgpu engine. |
 | `:desktop` | The real Graffux desktop app (Linux/Windows, Compose Multiplatform) — not published from this table's other modules, but a third consumer of `:core:engine`'s shared math alongside Android Graffux and GraffitiXR. See `DESKTOP.md`. |
@@ -187,20 +187,31 @@ codebase is deferred scope or a real gap in the install-report flow.
   whatever the *live* layer list is when decoding finishes, rather than replacing the whole
   list with the stale pre-decode snapshot — decoding a full-screen bitmap can take long enough
   for the user to have added, removed, or edited a layer in the meantime.
-- **wgpu is the long-term single brush engine, for Android and desktop.** The GPU stamp engine
-  exists three times today: `VulkanStampEngine` and `GlesStampEngine` (C++, Android only) and the
-  wgpu engine (`core/wgpu-engine`, Rust + WGSL). New brush work targets wgpu. Vulkan and GLES stay
-  selectable in Settings → GPU engine for now, for comparison and as fallbacks, and Vulkan is
-  still the default. Direct display exists twice: `LiveStrokeOverlay` (raw Vulkan, imports the
-  Vulkan/GLES engines' AHardwareBuffer layer) and, for wgpu, the engine presenting into the same
-  overlay SurfaceView through a wgpu swapchain (`core/wgpu-engine/src/direct.rs`; design doc §3,
-  "wgpu direct display"). wgpu was chosen over
+- **wgpu is the single GPU brush engine, for Android and desktop.** On Android, `GpuStampEngine`
+  drives the wgpu engine (`core/wgpu-engine`, Rust + WGSL) through the `WgpuStampEngine` C++
+  adapter; there is no backend choice. Where wgpu cannot start (no adapter, no Vulkan, or a build
+  without `libgraffux_wgpu.so`, which today includes every armeabi-v7a install), `init()` returns
+  false and the stroke draws on the CPU, exactly as on a device with no usable GPU. Direct display
+  is the wgpu engine presenting into the overlay SurfaceView through a wgpu swapchain
+  (`core/wgpu-engine/src/direct.rs`; design doc §3, "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
   where the NDK engines cannot run at all), its automatic synchronization (no hand-written
   barriers between the ordered smudge phases), one shader language (WGSL, compiled by naga,
-  instead of two GLSL dialects and a port script), and a path to WebGPU in the browser. Parity is
-  checked by `tools/stamp-engine-diff`, which runs every scenario through all engines on Mesa. See
+  instead of two GLSL dialects and a port script), and a path to WebGPU in the browser.
+  `tools/stamp-engine-diff` checks the engine on Mesa across wgpu's Vulkan and GL backends. See
   `docs/Native Rendering Engine Design.md` §2b.
+- **Retired: the Vulkan and OpenGL ES 3.1 stamp engines (2026-09).** Until then the GPU stamp
+  engine existed three times: `VulkanStampEngine` and `GlesStampEngine` (C++ compute, GLSL shaders
+  embedded by glslc / a port script, Android only) beside wgpu, picked in Settings → GPU engine
+  with Vulkan the default, plus `LiveStrokeOverlay`, a Vulkan SurfaceControl direct display that
+  imported their AHardwareBuffer layer, and `AzphaltGpuDisplay`, a zero-copy hardware-bitmap
+  preview of the same layer. They were kept for comparison and as fallbacks while wgpu matured
+  (`tools/stamp-engine-diff` measured wgpu within 1-2 levels of them). Once the owner confirmed
+  wgpu on their devices, all of it was deleted: three engines' worth of shader parity, sync code
+  and interop was upkeep with no remaining user, and the CPU path already covers any device wgpu
+  can't run on. `RetiredGpuBackendMigration` (`:app`) deletes the stale `backend` key from the
+  `gpu_engine` preferences. The code is in git history before the retirement commit; the design
+  doc's "Retired backends" section keeps what was learned.
 - **wgpu keeps layers resident on the GPU across strokes** (§2b of the design doc). The engine
   holds each recently painted layer keyed by layer and content generation, under an LRU memory
   budget. A stroke that starts on an unchanged layer binds it with no upload. The commit then
@@ -209,11 +220,11 @@ codebase is deferred scope or a real gap in the install-report flow.
   explicitly. When unsure, invalidate: that costs one upload, never wrong pixels. Readback copies
   only the dirty rectangle. Every wgpu native call runs on `GpuRenderThread`, one FIFO thread,
   so batches, commit refreshes and invalidations stay in order and teardown never blocks the main
-  thread. Vulkan and GLES do none of this. `StampEngine.h`'s new methods default to the old
-  behaviour for them.
+  thread. `StampEngine.h`'s optional methods default to no residency and whole-layer readback,
+  for a wgpu library that predates them.
 - **Graffux's hardware floor is Android 10 + Vulkan 1.1, and the brush engine tunes itself within
   it.** `:app` minSdk went from 26 to 29, and the manifest requires `android.hardware.vulkan.version`
-  0x401000, so Play offers the app only to devices whose GPU runs the stamp engines. The shared
+  0x401000, so Play offers the app only to devices whose GPU can run the wgpu engine (on Vulkan). The shared
   library modules stay at 26 for GraffitiXR. Inside the floor, a short calibration picks a tier from
   one table (`GpuTierTable`). It runs behind the mandatory project dialog (`ProjectGateDialog`: no
   project, nothing to do, so the dialog has no cancel path), capped at 2 s beyond Save/Load. Its

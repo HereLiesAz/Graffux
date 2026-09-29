@@ -48,7 +48,7 @@ struct Api {
     bool (*readback)(GfxWgpuEngine*, uint8_t*, size_t);
     size_t (*adapterDescription)(GfxWgpuEngine*, char*, size_t);
     // Optional (resident layers, rectangle readback): a library without them still loads; the
-    // adapter then behaves like the other backends (no residency, whole-layer rect reports).
+    // adapter then falls back to StampEngine's defaults (no residency, whole-layer rect reports).
     bool (*readbackRect)(GfxWgpuEngine*, uint8_t*, size_t, int32_t*);
     uint64_t (*bindLayer)(GfxWgpuEngine*, uint64_t, uint64_t);
     uint64_t (*uploadLayer)(GfxWgpuEngine*, uint64_t, uint64_t, const uint8_t*, size_t);
@@ -174,12 +174,6 @@ bool WgpuStampEngine::init(int width, int height) {
     gApi.adapterDescription(engine_, name, sizeof(name));
     WGPU_LOGW("wgpu engine %dx%d on %s", width, height, name);
     return true;
-}
-
-bool WgpuStampEngine::initWithHardwareBuffer(int /*width*/, int /*height*/) {
-    // No AHardwareBuffer interop in the wgpu engine (yet): callers fall back to readback display.
-    destroy();
-    return false;
 }
 
 bool WgpuStampEngine::clear() { return engine_ != nullptr && gApi.clear(engine_); }

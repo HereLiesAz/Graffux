@@ -1,10 +1,10 @@
 package com.hereliesaz.graffitixr.feature.editor.gpu
 
 /**
- * What the active GPU stamp engine says about the device, parsed from the `key=value` lines of
- * `StampEngine::gpuInfo()` (Vulkan: `VkPhysicalDeviceProperties`; wgpu: `AdapterInfo`; GLES: the
- * `GL_RENDERER`/`GL_VENDOR`/`GL_VERSION` strings). Fields a backend cannot report are empty or 0:
- * GLES has no numeric ids and no Vulkan API version, wgpu does not expose the Vulkan API version.
+ * What the GPU stamp engine says about the device, parsed from the `key=value` lines of
+ * `StampEngine::gpuInfo()` (wgpu's `AdapterInfo`). Fields the engine cannot report are empty or 0:
+ * wgpu does not expose the Vulkan API version. The `vulkan`/`gles` engine values are from the
+ * retired C++ engines; stored telemetry and tier records may still carry them.
  */
 data class GpuInfo(
     /** Which engine produced this: `vulkan`, `gles` or `wgpu`. */
