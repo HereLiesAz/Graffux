@@ -28,6 +28,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -82,6 +83,12 @@ internal data class CarouselContent(
     val extensionTips: Map<String, Bitmap> = emptyMap(),
     /** Installed extensions' manifest `preview.image` thumbnails, by extension id. */
     val extensionIcons: Map<String, Bitmap> = emptyMap(),
+    /** What the hero card's inline sliders read; null shows no sliders (see [heroAdjustments]). */
+    val heroState: HeroAdjustmentState? = null,
+    /** Routes a hero slider's new value to its existing editor setter. */
+    val onAdjust: (HeroSetter, Float) -> Unit = { _, _ -> },
+    /** The hero's "More": that item's full adjustments. Null hides the button. */
+    val onMore: ((CarouselEntry) -> Unit)? = null,
 )
 
 /** The history state the Undo/Redo tabs read, and the calls they make. */
@@ -180,9 +187,15 @@ private fun HeroPreview(position: Animatable<Float, AnimationVector1D>, content:
 private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
     val bitmap = (entry.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
     val tag = Modifier.testTag("carousel.preview.${entry.key}")
+    // The brush in hand previews at the live Size and Flow the hero sliders are setting.
+    val live = content.heroState?.takeIf { entry.selected }
     when {
         entry.brush != null -> Box(tag.widthIn(max = HeroItemWidth * 2).fillMaxWidth()) {
-            BrushPreview(entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight)
+            BrushPreview(
+                entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight,
+                flow = live?.brushFlow ?: 1f,
+                sizeOverridePx = live?.brushSize,
+            )
         }
         bitmap != null ->
             Image(bitmap.asImageBitmap(), contentDescription = null, modifier = tag.height(PreviewHeight))
@@ -299,7 +312,12 @@ private fun CarouselStrip(
         val entry = currentEntries.getOrNull(index) ?: return
         if (carouselSettleSelects(entry, byTap)) click(entry)
     }
-    BoxWithConstraints(Modifier.fillMaxWidth().height(CarouselHeight)) {
+    // The hero card grows upward (never wider) to fit its sliders, so the row is as tall as the
+    // hero needs; every other card stays CarouselHeight, bottom-aligned.
+    val heroIndex by remember { derivedStateOf { kotlin.math.round(position.value).toInt() } }
+    val heroExtra = currentEntries.getOrNull(heroIndex)?.let { heroControlsHeight(it, content) } ?: 0.dp
+    val rowHeight by animateDpAsState(CarouselHeight + heroExtra, label = "heroHeight")
+    BoxWithConstraints(Modifier.fillMaxWidth().height(rowHeight)) {
         val widthPx = constraints.maxWidth.toFloat()
         val sizes = carouselKeylineSizes(widthPx, spacingPx)
         // The hero slot follows the current selection, whichever surface changed it (this strip,
@@ -332,10 +350,21 @@ private fun CarouselStrip(
                     }
                 },
                 onToggleFavorite,
-                Modifier.fillMaxSize().clip(CardShape).testTag("carousel.card.${tier.name}"),
+                Modifier.clip(CardShape).testTag("carousel.card.${tier.name}"),
             )
         }
     }
+}
+
+private val SliderRowHeight = SLIDER_ROW_DP.dp
+private val MoreRowHeight = MORE_ROW_DP.dp
+
+/** The extra height the hero card takes for [entry]'s sliders and "More" button. */
+private fun heroControlsHeight(entry: CarouselEntry, content: CarouselContent): androidx.compose.ui.unit.Dp {
+    val state = content.heroState ?: return 0.dp
+    val sliders = heroAdjustments(entry, state).size
+    val more = content.onMore != null && heroHasMore(entry)
+    return SliderRowHeight * sliders + if (more) MoreRowHeight else 0.dp
 }
 
 @Suppress("FunctionNaming", "LongParameterList")
@@ -350,20 +379,47 @@ private fun CarouselItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val border = if (entry.selected) Modifier else Modifier.border(BorderStroke(1.dp, colors.outline), CardShape)
-    val card = carouselCardContent(entry, tier)
-    Box(
-        modifier = clip
-            .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
-            .then(border)
-            .semantics {
-                this.selected = entry.selected
-                contentDescription = entry.label
-                if (entry.favorite) stateDescription = "Favorite"
+    val isHero = tier == CarouselTier.HERO
+    // Only the hero may be taller than the row's base height; the rest sit on its bottom edge.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        Column(
+            modifier = clip
+                .then(if (isHero) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(CarouselHeight))
+                .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
+                .then(border)
+                .semantics {
+                    this.selected = entry.selected
+                    contentDescription = entry.label
+                    if (entry.favorite) stateDescription = "Favorite"
+                },
+        ) {
+            val tint = if (entry.selected) colors.surface else colors.onSurface
+            val state = content.heroState
+            if (isHero && state != null) {
+                HeroControls(entry, heroAdjustments(entry, state), content, tint)
             }
-            .clickable(role = Role.Tab) { onEntryClick(entry) },
-        contentAlignment = Alignment.Center,
-    ) {
-        val tint = if (entry.selected) colors.surface else colors.onSurface
+            // The click target is the tip-and-name area, not the sliders above it.
+            Box(
+                Modifier.fillMaxWidth().weight(1f).clickable(role = Role.Tab) { onEntryClick(entry) },
+                contentAlignment = Alignment.Center,
+            ) {
+                CardIdentity(entry, tier, content, tint, onToggleFavorite)
+            }
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.CardIdentity(
+    entry: CarouselEntry,
+    tier: CarouselTier,
+    content: CarouselContent,
+    tint: Color,
+    onToggleFavorite: (CarouselEntry) -> Unit,
+) {
+    val card = carouselCardContent(entry, tier)
+    run {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,

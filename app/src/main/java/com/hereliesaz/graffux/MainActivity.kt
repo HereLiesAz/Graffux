@@ -206,9 +206,8 @@ private fun azphaltInstallUrl(intent: Intent?): String? {
     return data.getQueryParameter("url")
 }
 
-/** Brush-size range the edge slider maps onto — matches EditorReducer's own clamp on SetBrushSize. */
-private const val MIN_BRUSH_SIZE = 1f
-private const val MAX_BRUSH_SIZE = 200f
+// The brush-size range (MIN_BRUSH_SIZE..MAX_BRUSH_SIZE) the edge slider and the hero card's Size
+// slider both map onto lives in CarouselHeroAdjustments.kt.
 
 /** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */
 private const val MIN_BRUSH_ALPHA = 0.05f
@@ -901,25 +900,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     favorites = carouselFavorites,
                                 ),
                             )
-                            BottomCarousel(
-                                ui = carouselUi,
-                                onUiChange = { carouselUi = it },
-                                content = CarouselContent(
-                                    entries = carouselEntries,
-                                    brushColor = uiState.activeColor,
-                                    secondaryColor = uiState.secondaryColor,
-                                    extensionPreviews = brushPreviews,
-                                    extensionTips = brushTips,
-                                    extensionIcons = extensionIcons,
-                                ),
-                                history = CarouselHistory(
-                                    undoCount = uiState.undoCount,
-                                    redoCount = uiState.redoCount,
-                                    onUndo = { vm.onUndoClicked() },
-                                    onRedo = { vm.onRedoClicked() },
-                                ),
-                                onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
-                                onEntryClick = { entry ->
+                            val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->
                                     when (val action = entry.action) {
                                         is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
                                         is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
@@ -954,7 +935,57 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                             }
                                         }
                                     }
-                                },
+                            }
+                            BottomCarousel(
+                                ui = carouselUi,
+                                onUiChange = { carouselUi = it },
+                                content = CarouselContent(
+                                    entries = carouselEntries,
+                                    brushColor = uiState.activeColor,
+                                    secondaryColor = uiState.secondaryColor,
+                                    extensionPreviews = brushPreviews,
+                                    extensionTips = brushTips,
+                                    extensionIcons = extensionIcons,
+                                    // The same fields Tool Options, the size picker and the brush HUD
+                                    // read and set; the hero sliders hold no state of their own.
+                                    heroState = HeroAdjustmentState(
+                                        brushSize = uiState.brushSize,
+                                        brushFlow = uiState.brushFlow,
+                                        brushOpacity = uiState.brushOpacity,
+                                        brushFeathering = uiState.brushFeathering,
+                                        smudgeRate = colorSmudgeSettings.smudgeRate,
+                                        stabilizerLevel = uiState.stabilizerLevel,
+                                        magicWandTolerance = uiState.magicWandTolerance,
+                                    ),
+                                    onAdjust = { setter, value ->
+                                        when (setter) {
+                                            HeroSetter.BRUSH_SIZE -> vm.setBrushSize(value)
+                                            HeroSetter.BRUSH_FLOW -> vm.setBrushFlow(value)
+                                            HeroSetter.BRUSH_OPACITY -> vm.setBrushOpacity(value)
+                                            HeroSetter.BRUSH_SOFTNESS -> vm.setBrushFeathering(value)
+                                            HeroSetter.SMUDGE_STRENGTH -> vm.setColorSmudgeRate(value)
+                                            HeroSetter.STABILIZER -> vm.setStabilizerLevel(value.roundToInt())
+                                            HeroSetter.WAND_TOLERANCE -> vm.onSetMagicWandTolerance(value.roundToInt())
+                                        }
+                                    },
+                                    // "More": the Tool Options window, which shows whatever is in hand, so
+                                    // an unpicked brush/utensil/tool is picked first. Carousel state is
+                                    // host-owned (carouselUi), so opening the window loses none of it.
+                                    onMore = { entry ->
+                                        if (!entry.selected && carouselAutoActivates(entry.action)) {
+                                            runCarouselEntry(entry)
+                                        }
+                                        showToolOptions = true
+                                    },
+                                ),
+                                history = CarouselHistory(
+                                    undoCount = uiState.undoCount,
+                                    redoCount = uiState.redoCount,
+                                    onUndo = { vm.onUndoClicked() },
+                                    onRedo = { vm.onRedoClicked() },
+                                ),
+                                onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
+                                onEntryClick = runCarouselEntry,
                             )
                         }
                     }
