@@ -18,6 +18,9 @@ object BuiltInBrushes {
      *  module, so the literal is duplicated there -- BuiltInBrushesTest pins the two together). */
     const val DEFAULT_NAME = "Round"
 
+    /** The Ink Pen's first dab, as a multiple of its resting dab size -- the whole start blot. */
+    const val INK_PEN_BLOT_MAX_SIZE = 1.3f
+
     /**
      * The main brush: the plainest possible GPU stamp round -- near-hard edge, full opacity,
      * pressure -> size only, no build-up, no airbrush, no blot, no tip or grain asset. It is the
@@ -76,12 +79,14 @@ object BuiltInBrushes {
                 BrushSensorBinding(sensor = BrushSensor.PRESSURE, parameter = BrushParameter.OPACITY, outputMin = 0.3f, outputMax = 1f),
             ),
         ),
-        // A loaded ink pen: touching down leaves an outsized, ragged blot that fades into the
-        // resting line width, growing further the harder/more suddenly it's tapped down
-        // (BrushBlot.sharpnessMultiplier) or the longer it dwells before the stroke starts moving
-        // (BrushBlot.dwellGrowthMultiplier) -- and keeps a light hold-to-build-up of its own for a
-        // pause mid-stroke, all three of this session's dwell/sharpness/build-up additions in one
-        // brush.
+        // A loaded ink pen: touching down leaves a small blot, at most INK_PEN_BLOT_MAX_SIZE of the
+        // resting dab, that fades into the line over the first 60 px -- plus a light hold-to-build-up
+        // for a pause mid-stroke. Toned down at the owner's call (the start "big spots" report): it
+        // used to reach ~9x the line width, 1.8x base times up to 2.5x dwell growth times up to 2x
+        // for a sharp press, and nearly every stylus touchdown counted as sharp (pressure rises from
+        // ~0 to working pressure in one ~8 ms sample). Dwell and sharpness growth are now off, so the
+        // blot no longer depends on how the pen landed, and it has no extra jittered copies, whose
+        // offsets would spread the spot past the cap.
         AzphaltBrush(
             name = "Ink Pen",
             hardness = 0.9f,
@@ -91,14 +96,8 @@ object BuiltInBrushes {
             airbrushStillnessRadiusPx = 3f,
             blot = BrushBlot(
                 lengthPx = 60f,
-                sizeMultiplier = 1.8f,
+                sizeMultiplier = INK_PEN_BLOT_MAX_SIZE,
                 opacityMultiplier = 1.2f,
-                extraStamps = 3,
-                angleJitterDeg = 45f,
-                positionJitter = 0.25f,
-                dwellGrowthMultiplier = 2.5f,
-                dwellRampMs = 400f,
-                sharpnessMultiplier = 2f,
             ),
         ),
     )
