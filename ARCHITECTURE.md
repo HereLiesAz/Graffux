@@ -146,7 +146,13 @@ codebase is deferred scope or a real gap in the install-report flow.
   gives the composed items (`carouselHeroPosition` in `CarouselKeylines.kt`). Each width is
   weighed from the medium keyline up, so the position is exact at rest. Each card's content is
   inset to its visible mask, which keeps a medium card's star on screen and makes the whole
-  visible side card a tap target. The card tier comes from the
+  visible side card a tap target. **Heights:** small 104dp · medium 136dp · hero 200dp, interpolated
+  from each item's laid-out width between the keylines (`carouselCardHeight`), so nothing jumps
+  mid-scroll. The row is the hero's height and every card is centred on its middle line; the
+  stroke preview sits above and the tabs below. The hero is compact: tip beside name (star in the
+  corner) and details on top, then 28dp slider rows, then More at the foot. Card content that
+  overflows scrolls vertically, starting at its foot; leftover vertical scroll drags the
+  `CarouselSheet` (nested scroll). The card tier comes from the
   laid-out width (`carouselItemDrawInfo` into `carouselTier`), never from the item's index. All of
   these are pure and tested. Tip visuals: installed brushes show their bundled tip
   bitmap (`EditorViewModel.installedBrushTips`, or a rendered round tip if none is bundled); built-in and

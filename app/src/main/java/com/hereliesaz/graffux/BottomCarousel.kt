@@ -7,6 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +30,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.BoxWithConstraints
 import com.hereliesaz.graffux.carousel.Carousel
@@ -66,7 +70,14 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 
-private val CarouselHeight = 124.dp
+/**
+ * Card heights at the small, medium and hero keylines (see [carouselCardHeight]). The hero is about
+ * 1.5x a medium card; the row is as tall as the hero, and every card is centred on its middle.
+ */
+private val SmallCardHeight = 104.dp
+private val MediumCardHeight = 136.dp
+private val HeroCardHeight = 200.dp
+private val CarouselHeight = HeroCardHeight
 private val HeroItemWidth = 168.dp
 private val SmallItemMinWidth = 40.dp
 private val SmallItemMaxWidth = 56.dp
@@ -344,17 +355,17 @@ private fun CarouselStrip(
     // One settle per user drag or fling, and a haptic tick per item crossed under the finger.
     CarouselGestureEffects(state, programmatic) { settle(it, byTap = false) }
     val smallMaxPx = with(LocalDensity.current) { SmallItemMaxWidth.toPx() }
-    // The hero card grows upward (never wider) to fit its sliders, so the row is as tall as the
-    // hero needs; every other card stays CarouselHeight, bottom-aligned.
-    val heroIndex by remember { derivedStateOf { kotlin.math.round(position.value).toInt() } }
-    val heroExtra = currentEntries.getOrNull(heroIndex)?.let { heroControlsHeight(it, content) } ?: 0.dp
-    val rowHeight by animateDpAsState(CarouselHeight + heroExtra, label = "heroHeight")
+    // The row is as tall as the hero card; every card is centred on the row's middle, its height
+    // interpolated from its laid-out width (carouselCardHeight), so small < medium < hero.
     val density = LocalDensity.current
     val keylines = rememberCentredKeylines(SmallItemMinWidth, SmallItemMaxWidth, AnchorWidth)
-    BoxWithConstraints(Modifier.fillMaxWidth().height(rowHeight)) {
-        // The medium keyline's width floors the hero position's weights (carouselStripPosition).
-        // Index 2 of anchor · small · medium · HERO · … is the medium keyline.
-        val medium = keylines(constraints.maxWidth.toFloat(), with(density) { ItemSpacing.toPx() }).getOrNull(2)?.size
+    val cardHeights = CarouselCardHeights(SmallCardHeight.value, MediumCardHeight.value, HeroCardHeight.value)
+    BoxWithConstraints(Modifier.fillMaxWidth().height(CarouselHeight)) {
+        // Index 1, 2, 3 of anchor · small · medium · HERO · … are the small, medium and hero
+        // keylines. The medium width also floors the hero position's weights (carouselStripPosition).
+        val lines = keylines(constraints.maxWidth.toFloat(), with(density) { ItemSpacing.toPx() })
+        val small = lines.getOrNull(1)?.size
+        val medium = lines.getOrNull(2)?.size
         SideEffect { if (medium != null) widths[MEDIUM_WIDTH_KEY] = medium else widths.remove(MEDIUM_WIDTH_KEY) }
     // The fork of M3's Carousel with custom, centred keylines: small · medium · HERO · medium ·
     // small, the focal range pinned so the first and last items rest centred too.
@@ -373,6 +384,11 @@ private fun CarouselStrip(
         // The tier is read off the width M3's keylines gave this item right now, never its index.
         val info = carouselItemDrawInfo
         val tier = carouselTier(info.size, info.maxSize, smallMaxPx)
+        val cardHeight = if (small != null && medium != null) {
+            carouselCardHeight(info.size, small, medium, info.maxSize, cardHeights).dp
+        } else {
+            MediumCardHeight
+        }
         SideEffect {
             widths[index] = info.size
             // The hero position weighs each width against the hero keyline's, so it needs that too.
@@ -386,6 +402,7 @@ private fun CarouselStrip(
         CarouselItem(
             entry,
             tier,
+            cardHeight,
             maskInset,
             content,
             { tapped ->
@@ -435,22 +452,12 @@ internal class ProgrammaticScrolls {
     }
 }
 
-private val SliderRowHeight = SLIDER_ROW_DP.dp
-private val MoreRowHeight = MORE_ROW_DP.dp
-
-/** The extra height the hero card takes for [entry]'s sliders and "More" button. */
-private fun heroControlsHeight(entry: CarouselEntry, content: CarouselContent): androidx.compose.ui.unit.Dp {
-    val state = content.heroState ?: return 0.dp
-    val sliders = heroAdjustments(entry, state).size
-    val more = content.onMore != null && heroHasMore(entry)
-    return SliderRowHeight * sliders + if (more) MoreRowHeight else 0.dp
-}
-
 @Suppress("FunctionNaming", "LongParameterList")
 @Composable
 private fun CarouselItem(
     entry: CarouselEntry,
     tier: CarouselTier,
+    height: androidx.compose.ui.unit.Dp,
     maskInset: androidx.compose.ui.unit.Dp,
     content: CarouselContent,
     onEntryClick: (CarouselEntry) -> Unit,
@@ -459,40 +466,136 @@ private fun CarouselItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val isHero = tier == CarouselTier.HERO
-    // Only the hero may be taller than the row's base height; the rest sit on its bottom edge.
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        Column(
-            modifier = clip
-                .then(if (isHero) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(CarouselHeight))
-                .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
-                .semantics {
-                    this.selected = entry.selected
-                    contentDescription = entry.label
-                    if (entry.favorite) stateDescription = "Favorite"
-                },
-        ) {
-            val tint = if (entry.selected) colors.surface else colors.onSurface
-            val state = content.heroState
-            if (isHero && state != null) {
-                HeroControls(entry, heroAdjustments(entry, state), content, tint)
-            }
-            // The click target is the tip-and-name area, not the sliders above it: on a side card
-            // that is the whole visible card.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clickable(role = Role.Tab) { onEntryClick(entry) }
-                    .padding(horizontal = maskInset),
-                contentAlignment = Alignment.Center,
-            ) {
-                CardIdentity(entry, tier, content, tint, onToggleFavorite)
-            }
+    // Content taller than the card scrolls vertically inside it (verticalScroll only moves when it
+    // overflows). Horizontal drags still reach the row; verticalScroll takes part in nested scroll,
+    // so whatever the card does not consume goes on to the sheet (CarouselSheet).
+    val scroll = rememberScrollState()
+    // An overflowing card starts at its foot, where the hero's controls are.
+    var pinnedToFoot by remember(entry.key, tier) { mutableStateOf(false) }
+    LaunchedEffect(entry.key, tier, scroll.maxValue) {
+        if (!pinnedToFoot && scroll.maxValue > 0) {
+            scroll.scrollTo(scroll.maxValue)
+            pinnedToFoot = true
         }
-        ActiveHighlight(carouselHeroHighlighted(entry, tier))
+    }
+    // Every card is centred on the row's middle line, so all tiers share one vertical centre.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().height(height)) {
+            BoxWithConstraints(
+                modifier = clip
+                    .fillMaxSize()
+                    .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
+                    .semantics {
+                        this.selected = entry.selected
+                        contentDescription = entry.label
+                        if (entry.favorite) stateDescription = "Favorite"
+                    },
+            ) {
+                val cardHeight = maxHeight
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scroll)
+                        .testTag("carousel.card.scroll"),
+                ) {
+                    val tint = if (entry.selected) colors.surface else colors.onSurface
+                    val adjustments = content.heroState?.let { heroAdjustments(entry, it) }.orEmpty()
+                    val onMore = content.onMore?.takeIf { heroHasMore(entry) }
+                    val hasControls = adjustments.isNotEmpty() || onMore != null
+                    if (isHero && content.heroState != null && hasControls) {
+                        CompactHero(
+                            entry, adjustments, onMore, content, tint, maskInset, cardHeight, onEntryClick,
+                            onToggleFavorite,
+                        )
+                    } else {
+                        // On a side card the whole visible card is the click target.
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = cardHeight)
+                                .clickable(role = Role.Tab) { onEntryClick(entry) }
+                                .padding(horizontal = maskInset),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CardIdentity(entry, tier, content, tint, onToggleFavorite)
+                        }
+                    }
+                }
+            }
+            ActiveHighlight(carouselHeroHighlighted(entry, tier))
+        }
     }
 }
 
+/**
+ * The hero with controls, kept short: the tip beside the name (the star in the corner) and the
+ * details on top, the compact sliders and "More" at the foot. At least [minHeight] tall, so the
+ * controls sit on the card's bottom edge; taller content scrolls (see [CarouselItem]). The click
+ * target is the tip, name and details, never the sliders or More.
+ */
+@Suppress("FunctionNaming", "LongParameterList")
+@Composable
+private fun CompactHero(
+    entry: CarouselEntry,
+    adjustments: List<HeroAdjustment>,
+    onMore: ((CarouselEntry) -> Unit)?,
+    content: CarouselContent,
+    tint: Color,
+    maskInset: androidx.compose.ui.unit.Dp,
+    minHeight: androidx.compose.ui.unit.Dp,
+    onEntryClick: (CarouselEntry) -> Unit,
+    onToggleFavorite: (CarouselEntry) -> Unit,
+) {
+    val details = carouselCardContent(entry, CarouselTier.HERO).details
+    Column(
+        Modifier.fillMaxWidth().heightIn(min = minHeight),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Tab) { onEntryClick(entry) }
+                .padding(horizontal = maskInset)
+                .padding(top = 6.dp)
+                .testTag("carousel.hero.identity"),
+        ) {
+            Column(Modifier.padding(start = 8.dp, end = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = StarTouchSize - 8.dp),
+                ) {
+                    TipVisual(carouselTip(entry), content, tint, TipSize)
+                    Text(
+                        entry.label,
+                        color = tint,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                details.forEach {
+                    Text(
+                        it,
+                        color = tint.copy(alpha = DETAIL_ALPHA),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            FavoriteToggle(entry, tint, onToggleFavorite, Modifier.align(Alignment.TopEnd))
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = maskInset).padding(bottom = 2.dp)) {
+            if (adjustments.isNotEmpty()) HeroControls(adjustments, content, tint)
+            if (onMore != null) {
+                Box(Modifier.fillMaxWidth().padding(end = 2.dp), contentAlignment = Alignment.CenterEnd) {
+                    HeroMoreButton(entry, onMore, tint)
+                }
+            }
+        }
+    }
+}
 
 @Suppress("FunctionNaming")
 @Composable
