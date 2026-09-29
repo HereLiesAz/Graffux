@@ -115,17 +115,6 @@ pub fn trim_weight(hardness: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// The coarsest mask mip a masked draft samples has at least this many texels across
-/// (`draft_masked.wgsl` clamps its lod to `levels - 4`). A 1x1 or 2x2 level averages the falloff to
-/// a constant, and the dab's footprint then clips it to a solid shape.
-pub const MIN_DRAFT_MIP_TEXELS: u32 = 8;
-
-/// The mask value below which a masked draft is trimmed: `1 - f` of the mask's range. Masked drafts
-/// no longer trim (the mask's falloff is the stamp itself); kept for the round-tip analogue.
-pub fn mask_threshold(f: f32) -> f32 {
-    1.0 - clamp_edge_fraction(f)
-}
-
 /// Smallest draft radius, in layer pixels, at draft `scale`: a dab smaller than one draft texel
 /// would fall between texel centers and vanish, so it is widened to this and its alpha lowered by
 /// the area ratio (bristle-size dabs stay present, with the same total paint).
@@ -252,8 +241,6 @@ mod tests {
             assert!((c - 0.6).abs() < 1e-4, "h={h}: {c}");
             assert!((e.position(e.edge) - 0.4).abs() < 1e-6);
         }
-        assert!((mask_threshold(0.4) - 0.6).abs() < 1e-6);
-        assert!((mask_threshold(0.1) - (1.0 - EDGE_FRACTION_MIN)).abs() < 1e-6);
     }
 
     #[test]

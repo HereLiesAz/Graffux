@@ -880,8 +880,8 @@ it served. It remains in git history if an Ink soft brush is ever wanted as its 
 hardness drag still changes `brushFeathering` for the other brushes. Ink strokes record
 feathering 0.
 
-**Settings migration.** The `jetpack_ink_brush` preference is deleted on the settings store's
-first read, by `RetiredSettingsMigration` (a DataStore `DataMigration`). Its value is not carried
+**Settings migration.** The `jetpack_ink_brush` preference is deleted by `RetiredSettingsMigration`
+(a DataStore `DataMigration`), which runs only while that key is present in the store. Its value is not carried
 forward into "select the Ink Pen". The toggle only affected the unreachable legacy round, so an
 "on" never changed what anyone drew. Honouring it now would swap a user's brush for a setting that
 had no visible effect.

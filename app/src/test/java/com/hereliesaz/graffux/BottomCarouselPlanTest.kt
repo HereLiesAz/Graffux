@@ -38,10 +38,10 @@ class BottomCarouselPlanTest {
             CarouselCategory.BRUSHES,
             base.copy(customBrushes = custom, extensionBrushes = listOf("e:1" to "Ext")),
         )
-        assertEquals(builtIn.size + 2, entries.size)
+        assertEquals(builtIn.size + 2 + INK_UTENSIL_CATALOG.size, entries.size)
         assertEquals(CarouselAction.BuiltInBrush(builtIn.first().name), entries.first().action)
         assertEquals(CarouselAction.CustomBrush("c1"), entries[builtIn.size].action)
-        assertEquals(CarouselAction.ExtensionBrush("e:1"), entries.last().action)
+        assertEquals(CarouselAction.ExtensionBrush("e:1"), entries[builtIn.size + 1].action)
     }
 
     @Test
@@ -61,6 +61,29 @@ class BottomCarouselPlanTest {
         )
         assertEquals(1, entries.count { it.selected })
         assertEquals(0, selectedCarouselIndex(entries))
+    }
+
+    @Test
+    fun `brushes page ends with the Ink utensils`() {
+        val entries = carouselEntries(CarouselCategory.BRUSHES, base)
+        assertEquals(
+            INK_UTENSIL_CATALOG.map { CarouselAction.InkUtensilPick(it.utensil) },
+            entries.takeLast(INK_UTENSIL_CATALOG.size).map { it.action },
+        )
+    }
+
+    @Test
+    fun `an Ink utensil in hand lights only its entry, not the same-named stamp brush`() {
+        val pen = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+        // Selecting a utensil sets activeBrushName to its display name, which the built-in shares.
+        assertTrue(builtIn.any { it.name == pen.displayName })
+        val entries = carouselEntries(
+            CarouselCategory.BRUSHES,
+            base.copy(activeBrushName = pen.displayName, activeInkUtensil = pen),
+        )
+        assertEquals(1, entries.count { it.selected })
+        val index = selectedCarouselIndex(entries)!!
+        assertEquals(CarouselAction.InkUtensilPick(pen), entries[index].action)
     }
 
     @Test
