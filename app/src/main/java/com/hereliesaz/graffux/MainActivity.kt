@@ -472,6 +472,42 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val extensionEffects = remember(runnableExtensions) { extensionEffectsOf(runnableExtensions, vm::hasUsableLut) }
     val customBrushes by vm.customBrushes.collectAsState()
 
+    // Per-item carousel settings (CarouselItemSettingsPlan): whatever item is in hand — however it
+    // was picked — gets its own saved Size/Flow/Opacity/Softness/Strength, and any change to the live
+    // values while it is in hand (hero slider, Tool Options, size HUD) is saved as that item's.
+    val carouselItemSettings by vm.carouselItemSettings.collectAsState()
+    LaunchedEffect(Unit) { vm.loadCarouselItemSettings() }
+    val activeSettingsKey = activeCarouselSettingsKey(
+        CarouselInputs(
+            activeTool = uiState.activeTool,
+            activeBrushName = uiState.activeBrushName,
+            activeInkUtensil = activeInkUtensil,
+            builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+            customBrushes = customBrushes.map { it.id to it.brush },
+            extensionBrushes = brushes,
+            stabilizerLevel = uiState.stabilizerLevel,
+            stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+            smudgeMode = colorSmudgeSettings.mode,
+            selectionShape = uiState.selectionShape,
+            toolOptionsOpen = false,
+        ),
+    )
+    val liveItemSettings = com.hereliesaz.graffitixr.common.model.CarouselItemSettings(
+        size = uiState.brushSize,
+        flow = uiState.brushFlow,
+        opacity = uiState.brushOpacity,
+        softness = uiState.brushFeathering,
+        strength = colorSmudgeSettings.smudgeRate,
+    )
+    val itemSettingsSync = remember { CarouselItemSettingsSync() }
+    LaunchedEffect(activeSettingsKey, liveItemSettings, carouselItemSettings) {
+        when (val d = itemSettingsSync.observe(activeSettingsKey, liveItemSettings, carouselItemSettings)) {
+            is ItemSettingsDecision.Apply -> vm.applyCarouselItemSettings(d.settings, d.includeStrength)
+            is ItemSettingsDecision.Save -> vm.setCarouselItemSettings(d.key, d.settings)
+            ItemSettingsDecision.None -> Unit
+        }
+    }
+
     // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
     // the primary way in now, not the delegated store chooser below — that used to be the only
     // door, and this button still opened it directly, so the button a user would actually tap to
@@ -870,20 +906,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             background(weight = 1, page = 0f) {
                 if (carouselOnScreen) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            // background() pages are deliberately not inset (guide §1.1), and
-                            // LocalAzSafeZones is not provided to them in 11.52, so clear the nav bar
-                            // here — plus the shortcuts sheet's HIDDEN swipe strip, which sits over
-                            // the bottom edge above everything and would otherwise take the grab pill's
-                            // touches.
-                            .navigationBarsPadding()
-                            .padding(bottom = AzSheetConfig().hiddenStripDp + 4.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
                         CarouselSheet(
                             open = carouselUi.sheetOpen,
                             onOpenChange = { carouselUi = carouselUi.copy(sheetOpen = it) },
+                            // Shut at once while a stroke is down, back when it lifts (read in
+                            // the sheet, so this page does not recompose per stroke).
+                            strokeActive = { strokeGate.strokeActive },
+                            // background() pages are deliberately not inset (guide §1.1), and
+                            // LocalAzSafeZones is not provided to them in 11.52, so the sheet
+                            // clears the nav bar itself — plus the shortcuts sheet's HIDDEN swipe
+                            // strip, which sits over the bottom edge above everything and would
+                            // otherwise take the grab pill's touches. Its scrim runs down behind
+                            // both to the screen's edge.
+                            bottomInset = AzSheetConfig().hiddenStripDp + 4.dp,
                         ) {
                             val carouselEntries = carouselEntries(
                                 carouselUi.category,
@@ -960,8 +998,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         stabilizerLevel = uiState.stabilizerLevel,
                                         magicWandTolerance = uiState.magicWandTolerance,
                                     ),
-                                    onAdjust = { setter, value ->
-                                        when (setter) {
+                                    itemSettings = { entry ->
+                                        carouselSettingsKey(entry)?.let {
+                                            carouselItemSettingsFor(it, carouselItemSettings)
+                                        }
+                                    },
+                                    onAdjust = { entry, setter, value ->
+                                        val key = carouselSettingsKey(entry)
+                                        val own = key?.let {
+                                            carouselItemSettingsFor(it, carouselItemSettings).adjusted(setter, value)
+                                        }
+                                        // An item not in hand: only its own stored settings change.
+                                        // The item in hand: the live setter, which the sync above
+                                        // then saves as that item's.
+                                        if (key != null && own != null && key != activeSettingsKey) {
+                                            vm.setCarouselItemSettings(key, own)
+                                        } else when (setter) {
                                             HeroSetter.BRUSH_SIZE -> vm.setBrushSize(value)
                                             HeroSetter.BRUSH_FLOW -> vm.setBrushFlow(value)
                                             HeroSetter.BRUSH_OPACITY -> vm.setBrushOpacity(value)

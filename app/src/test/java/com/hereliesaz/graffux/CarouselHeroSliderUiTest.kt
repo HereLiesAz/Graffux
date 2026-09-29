@@ -89,7 +89,7 @@ class CarouselHeroSliderUiTest {
                                 brushSize = brushSize, brushFlow = 1f, brushOpacity = 1f, brushFeathering = 0f,
                                 smudgeRate = 0.5f, stabilizerLevel = 0, magicWandTolerance = 32,
                             ),
-                            onAdjust = { setter, v -> if (setter == HeroSetter.BRUSH_SIZE) brushSize = v },
+                            onAdjust = { _, setter, v -> if (setter == HeroSetter.BRUSH_SIZE) brushSize = v },
                             onMore = { mores += it.key },
                         ),
                         history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),

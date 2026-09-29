@@ -244,6 +244,9 @@ private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 /** Vegas-style cached animation preview: low enough to be cheap, large enough to judge motion. */
 private const val ANIMATION_PREVIEW_FRAME_MAX_DIM = 480
 
+/** How long the carousel's per-item settings sit in memory after a change before being written. */
+private const val CAROUSEL_SETTINGS_PERSIST_DEBOUNCE_MS = 300L
+
 /** Hard cap for all buffered preview pixels together; prevents a long range from becoming a heap bomb. */
 private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
 
@@ -3385,6 +3388,57 @@ class EditorViewModel @Inject constructor(
     /** Stars or un-stars the carousel entry with stable key [key]. */
     fun onToggleCarouselFavorite(key: String) = viewModelScope.launch(dispatchers.io) {
         settingsRepository.toggleCarouselFavorite(key)
+    }
+
+    private val _carouselItemSettings =
+        MutableStateFlow<Map<String, com.hereliesaz.graffitixr.common.model.CarouselItemSettings>?>(null)
+
+    /**
+     * Each carousel item's own paint settings, by entry key; null until [loadCarouselItemSettings]
+     * has read the store. Held in memory and written back debounced, so a slider drag is not a
+     * DataStore write per frame.
+     */
+    val carouselItemSettings: StateFlow<Map<String, com.hereliesaz.graffitixr.common.model.CarouselItemSettings>?> =
+        _carouselItemSettings.asStateFlow()
+    private var carouselItemSettingsLoad: Job? = null
+    private var carouselItemSettingsPersist: Job? = null
+
+    /** Reads the stored per-item settings once. Lazy (not in init): only the UI that uses them touches the store. */
+    fun loadCarouselItemSettings() {
+        if (carouselItemSettingsLoad != null) return
+        carouselItemSettingsLoad = viewModelScope.launch(dispatchers.io) {
+            val stored = runCatching { settingsRepository.carouselItemSettings.first() }.getOrNull().orEmpty()
+            // Anything set before the read landed wins over what was on disk.
+            _carouselItemSettings.update { current -> stored + current.orEmpty() }
+        }
+    }
+
+    /** Saves [settings] as item [key]'s own. Does not touch the live tool; see [applyCarouselItemSettings]. */
+    fun setCarouselItemSettings(key: String, settings: com.hereliesaz.graffitixr.common.model.CarouselItemSettings) {
+        val next = (_carouselItemSettings.value.orEmpty() + (key to settings.sanitized()))
+        _carouselItemSettings.value = next
+        carouselItemSettingsPersist?.cancel()
+        carouselItemSettingsPersist = viewModelScope.launch(dispatchers.io) {
+            delay(CAROUSEL_SETTINGS_PERSIST_DEBOUNCE_MS)
+            settingsRepository.setCarouselItemSettings(_carouselItemSettings.value.orEmpty())
+        }
+    }
+
+    /**
+     * Makes [settings] the live paint settings — what selecting a carousel item does with its own.
+     * Unlike [setBrushSize] it shows no brush HUD: picking a brush is not resizing one. Strength is
+     * written only when [includeStrength] (Smudge is the one item that owns it).
+     */
+    fun applyCarouselItemSettings(
+        settings: com.hereliesaz.graffitixr.common.model.CarouselItemSettings,
+        includeStrength: Boolean,
+    ) {
+        val s = settings.sanitized()
+        dispatch(EditorIntent.SetBrushSize(s.size))
+        dispatch(EditorIntent.SetBrushFlow(s.flow))
+        dispatch(EditorIntent.SetBrushOpacity(s.opacity))
+        dispatch(EditorIntent.SetBrushFeathering(s.softness))
+        if (includeStrength) setColorSmudgeRate(s.strength)
     }
 
     private fun recordToolUse(tool: Tool) {

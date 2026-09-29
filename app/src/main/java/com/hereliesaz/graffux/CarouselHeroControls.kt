@@ -29,7 +29,12 @@ import androidx.compose.ui.unit.sp
  */
 @Suppress("FunctionNaming")
 @Composable
-internal fun HeroControls(adjustments: List<HeroAdjustment>, content: CarouselContent, tint: Color) {
+internal fun HeroControls(
+    entry: CarouselEntry,
+    adjustments: List<HeroAdjustment>,
+    content: CarouselContent,
+    tint: Color,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -50,7 +55,7 @@ internal fun HeroControls(adjustments: List<HeroAdjustment>, content: CarouselCo
                 )
                 Slider(
                     value = a.value.coerceIn(a.range),
-                    onValueChange = { content.onAdjust(a.setter, heroSetterValue(a, it)) },
+                    onValueChange = { content.onAdjust(entry, a.setter, heroSetterValue(a, it)) },
                     valueRange = a.range,
                     colors = SliderDefaults.colors(thumbColor = tint, activeTrackColor = tint),
                     modifier = Modifier

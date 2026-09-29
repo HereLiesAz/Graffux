@@ -174,16 +174,40 @@ codebase is deferred scope or a real gap in the install-report flow.
   **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
   in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
   by the rail's width, so `background()` is the only page laid out across the whole window, and that
-  is what centres the carousel on the screen. It pads itself (nav bar plus the shortcuts sheet's
-  28dp HIDDEN strip), because background pages aren't inset and `LocalAzSafeZones` isn't provided to
-  them.
-  **Sheet.** `CarouselSheet` is an invisible, draggable sheet with no surface and no scrim. Drag it
+  is what centres the carousel on the screen. `CarouselSheet` keeps a `bottomInset` (nav bar plus
+  the shortcuts sheet's 28dp HIDDEN strip) below its content, because background pages aren't inset
+  and `LocalAzSafeZones` isn't provided to them.
+  **Sheet.** `CarouselSheet` is a draggable sheet with no surface of its own. Behind it sits a
+  full-width scrim (`CarouselScrimBrush`): black, transparent at its top edge, 40% by 22% of its
+  height and 45% at the screen's bottom edge. It runs down behind `bottomInset`, fades out as the
+  sheet shuts, and is a sibling with no pointer input, so it never takes a canvas touch. Drag it
   down to hide it (a grab pill stays), and drag, fling or tap the pill to bring it back.
   `carouselSheetSettlesOpen` decides where it settles. The sheet's open state lives in `CarouselUi`,
   held by `remember` as the old collapse state was. It does not use `azBottomSheet` (guide §10), for
   three reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
   painting. Its detents step on to HALF/FULL. And the shortcuts sheet already owns the bottom edge.
   The areas dropdown's "Carousel" toggle still removes it entirely.
+  **Collapse while drawing.** `CarouselSheet(strokeActive = { strokeGate.strokeActive })` reads the
+  flag in the sheet, not in the page, so a stroke does not recompose the carousel. While it is true
+  the sheet is shown shut (`carouselSheetShownOpen(userOpen, strokeActive)`): it snaps shut with no
+  animation. When the stroke ends or is cancelled it slides back in 160ms. The stroke never writes
+  `CarouselUi.sheetOpen`, so a sheet the user had shut stays shut. Unlike the rails, it reopens.
+  **Per-item settings (`CarouselItemSettingsPlan.kt`).** Each stamp brush, Ink utensil and effect
+  tool owns a `CarouselItemSettings` (Size, Flow, Opacity, Softness and, for Smudge only, Strength).
+  These are kept by entry key in `SettingsRepository.carouselItemSettings` (DataStore key
+  `carousel_item_settings`, tab/newline records). `EditorViewModel` holds them in memory, loads them
+  lazily, and writes them back after a 300ms debounce. The live `EditorUiState` fields are only the
+  settings of the item in hand. `activeCarouselSettingsKey` derives that item from editor state, so a
+  pick from the rail or the shortcuts sheet counts too. `CarouselItemSettingsSync` (pure) then does
+  two things. When the key changes it *applies* the item's saved settings, or its preset from
+  `carouselItemDefaults`; `applyCarouselItemSettings` shows no size HUD. When the live values change
+  under the same key (a hero slider, Tool Options, the size HUD) it *saves* them as that item's.
+  A hero slider on an item not in hand writes only that item's stored settings. Hero sliders and the
+  stroke preview read each entry's own settings (`CarouselContent.itemSettings`). Smudge-mode cards
+  edit Smudge's Strength. Options (stabilizer, wand threshold) remain global. Migration: the first
+  item in hand this session with nothing saved *adopts* the live (formerly global) values. Every
+  other item starts from its preset. So the brush in hand does not change on upgrade, and the
+  presets are not flattened into one value.
   **Rail.** The old Undo · Fit · Redo row is gone. Fit, Undo and Redo are rail items, declared last so
   they sit at the bottom of the rail. 11.52 has no footer slot and no per-item show/hide animation.
   Undo and Redo are declared only when `railHistoryItemsVisible` holds: the sheet is shut, or the
