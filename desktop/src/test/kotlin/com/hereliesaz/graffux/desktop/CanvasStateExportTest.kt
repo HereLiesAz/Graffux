@@ -25,4 +25,22 @@ class CanvasStateExportTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `a failed export leaves no empty file behind`() {
+        val dir = Files.createTempDirectory("graffux-export").toFile()
+        try {
+            val state = CanvasState()
+            state.commitStroke(BufferedImage(4, 4, BufferedImage.TYPE_INT_ARGB))
+
+            val thrown = runCatching {
+                state.exportPng(dir) { _, _ -> throw java.io.IOException("disk full") }
+            }.exceptionOrNull()
+
+            assertTrue("the failure is rethrown", thrown is java.io.IOException)
+            assertEquals(0, dir.listFiles()!!.size)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

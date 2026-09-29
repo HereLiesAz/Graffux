@@ -31,7 +31,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
 | `:core:nativebridge` | JNI bridge to the native (OpenCV/wgpu) world used by Liquify, drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
-| `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
+| `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a and armeabi-v7a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
 | `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. Its `jvmShared` source set (Android + desktop) holds the JNI wrapper of the wgpu engine. |
 | `:desktop` | The real Graffux desktop app (Linux/Windows, Compose Multiplatform) — not published from this table's other modules, but a third consumer of `:core:engine`'s shared math alongside Android Graffux and GraffitiXR. See `DESKTOP.md`. |
 
@@ -132,7 +132,9 @@ codebase is deferred scope or a real gap in the install-report flow.
   GraffitiXR is untouched. A segmented switch picks the page by hand. It is not inferred from the
   tool: effect tools paint with the current brush, so auto-switching would pull the Brushes page away
   exactly when it's wanted. What each page shows, and which item is selected, is derived in
-  `BottomCarouselPlan.kt` (pure, tested). Every tap goes through an existing `EditorViewModel` call.
+  `BottomCarouselPlan.kt` (pure, tested). The Brushes page ends with `INK_UTENSIL_CATALOG`; an Ink
+  utensil in hand is lit from `activeInkUtensil`, never by name (the built-in stamp "Ink Pen" shares
+  the Ink Pen's name). Every tap goes through an existing `EditorViewModel` call.
   The brush rail and the Tool Options window stay; the carousel's "All options" item opens that
   window. The carousel pads itself clear of the rail via `LocalRailInset`. It hides with the other
   bottom chrome while a panel is open or the UI is hidden. It collapses with its chevron, and the
@@ -188,7 +190,8 @@ codebase is deferred scope or a real gap in the install-report flow.
 - **wgpu is the single GPU brush engine, for Android and desktop.** On Android, `GpuStampEngine`
   drives the wgpu engine (`core/wgpu-engine`, Rust + WGSL) through the `WgpuStampEngine` C++
   adapter; there is no backend choice. Where wgpu cannot start (no adapter, no Vulkan, or a build
-  without `libgraffux_wgpu.so`, which today includes every armeabi-v7a install), `init()` returns
+  without `libgraffux_wgpu.so`; the library is built for both arm64-v8a and armeabi-v7a, so
+  32-bit devices keep GPU painting), `init()` returns
   false and the stroke draws on the CPU, exactly as on a device with no usable GPU. Direct display
   is the wgpu engine presenting into the overlay SurfaceView through a wgpu swapchain
   (`core/wgpu-engine/src/direct.rs`; design doc §3, "wgpu direct display"). wgpu was chosen over

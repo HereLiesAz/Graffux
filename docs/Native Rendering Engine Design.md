@@ -204,8 +204,9 @@ Why wgpu rather than consolidating on Vulkan alone:
   (`core/wgpu-engine/include/graffux_wgpu.h`), and `StampEngineFactory` always creates it; there
   is no Settings choice. `libgraffux_wgpu.so` is `dlopen`ed on first use, so a build without it
   still links and runs: `init()` returns false and the stroke uses the CPU path. Gradle
-  (`:core:nativebridge:cargoBuildWgpuAndroid`) cross-compiles it for arm64-v8a with cargo and the
-  NDK clang. armeabi-v7a devices, and any device where wgpu finds no adapter, fall back to the CPU.
+  (`:core:nativebridge:cargoBuildWgpuAndroid`) cross-compiles it for both APK ABIs (arm64-v8a
+  and armeabi-v7a) with cargo and the NDK clang, so 32-bit devices keep GPU painting (§2c). Only
+  devices where wgpu finds no adapter fall back to the CPU.
 - **The CPU fallback.** `GpuStampEngine.init()` is false when the library is missing, no adapter
   exists or setup fails; `EditorViewModel.createSeededGpuEngine` then returns null and the live
   stroke is drawn by the CPU renderers (`StampBrushRenderer`, the round-dab canvas path). The
@@ -669,6 +670,12 @@ to compare them. wgpu matched them on Mesa within 1–2 levels, runs on the desk
 confirmed on the owner's devices. Devices where wgpu cannot start lose nothing a user relied on:
 they draw on the CPU, which every GPU path already fell back to.
 
+**Both ABIs get wgpu.** The Vulkan engine used to cover armeabi-v7a devices; to keep them painting
+on the GPU after the retirement, `libgraffux_wgpu.so` is cross-compiled for `armv7-linux-androideabi`
+as well as `aarch64-linux-android` and packaged under both `lib/armeabi-v7a/` and `lib/arm64-v8a/`.
+32-bit devices therefore keep GPU painting; only devices where wgpu finds no adapter draw on the
+CPU. `-Pgraffux.wgpu.require=true` (CI) fails the build if either ABI's library is missing.
+
 **What the retired engines taught, kept for next time:** the Vulkan engine crashed on lavapipe in
 `uploadPaintHeight` (`vkUpdateDescriptorSets`); GLSL leaves `round()` on exact halves and `%` on
 negative operands implementation-defined (the wgpu port uses a floored modulo because of it);
@@ -873,8 +880,8 @@ it served. It remains in git history if an Ink soft brush is ever wanted as its 
 hardness drag still changes `brushFeathering` for the other brushes. Ink strokes record
 feathering 0.
 
-**Settings migration.** The `jetpack_ink_brush` preference is deleted on the settings store's
-first read, by `RetiredSettingsMigration` (a DataStore `DataMigration`). Its value is not carried
+**Settings migration.** The `jetpack_ink_brush` preference is deleted by `RetiredSettingsMigration`
+(a DataStore `DataMigration`), which runs only while that key is present in the store. Its value is not carried
 forward into "select the Ink Pen". The toggle only affected the unreachable legacy round, so an
 "on" never changed what anyone drew. Honouring it now would swap a user's brush for a setting that
 had no visible effect.
