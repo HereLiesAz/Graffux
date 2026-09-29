@@ -171,4 +171,14 @@ interface SettingsRepository {
      */
     val favoriteTools: Flow<List<String>>
     suspend fun toggleFavoriteTool(tool: com.hereliesaz.graffitixr.common.model.Tool)
+
+    /**
+     * The bottom carousel's starred entries, as the entries' stable keys (`builtin.<name>`,
+     * `custom.<id>`, `ink.<id>`, a tool id, `stabilizer.<level>`, ...), in the order they were
+     * starred. Same list-not-set reasoning as [favoriteTools].
+     */
+    val carouselFavorites: Flow<List<String>>
+
+    /** Stars [key], or un-stars it if already starred. Un-starring keeps the rest in place. */
+    suspend fun toggleCarouselFavorite(key: String)
 }

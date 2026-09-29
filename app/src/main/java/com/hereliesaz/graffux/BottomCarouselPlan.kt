@@ -9,13 +9,18 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 
 /**
- * What the bottom carousel is showing. Chosen by the segmented switch above it, never inferred from
- * the tool in hand: Smudge, Blur and friends all paint *with* the current brush, so "an effect tool
- * is armed" is exactly when someone may want the Brushes page, and a carousel that flipped itself
- * away from the page they picked would fight them.
+ * What the bottom carousel is showing. Chosen by the tab row below it, never inferred from the tool
+ * in hand: Smudge, Blur and friends all paint *with* the current brush, so "an effect tool is armed"
+ * is exactly when someone may want the Brushes page, and a carousel that flipped itself away from
+ * the page they picked would fight them.
+ *
+ * [BRUSHES] is stamp brushes only (built-in, Brush Studio, extension); [INK] is the Jetpack Ink
+ * utensils. They are different engines, so they are different pages.
  */
 internal enum class CarouselCategory(val label: String) {
+    FAVORITES("Favorites"),
     BRUSHES("Brushes"),
+    INK("Ink"),
     EFFECTS("Effects"),
     OPTIONS("Options"),
 }
@@ -51,6 +56,8 @@ internal data class CarouselEntry(
     val selected: Boolean,
     val icon: Int? = null,
     val brush: AzphaltBrush? = null,
+    /** Starred by the user; drawn as a star on the card and listed on the Favorites page. */
+    val favorite: Boolean = false,
 )
 
 /** The editor state the carousel reads — a narrow slice, so the derivation stays unit-testable. */
@@ -72,6 +79,8 @@ internal data class CarouselInputs(
     val smudgeMode: ColorSmudgeEngine.Mode,
     val selectionShape: SelectionShape,
     val toolOptionsOpen: Boolean,
+    /** Starred entry keys, in the order they were starred (`SettingsRepository.carouselFavorites`). */
+    val favorites: List<String> = emptyList(),
 )
 
 /** Tools that act on existing pixels rather than lay new paint down — the "Effects" page. */
@@ -94,19 +103,34 @@ internal val STABILIZER_STOPS: List<Pair<String, Int>> = List(STABILIZER_STOP_CO
     (if (level == 0) "Stabilizer off" else "Stabilizer $level") to level
 }
 
-internal fun carouselEntries(category: CarouselCategory, input: CarouselInputs): List<CarouselEntry> =
-    when (category) {
+internal fun carouselEntries(category: CarouselCategory, input: CarouselInputs): List<CarouselEntry> {
+    val raw = when (category) {
+        CarouselCategory.FAVORITES -> return favoriteEntries(input)
         CarouselCategory.BRUSHES -> brushEntries(input)
+        CarouselCategory.INK -> inkEntries(input)
         CarouselCategory.EFFECTS -> effectEntries(input)
-        CarouselCategory.OPTIONS -> optionEntries(input)
+        CarouselCategory.OPTIONS -> optionEntries(input, allOptions = false)
     }
+    return raw.markFavorites(input.favorites)
+}
+
+private fun List<CarouselEntry>.markFavorites(favorites: List<String>): List<CarouselEntry> {
+    if (favorites.isEmpty()) return this
+    val set = favorites.toSet()
+    return map { if (it.key in set) it.copy(favorite = true) else it }
+}
 
 /**
- * The item the carousel should centre on: the first selected entry, or null when nothing on this
- * page is current (the carousel then stays where the user left it rather than jumping to item 0).
+ * Every starred entry, in starring order. Looked up across every page — Options included in full,
+ * not just the stops the tool in hand shows — so a starred Smudge mode stays on this page whatever
+ * tool is armed. A key whose entry no longer exists (a deleted custom brush) is skipped, not shown.
  */
-internal fun selectedCarouselIndex(entries: List<CarouselEntry>): Int? =
-    entries.indexOfFirst { it.selected }.takeIf { it >= 0 }
+private fun favoriteEntries(input: CarouselInputs): List<CarouselEntry> {
+    if (input.favorites.isEmpty()) return emptyList()
+    val all = (brushEntries(input) + inkEntries(input) + effectEntries(input) + optionEntries(input, allOptions = true))
+        .associateBy { it.key }
+    return input.favorites.distinct().mapNotNull { key -> all[key]?.copy(favorite = true) }
+}
 
 private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList {
     // Same precedence as the rail's classifiers: a name can collide across the three sources, and
@@ -141,15 +165,14 @@ private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList
             ),
         )
     }
-    INK_UTENSIL_CATALOG.forEach { entry ->
-        add(
-            CarouselEntry(
-                key = "ink.${entry.utensil.id}", label = entry.label,
-                action = CarouselAction.InkUtensilPick(entry.utensil),
-                selected = input.activeInkUtensil == entry.utensil, icon = entry.icon,
-            ),
-        )
-    }
+}
+
+private fun inkEntries(input: CarouselInputs): List<CarouselEntry> = INK_UTENSIL_CATALOG.map { entry ->
+    CarouselEntry(
+        key = "ink.${entry.utensil.id}", label = entry.label,
+        action = CarouselAction.InkUtensilPick(entry.utensil),
+        selected = input.activeInkUtensil == entry.utensil, icon = entry.icon,
+    )
 }
 
 private fun effectEntries(input: CarouselInputs): List<CarouselEntry> = EFFECT_TOOLS.mapNotNull { tool ->
@@ -161,11 +184,11 @@ private fun effectEntries(input: CarouselInputs): List<CarouselEntry> = EFFECT_T
     )
 }
 
-private fun optionEntries(input: CarouselInputs): List<CarouselEntry> = buildList {
+private fun optionEntries(input: CarouselInputs, allOptions: Boolean): List<CarouselEntry> = buildList {
     val tool = input.activeTool
-    if (tool == Tool.SMUDGE) addAll(smudgeEntries(input))
-    if (tool == Tool.SELECT) addAll(selectEntries(input))
-    if (tool in STABILIZED_TOOLS) addAll(stabilizerEntries(input))
+    if (allOptions || tool == Tool.SMUDGE) addAll(smudgeEntries(input))
+    if (allOptions || tool == Tool.SELECT) addAll(selectEntries(input))
+    if (allOptions || tool in STABILIZED_TOOLS) addAll(stabilizerEntries(input, allOptions))
     add(
         CarouselEntry(
             key = "toolOptions", label = "All options",
@@ -210,7 +233,7 @@ private fun selectEntries(input: CarouselInputs): List<CarouselEntry> = buildLis
     }
 }
 
-private fun stabilizerEntries(input: CarouselInputs): List<CarouselEntry> = buildList {
+private fun stabilizerEntries(input: CarouselInputs, allOptions: Boolean): List<CarouselEntry> = buildList {
     run {
         STABILIZER_STOPS.forEach { (label, level) ->
             add(
@@ -222,7 +245,7 @@ private fun stabilizerEntries(input: CarouselInputs): List<CarouselEntry> = buil
             )
         }
         // Only worth choosing while the stabilizer is on; with it off every algorithm is a no-op.
-        if (input.stabilizerLevel > 0) {
+        if (allOptions || input.stabilizerLevel > 0) {
             StabilizerAlgorithm.entries.forEach { algorithm ->
                 add(
                     CarouselEntry(

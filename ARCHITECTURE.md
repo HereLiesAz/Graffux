@@ -127,21 +127,43 @@ codebase is deferred scope or a real gap in the install-report flow.
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
-  `BottomCarousel.kt` (`:app`) is an M3 `HorizontalMultiBrowseCarousel` of brushes, effect tools and
-  tool options, above the Undo/Fit/Redo row. It sits in `:app`, not `:feature:editor`, so
-  GraffitiXR is untouched. A segmented switch picks the page by hand. It is not inferred from the
-  tool: effect tools paint with the current brush, so auto-switching would pull the Brushes page away
-  exactly when it's wanted. What each page shows, and which item is selected, is derived in
-  `BottomCarouselPlan.kt` (pure, tested). The Brushes page ends with `INK_UTENSIL_CATALOG`; an Ink
-  utensil in hand is lit from `activeInkUtensil`, never by name (the built-in stamp "Ink Pen" shares
-  the Ink Pen's name). Every tap goes through an existing `EditorViewModel` call.
-  The brush rail and the Tool Options window stay; the carousel's "All options" item opens that
-  window. The carousel pads itself clear of the rail via `LocalRailInset`. It hides with the other
-  bottom chrome while a panel is open or the UI is hidden. It collapses with its chevron, and the
-  areas dropdown's "Carousel" toggle removes it. material3 `1.5.0-alpha29` has no centre-aligned
-  multi-browse keylines (only `HorizontalCenteredHeroCarousel`, a hero layout). Centring is
-  approximated with symmetric content padding. This is a basic first version, meant to be
-  adjusted.
+  `BottomCarousel.kt` (`:app`) lays out small · medium · HERO · medium · small, symmetric about the
+  screen centre, with the selected entry snapped into the hero. It uses `CenteredHeroRow`, a small
+  custom row, instead of an M3 carousel. material3 `1.5.0-alpha29`'s `HorizontalCenteredHeroCarousel`
+  drops the medium keylines at phone width, and the custom-keyline API behind it (`Carousel`,
+  `keylineListOf`, `CarouselAlignment`) is `internal`. Each item's width and centre come from its
+  distance to the centre (`carouselSlot` in `CarouselKeylines.kt`: hero 42%, medium 16%, small cards
+  share the rest, interpolated while scrolling). A drag settles one item per gesture
+  (`carouselSnapTarget`). The card tier comes from the laid-out width (`carouselTier`), never from
+  the item's index. All of these are pure and tested. Tip visuals: installed brushes show their bundled tip
+  bitmap (`EditorViewModel.installedBrushTips`, or a rendered round tip if none is bundled); built-in and
+  Brush Studio brushes (no tip bitmap) a round dab rendered with the engine's hardness falloff; Ink
+  utensils their tip glyph; effects and options their icon. The selected entry's stroke preview
+  (`BrushPreview`) is drawn above the hero card. Tabs sit below the strip, in the order Undo ·
+  Favorites · Brushes · Ink · Effects · Options · Redo (`CAROUSEL_TABS`). Undo and Redo are actions,
+  not pages. Brushes is stamp brushes only; Ink is `INK_UTENSIL_CATALOG`. Favorites are toggled by
+  the star on hero and medium cards and stored as entry keys, in starring order, in
+  `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
+  Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
+  `BottomCarouselPlan.kt` (pure, tested).
+  **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
+  in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
+  by the rail's width, so `background()` is the only page laid out across the whole window, and that
+  is what centres the carousel on the screen. It pads itself (nav bar plus the shortcuts sheet's
+  28dp HIDDEN strip), because background pages aren't inset and `LocalAzSafeZones` isn't provided to
+  them.
+  **Sheet.** `CarouselSheet` is an invisible, draggable sheet with no surface and no scrim. Drag it
+  down to hide it (a grab pill stays), and drag, fling or tap the pill to bring it back.
+  `carouselSheetSettlesOpen` decides where it settles. The sheet's open state lives in `CarouselUi`,
+  held by `remember` as the old collapse state was. It does not use `azBottomSheet` (guide §10), for
+  three reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
+  painting. Its detents step on to HALF/FULL. And the shortcuts sheet already owns the bottom edge.
+  The areas dropdown's "Carousel" toggle still removes it entirely.
+  **Rail.** The old Undo · Fit · Redo row is gone. Fit, Undo and Redo are rail items, declared last so
+  they sit at the bottom of the rail. 11.52 has no footer slot and no per-item show/hide animation.
+  Undo and Redo are declared only when `railHistoryItemsVisible` holds: the sheet is shut, or the
+  carousel is off screen. So they never duplicate the tab row's pair. Each is disabled when there is
+  nothing to undo or redo, and Fit is disabled while the view is already fitted.
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —

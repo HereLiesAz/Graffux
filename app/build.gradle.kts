@@ -116,6 +116,8 @@ val currentVersionName = "$verMajor.$verMinor.$currentPatch"
 
 android {
         namespace = "com.hereliesaz.graffux"
+        // Robolectric needs merged resources to inflate a Compose host (BottomCarouselUiTest).
+        testOptions { unitTests { isIncludeAndroidResources = true } }
         compileSdk = 37
 
         defaultConfig {
@@ -309,6 +311,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    // Robolectric + Compose UI test, as :feature:editor already uses them: the bottom carousel's
+    // layout (one hero slot, card tiers, the star toggle) is only checkable with a real composition.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

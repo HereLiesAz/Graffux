@@ -315,7 +315,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // not a replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
     // outright, and its own chevron collapses it to a single button when the canvas needs the room.
     var showCarousel by remember { mutableStateOf(true) }
-    var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, expanded = true)) }
+    var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)) }
+    val carouselFavorites by vm.carouselFavorites.collectAsState()
+    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && uiState.activePanel == EditorPanel.NONE
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
@@ -465,6 +467,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
     val brushes by vm.installedBrushes.collectAsState()
     val brushPreviews by vm.installedBrushPreviews.collectAsState()
+    val brushTips by vm.installedBrushTips.collectAsState()
     val customBrushes by vm.customBrushes.collectAsState()
 
     // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
@@ -639,6 +642,34 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onOpenBrushGallery = { showBrushGallery = true },
                 onOpenBrushTipsManager = { showBrushTipsManager = true },
             )
+
+            // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
+            // "the order in the DSL determines the order in the rail" (guide §3), so these are simply
+            // declared last. Nor does it animate a rail item in or out (azKinetics covers the drawer
+            // menu only, guide §2 B2), so Undo/Redo are toggled by declaring them or not — the DSL
+            // re-runs on every recomposition.
+            val viewMoved = uiState.viewportZoom != 1f ||
+                uiState.viewportOffset != Offset.Zero ||
+                uiState.viewportRotation != 0f
+            val railHistory = railHistoryItemsVisible(carouselOnScreen, carouselUi.sheetOpen)
+            if (railHistory) {
+                azRailItem(
+                    id = "history.undo", text = strings.adj.undo, content = GraffuxIcons.Undo,
+                    color = navItemColor, disabled = uiState.undoCount == 0,
+                    info = "Undo the last change", onClick = { vm.onUndoClicked() },
+                )
+            }
+            azRailItem(
+                id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
+                disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
+            )
+            if (railHistory) {
+                azRailItem(
+                    id = "history.redo", text = strings.adj.redo, content = GraffuxIcons.Redo,
+                    color = navItemColor, disabled = uiState.redoCount == 0,
+                    info = "Redo the last undone change", onClick = { vm.onRedoClicked() },
+                )
+            }
 
             if (showAnimationRail) {
                 azUnattachedHostItem(
@@ -826,6 +857,85 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
         
+            // The bottom carousel, as its own AzNavRail page. AzNavRail 11.52's pages are Z-layers:
+            // every onscreen() page is inset by the rail's width, and background() pages are the
+            // only ones laid out across the whole window. This one sits on the editor's page (0f),
+            // one weight in front of the canvas, so the carousel is centred on the screen rather
+            // than on the strip beside the rail, and the rail and onscreen chrome still draw over it.
+            background(weight = 1, page = 0f) {
+                if (carouselOnScreen) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // background() pages are deliberately not inset (guide §1.1), and
+                            // LocalAzSafeZones is not provided to them in 11.52, so clear the nav bar
+                            // here — plus the shortcuts sheet's HIDDEN swipe strip, which sits over
+                            // the bottom edge above everything and would otherwise take the grab pill's
+                            // touches.
+                            .navigationBarsPadding()
+                            .padding(bottom = AzSheetConfig().hiddenStripDp + 4.dp),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        CarouselSheet(
+                            open = carouselUi.sheetOpen,
+                            onOpenChange = { carouselUi = carouselUi.copy(sheetOpen = it) },
+                        ) {
+                            val carouselEntries = carouselEntries(
+                                carouselUi.category,
+                                CarouselInputs(
+                                    activeTool = uiState.activeTool,
+                                    activeBrushName = uiState.activeBrushName,
+                                    activeInkUtensil = activeInkUtensil,
+                                    builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                                    customBrushes = customBrushes.map { it.id to it.brush },
+                                    extensionBrushes = brushes,
+                                    stabilizerLevel = uiState.stabilizerLevel,
+                                    stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                    smudgeMode = colorSmudgeSettings.mode,
+                                    selectionShape = uiState.selectionShape,
+                                    toolOptionsOpen = showToolOptions,
+                                    favorites = carouselFavorites,
+                                ),
+                            )
+                            BottomCarousel(
+                                ui = carouselUi,
+                                onUiChange = { carouselUi = it },
+                                content = CarouselContent(
+                                    entries = carouselEntries,
+                                    brushColor = uiState.activeColor,
+                                    secondaryColor = uiState.secondaryColor,
+                                    extensionPreviews = brushPreviews,
+                                    extensionTips = brushTips,
+                                ),
+                                history = CarouselHistory(
+                                    undoCount = uiState.undoCount,
+                                    redoCount = uiState.redoCount,
+                                    onUndo = { vm.onUndoClicked() },
+                                    onRedo = { vm.onRedoClicked() },
+                                ),
+                                onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
+                                onEntryClick = { entry ->
+                                    when (val action = entry.action) {
+                                        is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
+                                        is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
+                                        is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
+                                        is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
+                                        is CarouselAction.PickTool -> vm.setActiveTool(
+                                            if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
+                                        )
+                                        is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
+                                        is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
+                                        is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
+                                        is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                        CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
             // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
             onscreen(alignment = Alignment.TopEnd) {
                 if (!uiState.hideUiForCapture) {
@@ -935,9 +1045,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // Onscreen Foreground Elements explicitly pinned over the canvas. Hidden while a bottom panel
-            // is up: Transform and the adjustment knobs occupy this same strip, and the buttons were
-            // landing on top of their fields.
+            // The way back out of full-screen art mode (four-finger tap).
             onscreen(alignment = Alignment.BottomCenter) {
                 if (uiState.hideUiForCapture) {
                     // The only way into this mode is a four-finger tap, and the only place that
@@ -954,102 +1062,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ) {
                         Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                     }
-                } else if (uiState.activePanel == EditorPanel.NONE) Column(
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        // Clear of the docked rail: the carousel is the one wide thing in this strip.
-                        .padding(
-                            start = if (railInset.dockedOnLeft) railInset.width else 8.dp,
-                            end = if (railInset.dockedOnLeft) 8.dp else railInset.width,
-                            bottom = 24.dp,
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (showCarousel) {
-                        val carouselEntries = carouselEntries(
-                            carouselUi.category,
-                            CarouselInputs(
-                                activeTool = uiState.activeTool,
-                                activeBrushName = uiState.activeBrushName,
-                                activeInkUtensil = activeInkUtensil,
-                                builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
-                                customBrushes = customBrushes.map { it.id to it.brush },
-                                extensionBrushes = brushes,
-                                stabilizerLevel = uiState.stabilizerLevel,
-                                stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                                smudgeMode = colorSmudgeSettings.mode,
-                                selectionShape = uiState.selectionShape,
-                                toolOptionsOpen = showToolOptions,
-                            ),
-                        )
-                        BottomCarousel(
-                            ui = carouselUi,
-                            onUiChange = { carouselUi = it },
-                            content = CarouselContent(
-                                entries = carouselEntries,
-                                brushColor = uiState.activeColor,
-                                secondaryColor = uiState.secondaryColor,
-                                extensionPreviews = brushPreviews,
-                            ),
-                            onEntryClick = { entry ->
-                                when (val action = entry.action) {
-                                    is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
-                                    is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
-                                    is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
-                                    is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
-                                    is CarouselAction.PickTool -> vm.setActiveTool(
-                                        if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
-                                    )
-                                    is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
-                                    is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
-                                    is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
-                                    is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
-                                    CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
-                                }
-                            },
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    val viewMoved = uiState.viewportZoom != 1f ||
-                        uiState.viewportOffset != Offset.Zero ||
-                        uiState.viewportRotation != 0f
-
-                    // These are permanent positions, not a row of whichever buttons happen to exist.
-                    // Keeping all three 56dp slots mounted prevents the row from recentering when one
-                    // action becomes unavailable. Order is always Undo -> Reset -> Redo.
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (uiState.undoCount > 0) {
-                            FloatingActionButton(
-                                onClick = { vm.onUndoClicked() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.Undo), contentDescription = strings.adj.undo)
-                            }
-                        }
-                    }
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (viewMoved) {
-                            FloatingActionButton(
-                                onClick = { vm.resetViewport() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.ZoomFit), contentDescription = "Fit to screen")
-                            }
-                        }
-                    }
-                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                        if (uiState.redoCount > 0) {
-                            FloatingActionButton(
-                                onClick = { vm.onRedoClicked() },
-                                containerColor = surfaceVariantColor,
-                            ) {
-                                Icon(painterResource(GraffuxIcons.Redo), contentDescription = strings.adj.redo)
-                            }
-                        }
-                    }
                 }
-                    }
+                // The old Undo · Fit · Redo row is gone: Fit, Undo and Redo are rail items now (see
+                // after ConfigureRailItems), and the open carousel sheet's tab row carries Undo/Redo.
             }
 
             onscreen(alignment = Alignment.Center) {

@@ -361,6 +361,12 @@ private const val GPU_MASK_REFERENCE_SIZE = 128
  *  extension id could itself contain (ids are validated slugs elsewhere in the manifest pipeline). */
 private const val BRUSH_ASSET_ID_SEPARATOR = "::"
 
+/** Longest side of an installed brush's carousel tip thumbnail ([EditorViewModel.installedBrushTips]). */
+private const val TIP_THUMB_PX = 96
+
+/** Solid-core stop cap for a generated round tip, as BrushPreview/StampBrushRenderer clamp it. */
+private const val TIP_MAX_HARDNESS_STOP = 0.999f
+
 /** Completed latency samples needed before [EditorViewModel.predictionLeadMs] trusts the median. */
 private const val MIN_LEAD_SAMPLES = 20
 private const val NANOS_PER_MILLI = 1_000_000L
@@ -3368,6 +3374,17 @@ class EditorViewModel @Inject constructor(
     /** Pins or unpins [tool] in the sheet's Favourites strip. */
     fun onToggleFavoriteTool(tool: Tool) = viewModelScope.launch(dispatchers.io) {
         settingsRepository.toggleFavoriteTool(tool)
+    }
+
+    /** The bottom carousel's starred entry keys, in starring order (its Favorites page). */
+    val carouselFavorites: StateFlow<List<String>> =
+        settingsRepository.carouselFavorites.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+        )
+
+    /** Stars or un-stars the carousel entry with stable key [key]. */
+    fun onToggleCarouselFavorite(key: String) = viewModelScope.launch(dispatchers.io) {
+        settingsRepository.toggleCarouselFavorite(key)
     }
 
     private fun recordToolUse(tool: Tool) {
@@ -8581,6 +8598,58 @@ class EditorViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
+     * Each installed brush's *tip* — the single dab, not a stroke — keyed like [installedBrushes],
+     * for the bottom carousel's cards. A brush that bundles a tip bitmap shows that bitmap (after
+     * the same normalization the paint path applies); one that bundles none is a generated round
+     * tip, drawn with the engine's own hardness falloff. Alpha is coverage; callers tint it.
+     */
+    val installedBrushTips: StateFlow<Map<String, Bitmap>> =
+        extensionRepository.installed
+            .map {
+                withContext(dispatchers.io) {
+                    extensionRepository.installedBrushAssets().mapNotNull { asset ->
+                        val runtime = loadInstalledBrushRuntime(asset.extensionId, asset.assetIndex)
+                            ?: return@mapNotNull null
+                        val id = "${asset.extensionId}$BRUSH_ASSET_ID_SEPARATOR${asset.assetIndex}"
+                        try {
+                            id to (runtime.shape?.let { scaleTipBitmap(it) } ?: renderRoundTip(runtime.brush.hardness))
+                        } finally {
+                            runtime.shape?.recycle()
+                            runtime.grain?.recycle()
+                            runtime.maskShape?.recycle()
+                        }
+                    }.toMap()
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private fun scaleTipBitmap(shape: Bitmap): Bitmap {
+        val scale = TIP_THUMB_PX.toFloat() / maxOf(shape.width, shape.height)
+        if (scale >= 1f) return shape.copy(Bitmap.Config.ARGB_8888, false)
+        val w = (shape.width * scale).toInt().coerceAtLeast(1)
+        val h = (shape.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(shape, w, h, true)
+    }
+
+    /** A round dab with StampBrushRenderer's generated-round falloff: solid to [hardness], then fade. */
+    private fun renderRoundTip(hardness: Float): Bitmap {
+        val out = Bitmap.createBitmap(TIP_THUMB_PX, TIP_THUMB_PX, Bitmap.Config.ARGB_8888)
+        val r = TIP_THUMB_PX / 2f
+        val h = hardness.coerceIn(0f, TIP_MAX_HARDNESS_STOP)
+        val white = android.graphics.Color.WHITE
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.RadialGradient(
+                r, r, r,
+                intArrayOf(white, white, android.graphics.Color.TRANSPARENT),
+                floatArrayOf(0f, h, 1f),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+        }
+        android.graphics.Canvas(out).drawCircle(r, r, r, paint)
+        return out
+    }
 
     /** Every installed brush asset's composite id (hidden or not) + display name, for a management
      *  UI that needs to offer hiding/unhiding rather than just what's currently visible. */

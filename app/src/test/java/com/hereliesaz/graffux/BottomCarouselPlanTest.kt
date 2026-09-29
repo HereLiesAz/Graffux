@@ -38,7 +38,7 @@ class BottomCarouselPlanTest {
             CarouselCategory.BRUSHES,
             base.copy(customBrushes = custom, extensionBrushes = listOf("e:1" to "Ext")),
         )
-        assertEquals(builtIn.size + 2 + INK_UTENSIL_CATALOG.size, entries.size)
+        assertEquals(builtIn.size + 2, entries.size)
         assertEquals(CarouselAction.BuiltInBrush(builtIn.first().name), entries.first().action)
         assertEquals(CarouselAction.CustomBrush("c1"), entries[builtIn.size].action)
         assertEquals(CarouselAction.ExtensionBrush("e:1"), entries[builtIn.size + 1].action)
@@ -64,12 +64,22 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `brushes page ends with the Ink utensils`() {
-        val entries = carouselEntries(CarouselCategory.BRUSHES, base)
-        assertEquals(
-            INK_UTENSIL_CATALOG.map { CarouselAction.InkUtensilPick(it.utensil) },
-            entries.takeLast(INK_UTENSIL_CATALOG.size).map { it.action },
+    fun `brushes page holds only stamp brushes and the Ink page holds only the Ink utensils`() {
+        val withAll = base.copy(
+            customBrushes = listOf("c1" to builtIn.first().copy(name = "Mine")),
+            extensionBrushes = listOf("e:1" to "Ext"),
         )
+        val brushes = carouselEntries(CarouselCategory.BRUSHES, withAll)
+        assertTrue(brushes.none { it.action is CarouselAction.InkUtensilPick })
+        assertTrue(
+            brushes.all {
+                it.action is CarouselAction.BuiltInBrush ||
+                    it.action is CarouselAction.CustomBrush ||
+                    it.action is CarouselAction.ExtensionBrush
+            },
+        )
+        val ink = carouselEntries(CarouselCategory.INK, withAll)
+        assertEquals(INK_UTENSIL_CATALOG.map { CarouselAction.InkUtensilPick(it.utensil) }, ink.map { it.action })
     }
 
     @Test
@@ -77,10 +87,9 @@ class BottomCarouselPlanTest {
         val pen = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
         // Selecting a utensil sets activeBrushName to its display name, which the built-in shares.
         assertTrue(builtIn.any { it.name == pen.displayName })
-        val entries = carouselEntries(
-            CarouselCategory.BRUSHES,
-            base.copy(activeBrushName = pen.displayName, activeInkUtensil = pen),
-        )
+        val inputs = base.copy(activeBrushName = pen.displayName, activeInkUtensil = pen)
+        assertNull(selectedCarouselIndex(carouselEntries(CarouselCategory.BRUSHES, inputs)))
+        val entries = carouselEntries(CarouselCategory.INK, inputs)
         assertEquals(1, entries.count { it.selected })
         val index = selectedCarouselIndex(entries)!!
         assertEquals(CarouselAction.InkUtensilPick(pen), entries[index].action)
@@ -143,5 +152,156 @@ class BottomCarouselPlanTest {
                 assertEquals(keys.size, keys.toSet().size)
             }
         }
+    }
+
+    @Test
+    fun `tab row is Undo, Favorites, Brushes, Ink, Effects, Options, Redo`() {
+        assertEquals(
+            listOf("Undo", "Favorites", "Brushes", "Ink", "Effects", "Options", "Redo"),
+            CAROUSEL_TABS.map { it.label },
+        )
+    }
+
+    @Test
+    fun `undo and redo tabs are not pages and are enabled only with history`() {
+        assertEquals(CarouselTab.Undo, CAROUSEL_TABS.first())
+        assertEquals(CarouselTab.Redo, CAROUSEL_TABS.last())
+        // Every page category has exactly one tab, and nothing else in the row is a page.
+        assertEquals(
+            CarouselCategory.entries.toList(),
+            CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>().map { it.category },
+        )
+        assertEquals(2, CAROUSEL_TABS.count { it !is CarouselTab.Page })
+
+        assertFalse(carouselTabEnabled(CarouselTab.Undo, undoCount = 0, redoCount = 3))
+        assertTrue(carouselTabEnabled(CarouselTab.Undo, undoCount = 1, redoCount = 0))
+        assertFalse(carouselTabEnabled(CarouselTab.Redo, undoCount = 3, redoCount = 0))
+        assertTrue(carouselTabEnabled(CarouselTab.Redo, undoCount = 0, redoCount = 1))
+        CarouselCategory.entries.forEach {
+            assertTrue(carouselTabEnabled(CarouselTab.Page(it), undoCount = 0, redoCount = 0))
+        }
+    }
+
+    @Test
+    fun `toggling a favorite appends, and un-starring keeps the rest in place`() {
+        var favs = emptyList<String>()
+        favs = toggleCarouselFavorite(favs, "ink.pen")
+        favs = toggleCarouselFavorite(favs, "blur")
+        favs = toggleCarouselFavorite(favs, "stabilizer.25")
+        assertEquals(listOf("ink.pen", "blur", "stabilizer.25"), favs)
+        favs = toggleCarouselFavorite(favs, "blur")
+        assertEquals(listOf("ink.pen", "stabilizer.25"), favs)
+        favs = toggleCarouselFavorite(favs, "blur")
+        assertEquals(listOf("ink.pen", "stabilizer.25", "blur"), favs)
+    }
+
+    @Test
+    fun `favorites page lists starred entries from every page in starring order`() {
+        val brush = "builtin.${builtIn.first().name}"
+        val ink = "ink.${INK_UTENSIL_CATALOG.last().utensil.id}"
+        val effect = carouselEntries(CarouselCategory.EFFECTS, base).first().key
+        // A Smudge mode, starred while holding a brush: it must still appear.
+        val option = "smudge.${ColorSmudgeEngine.Mode.SMEAR.name}"
+        val favorites = listOf(option, ink, "custom.deleted", effect, brush)
+        val entries = carouselEntries(CarouselCategory.FAVORITES, base.copy(favorites = favorites))
+        assertEquals(listOf(option, ink, effect, brush), entries.map { it.key })
+        assertTrue(entries.all { it.favorite })
+    }
+
+    @Test
+    fun `favorites are starred on their home pages and nowhere else`() {
+        val ink = "ink.${INK_UTENSIL_CATALOG.first().utensil.id}"
+        val inputs = base.copy(favorites = listOf(ink))
+        assertEquals(listOf(ink), carouselEntries(CarouselCategory.INK, inputs).filter { it.favorite }.map { it.key })
+        assertTrue(carouselEntries(CarouselCategory.BRUSHES, inputs).none { it.favorite })
+    }
+
+    @Test
+    fun `favorites page is empty with no favorites`() {
+        assertTrue(carouselEntries(CarouselCategory.FAVORITES, base).isEmpty())
+    }
+
+    @Test
+    fun `tip kind follows the item kind`() {
+        val withAll = base.copy(
+            customBrushes = listOf("c1" to builtIn.first().copy(name = "Mine", hardness = 0.25f)),
+            extensionBrushes = listOf("e::1" to "Ext"),
+        )
+        val brushes = carouselEntries(CarouselCategory.BRUSHES, withAll)
+        brushes.filter { it.action is CarouselAction.BuiltInBrush }.forEach { entry ->
+            val tip = carouselTip(entry) as CarouselTip.Round
+            assertEquals(entry.brush!!.hardness.coerceIn(0f, 1f), tip.hardness)
+        }
+        val custom = brushes.single { it.action is CarouselAction.CustomBrush }
+        assertEquals(0.25f, (carouselTip(custom) as CarouselTip.Round).hardness)
+        val ext = brushes.single { it.action is CarouselAction.ExtensionBrush }
+        assertEquals(CarouselTip.Stamp("e::1"), carouselTip(ext))
+
+        carouselEntries(CarouselCategory.INK, base).forEach { entry ->
+            val utensil = (entry.action as CarouselAction.InkUtensilPick).utensil
+            assertEquals(CarouselTip.Ink(utensil, entry.icon!!), carouselTip(entry))
+        }
+        (carouselEntries(CarouselCategory.EFFECTS, base) + carouselEntries(CarouselCategory.OPTIONS, base))
+            .forEach { entry -> assertEquals(CarouselTip.Glyph(entry.icon!!), carouselTip(entry)) }
+    }
+
+    @Test
+    fun `tier comes from the laid-out size`() {
+        val hero = 400f
+        val smallMax = 150f
+        assertEquals(CarouselTier.HERO, carouselTier(400f, hero, smallMax))
+        assertEquals(CarouselTier.HERO, carouselTier(370f, hero, smallMax))
+        assertEquals(CarouselTier.MEDIUM, carouselTier(250f, hero, smallMax))
+        assertEquals(CarouselTier.SMALL, carouselTier(150f, hero, smallMax))
+        assertEquals(CarouselTier.SMALL, carouselTier(100f, hero, smallMax))
+    }
+
+    @Test
+    fun `hero shows name and details, medium the name, small the tip alone`() {
+        val brush = carouselEntries(CarouselCategory.BRUSHES, base).first()
+        val hero = carouselCardContent(brush, CarouselTier.HERO)
+        assertEquals(brush.label, hero.name)
+        assertEquals(
+            listOf(
+                "Built-in · round tip",
+                "Hardness ${(brush.brush!!.hardness * 100).toInt()}% · " +
+                    "Spacing ${(brush.brush!!.spacing * 100).toInt()}%",
+            ),
+            hero.details,
+        )
+        assertEquals(CarouselCardContent(brush.label, emptyList()), carouselCardContent(brush, CarouselTier.MEDIUM))
+        assertEquals(CarouselCardContent(null, emptyList()), carouselCardContent(brush, CarouselTier.SMALL))
+
+        val pen = carouselEntries(CarouselCategory.INK, base).first()
+        assertEquals(
+            listOf("Jetpack Ink", "Pressure-sensitive width"),
+            carouselCardContent(pen, CarouselTier.HERO).details,
+        )
+        val effect = carouselEntries(CarouselCategory.EFFECTS, base).first()
+        assertEquals(listOf("Effect"), carouselCardContent(effect, CarouselTier.HERO).details)
+        val withExt = base.copy(extensionBrushes = listOf("e::1" to "Ext"))
+        val ext = carouselEntries(CarouselCategory.BRUSHES, withExt).last()
+        // No parameters are invented for an installed brush: its family only.
+        assertEquals(listOf("Installed · stamp brush"), carouselCardContent(ext, CarouselTier.HERO).details)
+    }
+
+    @Test
+    fun `rail Undo and Redo show only while the open sheet is not already offering them`() {
+        // Open sheet on screen: its tab row has Undo/Redo, so the rail must not duplicate them.
+        assertFalse(railHistoryItemsVisible(carouselOnScreen = true, sheetOpen = true))
+        // Sheet shut: the rail carries them.
+        assertTrue(railHistoryItemsVisible(carouselOnScreen = true, sheetOpen = false))
+        // Carousel off screen (hidden from the areas dropdown, a panel up, UI hidden): rail carries them
+        // whatever the sheet's remembered state.
+        assertTrue(railHistoryItemsVisible(carouselOnScreen = false, sheetOpen = true))
+        assertTrue(railHistoryItemsVisible(carouselOnScreen = false, sheetOpen = false))
+    }
+
+    @Test
+    fun `sheet settles by fling first, then by the nearer side`() {
+        assertTrue(carouselSheetSettlesOpen(fractionShut = 0.9f, velocityDpPerSec = -1_000f))
+        assertFalse(carouselSheetSettlesOpen(fractionShut = 0.1f, velocityDpPerSec = 1_000f))
+        assertTrue(carouselSheetSettlesOpen(fractionShut = 0.3f, velocityDpPerSec = 50f))
+        assertFalse(carouselSheetSettlesOpen(fractionShut = 0.7f, velocityDpPerSec = -50f))
     }
 }
