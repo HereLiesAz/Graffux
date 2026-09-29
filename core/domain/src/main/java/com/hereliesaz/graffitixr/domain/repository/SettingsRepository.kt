@@ -181,4 +181,15 @@ interface SettingsRepository {
 
     /** Stars [key], or un-stars it if already starred. Un-starring keeps the rest in place. */
     suspend fun toggleCarouselFavorite(key: String)
+
+    /**
+     * Each bottom-carousel item's own paint settings, by the same stable keys as
+     * [carouselFavorites]. An item with no entry has never been adjusted and uses its defaults.
+     */
+    val carouselItemSettings: Flow<Map<String, com.hereliesaz.graffitixr.common.model.CarouselItemSettings>>
+
+    /** Replaces the whole per-item settings map. */
+    suspend fun setCarouselItemSettings(
+        settings: Map<String, com.hereliesaz.graffitixr.common.model.CarouselItemSettings>,
+    )
 }

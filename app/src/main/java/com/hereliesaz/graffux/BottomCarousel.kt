@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 
@@ -112,8 +113,13 @@ internal data class CarouselContent(
     val extensionIcons: Map<String, Bitmap> = emptyMap(),
     /** What the hero card's inline sliders read; null shows no sliders (see [heroAdjustments]). */
     val heroState: HeroAdjustmentState? = null,
-    /** Routes a hero slider's new value to its existing editor setter. */
-    val onAdjust: (HeroSetter, Float) -> Unit = { _, _ -> },
+    /**
+     * An entry's own settings (see CarouselItemSettingsPlan), or null for one that owns none. They
+     * replace [heroState]'s Size/Flow/Opacity/Softness/Strength on that entry's card and preview.
+     */
+    val itemSettings: (CarouselEntry) -> CarouselItemSettings? = { null },
+    /** A hero slider on [CarouselEntry] moved: its setter and new value. */
+    val onAdjust: (CarouselEntry, HeroSetter, Float) -> Unit = { _, _, _ -> },
     /** The hero's "More": that item's full adjustments. Null hides the button. */
     val onMore: ((CarouselEntry) -> Unit)? = null,
 )
@@ -224,14 +230,15 @@ private fun HeroPreview(position: State<Float>, content: CarouselContent) {
 private fun StrokePreview(entry: CarouselEntry, content: CarouselContent) {
     val bitmap = (entry.action as? CarouselAction.ExtensionBrush)?.let { content.extensionPreviews[it.id] }
     val tag = Modifier.testTag("carousel.preview.${entry.key}")
-    // The brush in hand previews at the live Size and Flow the hero sliders are setting.
-    val live = content.heroState?.takeIf { entry.selected }
+    // Every brush previews at its own Size and Flow — the ones its hero sliders set — whether or
+    // not it is the one in hand.
+    val own = content.itemSettings(entry)
     when {
         entry.brush != null -> Box(tag.widthIn(max = HeroItemWidth * 2).fillMaxWidth()) {
             BrushPreview(
                 entry.brush, content.brushColor, content.secondaryColor, height = PreviewHeight,
-                flow = live?.brushFlow ?: 1f,
-                sizeOverridePx = live?.brushSize,
+                flow = own?.flow ?: 1f,
+                sizeOverridePx = own?.size,
             )
         }
         bitmap != null ->
@@ -504,7 +511,9 @@ private fun CarouselItem(
                         .testTag("carousel.card.scroll"),
                 ) {
                     val tint = if (entry.selected) colors.surface else colors.onSurface
-                    val adjustments = content.heroState?.let { heroAdjustments(entry, it) }.orEmpty()
+                    val adjustments = content.heroState
+                        ?.let { heroAdjustments(entry, it.withItem(content.itemSettings(entry))) }
+                        .orEmpty()
                     val onMore = content.onMore?.takeIf { heroHasMore(entry) }
                     val hasControls = adjustments.isNotEmpty() || onMore != null
                     if (isHero && content.heroState != null && hasControls) {
@@ -592,7 +601,7 @@ private fun CompactHero(
             FavoriteToggle(entry, tint, onToggleFavorite, Modifier.align(Alignment.TopEnd))
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = maskInset).padding(bottom = 2.dp)) {
-            if (adjustments.isNotEmpty()) HeroControls(adjustments, content, tint)
+            if (adjustments.isNotEmpty()) HeroControls(entry, adjustments, content, tint)
             if (onMore != null) {
                 Box(Modifier.fillMaxWidth().padding(end = 2.dp), contentAlignment = Alignment.CenterEnd) {
                     HeroMoreButton(entry, onMore, tint)
