@@ -79,7 +79,6 @@ class CarouselHeroExpandUiTest {
         stabilizerAlgorithm = StabilizerAlgorithm.STREAMLINE,
         smudgeMode = ColorSmudgeEngine.Mode.DULLING,
         selectionShape = SelectionShape.ELLIPSE,
-        toolOptionsOpen = false,
     )
 
     private fun compose() {

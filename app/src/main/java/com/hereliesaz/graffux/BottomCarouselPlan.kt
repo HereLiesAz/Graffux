@@ -54,9 +54,6 @@ internal sealed interface CarouselAction {
 
     /** An installed LUT extension, graded onto the active layer by `vm.applyInstalledLut`. */
     data class ExtensionLut(val extensionId: String) : CarouselAction
-
-    /** The full Tool Options window — every slider the carousel's discrete stops don't cover. */
-    data object OpenToolOptions : CarouselAction
 }
 
 /**
@@ -94,7 +91,6 @@ internal data class CarouselInputs(
     val stabilizerAlgorithm: StabilizerAlgorithm,
     val smudgeMode: ColorSmudgeEngine.Mode,
     val selectionShape: SelectionShape,
-    val toolOptionsOpen: Boolean,
     /** Installed azphalt filters, tools and LUTs, listed on the Effects page after [EFFECT_TOOLS]. */
     val extensionEffects: List<ExtensionEffect> = emptyList(),
     /** Starred entry keys, in the order they were starred (`SettingsRepository.carouselFavorites`). */
@@ -207,13 +203,7 @@ private fun optionEntries(input: CarouselInputs, allOptions: Boolean): List<Caro
     if (allOptions || tool == Tool.SMUDGE) addAll(smudgeEntries(input))
     if (allOptions || tool == Tool.SELECT) addAll(selectEntries(input))
     if (allOptions || tool in STABILIZED_TOOLS) addAll(stabilizerEntries(input, allOptions))
-    add(
-        CarouselEntry(
-            key = "toolOptions", label = "All options",
-            action = CarouselAction.OpenToolOptions,
-            selected = input.toolOptionsOpen, icon = GraffuxIcons.BrushSettings,
-        ),
-    )
+    // No "All options" card: every setting now lives on its item's own expanded ("More") card.
 }
 
 private fun smudgeEntries(input: CarouselInputs): List<CarouselEntry> = buildList {

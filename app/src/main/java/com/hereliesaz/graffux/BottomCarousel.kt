@@ -148,6 +148,10 @@ internal data class CarouselContent(
      * Null hides the button.
      */
     val onMore: ((CarouselEntry) -> Unit)? = null,
+    /** A segmented choice on the expanded card moved: a global enum setting and its new index. */
+    val onChoose: (CarouselEntry, HeroChoiceSetter, Int) -> Unit = { _, _, _ -> },
+    /** A switch on the expanded card flipped: a global on/off setting. */
+    val onToggle: (CarouselEntry, HeroToggleSetter, Boolean) -> Unit = { _, _, _ -> },
     /** Read (not observed by the host) to close an expanded card when a stroke starts. */
     val strokeActive: () -> Boolean = { false },
 )
@@ -240,6 +244,8 @@ internal fun BottomCarousel(
             Box(Modifier.fillMaxWidth().height(PreviewHeight + PreviewGap))
             if (ui.category == CarouselCategory.FAVORITES) {
                 EmptyHint("No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.")
+            } else if (ui.category == CarouselCategory.OPTIONS) {
+                EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
         }
         CarouselTabRow(ui, onUiChange, history)

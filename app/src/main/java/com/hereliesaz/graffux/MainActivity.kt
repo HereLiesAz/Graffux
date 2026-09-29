@@ -96,7 +96,6 @@ import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import com.hereliesaz.graffitixr.feature.editor.AddContentDialog
 import com.hereliesaz.graffitixr.feature.editor.AlignMode
 import com.hereliesaz.graffitixr.feature.editor.AnimationWindow
-import com.hereliesaz.graffitixr.feature.editor.ToolOptionsWindow
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
@@ -121,7 +120,6 @@ import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
 import com.hereliesaz.graffitixr.feature.editor.ShapeSizeDialog
-import com.hereliesaz.graffitixr.feature.editor.SizePickerDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreChooserDialog
 import com.hereliesaz.graffitixr.feature.editor.StoreTab
 import com.hereliesaz.graffitixr.feature.editor.StoreWindow
@@ -129,6 +127,7 @@ import com.hereliesaz.graffitixr.feature.editor.TextEditDialog
 import com.hereliesaz.graffitixr.feature.editor.VectorStrokeDialog
 import com.hereliesaz.graffitixr.feature.editor.toModelBlendMode
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
+import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -283,7 +282,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
-    var showToolOptions by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     var showReferenceWindow by remember { mutableStateOf(false) }
@@ -480,21 +478,32 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // values while it is in hand (hero slider, Tool Options, size HUD) is saved as that item's.
     val carouselItemSettings by vm.carouselItemSettings.collectAsState()
     LaunchedEffect(Unit) { vm.loadCarouselItemSettings() }
-    val activeSettingsKey = activeCarouselSettingsKey(
-        CarouselInputs(
-            activeTool = uiState.activeTool,
-            activeBrushName = uiState.activeBrushName,
-            activeInkUtensil = activeInkUtensil,
-            builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
-            customBrushes = customBrushes.map { it.id to it.brush },
-            extensionBrushes = brushes,
-            stabilizerLevel = uiState.stabilizerLevel,
-            stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-            smudgeMode = colorSmudgeSettings.mode,
-            selectionShape = uiState.selectionShape,
-            toolOptionsOpen = false,
-        ),
+    val carouselStateInputs = CarouselInputs(
+        activeTool = uiState.activeTool,
+        activeBrushName = uiState.activeBrushName,
+        activeInkUtensil = activeInkUtensil,
+        builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+        customBrushes = customBrushes.map { it.id to it.brush },
+        extensionBrushes = brushes,
+        stabilizerLevel = uiState.stabilizerLevel,
+        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+        smudgeMode = colorSmudgeSettings.mode,
+        selectionShape = uiState.selectionShape,
     )
+    val activeSettingsKey = activeCarouselSettingsKey(carouselStateInputs)
+    // Tool Options (the rail item, or a tap on the brush-size pad): bring the carousel up on the
+    // page holding what is in hand and grow that item's card. Pressed again while it is grown, it
+    // shrinks it — the rail item is a toggle, as it was for the old window.
+    val openToolOptionsCard: () -> Unit = {
+        val target = toolOptionsTarget(carouselStateInputs)
+        if (heroExpansion.expandedKey != null) {
+            heroExpansion.collapse()
+        } else if (target != null) {
+            showCarousel = true
+            carouselUi = carouselUi.copy(category = target.first, sheetOpen = true)
+            heroExpansion.request(target.second)
+        }
+    }
     val liveItemSettings = com.hereliesaz.graffitixr.common.model.CarouselItemSettings(
         size = uiState.brushSize,
         flow = uiState.brushFlow,
@@ -566,7 +575,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val activeClassifiers = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,
-            modelWindowOpen = showModelDialog, toolOptionsOpen = showToolOptions,
+            modelWindowOpen = showModelDialog, toolOptionsOpen = heroExpansion.expandedKey != null,
             activeInkUtensil = activeInkUtensil,
         ),
     ).toMutableSet().apply {
@@ -677,8 +686,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onEditClicked = { showLayerOptionsDialog = true },
                 onModelClicked = { showModelDialog = true },
                 modelWindowOpen = showModelDialog,
-                onToolOptionsClicked = { showToolOptions = !showToolOptions },
-                toolOptionsOpen = showToolOptions,
+                onToolOptionsClicked = openToolOptionsCard,
+                toolOptionsOpen = heroExpansion.expandedKey != null,
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
                 showLayersRail = showLayersRail,
                 showBrushRail = showBrushRail,
@@ -939,7 +948,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     stabilizerAlgorithm = uiState.stabilizerAlgorithm,
                                     smudgeMode = colorSmudgeSettings.mode,
                                     selectionShape = uiState.selectionShape,
-                                    toolOptionsOpen = showToolOptions,
                                     extensionEffects = extensionEffects,
                                     favorites = carouselFavorites,
                                 ),
@@ -957,7 +965,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
                                         is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                         is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
-                                        CarouselAction.OpenToolOptions -> showToolOptions = !showToolOptions
                                         // The Extensions panel's LUT branch (onExtensionSelected), minus its
                                         // DismissPanel: the carousel opened no panel to dismiss.
                                         is CarouselAction.ExtensionLut -> vm.applyInstalledLut(action.extensionId)
@@ -1002,6 +1009,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         magicWandTolerance = uiState.magicWandTolerance,
                                         smudgeColorRate = colorSmudgeSettings.colorRate,
                                         smudgeOpacity = colorSmudgeSettings.opacity,
+                                        more = HeroMoreState(
+                                            smudgeMode = colorSmudgeSettings.mode,
+                                            smudgeChargeDecay = colorSmudgeSettings.chargeDecayRate,
+                                            smudgeDilution = colorSmudgeSettings.dilution,
+                                            smudgePickup = colorSmudgeSettings.pickupRate,
+                                            smudgeRadius = colorSmudgeSettings.smudgeRadius,
+                                            smudgePigmentMixing =
+                                                colorSmudgeSettings.mixingModel == heroMixingModel(pigment = true),
+                                            smudgeCarryAlpha = colorSmudgeSettings.smearAlpha,
+                                            smudgeSampleMerged = colorSmudgeSettings.sampleMerged,
+                                            stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                            selectionFeatherPx = uiState.selection?.featherPx,
+                                        ),
                                     ),
                                     itemSettings = { entry ->
                                         carouselSettingsKey(entry)?.let {
@@ -1026,6 +1046,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                             HeroSetter.SMUDGE_STRENGTH -> vm.setColorSmudgeRate(value)
                                             HeroSetter.SMUDGE_LOAD -> vm.setColorSmudgeColorRate(value)
                                             HeroSetter.SMUDGE_OPACITY -> vm.setColorSmudgeOpacity(value)
+                                            HeroSetter.SMUDGE_CHARGE_DECAY -> vm.setColorSmudgeChargeDecayRate(value)
+                                            HeroSetter.SMUDGE_DILUTION -> vm.setColorSmudgeDilution(value)
+                                            HeroSetter.SMUDGE_PICKUP -> vm.setColorSmudgePickupRate(value)
+                                            HeroSetter.SMUDGE_RADIUS -> vm.setColorSmudgeRadius(value)
+                                            HeroSetter.SELECTION_FEATHER -> vm.onSetSelectionFeather(value)
                                             HeroSetter.STABILIZER -> vm.setStabilizerLevel(value.roundToInt())
                                             HeroSetter.WAND_TOLERANCE -> vm.onSetMagicWandTolerance(value.roundToInt())
                                         }
@@ -1036,6 +1061,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     // first, since the card edits the item's own settings.
                                     onMore = {},
                                     strokeActive = { strokeGate.strokeActive },
+                                    onChoose = { _, setter, index ->
+                                        when (setter) {
+                                            HeroChoiceSetter.SMUDGE_MODE ->
+                                                vm.setColorSmudgeMode(ColorSmudgeEngine.Mode.entries[index])
+                                            HeroChoiceSetter.STABILIZER_ALGORITHM ->
+                                                vm.setStabilizerAlgorithm(StabilizerAlgorithm.entries[index])
+                                        }
+                                    },
+                                    onToggle = { _, setter, on ->
+                                        when (setter) {
+                                            HeroToggleSetter.SMUDGE_PIGMENT_MIXING ->
+                                                vm.setColorSmudgeMixingModel(heroMixingModel(on))
+                                            HeroToggleSetter.SMUDGE_CARRY_ALPHA -> vm.setColorSmudgeAlphaCarry(on)
+                                            HeroToggleSetter.SMUDGE_SAMPLE_MERGED -> vm.setColorSmudgeSampleMerged(on)
+                                        }
+                                    },
                                 ),
                                 history = CarouselHistory(
                                     undoCount = uiState.undoCount,
@@ -1570,49 +1611,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     )
                 }
 
-                if (showToolOptions) {
-                    val previewAssets = vm.activeBrushPreviewAssets()
-                    val inkInHand = activeInkUtensil != null
-                    ToolOptionsWindow(
-                        stabilizerLevel = uiState.stabilizerLevel,
-                        onSetStabilizerLevel = { vm.setStabilizerLevel(it) },
-                        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                        onSetStabilizerAlgorithm = { vm.setStabilizerAlgorithm(it) },
-                        // Both are null unless they mean something right now — the window shows the
-                        // dials the tool in hand actually has, never a dead control.
-                        magicWandTolerance =
-                            uiState.magicWandTolerance.takeIf { uiState.selectionShape == SelectionShape.AUTOMATIC },
-                        onSetMagicWandTolerance = { vm.onSetMagicWandTolerance(it) },
-                        selectionFeatherPx = uiState.selection?.featherPx,
-                        onSetSelectionFeather = { vm.onSetSelectionFeather(it) },
-                        // An Ink utensil has a whole-stroke opacity (folded into its colour) but no
-                        // per-dab flow, which is a stamp brush's parameter.
-                        brushFlow = uiState.brushFlow.takeIf { uiState.activeBrushName != null && !inkInHand },
-                        onSetBrushFlow = { vm.setBrushFlow(it) },
-                        brushOpacity = uiState.brushOpacity.takeIf { uiState.activeBrushName == null || inkInHand },
-                        onSetBrushOpacity = { vm.setBrushOpacity(it) },
-                        previewBrush = vm.activeBrushForPreview(),
-                        previewStampShape = previewAssets.shape,
-                        previewStampGrain = previewAssets.grain,
-                        previewStampMaskShape = previewAssets.maskShape,
-                        brushColor = uiState.activeColor,
-                        secondaryColor = uiState.secondaryColor,
-                        colorSmudgeSettings = colorSmudgeSettings.takeIf { uiState.activeTool == Tool.SMUDGE },
-                        onSetColorSmudgeMode = { vm.setColorSmudgeMode(it) },
-                        onSetColorSmudgeRate = { vm.setColorSmudgeRate(it) },
-                        onSetColorSmudgeColorRate = { vm.setColorSmudgeColorRate(it) },
-                        onSetColorSmudgeChargeDecayRate = { vm.setColorSmudgeChargeDecayRate(it) },
-                        onSetColorSmudgeDilution = { vm.setColorSmudgeDilution(it) },
-                        onSetColorSmudgePickupRate = { vm.setColorSmudgePickupRate(it) },
-                        onSetColorSmudgeMixingModel = { vm.setColorSmudgeMixingModel(it) },
-                        onSetColorSmudgeRadius = { vm.setColorSmudgeRadius(it) },
-                        onSetColorSmudgeOpacity = { vm.setColorSmudgeOpacity(it) },
-                        onSetColorSmudgeAlphaCarry = { vm.setColorSmudgeAlphaCarry(it) },
-                        onSetColorSmudgeSampleMerged = { vm.setColorSmudgeSampleMerged(it) },
-                        onDismiss = { showToolOptions = false },
-                    )
-                }
-
                 if (showSettings) {
                     SettingsScreen(
                         vm = settingsVm,
@@ -1677,16 +1675,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     }
 }
 
+@Suppress("FunctionNaming", "LongMethod")
 @Composable
-private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
+private fun BrushSizePad(vm: EditorViewModel, onOpenOptions: () -> Unit) {
     val state by vm.uiState.collectAsState()
     val density = LocalDensity.current
     var itemPx by remember { mutableFloatStateOf(120f) }
     // The pad is otherwise drag-only — a two-axis pointer gesture with no click, no keyboard
-    // path, and nothing for TalkBack to announce beyond "brush size pad". A tap opens the same
-    // value through an accessible slider (SizePickerDialog) instead, without touching the drag
-    // gesture setters below it depends on.
-    var showSizePicker by remember { mutableStateOf(false) }
+    // path, and nothing for TalkBack to announce beyond "brush size pad". A tap grows the item's
+    // carousel card (Tool Options), whose Size slider is the accessible path to the same value.
     val feather = state.brushFeathering.coerceIn(0f, 1f)
     val hardnessPercent = ((1f - feather) * 100f).roundToInt()
     Column(
@@ -1694,7 +1691,7 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Size, above the preview: the number the drag's vertical axis is currently set to, read
-        // at a glance without waiting for the drag to settle or opening SizePickerDialog.
+        // at a glance without waiting for the drag to settle or opening the item's card.
         Text(
             text = "${state.brushSize.roundToInt()}px",
             color = Color.White,
@@ -1706,7 +1703,7 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
                 .weight(1f)
                 .fillMaxWidth()
                 .onSizeChanged { itemPx = it.width.toFloat() }
-                .clickable(onClickLabel = "Set brush size") { showSizePicker = true }
+                .clickable(onClickLabel = "Set brush size", onClick = onOpenOptions)
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
@@ -1785,18 +1782,6 @@ private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings) {
                 maxLines = 1,
             )
         }
-    }
-    if (showSizePicker) {
-        SizePickerDialog(
-            currentSize = state.brushSize,
-            onSizeChange = { vm.setBrushSize(it) },
-            onDismiss = { showSizePicker = false },
-            strings = strings,
-            previewBrush = vm.activeBrushForPreview(),
-            brushColor = state.activeColor,
-            secondaryColor = state.secondaryColor,
-            brushFeathering = feather,
-        )
     }
 }
 
@@ -2223,7 +2208,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // than it is tall, and the shape is carrying layout rather than affordance.
     azRailItem(
         id = "adj.brush", text = navStrings.brush, shape = AzButtonShape.NONE,
-        color = navItemColor, content = AzComposableContent { BrushSizePad(vm, strings) },
+        color = navItemColor, content = AzComposableContent { BrushSizePad(vm, onToolOptionsClicked) },
     )
 
     // ── Transform · Selection ──────────────────────────────────────────────────────────────────────

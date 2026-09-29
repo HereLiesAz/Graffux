@@ -26,7 +26,6 @@ class CarouselSettleTest {
         CarouselAction.Stabilizer(StabilizerAlgorithm.STREAMLINE),
         CarouselAction.SmudgeMode(ColorSmudgeEngine.Mode.DULLING),
         CarouselAction.SelectShape(SelectionShape.ELLIPSE),
-        CarouselAction.OpenToolOptions,
     )
 
     @Test

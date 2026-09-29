@@ -35,10 +35,25 @@ internal enum class HeroSetter {
 
     /** `vm.onSetMagicWandTolerance` — the Automatic selection shape's threshold. */
     WAND_TOLERANCE,
+
+    /** `vm.setColorSmudgeChargeDecayRate` — how fast Smudge's load runs out with distance. */
+    SMUDGE_CHARGE_DECAY,
+
+    /** `vm.setColorSmudgeDilution`. */
+    SMUDGE_DILUTION,
+
+    /** `vm.setColorSmudgePickupRate`. */
+    SMUDGE_PICKUP,
+
+    /** `vm.setColorSmudgeRadius` — Dulling mode's sample radius. */
+    SMUDGE_RADIUS,
+
+    /** `vm.onSetSelectionFeather` — the current selection's feather, in px. */
+    SELECTION_FEATHER,
 }
 
 /** How a slider's value reads next to its label. */
-internal enum class HeroUnit { PERCENT, PX, RAW }
+internal enum class HeroUnit { PERCENT, PX, RAW, MULTIPLIER, DECIMAL }
 
 /** One inline slider on the hero card. [value] is the editor's current value, read, never copied. */
 internal data class HeroAdjustment(
@@ -62,13 +77,15 @@ internal data class HeroAdjustmentState(
     /** Smudge's Load and opacity (`ColorSmudgeEngine.Settings.colorRate` / `.opacity`); expanded card only. */
     val smudgeColorRate: Float = 1f,
     val smudgeOpacity: Float = 1f,
+    /** What only the old Tool Options window used to show; the expanded card reads them now. */
+    val more: HeroMoreState = HeroMoreState(),
 )
 
 /** Brush-size range the edge slider and the Size slider map onto — EditorReducer's clamp on SetBrushSize. */
 internal const val MIN_BRUSH_SIZE = 1f
 internal const val MAX_BRUSH_SIZE = 200f
-private const val STABILIZER_MAX = 100f
-private const val WAND_MAX = 255f
+internal const val STABILIZER_MAX = 100f
+internal const val WAND_MAX = 255f
 
 /** At most this many sliders ride on the card; the rest are behind "More". */
 internal const val MAX_HERO_ADJUSTMENTS = 3
@@ -123,7 +140,6 @@ private fun heroAdjustmentsUncapped(entry: CarouselEntry, s: HeroAdjustmentState
         } else {
             emptyList()
         }
-        CarouselAction.OpenToolOptions,
         is CarouselAction.ExtensionContribution,
         is CarouselAction.ExtensionLut,
         -> emptyList()
@@ -131,12 +147,12 @@ private fun heroAdjustmentsUncapped(entry: CarouselEntry, s: HeroAdjustmentState
 }
 
 /**
- * Whether the hero card offers "More": the full Tool Options window for that item. Installed
- * filters and tools already open their own params panel when tapped, and a LUT has none, so they
- * don't; nor does the Tool Options entry itself.
+ * Whether the hero card offers "More": its card grown to every setting of that item
+ * ([heroSections]). Installed filters and tools already open their own params panel when tapped,
+ * and a LUT has none, so they don't.
  */
 internal fun heroHasMore(entry: CarouselEntry): Boolean = when (entry.action) {
-    CarouselAction.OpenToolOptions, is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> false
+    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> false
     else -> true
 }
 
@@ -147,6 +163,8 @@ internal fun heroAdjustmentText(a: HeroAdjustment): String = when (a.unit) {
     HeroUnit.PERCENT -> "${a.label} ${(a.value * PERCENT).toInt()}%"
     HeroUnit.PX -> "${a.label} ${a.value.toInt()} px"
     HeroUnit.RAW -> "${a.label} ${a.value.toInt()}"
+    HeroUnit.MULTIPLIER -> "${a.label} ${"%.2f".format(a.value)}×"
+    HeroUnit.DECIMAL -> "${a.label} ${"%.2f".format(a.value)}"
 }
 
 /**
@@ -156,33 +174,4 @@ internal fun heroAdjustmentText(a: HeroAdjustment): String = when (a.unit) {
 internal fun heroSetterValue(a: HeroAdjustment, raw: Float): Float {
     val v = raw.coerceIn(a.range)
     return if (a.unit == HeroUnit.RAW) kotlin.math.round(v) else v
-}
-
-/**
- * Every setting the expanded hero card ("More") shows for [entry]: what the Tool Options window
- * showed for that item. Brushes and effect tools add the stabilizer (when their strokes use it) to
- * their inline sliders; Smudge and its modes add Load and Smudge opacity. Settings only Tool
- * Options still carries (Smudge's dilution/pickup/radius/mixing model, the stabilizer algorithm,
- * selection feather) stay there, reached from the rail's Tool Options item or the "All options" card.
- */
-internal fun heroFullAdjustments(entry: CarouselEntry, s: HeroAdjustmentState): List<HeroAdjustment> {
-    val stabilizer = HeroAdjustment(
-        "stabilizer", "Stabilize", 0f..STABILIZER_MAX, s.stabilizerLevel.toFloat(), HeroSetter.STABILIZER, HeroUnit.RAW,
-    )
-    val smudgeExtras = listOf(
-        HeroAdjustment("load", "Load", 0f..1f, s.smudgeColorRate, HeroSetter.SMUDGE_LOAD),
-        HeroAdjustment("smudgeOpacity", "Smudge opacity", 0f..1f, s.smudgeOpacity, HeroSetter.SMUDGE_OPACITY),
-    )
-    val inline = heroAdjustmentsUncapped(entry, s)
-    return when (val action = entry.action) {
-        is CarouselAction.BuiltInBrush, is CarouselAction.CustomBrush, is CarouselAction.ExtensionBrush,
-        is CarouselAction.InkUtensilPick,
-        -> inline + stabilizer
-        is CarouselAction.PickTool -> {
-            val withSmudge = if (action.tool == Tool.SMUDGE) inline.take(1) + smudgeExtras + inline.drop(1) else inline
-            if (action.tool in STABILIZED_TOOLS) withSmudge + stabilizer else withSmudge
-        }
-        is CarouselAction.SmudgeMode -> inline + smudgeExtras
-        else -> inline
-    }
 }

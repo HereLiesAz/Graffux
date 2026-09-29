@@ -27,7 +27,6 @@ class CarouselExtensionEffectsTest {
         stabilizerAlgorithm = StabilizerAlgorithm.STREAMLINE,
         smudgeMode = ColorSmudgeEngine.Mode.DULLING,
         selectionShape = SelectionShape.ELLIPSE,
-        toolOptionsOpen = false,
     )
 
     private fun ext(id: String, kind: ExtensionKind, contributes: Contributes, description: String? = null) =

@@ -131,7 +131,6 @@ internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val
     is CarouselAction.Stabilizer -> listOf("Option · stabilizer algorithm")
     is CarouselAction.SmudgeMode -> listOf("Option · smudge mode")
     is CarouselAction.SelectShape -> listOf("Option · selection shape")
-    CarouselAction.OpenToolOptions -> listOf("Every tool setting")
     is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> extensionDetails(entry.extensionEffect)
 }
 
