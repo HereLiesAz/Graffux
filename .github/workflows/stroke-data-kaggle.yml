@@ -5,6 +5,7 @@
 #           kaggle.json ({"username": …, "key": …}).
 # Variable: KAGGLE_DATASET (optional) — "<owner>/<slug>". Defaults to
 #           "<KAGGLE_USERNAME or the kaggle.json username>/graffux-stroke-data".
+#           KAGGLE_USERNAME falls back to the owner's account, hereliesaz, when the variable is unset.
 #
 # Runs every 6 hours and on demand. A run whose stroke-data commit was already uploaded does nothing.
 name: Stroke data → Kaggle
@@ -55,7 +56,7 @@ jobs:
         env:
           KAGGLE_TOKEN: ${{ secrets.KAGGLE_TOKEN }}
           KAGGLE_DATASET: ${{ vars.KAGGLE_DATASET }}
-          KAGGLE_USERNAME_VAR: ${{ vars.KAGGLE_USERNAME }}
+          KAGGLE_USERNAME_VAR: ${{ vars.KAGGLE_USERNAME || 'hereliesaz' }}
         run: python main/tools/stroke-model/kaggle_upload.py data/stroke-data main/tools/stroke-model/SCHEMA.md
 
       - name: Mark uploaded
