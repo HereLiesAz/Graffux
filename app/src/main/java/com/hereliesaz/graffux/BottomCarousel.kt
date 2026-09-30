@@ -198,6 +198,8 @@ internal fun BottomCarousel(
     modifier: Modifier = Modifier,
     expansion: HeroExpansion = remember { HeroExpansion() },
 ) {
+    // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
+    LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,

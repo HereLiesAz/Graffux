@@ -582,6 +582,7 @@ internal class DrawingEngine(
             // Persistent wetness is still CPU-reference-only. Do not let the GPU silently paint the
             // colour while skipping canonical wetness state; legacy/dry Smudge remains GPU eligible.
             val gpuPainted = if (persistentWetness != null) false else runCatching {
+                com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
                 val engine = GpuStampEngine()
                 try {
                     if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false

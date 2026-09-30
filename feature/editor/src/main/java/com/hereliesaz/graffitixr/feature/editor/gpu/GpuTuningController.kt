@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Process-wide owner of GPU tuning: calibration ([coordinator]), the thermal budget
@@ -104,6 +105,18 @@ class GpuTuningController private constructor(context: Context) {
 
     companion object {
         @Volatile private var instance: GpuTuningController? = null
+
+        /**
+         * Before a canvas GPU engine is created (a stroke's engine, Smudge's): if calibration is
+         * running, stop it and wait until its engine is gone (CalibrationCoordinator.stopForCanvas).
+         * Blocking, for the non-suspending engine factories; they run on stroke workers, and it
+         * returns at once when no calibration runs (the normal case), so it costs nothing there.
+         */
+        fun stopCalibrationForCanvas() {
+            val coordinator = instance?.coordinator ?: return
+            if (!coordinator.isRunning) return
+            runCatching { runBlocking { coordinator.stopForCanvas() } }
+        }
 
         fun get(context: Context): GpuTuningController =
             instance ?: synchronized(this) {

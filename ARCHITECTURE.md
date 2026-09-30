@@ -99,6 +99,44 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
 
 ---
 
+## Crash reporting
+
+There is no logcat from the field, so the app reports its own deaths. It sends them through the
+same channel and opt-in as the stroke-prediction reports: `PredictionReportRepository.fileIssue`,
+authenticated by the GitHub token pasted in Settings. With no token nothing is sent, and the
+pending files wait on disk.
+
+- **JVM crashes.** `CrashReporter` (core/common) is the default `UncaughtExceptionHandler`, and it
+  is installed first in `GraffuxApplication.onCreate`. It synchronously writes
+  `cacheDir/last_crash.txt` (build, device, thread, stack trace, breadcrumbs), then appends logcat,
+  then chains to the previous handler.
+- **Breadcrumbs.** `Breadcrumbs` (core/common) is a 30-entry ring of notable events: app start,
+  project gate save pressed, project created, canvas engine init start/end, calibration start/end
+  or stopped, carousel first composition, and save/thumbnail failures. It is mirrored to
+  `breadcrumbs.txt` on every record. At launch the previous run's copy moves to
+  `breadcrumbs_prev.txt`, so a native crash or ANR, which runs no Kotlin on the way down, still has
+  them. Record events per action, never per frame or per touch sample.
+- **Native crashes / ANRs.** On the next launch `CrashIssueUploader` reads
+  `ActivityManager.getHistoricalProcessExitReasons` (API 30+): `REASON_CRASH`, `REASON_CRASH_NATIVE`
+  (with the tombstone's readable strings), `REASON_ANR` (with its trace), and foreground low-memory
+  kills. It also reads `NativeCrashHandler`'s `native_crash.txt`.
+- **Filing.** `CrashReportPlanner` is pure and unit-tested. It pairs a crash file with its exit
+  record so one death is one issue, titles it `[crash] <exception or signal> — <device>, <build>`,
+  and caps the body under GitHub's 65,536-character limit. It dedupes by stable keys
+  (`exit:<time>:<pid>`, `jvm:<sha>`, `native:<sha>`, the last 64 remembered) and an exit-time
+  watermark. A file is deleted only after GitHub accepted its issue.
+
+**First save and GPU calibration.** Calibration's wgpu engines and the canvas's must never exist at
+the same time. Project dialog Save/Load call `CalibrationCoordinator.stopForCanvas()`, and so does
+every canvas engine factory (`GpuTuningController.stopCalibrationForCanvas()`). It cancels the run
+and returns once the step in flight has destroyed its engine. Save does not wait for calibration to
+finish, because a run can stall in a driver. The measured steps are kept, and the next dialog
+resumes from them. `saveProject`, project creation and thumbnail generation catch `Throwable` (not
+cancellation). They log it, record a breadcrumb and raise a "Save failed" popup instead of killing
+the app.
+
+---
+
 ## Known documentation gaps
 
 `spec/package-format.md`, `spec/store-app.md`, and `spec/state-reporting.md` exist now
