@@ -2,6 +2,7 @@ package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
 import android.app.Application
+import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 import com.hereliesaz.graffitixr.common.crash.CrashReporter
 import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
@@ -33,6 +34,21 @@ class GraffuxApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, before anything can crash: the JVM handler (writes cacheDir/last_crash.txt with
+        // the trace, thread and breadcrumbs synchronously, then chains to the platform handler),
+        // and the breadcrumb mirror. The previous run's breadcrumbs are moved aside first, so a
+        // native crash or ANR (no Kotlin runs on the way down) still has them on the next launch.
+        CrashReporter(this).initialize()
+        runCatching {
+            val crumbs = File(cacheDir, CrashIssueUploader.BREADCRUMBS_FILE)
+            val previous = File(cacheDir, CrashIssueUploader.PREVIOUS_BREADCRUMBS_FILE)
+            if (crumbs.exists()) {
+                previous.delete()
+                crumbs.renameTo(previous)
+            }
+            Breadcrumbs.persistTo(crumbs)
+        }
+        Breadcrumbs.record("app start")
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
@@ -62,10 +78,6 @@ class GraffuxApplication : Application() {
         // every such request ran on whatever provider the device happened to ship. Async and
         // non-blocking; a failure here degrades to the device's own provider rather than crashing.
         securityProviderManager.installAsync(this)
-        // Fully built and unit-tested, but never instantiated anywhere — a real crash left nothing
-        // to diagnose why. Writes cacheDir/last_crash.txt (PII-redacted) and otherwise defers to the
-        // platform's default handler. Uploaded only by CrashIssueUploader, only with a token.
-        CrashReporter(this).initialize()
         // Signal-level (SIGSEGV/SIGABRT) backtraces the JVM handler above can't see -- the Vulkan
         // stamp engine and Ink predictor run native code on the drawing path. Needs loadAll() above.
         NativeCrashHandler.install(File(cacheDir, CrashIssueUploader.NATIVE_CRASH_FILE).path)

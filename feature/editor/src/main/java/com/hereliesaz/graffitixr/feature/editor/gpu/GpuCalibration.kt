@@ -1,8 +1,10 @@
 package com.hereliesaz.graffitixr.feature.editor.gpu
 
+import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -183,18 +185,37 @@ class CalibrationCoordinator(
         return result
     }
 
+    /**
+     * The canvas is about to get a GPU engine (project dialog > Save/Load, a stroke): stop any run
+     * in flight and return only once its engine is destroyed, so calibration's wgpu engines and the
+     * canvas's never exist at the same time. Cancellation cannot interrupt a native call, so this
+     * waits for the step in progress (one short benchmark) to return and tear down in its `finally`;
+     * it never waits for the whole run. Valid steps already measured are kept, and the next project
+     * dialog resumes from them. No-op when nothing runs.
+     */
+    suspend fun stopForCanvas() {
+        val running = job ?: return
+        if (!running.isActive) return
+        Breadcrumbs.record("calibration: stopped for the canvas")
+        running.cancelAndJoin()
+        if (_state.value == CalibrationState.RUNNING) _state.value = CalibrationState.IDLE
+    }
+
     private fun start(force: Boolean) {
         if (job?.isActive == true) return
         _state.value = CalibrationState.RUNNING
         job = scope.launch {
+            Breadcrumbs.record("calibration start")
             try {
                 calibrate(force)
             } catch (e: CancellationException) {
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                 // A probe that throws is a failed run, never a crash: keep the default tier.
-                android.util.Log.w(TAG, "calibration failed", e)
+                runCatching { android.util.Log.w(TAG, "calibration failed", e) }
                 _state.value = CalibrationState.FAILED
+            } finally {
+                Breadcrumbs.record("calibration end: ${_state.value}")
             }
         }
     }

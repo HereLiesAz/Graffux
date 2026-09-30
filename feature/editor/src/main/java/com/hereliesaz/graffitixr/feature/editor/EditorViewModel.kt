@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
+
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
 import android.content.Context
 import android.graphics.Bitmap
@@ -1219,22 +1221,34 @@ class EditorViewModel @Inject constructor(
         // format) already returns false cleanly; only the "library isn't there" case needs a
         // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
+        // Calibration's own wgpu engines must be gone before the canvas creates one.
+        com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
+        val logInit = !canvasEngineLogged
+        if (logInit) Breadcrumbs.record("canvas engine init start ${width}x$height")
         return try {
             val engine = GpuStampEngine()
             // wgpu keeps layers resident across strokes: [resident] binds (or uploads) the layer's
             // GPU copy by content generation; anything else, or a failure there, seeds the old way.
             val ready = engine.init(width, height) &&
                 (resident?.invoke(engine) == true || engine.upload(seed))
+            if (logInit) {
+                canvasEngineLogged = true
+                Breadcrumbs.record("canvas engine init end: ${if (ready) "ready" else "unavailable"}")
+            }
             if (!ready) {
                 engine.destroy()
                 null
             } else {
                 engine
             }
-        } catch (e: Throwable) {
+        } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+            if (logInit) Breadcrumbs.record("canvas engine init failed: ${e.javaClass.simpleName}")
             null
         }
     }
+
+    /** Whether this project's first canvas engine init was breadcrumbed (only the first is). */
+    @Volatile private var canvasEngineLogged = false
 
     // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
     private val timeLapseRecorder = TimeLapseRecorder()
@@ -3012,15 +3026,10 @@ class EditorViewModel @Inject constructor(
 
     fun saveProject(name: String? = null) {
         viewModelScope.launch(dispatchers.io) {
-            try {
-                persistProject(name)
-            } catch (e: Exception) {
-                // Don't let a failed save die silently — the user believes their work is safe.
-                android.util.Log.e("EditorViewModel", "Failed to save project", e)
-                withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't save the project — storage may be full", Toast.LENGTH_LONG).show()
-                }
-            }
+            // Throwable, not Exception: an OutOfMemoryError or a native-bridge error here used to
+            // take the whole app down on the first save. Don't let a failed save die silently
+            // either — the user believes their work is safe (saveErrors -> snackbar).
+            guardProjectCreation("Save project") { persistProject(name) }
         }
     }
 
@@ -3226,9 +3235,12 @@ class EditorViewModel @Inject constructor(
                     projectRepository.updateProject {
                         if (it.id == projectId) it.copy(thumbnailUri = "file://$path".toUri()) else it
                     }
-                } catch (e: Exception) {
-                    // Thumbnails are best-effort; never let one crash the app.
-                    android.util.Log.e("EditorViewModel", "Failed to generate thumbnail", e)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                    // Thumbnails are best-effort; never let one crash the app, OOM included.
+                    runCatching { android.util.Log.e("EditorViewModel", "Failed to generate thumbnail", t) }
+                    Breadcrumbs.record("thumbnail failed: ${t.javaClass.name}")
                 }
             }
         }
@@ -3806,15 +3818,14 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.SetLoading(true))
         viewModelScope.launch(dispatchers.default) {
-            val lut = extensionRepository.loadLut(extensionId)
-            if (lut == null) {
+            val graded = gradeWithInstalledLut(extensionId, bitmap)
+            if (graded == null) {
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
                     Toast.makeText(context, "Couldn't load that filter — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
                 }
                 return@launch
             }
-            val graded = bitmap.applyCubeLut(lut)
             putLayerBase(layerId, graded)
             graded.recycle()
             layerStore.initStrokes(layerId)
@@ -3822,6 +3833,20 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.SetLoading(false))
         }
     }
+
+    /**
+     * The grade [applyInstalledLut] commits: [source] through extension [extensionId]'s `.cube` LUT,
+     * as a new bitmap ([source] is untouched). Null when the LUT is missing or corrupt.
+     */
+    private fun gradeWithInstalledLut(extensionId: String, source: Bitmap): Bitmap? =
+        extensionRepository.loadLut(extensionId)?.let { source.applyCubeLut(it) }
+
+    /**
+     * [applyInstalledLut] without committing: grades [source] (the carousel's downscaled layer
+     * snapshot) on the default dispatcher and returns the result, touching no layer or history.
+     */
+    suspend fun previewInstalledLut(extensionId: String, source: Bitmap): Bitmap? =
+        withContext(dispatchers.default) { gradeWithInstalledLut(extensionId, source) }
 
     /**
      * Applies a curves adjustment (see [CurvesDialog]) to the active layer's bitmap. [points] are the
@@ -8105,18 +8130,50 @@ class EditorViewModel @Inject constructor(
      * the calibrated one is applied when it lands.
      */
     fun onProjectGateSave(name: String) {
+        Breadcrumbs.record("project gate: save pressed")
         val gate = _projectGate.value ?: return
         if (gate.busyLabel != null) return
         _projectGate.value = gate.copy(busyLabel = "Saving…")
         invalidateResident(null)
         viewModelScope.launch(dispatchers.io) {
-            val calibration = launch { gpuTuning?.coordinator?.awaitForCreate() }
-            runCatching { createNewProjectNamed(name) }
-                .onFailure { android.util.Log.e("EditorViewModel", "Create project failed", it) }
-            calibration.join()
-            _projectGate.value = null
+            // Stop calibration and wait for its engine to be destroyed before the project (and so
+            // the canvas and its engines) exists. Not "await completion": a run can take many
+            // seconds or stall in a driver, and Save must never hang on it. Cancelling is bounded
+            // by one benchmark step, keeps the steps already measured, and the next project dialog
+            // finishes the run. The canvas starts on the conservative default tier meanwhile.
+            runCatching { gpuTuning?.coordinator?.stopForCanvas() }
+            val created = guardProjectCreation("Create project") { createNewProjectNamed(name) }
+            // A failed create leaves the dialog up (there is still no project to work in).
+            _projectGate.value = if (created) null else gate.copy(busyLabel = null)
         }
     }
+
+    /**
+     * Runs [block] (project creation, a save) catching every [Throwable] but cancellation: an
+     * OutOfMemoryError or a native-bridge error on the first save is logged, left in the crash
+     * breadcrumbs, and shown as an error message instead of killing the app. Returns whether
+     * [block] completed.
+     */
+    private suspend fun guardProjectCreation(what: String, block: suspend () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+        reportSaveFailure(what, t)
+        false
+    }
+
+    private suspend fun reportSaveFailure(what: String, t: Throwable) {
+        runCatching { android.util.Log.e("EditorViewModel", "$what failed", t) }
+        Breadcrumbs.record("$what failed: ${t.javaClass.name}: ${t.message}")
+        _saveErrors.tryEmit("Couldn't save the project (${t.javaClass.simpleName})")
+    }
+
+    private val _saveErrors = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Save/create failures, for the host's snackbar. */
+    val saveErrors: kotlinx.coroutines.flow.SharedFlow<String> = _saveErrors
 
     /**
      * Project dialog > Load, after the picker returned [uri]: reads the project while calibration
@@ -8128,7 +8185,9 @@ class EditorViewModel @Inject constructor(
         _projectGate.value = gate.copy(busyLabel = "Loading…")
         viewModelScope.launch(dispatchers.io) {
             val coordinator = gpuTuning?.coordinator
-            val opened = coordinator?.alongsideLoad { importProjectFile(uri) } ?: importProjectFile(uri)
+            // As Save: no calibration engine may outlive the moment the canvas gets a project.
+            runCatching { coordinator?.stopForCanvas() }
+            val opened = importProjectFile(uri)
             _projectGate.value = if (opened) null else gate.copy(busyLabel = null)
         }
     }
@@ -8136,8 +8195,10 @@ class EditorViewModel @Inject constructor(
     /** File > New's body. Callers invalidate resident layers first, on the main thread. */
     private suspend fun createNewProjectNamed(name: String) {
         run {
+            canvasEngineLogged = false
             val project = createProjectWithScreenSize(name)
             val projectId = project.id
+            Breadcrumbs.record("project created")
 
             val (width, height) = newLayerSize()
             val blankBitmap = createBitmap(width, height)
@@ -8156,8 +8217,9 @@ class EditorViewModel @Inject constructor(
             )
 
             // Wait for the currentProject collector to publish the new (layerless) project first, as
-            // ensureProjectId does: otherwise its LoadedProject can land after AddLayer below and
-            // wipe the Background layer, and the first save then persists a project with no layers.
+            // ensureProjectId does: otherwise its LoadedProject can land after AddLayer below, and
+            // with a project already open (File > New) the Background layer is added to the OLD
+            // project's layer list, then wiped, and the first save persists the wrong layers.
             _uiState.first { it.projectId == projectId }
             withContext(dispatchers.main) {
                 putLayerBase(bgLayer.id, blankBitmap)
@@ -9984,21 +10046,6 @@ class EditorViewModel @Inject constructor(
 
     /** Current resolved Azphalt brush for topology-aware hover/tool previews; null = basic round brush. */
     fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
-
-    /** The decoded custom-tip assets (if any) the active installed brush will actually paint with. */
-    data class ActiveBrushPreviewAssets(
-        val shape: Bitmap?,
-        val grain: Bitmap?,
-        val maskShape: Bitmap?,
-    )
-
-    /**
-     * Runtime assets for [activeBrushForPreview], so Tool Options can preview the installed brush
-     * as it will actually paint -- BrushPreview otherwise has no access to a custom tip/grain/
-     * masked secondary tip and always falls back to generated gradient ovals.
-     */
-    fun activeBrushPreviewAssets(): ActiveBrushPreviewAssets =
-        ActiveBrushPreviewAssets(activeStampShape, activeStampGrain, activeStampMaskShape)
 
     private data class InstalledBrushRuntime(
         val brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,

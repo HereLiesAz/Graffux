@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
@@ -154,6 +155,11 @@ internal data class CarouselContent(
     val onToggle: (CarouselEntry, HeroToggleSetter, Boolean) -> Unit = { _, _, _ -> },
     /** Read (not observed by the host) to close an expanded card when a stroke starts. */
     val strokeActive: () -> Boolean = { false },
+    /**
+     * Renders effect cards' layer thumbnails for the hero preview (CarouselEffectPreviews.kt).
+     * Null: effect cards show their icon there instead.
+     */
+    val effectPreviews: EffectPreviewEngine? = null,
 )
 
 /** The history state the Undo/Redo tabs read, and the calls they make. */
@@ -192,6 +198,8 @@ internal fun BottomCarousel(
     modifier: Modifier = Modifier,
     expansion: HeroExpansion = remember { HeroExpansion() },
 ) {
+    // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
+    LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -257,7 +265,9 @@ internal fun BottomCarousel(
  * with its neighbour as the row scrolls ([carouselHeroBlend]). Which entries are composed changes
  * only when the row crosses an item ([derivedStateOf]); their opacity is read in the draw phase
  * ([graphicsLayer]), so scrolling does not recompose this every frame. Fixed height, so the strip
- * never jumps. Entries with no stroke (effects, options) draw nothing, so the stroke fades out.
+ * never jumps. Effect cards show the active layer with the effect applied, or their icon
+ * ([effectPreviewKind], CarouselEffectPreviews.kt); entries with no preview at all (options, the
+ * brush-like effect tools) draw nothing, so the preview fades out.
  */
 @Suppress("FunctionNaming")
 @Composable
@@ -268,7 +278,23 @@ internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidde
             carouselHeroBlend(position.value, count)?.let { listOfNotNull(it.heroIndex, it.neighborIndex) }.orEmpty()
         }
     }
-    Box(Modifier.fillMaxWidth().height(PreviewHeight), contentAlignment = Alignment.Center) {
+    // Effect thumbnails render ahead for the cards within one of the hero (and cache), so a swipe
+    // lands on a finished render.
+    val engine = content.effectPreviews
+    if (engine != null) {
+        val near by remember(count) {
+            derivedStateOf { position.value.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0)) }
+        }
+        val snap = engine.snapshot
+        LaunchedEffect(near, snap?.generation, content.entries) {
+            if (snap == null) return@LaunchedEffect
+            for (i in near - 1..near + 1) {
+                val e = content.entries.getOrNull(i) ?: continue
+                if (effectPreviewKind(e) == EffectPreviewKind.LAYER) engine.thumbnail(e, content.itemSettings(e))
+            }
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(PreviewHeight), contentAlignment = Alignment.BottomCenter) {
         shown.forEach { index ->
             val entry = content.entries[index]
             key(entry.key) {
@@ -278,7 +304,20 @@ internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidde
                         .graphicsLayer { alpha = if (hidden()) 0f else carouselPreviewAlpha(position.value, index) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    StrokePreview(entry, content)
+                    when (effectPreviewKind(entry)) {
+                        EffectPreviewKind.STROKE -> StrokePreview(entry, content)
+                        EffectPreviewKind.FALLBACK -> EffectFallbackPreview(entry, content)
+                        EffectPreviewKind.LAYER -> Box(
+                            Modifier.matchParentSize().testTag("carousel.preview.${entry.key}"),
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            if (engine != null) {
+                                EffectLayerPreview(entry, content, engine) { EffectFallbackPreview(entry, content) }
+                            } else {
+                                EffectFallbackPreview(entry, content)
+                            }
+                        }
+                    }
                 }
             }
         }

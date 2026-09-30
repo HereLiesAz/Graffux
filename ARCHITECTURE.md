@@ -99,6 +99,44 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
 
 ---
 
+## Crash reporting
+
+There is no logcat from the field, so the app reports its own deaths. It sends them through the
+same channel and opt-in as the stroke-prediction reports: `PredictionReportRepository.fileIssue`,
+authenticated by the GitHub token pasted in Settings. With no token nothing is sent, and the
+pending files wait on disk.
+
+- **JVM crashes.** `CrashReporter` (core/common) is the default `UncaughtExceptionHandler`, and it
+  is installed first in `GraffuxApplication.onCreate`. It synchronously writes
+  `cacheDir/last_crash.txt` (build, device, thread, stack trace, breadcrumbs), then appends logcat,
+  then chains to the previous handler.
+- **Breadcrumbs.** `Breadcrumbs` (core/common) is a 30-entry ring of notable events: app start,
+  project gate save pressed, project created, canvas engine init start/end, calibration start/end
+  or stopped, carousel first composition, and save/thumbnail failures. It is mirrored to
+  `breadcrumbs.txt` on every record. At launch the previous run's copy moves to
+  `breadcrumbs_prev.txt`, so a native crash or ANR, which runs no Kotlin on the way down, still has
+  them. Record events per action, never per frame or per touch sample.
+- **Native crashes / ANRs.** On the next launch `CrashIssueUploader` reads
+  `ActivityManager.getHistoricalProcessExitReasons` (API 30+): `REASON_CRASH`, `REASON_CRASH_NATIVE`
+  (with the tombstone's readable strings), `REASON_ANR` (with its trace), and foreground low-memory
+  kills. It also reads `NativeCrashHandler`'s `native_crash.txt`.
+- **Filing.** `CrashReportPlanner` is pure and unit-tested. It pairs a crash file with its exit
+  record so one death is one issue, titles it `[crash] <exception or signal> — <device>, <build>`,
+  and caps the body under GitHub's 65,536-character limit. It dedupes by stable keys
+  (`exit:<time>:<pid>`, `jvm:<sha>`, `native:<sha>`, the last 64 remembered) and an exit-time
+  watermark. A file is deleted only after GitHub accepted its issue.
+
+**First save and GPU calibration.** Calibration's wgpu engines and the canvas's must never exist at
+the same time. Project dialog Save/Load call `CalibrationCoordinator.stopForCanvas()`, and so does
+every canvas engine factory (`GpuTuningController.stopCalibrationForCanvas()`). It cancels the run
+and returns once the step in flight has destroyed its engine. Save does not wait for calibration to
+finish, because a run can stall in a driver. The measured steps are kept, and the next dialog
+resumes from them. `saveProject`, project creation and thumbnail generation catch `Throwable` (not
+cancellation). They log it, record a breadcrumb and raise a "Save failed" popup instead of killing
+the app.
+
+---
+
 ## Known documentation gaps
 
 `spec/package-format.md`, `spec/store-app.md`, and `spec/state-reporting.md` exist now
@@ -160,7 +198,25 @@ codebase is deferred scope or a real gap in the install-report flow.
   utensils their tip glyph; effects and options their icon. The stroke preview (`BrushPreview`)
   above the hero card always shows the entry in the hero slot, crossfading with its neighbour by
   the row's continuous position (`carouselHeroBlend`, `carouselPreviewAlpha`); entries without a
-  stroke show none. Whatever settles in the hero slot becomes the selection: a drag or fling runs
+  stroke show none. **Effect layer previews (`CarouselEffectPreviews.kt`).** `effectPreviewKind`
+  sorts each entry: installed LUTs (`LAYER`) show a thumbnail of the active layer with the LUT
+  applied; installed azphalt filters and tools (`FALLBACK`) show their card icon or manifest preview
+  image, because `AzphaltSandboxHost` gives a contribution no pixel read or write, so it cannot run
+  against an off-layer bitmap; the built-in effect tools (Blur, Sharpen, Smudge, Liquify, Dodge,
+  Burn, Heal, Clone, Color) are painted strokes and stay on the stroke path (`STROKE`), like
+  brushes and Ink. The pipeline is `EffectPreviewEngine`, created by the host and passed in
+  `CarouselContent.effectPreviews`. The host re-snapshots the active layer 250ms after its id, bitmap,
+  undo/redo counts or loading flag last changed (`updateSource`: downscaled on `Dispatchers.Default` to
+  256px on the long edge, owned copy, generation bumped, older thumbnails dropped). `HeroPreview`
+  renders LAYER entries within ±1 of the hero ahead of time; each render runs on the background
+  dispatcher through `EditorViewModel.previewInstalledLut`, which is `applyInstalledLut`'s own
+  `gradeWithInstalledLut` with no commit. Results sit in an LRU of 12 (`LruBitmapCache`) keyed by
+  `EffectPreviewKey` (entry key, the entry's `CarouselItemSettings`, snapshot generation) and are
+  recycled on eviction, deferred while on screen. `EffectLayerPreview` shows the plain snapshot while
+  rendering and crossfades to the result; a settings change re-renders after 100ms. The thumbnail
+  is 72dp tall (`EffectPreviewHeight`), aspect-fit with rounded corners, bottom-aligned in the 40dp
+  preview slot and growing upward, so the 48dp `PreviewGap` to the card is unchanged. Nothing here
+  touches the stroke path. Whatever settles in the hero slot becomes the selection: a drag or fling runs
   the entry's action only for brushes, Ink utensils and effect tools (`carouselAutoActivates`);
   stabilizer, smudge and shape stops need a tap. Tapping a non-hero card scrolls
   it into the hero slot and then runs it. Selection changed elsewhere (rail, undo) re-centres the

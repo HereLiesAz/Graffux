@@ -251,6 +251,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // failed a moment after they pressed it. A Toast is gone in two seconds and says nothing about
     // which control it belonged to.
     val alerts = rememberAzPopupController()
+    // A save or project creation that failed (OOM included) is reported, never fatal.
+    LaunchedEffect(vm) {
+        vm.saveErrors.collect { message ->
+            alerts.show(kind = AzPopupKind.WARNING, title = "Save failed", message = message)
+        }
+    }
 
     // The shortcuts sheet. HIDDEN parks it as a swipe strip along the bottom edge — a touch target
     // and nothing else, so the canvas keeps the screen — and a swipe or a tap brings it to PEEK,
@@ -987,6 +993,27 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         }
                                     }
                             }
+                            // Effect cards' layer thumbnails (CarouselEffectPreviews.kt): LUTs render
+                            // through applyInstalledLut's own grade, without committing.
+                            val effectPreviews = remember {
+                                EffectPreviewEngine({ entry, source, _ ->
+                                    when (val action = entry.action) {
+                                        is CarouselAction.ExtensionLut ->
+                                            vm.previewInstalledLut(action.extensionId, source)
+                                        else -> null
+                                    }
+                                })
+                            }
+                            val previewLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                            // Re-snapshot (debounced) when the active layer, its bitmap, or its history moves.
+                            LaunchedEffect(
+                                previewLayer?.id, previewLayer?.bitmap, uiState.undoCount, uiState.redoCount,
+                                uiState.isLoading,
+                            ) {
+                                kotlinx.coroutines.delay(EFFECT_SNAPSHOT_DEBOUNCE_MS)
+                                effectPreviews.updateSource(previewLayer?.bitmap)
+                            }
+                            DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
                             BottomCarousel(
                                 ui = carouselUi,
                                 onUiChange = { carouselUi = it },
@@ -1061,6 +1088,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     // first, since the card edits the item's own settings.
                                     onMore = {},
                                     strokeActive = { strokeGate.strokeActive },
+                                    effectPreviews = effectPreviews,
                                     onChoose = { _, setter, index ->
                                         when (setter) {
                                             HeroChoiceSetter.SMUDGE_MODE ->

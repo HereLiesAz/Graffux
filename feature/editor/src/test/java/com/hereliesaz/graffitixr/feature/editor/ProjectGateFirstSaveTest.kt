@@ -18,6 +18,8 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import kotlinx.coroutines.launch
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +34,8 @@ class ProjectGateFirstSaveTest {
     private val dispatcher = StandardTestDispatcher()
     private val current = MutableStateFlow<GraffitiProject?>(null)
     private val saved = mutableListOf<GraffitiProject>()
+    /** Set to make ProjectRepository.createProject / updateProject throw it. */
+    private var createFailure: Throwable? = null
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -58,6 +62,7 @@ class ProjectGateFirstSaveTest {
             every { this@mockk.projects } returns MutableStateFlow(emptyList())
             coEvery { getProjects() } answers { saved.toList() }
             coEvery { createProject(any<GraffitiProject>()) } answers {
+                createFailure?.let { throw it }
                 val p = firstArg<GraffitiProject>(); saved += p; current.value = p
             }
             coEvery { updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
@@ -87,11 +92,11 @@ class ProjectGateFirstSaveTest {
     @Test
     fun `first save from the project dialog creates the project with its background layer`() {
         val vm = build()
-        dispatcher.scheduler.advanceUntilIdle()
+        settle()
         assertNotNull(vm.projectGate.value)
 
         vm.onProjectGateSave("Wall piece")
-        dispatcher.scheduler.advanceUntilIdle()
+        settle()
 
         assertNull(vm.projectGate.value)
         val state = vm.uiState.value
@@ -100,5 +105,70 @@ class ProjectGateFirstSaveTest {
         // The Background layer survives the project's own LoadedProject, and is what got saved.
         assertEquals(listOf("Background"), state.layers.map { it.name })
         assertEquals(listOf("Background"), current.value?.layers?.map { it.name })
+    }
+
+    @Test
+    fun `new project over an open one keeps only its own Background layer`() {
+        val old = GraffitiProject(name = "Old")
+        saved += old
+        current.value = old
+        val vm = build()
+        settle()
+        vm.onAddBlankLayer()
+        settle()
+        assertEquals(1, vm.uiState.value.layers.size)
+
+        vm.showProjectGate()
+        settle()
+        vm.onProjectGateSave("Second")
+        settle()
+
+        assertNull(vm.projectGate.value)
+        assertEquals("Second", current.value?.name)
+        assertEquals(listOf("Background"), vm.uiState.value.layers.map { it.name })
+        assertEquals(listOf("Background"), current.value?.layers?.map { it.name })
+    }
+
+    @Test
+    fun `an Error while creating the project is reported, not fatal, and the dialog stays`() {
+        val vm = build()
+        val errors = mutableListOf<String>()
+        kotlinx.coroutines.CoroutineScope(dispatcher).launchCollect(vm, errors)
+        settle()
+        createFailure = OutOfMemoryError("test OOM")
+
+        vm.onProjectGateSave("Boom")
+        settle()
+
+        val gate = vm.projectGate.value
+        assertNotNull("the dialog stays: there is still no project", gate)
+        assertNull("and can be used again", gate?.busyLabel)
+        assertEquals(1, errors.size)
+        assertTrue(errors.single().contains("OutOfMemoryError"))
+        val crumbs = com.hereliesaz.graffitixr.common.crash.Breadcrumbs.snapshot()
+        assertTrue(crumbs.any { it.endsWith("project gate: save pressed") })
+        assertTrue(crumbs.any { it.contains("Create project failed: java.lang.OutOfMemoryError") })
+    }
+
+    private fun kotlinx.coroutines.CoroutineScope.launchCollect(vm: EditorViewModel, into: MutableList<String>) {
+        launch { vm.saveErrors.collect { into += it } }
+    }
+
+    /**
+     * Runs the test scheduler to idle, several times over a few real milliseconds: the GPU tuning
+     * controller's calibration runs on the real Default dispatcher (its engine cannot start under
+     * Robolectric), and Save's stopForCanvas resumes on the test dispatcher only once it ends.
+     */
+    private fun settle() {
+        repeat(SETTLE_ROUNDS) {
+            dispatcher.scheduler.advanceUntilIdle()
+            Thread.sleep(SETTLE_SLEEP_MS)
+        }
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private companion object {
+        const val SETTLE_ROUNDS = 20
+        const val SETTLE_SLEEP_MS = 25L
     }
 }
