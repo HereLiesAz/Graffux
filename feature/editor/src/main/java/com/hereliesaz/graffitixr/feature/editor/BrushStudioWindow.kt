@@ -530,9 +530,10 @@ private fun ParamSlider(
  * bitmaps and passes them in via [stampShape]/[stampGrain]/[stampMaskShape] -- this composable
  * itself stays stateless and does no IO. A draft-in-progress brush in Brush Studio that has no
  * installed extension id yet has nothing to pass, so it still falls back to the generated
- * gradient-oval tip below. Callers previewing an *installed* brush (Brush Studio, via
- * EditorViewModel.activeBrushPreviewAssets) do have the decoded runtime assets already and pass
- * them through, so the preview matches what will actually paint.
+ * gradient-oval tip below. A caller previewing an *installed* brush has to decode that brush's
+ * runtime assets itself and pass them through for the preview to match what will actually paint;
+ * nothing in the editor currently does (the carousel draws installed brushes from their
+ * pre-rendered stroke preview instead).
  */
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 @Composable
