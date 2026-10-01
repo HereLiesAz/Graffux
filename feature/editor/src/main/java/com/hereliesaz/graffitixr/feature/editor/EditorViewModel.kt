@@ -6624,7 +6624,9 @@ class EditorViewModel @Inject constructor(
      * (Eraser, Smudge, ...) is in hand does not turn it off.
      */
     fun directDisplayAllowed(state: EditorUiState = _uiState.value): Boolean =
-        GpuStampEngine.DirectSurface.enabled && !usesJetpackInk(state)
+        GpuStampEngine.DirectSurface.enabled &&
+            !usesJetpackInk(state) &&
+            state.layers.none { it.id != state.activeLayerId && it.isVisible }
 
     /** The utensil in hand, as [inkBrushForCurrentState] resolves it; snapshotted with it at stroke start. */
     fun inkUtensilForCurrentState(): com.hereliesaz.graffitixr.common.model.InkUtensil =
