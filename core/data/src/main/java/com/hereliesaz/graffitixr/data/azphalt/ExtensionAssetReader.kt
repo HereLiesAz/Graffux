@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.data.azphalt
 
 import com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 
 /**
@@ -51,17 +52,22 @@ class ExtensionAssetReader(private val extension: InstalledExtension) {
     }
 
     // length() was checked, but the file could grow between check and read: never read past the cap.
+    // Start near the actual asset size instead of allocating 4 MiB for every tiny config file.
     private fun readBounded(file: File): ByteArray? {
-        val buf = ByteArray(MAX_ASSET_READ_BYTES.toInt() + 1)
-        var total = 0
+        val initial = file.length().coerceIn(0L, MAX_ASSET_READ_BYTES).toInt()
+        val out = ByteArrayOutputStream(initial)
+        val chunk = ByteArray(8 * 1024)
+        var total = 0L
         file.inputStream().use { input ->
-            while (total < buf.size) {
-                val n = input.read(buf, total, buf.size - total)
+            while (true) {
+                val n = input.read(chunk)
                 if (n < 0) break
                 total += n
+                if (total > MAX_ASSET_READ_BYTES) return null
+                out.write(chunk, 0, n)
             }
         }
-        return if (total > MAX_ASSET_READ_BYTES) null else buf.copyOf(total)
+        return out.toByteArray()
     }
 }
 
