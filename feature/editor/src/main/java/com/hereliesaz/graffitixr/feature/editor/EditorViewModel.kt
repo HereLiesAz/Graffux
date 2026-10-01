@@ -7772,25 +7772,19 @@ class EditorViewModel @Inject constructor(
                 for (index in range) {
                     if (!isActive) throw kotlinx.coroutines.CancellationException("Preview rendering cancelled")
                     val ids = AnimationFrames.renderedLayerIdsForFrame(state.layers, index)
-                    val full = exportManager.compositeToDocument(
+                    val preview = exportManager.compositeToDocument(
                         layers = state.layers.filter { it.id in ids },
                         canvasW = canvasWidth,
                         canvasH = canvasHeight,
-                        docW = state.documentWidth,
-                        docH = state.documentHeight,
-                        // Graffux's editor canvas deliberately does not render the persisted
-                        // GraffitiXR camera/wall background. Preview playback must match that live
-                        // canvas rather than baking an export-only background into every frame.
+                        // Render straight to the bounded preview target. Using the document's full
+                        // dimensions here created an enormous intermediate only to downscale it.
+                        docW = previewWidth,
+                        docH = previewHeight,
+                        // ArtboardPage + InfiniteGrid remain live underneath the cached layer image.
+                        // Keep the cache transparent so it does not paint an opaque page over them.
                         backgroundBitmap = null,
-                        backgroundColor = state.canvasBackground.toArgb(),
+                        backgroundColor = android.graphics.Color.TRANSPARENT,
                     )
-                    val preview = if (full.width == previewWidth && full.height == previewHeight) {
-                        full
-                    } else {
-                        Bitmap.createScaledBitmap(full, previewWidth, previewHeight, true).also {
-                            if (it !== full) full.recycle()
-                        }
-                    }
                     rendered[index] = preview
 
                     withContext(dispatchers.main) {
