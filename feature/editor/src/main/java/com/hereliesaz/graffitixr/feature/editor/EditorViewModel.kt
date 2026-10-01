@@ -1226,7 +1226,7 @@ class EditorViewModel @Inject constructor(
         val logInit = !canvasEngineLogged
         if (logInit) Breadcrumbs.record("canvas engine init start ${width}x$height")
         return try {
-            val engine = GpuStampEngine()
+            val engine = GpuStampEngine(collectTelemetry = true)
             // wgpu keeps layers resident across strokes: [resident] binds (or uploads) the layer's
             // GPU copy by content generation; anything else, or a failure there, seeds the old way.
             val ready = engine.init(width, height) &&
