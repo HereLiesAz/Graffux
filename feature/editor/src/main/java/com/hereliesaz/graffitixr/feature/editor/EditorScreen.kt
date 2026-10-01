@@ -454,9 +454,12 @@ fun EditorScreen(
                 val world = toWorld(Offset(sample.x, sample.y))
                 return sample.copy(x = world.x, y = world.y)
             }
+            val competingVisibleLayer = uiState.layers.any {
+                it.id != uiState.activeLayerId && it.isVisible
+            }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
-                brushSize = uiState.brushSize,
+                brushSize = uiState.effectiveScreenBrushSize(),
                 activeColor = uiState.activeColor,
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
