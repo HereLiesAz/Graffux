@@ -659,13 +659,16 @@ fun EditorScreen(
             )
         }
 
-        // 3d. Brush-size HUD — while the size slider moves, the ACTUAL brush diameter previews as
-        // a circle at canvas centre, the way Procreate shows what you're about to paint with.
-        // The radial gradient maps brushFeathering so the user sees the soft edge, not just size.
+        // 3d. Brush-size HUD — while the size slider moves OR the canvas zoom changes, preview the
+        // ACTUAL on-screen brush diameter. The pink ring is the slider's literal base diameter and
+        // never scales with zoom; the white ring is the resulting diameter after viewport zoom.
+        // At 100% zoom (or with screen-lock enabled) they coincide, giving an immediate visual
+        // reference for how much zoom alone is changing the brush footprint on screen.
         if (uiState.brushHudVisible) {
             Canvas(Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val r = (uiState.brushSize / 2f).coerceAtLeast(1.5f)
+                val baseRadius = (uiState.brushSize / 2f).coerceAtLeast(1.5f)
+                val effectiveRadius = (uiState.effectiveScreenBrushSize() / 2f).coerceAtLeast(1.5f)
                 val core = (1f - uiState.brushFeathering).coerceIn(0f, 1f)
                 val c = uiState.activeColor
                 drawCircle(
@@ -674,12 +677,23 @@ fun EditorScreen(
                         core to c,
                         1f to c.copy(alpha = 0f),
                         center = center,
-                        radius = r,
+                        radius = effectiveRadius,
                     ),
-                    radius = r,
+                    radius = effectiveRadius,
                     center = center,
                 )
-                drawCircle(Color.White.copy(alpha = 0.9f), radius = r, center = center, style = Stroke(width = 1.5.dp.toPx()))
+                drawCircle(
+                    color = Color(0xFFFF4FA3),
+                    radius = baseRadius,
+                    center = center,
+                    style = Stroke(width = 3.dp.toPx()),
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.9f),
+                    radius = effectiveRadius,
+                    center = center,
+                    style = Stroke(width = 1.5.dp.toPx()),
+                )
             }
         }
 
