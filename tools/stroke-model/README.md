@@ -164,9 +164,10 @@ python -m unittest discover -s tests -v
 
 `.github/workflows/stroke-data-kaggle.yml` copies the `stroke-data` branch to a **private** Kaggle
 dataset every 6 hours (or on demand from the Actions tab), via `kaggle_upload.py`. It needs the
-`KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is
-a bare API token, also set the `KAGGLE_USERNAME` (or full `KAGGLE_DATASET`, `owner/slug`)
-repository variable. Default dataset: `<username>/graffux-stroke-data`.
+`KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is a bare API token, the workflow defaults the Kaggle username to `hereliesaz`.
+Set `KAGGLE_USERNAME` only to override that account, or set the full `KAGGLE_DATASET`
+(`owner/slug`) to override the destination entirely. Default dataset:
+`hereliesaz/graffux-stroke-data`.
 
 ~~~
 kaggle datasets download <username>/graffux-stroke-data --unzip -p data/

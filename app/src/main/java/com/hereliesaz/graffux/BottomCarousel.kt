@@ -249,7 +249,9 @@ internal fun BottomCarousel(
                 }
             }
         } else {
-            Box(Modifier.fillMaxWidth().height(PreviewHeight + PreviewGap))
+            // The populated path has one extra ColumnSpacing between preview/gap/strip. Subtract
+            // it here so the tabs land on the exact same baseline in empty categories.
+            Box(Modifier.fillMaxWidth().height(PreviewHeight + PreviewGap - ColumnSpacing))
             if (ui.category == CarouselCategory.FAVORITES) {
                 EmptyHint("No favorites yet. Tap the star on any brush, Ink, effect or option card to add it.")
             } else if (ui.category == CarouselCategory.OPTIONS) {

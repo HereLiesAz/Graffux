@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * backends"). When it cannot start -- no libgraffux_wgpu.so, no adapter, no Vulkan -- [init]
  * returns false and every caller draws the stroke on the CPU instead.
  */
-class GpuStampEngine {
+class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     init { NativeLibLoader.loadAll() }
 
     private data class PoolKey(val width: Int, val height: Int)
@@ -207,6 +207,9 @@ class GpuStampEngine {
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
+            // Pooled handles captured the old workgroup/timestamp policy at native initialization.
+            // Remove them synchronously from the pool so the next stroke cannot reuse stale tuning.
+            trimPool()
         }
 
         /** Changes the wgpu resident budget on every live engine (queued) and for new ones. */
@@ -835,6 +838,7 @@ class GpuStampEngine {
 
     /** Hands GPU timestamps to [passTimingSink] at stroke end; the drain is queued, not awaited. */
     private fun drainGpuTimings(handle: Long) {
+        if (!collectTelemetry) return
         val sink = passTimingSink ?: return
         val drain = {
             runCatching { nativeTakePassTimings(handle) }.getOrNull()?.let { pairs ->
@@ -850,6 +854,7 @@ class GpuStampEngine {
 
     /** CPU wall time around a native call, reported as not-GPU (telemetry labels it "cpu"). */
     private inline fun <T> timed(kind: PassKind, block: () -> T): T {
+        if (!collectTelemetry) return block()
         val sink = passTimingSink ?: return block()
         val start = System.nanoTime()
         val result = block()
@@ -876,6 +881,7 @@ class GpuStampEngine {
      * separates "the GPU call was slow" from "it waited behind other render-thread work".
      */
     private inline fun <T> onGpu(crossinline block: () -> T): T {
+        if (!collectTelemetry) return GpuRenderThread.call { block() }
         val sink = passTimingSink ?: return GpuRenderThread.call { block() }
         val enqueued = System.nanoTime()
         return GpuRenderThread.call {

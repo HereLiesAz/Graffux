@@ -47,9 +47,6 @@ class GpuTelemetry(private val frameBudgetNanos: () -> Long) : PassTimingSink {
         }
     }
 
-    /** CPU wall time of a composite done outside the stamp engine (the editor's layer composite). */
-    fun onComposite(nanos: Long) = onPass(PassKind.COMPOSITE.ordinal, nanos, false)
-
     @Synchronized
     fun onThermal(snapshot: ThermalSnapshot) = onThermalLocked(snapshot)
 
