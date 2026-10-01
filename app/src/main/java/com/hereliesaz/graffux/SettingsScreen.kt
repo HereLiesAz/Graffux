@@ -140,11 +140,11 @@ fun SettingsScreen(
             )
             HorizontalDivider()
             SwitchRow(
-                title = "Brush size locked to screen",
-                subtitle = "The brush stays the same size on screen at any zoom, instead of the " +
-                    "same size on the artwork.",
-                checked = brushSizeFixedOnScreen,
-                onCheckedChange = vm::setBrushSizeFixedOnScreen,
+                title = "Brush size follows zoom",
+                subtitle = "Zooming in enlarges the brush on screen and zooming out shrinks it; " +
+                    "the Size slider remains the base diameter.",
+                checked = !brushSizeFixedOnScreen,
+                onCheckedChange = { followsZoom -> vm.setBrushSizeFixedOnScreen(!followsZoom) },
             )
             HorizontalDivider()
             // No language picker. The only translations `:core:design` carried were GraffitiXR's —
