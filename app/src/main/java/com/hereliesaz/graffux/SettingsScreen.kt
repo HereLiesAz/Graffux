@@ -157,6 +157,15 @@ fun SettingsScreen(
             // core modules GraffitiXR also consumes. Nothing in Graffux reads them.
 
             Text(
+                "Privacy",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+            )
+            StrokeDataRow(vm)
+            HorizontalDivider()
+
+            Text(
                 "Performance",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
@@ -328,7 +337,10 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
             prefs.edit().putBoolean(STROKE_DATA_KEY, it).apply()
         },
     )
-    TextButton(onClick = { vm.uploadStrokeData(context) }) { Text("Upload stroke data now") }
+    TextButton(
+        onClick = { vm.uploadStrokeData(context) },
+        enabled = recording && pending > 0,
+    ) { Text("Upload stroke data now") }
     HeatmapSettingsRow()
 }
 
