@@ -2783,12 +2783,18 @@ class EditorViewModel @Inject constructor(
 
     private suspend fun ensureProjectId(): String {
         _uiState.value.projectId?.let { return it }
-        if (projectRepository.currentProject.value == null) {
+        val createdHere = projectRepository.currentProject.value == null
+        if (createdHere) {
             createProjectWithScreenSize("Untitled")
         }
         // Return only once the currentProject collector has published it into uiState, so a caller that
         // adds a layer next isn't clobbered by LoadedProject landing behind it.
-        return _uiState.first { it.projectId != null }.projectId!!
+        val projectId = _uiState.first { it.projectId != null }.projectId!!
+        // ACTION_SEND and other implicit-create paths can race the first-launch project gate. Once
+        // this path has successfully created and published a project, that gate is stale and would
+        // otherwise sit over the imported work and force a second project choice.
+        if (createdHere && _projectGate.value != null) _projectGate.value = null
+        return projectId
     }
 
     /** [activeToolOverride], when set, keeps that tool active on the new layer instead of resetting
