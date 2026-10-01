@@ -671,8 +671,8 @@ fun EditorScreen(
         if (uiState.brushHudVisible) {
             Canvas(Modifier.fillMaxSize()) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val baseRadius = (uiState.brushSize / 2f).coerceAtLeast(1.5f)
-                val effectiveRadius = (uiState.effectiveScreenBrushSize() / 2f).coerceAtLeast(1.5f)
+                val baseRadius = (uiState.brushSize / 2f).coerceAtLeast(0f)
+                val effectiveRadius = (uiState.effectiveScreenBrushSize() / 2f).coerceAtLeast(0f)
                 val core = (1f - uiState.brushFeathering).coerceIn(0f, 1f)
                 val c = uiState.activeColor
                 drawCircle(
