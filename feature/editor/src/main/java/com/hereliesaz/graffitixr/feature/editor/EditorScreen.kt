@@ -483,6 +483,7 @@ fun EditorScreen(
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
                 strokePaintPresented = { vm.strokePaintPresented },
+                showProvisionalInk = !competingVisibleLayer,
                 onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
             )
         }
