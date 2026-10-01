@@ -55,11 +55,15 @@ the previous failure mode rather than breaking a release outright.
 
 Before writing or changing any AzNavRail code (rail items, pages, bottom sheets, overlays,
 anything from `com.hereliesaz.aznavrail`), read the AzNavRail complete guide in full and follow
-its API and conventions. It ships inside the library at `assets/AZNAVRAIL_COMPLETE_GUIDE.md`. For
-the version in `gradle/libs.versions.toml`, find the extracted copy with:
+its API and conventions. It ships inside the library at `assets/AZNAVRAIL_COMPLETE_GUIDE.md`. For the version in `gradle/libs.versions.toml`, read it directly from the cached AAR; this works
+even on a fresh checkout before Gradle has extracted/transformed the dependency:
 
 ~~~
-find ~/.gradle -path '*aznavrail-<version>*' -name AZNAVRAIL_COMPLETE_GUIDE.md
+AAR="$(find ~/.gradle/caches -name 'aznavrail-<version>.aar' -print -quit)"
+unzip -p "$AAR" assets/AZNAVRAIL_COMPLETE_GUIDE.md
 ~~~
+
+If `$AAR` is empty, resolve dependencies first (for example `./gradlew :app:dependencies`) and
+run the command again.
 
 If you delegate AzNavRail work to another agent, pass it the guide too.
