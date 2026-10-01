@@ -64,13 +64,11 @@ class GraffuxApplication : Application() {
         RetiredGpuBackendMigration.migrate(gpuPrefs)
         // Direct display of the live stroke (Settings), off unless turned on.
         GpuStampEngine.DirectSurface.enabled = gpuPrefs.getBoolean(GpuStampEngine.DirectSurface.ENABLED_KEY, false)
-        // Multipass drying (experimental), off unless turned on.
+        // Progressive rendering is the normal path. Its scheduler adapts to calibrated GPU/thermal
+        // budget and pending work; no wall-clock "drying" duration is user-configurable.
         GpuStampEngine.multipass = MultipassSettings(
-            enabled = gpuPrefs.getBoolean(GpuStampEngine.KEY_MULTIPASS, false),
-            transitionMs = gpuPrefs.getFloat(
-                GpuStampEngine.KEY_MULTIPASS_TRANSITION_MS,
-                MultipassSettings.DEFAULT_TRANSITION_MS,
-            ),
+            enabled = gpuPrefs.getBoolean(GpuStampEngine.KEY_MULTIPASS, true),
+            transitionMs = 0f,
         )
         // Extension installs and trust-store refreshes go out over plain HttpURLConnection
         // (ExtensionRepository, EditorViewModel.installExtensionFromUrl) — this was built to patch an
@@ -84,8 +82,18 @@ class GraffuxApplication : Application() {
         // TEMPORARY: with a GitHub token pasted in Settings, file what the last run left behind.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { CrashIssueUploader(this@GraffuxApplication, predictionReports).uploadPending() }
-            // Stroke-model training data from earlier sessions (Settings → Record strokes).
-            runCatching { StrokeDataUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+            // Training data is strictly opt-in. Existing pending files stay local while consent is off.
+            val trainingPrefs = getSharedPreferences(
+                com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
+                MODE_PRIVATE,
+            )
+            if (trainingPrefs.getBoolean(
+                    com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY,
+                    false,
+                )
+            ) {
+                runCatching { StrokeDataUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+            }
         }
     }
 }
