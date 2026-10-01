@@ -123,6 +123,8 @@ fun DrawingCanvas(
      * of after the whole engine round trip.
      */
     strokePaintPresented: () -> Boolean = { false },
+    /** False when screen-space provisional ink would incorrectly sit above other visible layers. */
+    showProvisionalInk: Boolean = true,
     /** Every raw MotionEvent, before gesture handling (stroke-model training capture). */
     onRawMotionEvent: (MotionEvent) -> Unit = {},
 ) {
@@ -486,7 +488,7 @@ fun DrawingCanvas(
             )
         }
 
-        if (activeTool == Tool.BRUSH) {
+        if (activeTool == Tool.BRUSH && showProvisionalInk) {
             provisionalInk?.let { path ->
                 drawProvisionalStroke(
                     path = path,

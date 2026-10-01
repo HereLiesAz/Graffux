@@ -48,4 +48,16 @@ class EffectivePaintBrushSizeTest {
         assertEquals(5000f, zero, 0.001f) // 50f / 0.01f coercion floor
         assertEquals(5000f, negative, 0.001f)
     }
+
+    @Test
+    fun `screen preview follows zoom when brush is document-sized`() {
+        assertEquals(200f, state(50f, viewportZoom = 4f, fixedOnScreen = false).effectiveScreenBrushSize(), 0.001f)
+        assertEquals(25f, state(50f, viewportZoom = 0.5f, fixedOnScreen = false).effectiveScreenBrushSize(), 0.001f)
+    }
+
+    @Test
+    fun `screen preview remains slider-sized when screen lock is enabled`() {
+        assertEquals(50f, state(50f, viewportZoom = 4f, fixedOnScreen = true).effectiveScreenBrushSize(), 0.001f)
+        assertEquals(50f, state(50f, viewportZoom = 0.5f, fixedOnScreen = true).effectiveScreenBrushSize(), 0.001f)
+    }
 }

@@ -140,11 +140,11 @@ fun SettingsScreen(
             )
             HorizontalDivider()
             SwitchRow(
-                title = "Brush size locked to screen",
-                subtitle = "The brush stays the same size on screen at any zoom, instead of the " +
-                    "same size on the artwork.",
-                checked = brushSizeFixedOnScreen,
-                onCheckedChange = vm::setBrushSizeFixedOnScreen,
+                title = "Brush size follows zoom",
+                subtitle = "Zooming in enlarges the brush on screen and zooming out shrinks it; " +
+                    "the Size slider remains the base diameter.",
+                checked = !brushSizeFixedOnScreen,
+                onCheckedChange = { followsZoom -> vm.setBrushSizeFixedOnScreen(!followsZoom) },
             )
             HorizontalDivider()
             // No language picker. The only translations `:core:design` carried were GraffitiXR's —
@@ -155,6 +155,15 @@ fun SettingsScreen(
             //
             // `AppLanguage` and `SettingsRepository.language` stay where they are, in the shared
             // core modules GraffitiXR also consumes. Nothing in Graffux reads them.
+
+            Text(
+                "Privacy",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+            )
+            StrokeDataRow(vm)
+            HorizontalDivider()
 
             Text(
                 "Performance",
@@ -233,8 +242,6 @@ fun SettingsScreen(
             HorizontalDivider()
             PredictionSoloRow()
             HorizontalDivider()
-            StrokeDataRow(vm)
-            HorizontalDivider()
             GpuEngineRows()
             GpuTierRow()
             HorizontalDivider()
@@ -304,24 +311,24 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
 }
 
 /**
- * Stroke-model training capture (feature/editor StrokeDataRecorder, tools/stroke-model): on by
- * default. Files go to the `stroke-data` branch with the GitHub token above at each launch, or now.
+ * Stroke-model training capture (feature/editor StrokeDataRecorder, tools/stroke-model): explicit
+ * opt-in. Nothing is recorded or uploaded until the user enables it.
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
 private fun StrokeDataRow(vm: SettingsViewModel) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE) }
-    var recording by remember { mutableStateOf(prefs.getBoolean(STROKE_DATA_KEY, true)) }
+    var recording by remember { mutableStateOf(prefs.getBoolean(STROKE_DATA_KEY, false)) }
     val pending by vm.pendingStrokeData.count.collectAsStateWithLifecycle()
     // Refreshed on entry and on toggle here; the ViewModel refreshes again after every upload.
     LaunchedEffect(recording) { vm.pendingStrokeData.refresh(context) }
     ChoiceRow(
-        title = "Record strokes for training",
-        subtitle = "Keeps every stroke's raw input (position, pressure, contact size, finger or " +
-            "stylus orientation and tilt, hover) with the phone's motion sensors, to train " +
-            "Graffux's own stroke predictor. Uploaded with the GitHub token above, which needs " +
-            "Contents: read and write. $pending file(s) waiting. Applies next time the canvas opens.",
+        title = "Contribute strokes to model training",
+        subtitle = "Off by default. When enabled, Graffux records raw stroke input and motion " +
+            "sensor context for its stroke model. With a connected GitHub token, pending files may " +
+            "be uploaded for training. Turn this off to stop future collection and uploads. " +
+            "$pending file(s) currently waiting on this device. Applies next time the canvas opens.",
         options = listOf(true, false),
         selected = recording,
         label = { if (it) "On" else "Off" },
@@ -330,7 +337,10 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
             prefs.edit().putBoolean(STROKE_DATA_KEY, it).apply()
         },
     )
-    TextButton(onClick = { vm.uploadStrokeData(context) }) { Text("Upload stroke data now") }
+    TextButton(
+        onClick = { vm.uploadStrokeData(context) },
+        enabled = recording && pending > 0,
+    ) { Text("Upload stroke data now") }
     HeatmapSettingsRow()
 }
 

@@ -14,7 +14,7 @@ import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import org.json.JSONObject
 
-/** SharedPreferences file/key for Settings → Record strokes for training (on unless turned off). */
+/** SharedPreferences file/key for Settings → model-training contribution (explicit opt-in). */
 const val STROKE_DATA_PREFS = "stroke_prediction"
 const val STROKE_DATA_KEY = "record_strokes"
 /** Settings → Raw touch heatmap (root): off unless turned on (and root was granted then). */
@@ -31,7 +31,7 @@ fun rememberStrokeDataRecorder(uiState: EditorUiState): StrokeDataRecorder? {
     val context = LocalContext.current
     val view = LocalView.current
     val prefs = remember(context) { context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE) }
-    val enabled = remember(prefs) { prefs.getBoolean(STROKE_DATA_KEY, true) }
+    val enabled = remember(prefs) { prefs.getBoolean(STROKE_DATA_KEY, false) }
     if (!enabled) return null
     val latestState = rememberUpdatedState(uiState)
     // Root heatmap helper: runs only while the canvas records, stopped with it.
