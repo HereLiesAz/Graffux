@@ -222,10 +222,19 @@ fun EditorScreen(
                                 uiState.onionSkinFutureCount,
                             )
                         }
+                        val hasPerspectiveTilt = uiState.layers.any {
+                            it.rotationX != 0f || it.rotationY != 0f
+                        }
                         val bufferedAnimationFrame =
-                            if (uiState.isAnimationPlaying && animationPreviewBuffer.isReady) {
+                            if (
+                                uiState.isAnimationPlaying &&
+                                animationPreviewBuffer.isReady &&
+                                !hasPerspectiveTilt
+                            ) {
                                 vm.animationPreviewFrame(uiState)
                             } else {
+                                // The bitmap compositor is affine-only. Let the live layer renderer
+                                // handle X/Y-tilted groups/layers so perspective never disappears.
                                 null
                             }
                         if (bufferedAnimationFrame != null) {
