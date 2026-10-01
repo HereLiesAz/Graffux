@@ -218,6 +218,14 @@ internal fun EditorUiState.effectivePaintBrushSize(): Float =
     if (brushSizeFixedOnScreen) brushSize / viewportZoom.coerceAtLeast(0.01f) else brushSize
 
 /**
+ * Diameter the current brush actually occupies on the physical screen after the viewport camera is
+ * applied. This is what the centre HUD must preview: document-sized brushes grow/shrink with zoom,
+ * while screen-locked brushes remain exactly the slider size.
+ */
+internal fun EditorUiState.effectiveScreenBrushSize(): Float =
+    effectivePaintBrushSize() * viewportZoom.coerceAtLeast(0.01f)
+
+/**
  * How many edits deep undo goes — and therefore how many strokes a layer must keep replayable.
  * Shared by [EditHistory] and the stroke baker so they can't drift apart: if the history were ever
  * deeper than the strokes kept, an undo would silently restore the wrong pixels.
@@ -3679,10 +3687,15 @@ class EditorViewModel @Inject constructor(
         )
         val newRotation = st.viewportRotation + rotationDelta
         dispatch(EditorIntent.SetViewport(newOffset, newZoom, newRotation))
+        if (newZoom != oldZoom) showBrushHud()
     }
 
     /** Resets the camera to identity (100%, centred, unrotated). */
-    fun resetViewport() = dispatch(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
+    fun resetViewport() {
+        val changedZoom = _uiState.value.viewportZoom != 1f
+        dispatch(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
+        if (changedZoom) showBrushHud()
+    }
 
     override fun onGestureEnd() {
         val gestureBefore = gestureStartLayers
@@ -6615,7 +6628,9 @@ class EditorViewModel @Inject constructor(
      * (Eraser, Smudge, ...) is in hand does not turn it off.
      */
     fun directDisplayAllowed(state: EditorUiState = _uiState.value): Boolean =
-        GpuStampEngine.DirectSurface.enabled && !usesJetpackInk(state)
+        GpuStampEngine.DirectSurface.enabled &&
+            !usesJetpackInk(state) &&
+            state.layers.none { it.id != state.activeLayerId && it.isVisible }
 
     /** The utensil in hand, as [inkBrushForCurrentState] resolves it; snapshotted with it at stroke start. */
     fun inkUtensilForCurrentState(): com.hereliesaz.graffitixr.common.model.InkUtensil =
