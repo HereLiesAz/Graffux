@@ -2,9 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Photo import for editing. Graffux is a standalone 2D sketch & photo editor. -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Photo/video import uses Android system pickers (PickVisualMedia/OpenDocument), which grant
+         URI-scoped access to only the items the user selects. Keep broad media/storage permissions
+         out of the merged manifest; Graffux does not need library-wide access. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Hardware floor (with minSdk 29 in build.gradle.kts): Vulkan 1.1 (0x401000 = 1 << 22 | 1 << 12),
