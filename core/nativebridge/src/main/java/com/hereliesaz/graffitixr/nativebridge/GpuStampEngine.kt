@@ -207,6 +207,9 @@ class GpuStampEngine {
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
+            // Pooled handles captured the old workgroup/timestamp policy at native initialization.
+            // Remove them synchronously from the pool so the next stroke cannot reuse stale tuning.
+            trimPool()
         }
 
         /** Changes the wgpu resident budget on every live engine (queued) and for new ones. */
