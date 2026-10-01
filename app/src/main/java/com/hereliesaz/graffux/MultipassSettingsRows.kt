@@ -23,27 +23,16 @@ internal fun MultipassRows(prefs: SharedPreferences) {
         GpuStampEngine.multipass = next
         prefs.edit()
             .putBoolean(GpuStampEngine.KEY_MULTIPASS, next.enabled)
-            .putFloat(GpuStampEngine.KEY_MULTIPASS_TRANSITION_MS, next.transitionMs)
             .apply()
     }
     ChoiceRow(
-        title = "Multipass drying (experimental)",
-        subtitle = "wgpu engine only. Each dab appears at once as a quick draft of the same brush, " +
-            "then settles to full quality as the device catches up, like paint drying. The saved " +
-            "result is identical either way. Applies to the next stroke.",
+        title = "Progressive stroke rendering",
+        subtitle = "Each dab appears immediately as a quick draft, then refines automatically. " +
+            "GPU capability, thermal headroom and the remaining dab backlog determine how quickly " +
+            "full quality arrives. There is no drying timer. Applies to the next stroke.",
         options = listOf(false, true),
         selected = settings.enabled,
         label = { if (it) "On" else "Off" },
         onSelect = { update(settings.copy(enabled = it)) },
     )
-    if (settings.enabled) {
-        ChoiceRow(
-            title = "Drying transition",
-            subtitle = "How long a finished area takes to fade in. 0 ms swaps it in at once.",
-            options = MultipassSettings.TRANSITION_CHOICES_MS,
-            selected = settings.transitionMs,
-            label = { "${it.toInt()} ms" },
-            onSelect = { update(settings.copy(transitionMs = it)) },
-        )
-    }
 }
