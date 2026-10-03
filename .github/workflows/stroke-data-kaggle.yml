@@ -1,64 +1,23 @@
-# Mirrors the stroke-model training data (the `stroke-data` branch, written by the app's
-# StrokeDataUploader; schema: tools/stroke-model/SCHEMA.md) to a PRIVATE Kaggle dataset.
-#
-# Secret:   KAGGLE_TOKEN — either a Kaggle API token string (KGAT_…) or the contents of
-#           kaggle.json ({"username": …, "key": …}).
-# Variable: KAGGLE_DATASET (optional) — "<owner>/<slug>". Defaults to
-#           "<KAGGLE_USERNAME or the kaggle.json username>/graffux-stroke-data".
-#           KAGGLE_USERNAME falls back to the owner's account, hereliesaz, when the variable is unset.
-#
-# Runs every 6 hours and on demand. A run whose stroke-data commit was already uploaded does nothing.
+# centralized-by: HereLiesAz/workflows
+# central-source-path: .github/workflows/stroke-data-kaggle.yml
+# central-source-sha256: 3551e4b916ebea23fec28d18ef39f83b94f48b2602df1b8227f7b83fa55e2f43
+# This file intentionally contains no repository secrets.
+# central-run-tracker: HereLiesAz/workflows
 name: Stroke data → Kaggle
-
 on:
   schedule:
     - cron: "17 */6 * * *"
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: stroke-data-kaggle
-  cancel-in-progress: false
-
+permissions: {}
 jobs:
-  upload:
+  central:
+    name: Hand-off
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - name: Check out stroke data
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: stroke-data
-          path: data
-          persist-credentials: false
-
-      - name: Check out schema
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          path: main
-          sparse-checkout: tools/stroke-model
-          persist-credentials: false
-
-      - name: Skip if this commit was already uploaded
-        id: seen
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .kaggle-uploaded
-          key: stroke-data-kaggle-${{ hashFiles('data/stroke-data/**') }}
-
-      - name: Install Kaggle CLI
-        if: steps.seen.outputs.cache-hit != 'true'
-        run: pip install --quiet "kaggle==2.2.4"
-
-      - name: Upload
-        if: steps.seen.outputs.cache-hit != 'true'
+      - name: Point to central result
         env:
-          KAGGLE_TOKEN: ${{ secrets.KAGGLE_TOKEN }}
-          KAGGLE_DATASET: ${{ vars.KAGGLE_DATASET }}
-          KAGGLE_USERNAME_VAR: ${{ vars.KAGGLE_USERNAME || 'hereliesaz' }}
-        run: python main/tools/stroke-model/kaggle_upload.py data/stroke-data main/tools/stroke-model/SCHEMA.md
-
-      - name: Mark uploaded
-        if: steps.seen.outputs.cache-hit != 'true'
-        run: mkdir -p .kaggle-uploaded && git -C data rev-parse HEAD > .kaggle-uploaded/sha
+          STATUS_CONTEXT: .github/workflows/stroke-data-kaggle.yml
+          TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: "set -euo pipefail\n# The build runs in HereLiesAz/workflows. Its result is reported on this commit as the\n# commit status named below: pending when the central run starts, then success or\n# failure. This job only points there and ends, so it never holds a runner while the\n# central run waits for one. (Trackers that followed the central run job-by-job held a\n# runner each for the whole build; under the account's concurrent-job limit they\n# starved the very runs they were waiting on: 2026-10-01, illumera waited 3h to start.)\n# No status at all means the gateway intentionally skipped this event.\n{\n  echo \"### Runs in HereLiesAz/workflows\"\n  echo\n  echo \"Result: commit status \\`$STATUS_CONTEXT\\` on \\`$TARGET_SHA\\`.\"\n  echo \"Central runs: $GITHUB_SERVER_URL/HereLiesAz/workflows/actions\"\n} >> \"$GITHUB_STEP_SUMMARY\"\necho \"Result is reported as commit status '$STATUS_CONTEXT' on $TARGET_SHA.\"\n"

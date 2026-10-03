@@ -32,55 +32,16 @@ on:
 # in quick succession publish the first and the third; the middle one is silently cancelled, not
 # queued, and produces no publish and no red X. If that's a problem, merge one at a time or watch
 # the Actions tab for cancelled runs.
-permissions:
-  actions: read
-  contents: read
-  statuses: read
+permissions: {}
 jobs:
   central:
-    name: Start
+    name: Hand-off
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    outputs:
-      run_id: ${{ steps.locate.outputs.run_id }}
+    timeout-minutes: 2
     steps:
-      - id: locate
-        name: Locate run
+      - name: Point to central result
         env:
-          GH_TOKEN: ${{ github.token }}
           STATUS_CONTEXT: .github/workflows/release-aab.yml
           TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          REQUIRE_RUN_ON_PUSH: 'true'
         shell: bash
-        run: "set -euo pipefail\ncreated_at=\"$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\" --jq .created_at)\"\nthreshold=\"$(date -u -d \"$created_at - 5 seconds\" +%s)\"\n# The gateway skips some events a tracker still sees (unmatched filters, forks, manual\n# runs, CI-skip pushes). No central status within 20 minutes means no central run.\nfor _ in $(seq 1 80); do\n  url=\"$(gh api \"repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA?per_page=100\" --jq \\\n    \"[.[] | select(.context == \\\"$STATUS_CONTEXT\\\" and ((.updated_at | fromdateiso8601) >= $threshold))][0].target_url // empty\")\"\n  run_id=\"$(sed -nE 's#.*/HereLiesAz/workflows/actions/runs/([0-9]+).*#\\1#p' <<<\"$url\")\"\n  if [[ -n \"$run_id\" ]]; then\n    echo \"run_id=$run_id\" >> \"$GITHUB_OUTPUT\"\n    echo \"Run: $url\"\n    exit 0\n  fi\n  sleep 15\ndone\n# A push to the default branch of the repository itself (not a fork) without a CI-skip\n# token must start a central run; its absence means nothing was built or published even\n# though every follower job would be skipped and the run would show green. Only trackers\n# whose push trigger has no path filters opt in (REQUIRE_RUN_ON_PUSH), because the gateway\n# may legitimately drop a push for a path filter the tracker evaluated differently.\nif [[ \"${REQUIRE_RUN_ON_PUSH:-false}\" == true && \"$GITHUB_EVENT_NAME\" == push ]]; then\n  default_branch=\"$(jq -r '.repository.default_branch // empty' \"$GITHUB_EVENT_PATH\")\"\n  is_fork=\"$(jq -r '.repository.fork // false' \"$GITHUB_EVENT_PATH\")\"\n  skipped=\"$(jq -r '[(.head_commit.message // \"\"), (.commits // [] | map(.message // \"\") | select(length > 0) | all(ascii_downcase | test(\"\\\\[(skip ci|ci skip|no ci|skip actions|actions skip)\\\\]\")))]\n    | (.[0] | ascii_downcase | test(\"\\\\[(skip ci|ci skip|no ci|skip actions|actions skip)\\\\]\")) or (.[1] == true)' \"$GITHUB_EVENT_PATH\")\"\n  if [[ -n \"$default_branch\" && \"$GITHUB_REF\" == \"refs/heads/$default_branch\" && \"$is_fork\" != true && \"$skipped\" != true ]]; then\n    echo \"::error::No central run of $STATUS_CONTEXT appeared for push $TARGET_SHA to $default_branch within 20 minutes; nothing was built or published. Check the HereLiesAz/workflows gateway.\"\n    exit 1\n  fi\nfi\necho \"::notice::No run of this workflow was started for this event.\"\n"
-  version_contract:
-    name: version_contract
-    needs:
-      - central
-    if: ${{ needs.central.outputs.run_id != '' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - name: version_contract
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ needs.central.outputs.run_id }}
-          JOB_NAME: version_contract
-        shell: bash
-        run: "set -euo pipefail\napi=\"repos/HereLiesAz/workflows/actions/runs/$RUN_ID\"\nseen=\"\"\njob=\"\"\nfor _ in $(seq 1 1440); do\n  job=\"$(gh api \"$api/jobs?per_page=100\" --jq \"[.jobs[] | select(.name == \\\"$JOB_NAME\\\" or (.name | startswith(\\\"$JOB_NAME \\\")) or (.name | startswith(\\\"$JOB_NAME / \\\")))][0] // empty\")\"\n  if [[ -z \"$job\" ]]; then\n    [[ \"$(gh api \"$api\" --jq .status)\" == completed ]] && { echo \"Skipped.\"; exit 0; }\n    sleep 10\n    continue\n  fi\n  while IFS= read -r line; do\n    [[ -n \"$line\" ]] || continue\n    grep -qxF \"$line\" <<<\"$seen\" || { echo \"$line\"; seen+=\"$line\"$'\\n'; }\n  done < <(jq -r '.steps[]? | select(.status == \"completed\" and .conclusion != \"skipped\")\n    | \"\\(if .conclusion == \"success\" then \"✓\" else \"✗\" end) \\(.name)\"' <<<\"$job\")\n  [[ \"$(jq -r .status <<<\"$job\")\" == completed ]] && break\n  sleep 10\ndone\nconclusion=\"$(jq -r '.conclusion // \"cancelled\"' <<<\"$job\")\"\necho \"::group::Log\"\nif log=\"$(gh api \"repos/HereLiesAz/workflows/actions/jobs/$(jq -r .id <<<\"$job\")/logs\" 2>/dev/null)\"; then\n  sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' <<<\"$log\"\nelse\n  echo \"Log unavailable here: $(jq -r .html_url <<<\"$job\")\"\nfi\necho \"::endgroup::\"\ncase \"$conclusion\" in\n  success|skipped|neutral) exit 0 ;;\n  *) echo \"::error::$JOB_NAME: $conclusion\"; exit 1 ;;\nesac\n"
-  build_and_publish:
-    name: build_and_publish
-    needs:
-      - central
-      - version_contract
-    if: ${{ needs.central.outputs.run_id != '' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - name: build_and_publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ needs.central.outputs.run_id }}
-          JOB_NAME: build_and_publish
-        shell: bash
-        run: "set -euo pipefail\napi=\"repos/HereLiesAz/workflows/actions/runs/$RUN_ID\"\nseen=\"\"\njob=\"\"\nfor _ in $(seq 1 1440); do\n  job=\"$(gh api \"$api/jobs?per_page=100\" --jq \"[.jobs[] | select(.name == \\\"$JOB_NAME\\\" or (.name | startswith(\\\"$JOB_NAME \\\")) or (.name | startswith(\\\"$JOB_NAME / \\\")))][0] // empty\")\"\n  if [[ -z \"$job\" ]]; then\n    [[ \"$(gh api \"$api\" --jq .status)\" == completed ]] && { echo \"Skipped.\"; exit 0; }\n    sleep 10\n    continue\n  fi\n  while IFS= read -r line; do\n    [[ -n \"$line\" ]] || continue\n    grep -qxF \"$line\" <<<\"$seen\" || { echo \"$line\"; seen+=\"$line\"$'\\n'; }\n  done < <(jq -r '.steps[]? | select(.status == \"completed\" and .conclusion != \"skipped\")\n    | \"\\(if .conclusion == \"success\" then \"✓\" else \"✗\" end) \\(.name)\"' <<<\"$job\")\n  [[ \"$(jq -r .status <<<\"$job\")\" == completed ]] && break\n  sleep 10\ndone\nconclusion=\"$(jq -r '.conclusion // \"cancelled\"' <<<\"$job\")\"\necho \"::group::Log\"\nif log=\"$(gh api \"repos/HereLiesAz/workflows/actions/jobs/$(jq -r .id <<<\"$job\")/logs\" 2>/dev/null)\"; then\n  sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' <<<\"$log\"\nelse\n  echo \"Log unavailable here: $(jq -r .html_url <<<\"$job\")\"\nfi\necho \"::endgroup::\"\ncase \"$conclusion\" in\n  success|skipped|neutral) exit 0 ;;\n  *) echo \"::error::$JOB_NAME: $conclusion\"; exit 1 ;;\nesac\n"
+        run: "set -euo pipefail\n# The build runs in HereLiesAz/workflows. Its result is reported on this commit as the\n# commit status named below: pending when the central run starts, then success or\n# failure. This job only points there and ends, so it never holds a runner while the\n# central run waits for one. (Trackers that followed the central run job-by-job held a\n# runner each for the whole build; under the account's concurrent-job limit they\n# starved the very runs they were waiting on: 2026-10-01, illumera waited 3h to start.)\n# No status at all means the gateway intentionally skipped this event.\n{\n  echo \"### Runs in HereLiesAz/workflows\"\n  echo\n  echo \"Result: commit status \\`$STATUS_CONTEXT\\` on \\`$TARGET_SHA\\`.\"\n  echo \"Central runs: $GITHUB_SERVER_URL/HereLiesAz/workflows/actions\"\n} >> \"$GITHUB_STEP_SUMMARY\"\necho \"Result is reported as commit status '$STATUS_CONTEXT' on $TARGET_SHA.\"\n"
