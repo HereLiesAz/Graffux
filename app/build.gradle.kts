@@ -49,70 +49,17 @@ val localProperties = Properties().apply {
     }
 }
 
-val verMajor = versionProps.getProperty("versionMajor", "1")
-val verMinor = versionProps.getProperty("versionMinor", "0")
-
-val lastMinor = versionProps.getProperty("versionMinorLast", verMinor)
-val isMinorBumped = verMinor != lastMinor
-
-// -PversionCodeOverride, passed only by .github/workflows/release-aab.yml, is the versionCode
-// Play will actually accept (its highest released code + 1, floored at the value below). It
-// exists because the committed versionBuild does NOT advance between CI runs — the release job
-// is contents:read and never commits its own increment — so every merge that didn't hand-bump
-// version.properties rebuilt an already-published versionCode and Play rejected it. See
-// "versionCode and Play publishing" in CLAUDE.md. Absent (every local build), nothing changes:
-// the committed versionBuild + 1 is still the source of truth.
-val versionCodeOverride = (project.findProperty("versionCodeOverride") as? String)
-    ?.trim()
-    ?.takeIf { it.isNotEmpty() }
-    ?.let {
-        // Loudly, not silently back to the default: a typo'd override that fell through would
-        // rebuild the stale versionCode and resurrect exactly the failure this replaces.
-        it.toIntOrNull() ?: throw GradleException("-PversionCodeOverride=$it is not an integer")
-    }
-var currentVersionCode = versionCodeOverride ?: (versionProps.getProperty("versionBuild", "1").toInt() + 1)
-var currentPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt() + 1
-
-// Printed at configuration time (every invocation, regardless of which tasks run), so CI can grep
-// it straight out of the build log for the exact versionCode THIS invocation is building — see
-// release-aab.yml's "Build signed AAB" step. Deliberately not re-derived from version.properties
-// after the build: `currentVersionCode` here is computed exactly once per invocation and is
-// unambiguously what AGP assigns as the variant's versionCode (see `versionCode =
-// currentVersionCode` below). The doFirst hook below mutates the same in-memory `versionProps`
-// object on every task it actually runs on — if that ever turns out to fire more than once in a
-// single invocation (e.g. an intermediate task also named assemble*/bundle* actually executes,
-// not just gets registered against by `tasks.matching`), the FILE's versionBuild after the build
-// would drift from this printed value; this println is intentionally immune to that regardless of
-// whether it happens. NOTE: relies on configuration actually running every invocation — this
-// project doesn't enable Gradle's configuration cache today, but a cache hit would skip this
-// println (and CI's grep for it) without rerunning it.
-println("GRAFFUX_VERSION_CODE=$currentVersionCode")
-
-// Once per invocation: `assemble` / `bundle` pull in several matching tasks (assembleDebug,
-// assembleRelease, intermediate bundle* tasks), and each would otherwise bump versionBuild again.
-// The first matching task that actually executes does the single increment; the rest no-op.
-// (Tasks of one project never execute concurrently, so a plain flag is enough.)
-var versionBumpedThisBuild = false
-tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }.configureEach {
-    doFirst {
-        if (versionBumpedThisBuild) return@doFirst
-        versionBumpedThisBuild = true
-        var execVersionCode = versionProps.getProperty("versionBuild", "1").toInt()
-        var execPatch = if (isMinorBumped) 0 else versionProps.getProperty("versionPatch", "0").toInt()
-        
-        execVersionCode++
-        if (!isMinorBumped) execPatch++
-        
-        versionProps.setProperty("versionBuild", execVersionCode.toString())
-        versionProps.setProperty("versionPatch", execPatch.toString())
-        versionProps.setProperty("versionMinorLast", verMinor)
-        versionPropsFile.outputStream().use {
-            versionProps.store(it, "Auto-incremented on compile")
-        }
-    }
-}
-
-val currentVersionName = "$verMajor.$verMinor.$currentPatch"
+// Release versions come from HereLiesAz/workflows android-release as -PversionCode/-PversionName:
+// versionCode is one more than the highest Play has ever accepted (or the last recorded one), and
+// versionName raises only its last field. The workflow records the published pair back into
+// version.properties, so local builds reuse the last published pair. Nothing here increments.
+val currentVersionCode = (project.findProperty("versionCode") as String?)?.trim()?.toIntOrNull()
+    ?: versionProps.getProperty("versionCode")?.trim()?.toIntOrNull()
+    ?: 1
+val currentVersionName = (project.findProperty("versionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
+    ?: versionProps.getProperty("versionName")?.trim()
+    ?: listOf("versionMajor", "versionMinor", "versionPatch", "versionBuild")
+        .joinToString(".") { versionProps.getProperty(it, "0").trim() }
 
 android {
         namespace = "com.hereliesaz.graffux"
