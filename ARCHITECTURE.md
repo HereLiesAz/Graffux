@@ -164,6 +164,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   are the escape hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
+- **A tap opens a nested rail.** No `azNestedRail` sets `reflectSelectionInParent`: with it,
+  AzNavRail 11.52 turns the parent's tap into "re-run the last-picked child" (or nothing, before a
+  child has been picked), so the rail could only be opened by long press. Without it, a tap toggles
+  the nested rail open and the user picks a tool from it (`NestedRailTapUiTest`).
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
   `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
   `androidx.compose.material3.carousel` sources, copied into `com.hereliesaz.graffux.carousel`
@@ -270,10 +274,12 @@ codebase is deferred scope or a real gap in the install-report flow.
   which grows that card once it rests in the hero slot. Pressed again, it shrinks the card. The
   rail item is lit while any card is grown. The Options page's old "All options" card is removed,
   since every card's More now shows all of its settings.
-  **Collapse while drawing.** `CarouselSheet(strokeActive = { strokeGate.strokeActive })` reads the
-  flag in the sheet, not in the page, so a stroke does not recompose the carousel. While it is true
-  the sheet is shown shut (`carouselSheetShownOpen(userOpen, strokeActive)`): it snaps shut with no
-  animation. When the stroke ends or is cancelled it slides back in 160ms. The stroke never writes
+  **Collapse while drawing.** `CarouselSheet(hiddenForDrawing = { drawingUiHidden })` reads the
+  "UI hidden for drawing" flag (see the rails entry below) in the sheet, not in the page, so a stroke
+  does not recompose the carousel. While it is true the sheet is shown shut
+  (`carouselSheetShownOpen(userOpen, hiddenForDrawing)`): it snaps shut with no animation. It stays
+  shut for `DRAWING_UI_RETURN_DELAY_MS` (1500ms) after the stroke ends or is cancelled, then slides
+  back in `REOPEN_MS` (120ms). The stroke never writes
   `CarouselUi.sheetOpen`, so a sheet the user had shut stays shut. Unlike the rails, it reopens.
   **Per-item settings (`CarouselItemSettingsPlan.kt`).** Each stamp brush, Ink utensil and effect
   tool owns a `CarouselItemSettings` (Size, Flow, Opacity, Softness and, for Smudge only, Strength).
@@ -297,13 +303,19 @@ codebase is deferred scope or a real gap in the install-report flow.
   carousel is off screen. So they never duplicate the tab row's pair. Each is disabled when there is
   nothing to undo or redo, and Fit is disabled while the view is already fitted.
 - **The rails get out of the way while a stroke is painted (`DrawingRailFold`, `:app`).** The
-  signal is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
-  stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. The main
-  rail uses AzNavRail's own `isFoldedUp` (OR'd with the four-finger `hideUiForCapture` fold). The
-  right-hand `grp.layers` / `grp.brushRail` OPPOSITE hosts use the library's `expandWhen`
-  (`userExpanded && !strokeActive`), so a host the user collapsed is never force-expanded, and a
-  collapse reported mid-stroke is not persisted to `railExpansion`. Nothing is added to the pointer
-  path; the UI just observes the flag.
+  source is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
+  stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. Nothing
+  reads it directly: `rememberDrawingUiHidden` (`DrawingUiHidden.kt`) derives the "UI hidden for
+  drawing" flag from it, true during a stroke and for `DRAWING_UI_RETURN_DELAY_MS` (1500ms, the one
+  constant to tune) after it ends. A stroke that starts inside that hold cancels the pending return
+  (`collectLatest` drops the `delay`), so nothing flickers back between strokes. The rails and the
+  carousel sheet read only that flag. The main rail uses AzNavRail's own `isFoldedUp` (OR'd with the
+  four-finger `hideUiForCapture` fold). The right-hand `grp.layers` / `grp.brushRail` OPPOSITE hosts
+  use the library's `expandWhen` (`userExpanded && !drawingHidden`), so a host the user collapsed is
+  never force-expanded, and a collapse reported while hidden is not persisted to `railExpansion`.
+  Nothing is added to the pointer path; the UI just observes the flag. The fold and the host
+  collapse/expand animate at AzNavRail 11.52's own speed: the library exposes no duration or spec for
+  either (`isFoldedUp` is a plain Boolean; `azKinetics`' timings cover only the drawer's menu words).
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —

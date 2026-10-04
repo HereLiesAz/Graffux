@@ -854,8 +854,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /** CPU wall time around a native call, reported as not-GPU (telemetry labels it "cpu"). */
     private inline fun <T> timed(kind: PassKind, block: () -> T): T {
-        if (!collectTelemetry) return block()
-        val sink = passTimingSink ?: return block()
+        val sink = passTimingSink.takeIf { collectTelemetry } ?: return block()
         val start = System.nanoTime()
         val result = block()
         sink.onPass(kind.ordinal, System.nanoTime() - start, false)
@@ -881,8 +880,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * separates "the GPU call was slow" from "it waited behind other render-thread work".
      */
     private inline fun <T> onGpu(crossinline block: () -> T): T {
-        if (!collectTelemetry) return GpuRenderThread.call { block() }
-        val sink = passTimingSink ?: return GpuRenderThread.call { block() }
+        val sink = passTimingSink.takeIf { collectTelemetry } ?: return GpuRenderThread.call { block() }
         val enqueued = System.nanoTime()
         return GpuRenderThread.call {
             sink.onPass(PassKind.RENDER_THREAD_WAIT.ordinal, System.nanoTime() - enqueued, false)

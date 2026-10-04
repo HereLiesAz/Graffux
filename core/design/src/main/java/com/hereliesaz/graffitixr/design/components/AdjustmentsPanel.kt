@@ -79,15 +79,12 @@ fun AdjustmentsPanel(
     if (state.hideUiForCapture || state.isTouchLocked) return
 
     val hasImage = state.hasImage
-    val isArMode = state.isArMode
 
-    // The panel should be visible if we are adjusting an image, or if we have an image active,
-    // or if we are in AR mode (to provide access to the Magic Wand for anchoring).
-    // HOWEVER, we hide the action row during Target Creation.
-    val canShowActionRow = !state.isCapturingTarget
-    val isVisible = showKnobs || showColorBalance || (canShowActionRow && (hasImage || isArMode))
-
-    if (!isVisible) return
+    // Only while a set of knobs is actually open. It used to stay up whenever any layer existed
+    // (hasImage) or in AR mode, for a persistent action row (undo/redo, Magic Wand) that has since
+    // been removed — which left this panel's close button alone in the bottom-right corner of every
+    // editor screen, closing nothing.
+    if (!showKnobs && !showColorBalance) return
 
     val bottomPadding = if (isLandscape) 16.dp else (screenHeight * 0.0f)
 
