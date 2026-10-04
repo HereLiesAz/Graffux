@@ -44,7 +44,7 @@ import java.io.File
 
 /**
  * The carousel sheet as composed: it drops out of the way the moment a stroke starts and comes back
- * when it ends (unless the user had shut it), and a hero slider edits only its own item. Set
+ * [DRAWING_UI_RETURN_DELAY_MS] after it ends (unless the user had shut it), and a hero slider edits only its own item. Set
  * CAROUSEL_SCRIM_SCREENSHOT to a .png path to save a render showing the scrim.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -82,10 +82,11 @@ class CarouselSheetStrokeUiTest {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF8A8A8A)), contentAlignment = Alignment.BottomCenter) {
+                    val hidden by rememberDrawingUiHidden { stroke }
                     CarouselSheet(
                         open = userOpen,
                         onOpenChange = { userOpen = it },
-                        strokeActive = { stroke },
+                        hiddenForDrawing = { hidden },
                         bottomInset = 32.dp,
                     ) {
                         BottomCarousel(
@@ -123,7 +124,7 @@ class CarouselSheetStrokeUiTest {
     private fun rowTop() = rule.onNodeWithTag("carousel.row", useUnmergedTree = true).fetchSemanticsNode().positionInRoot.y
 
     @Test
-    fun `the sheet shuts the moment a stroke starts and comes back when it ends`() {
+    fun `the sheet shuts the moment a stroke starts and comes back after the hold`() {
         compose()
         val openTop = rowTop()
         // Where the row sits when the sheet is fully shut.
@@ -144,9 +145,14 @@ class CarouselSheetStrokeUiTest {
         assertTrue("the user's choice is untouched", userOpen)
         rule.mainClock.autoAdvance = true
 
+        rule.mainClock.autoAdvance = false
         stroke = false
-        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS - 100)
+        assertEquals("still shut during the hold", shutTop, rowTop(), 1f)
+        // Past the hold plus the quick slide back (REOPEN_MS), with a frame of slack.
+        rule.mainClock.advanceTimeBy(100 + REOPEN_MS + 50L)
         assertEquals("reopened where it was", openTop, rowTop(), 1f)
+        rule.mainClock.autoAdvance = true
     }
 
     private companion object {

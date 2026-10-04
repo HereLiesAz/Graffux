@@ -2,6 +2,7 @@ package com.hereliesaz.graffux
 
 import android.app.Application
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.navigation.compose.rememberNavController
@@ -19,7 +20,8 @@ import org.robolectric.annotation.Config
 /**
  * The right-rail wiring as composed by the real AzNavRail host: an OPPOSITE unattached host the user
  * left expanded collapses its sub-items when [StrokeGate.strokeActive] goes true and re-expands them
- * when it goes false, and nothing is persisted as a user collapse along the way.
+ * [DRAWING_UI_RETURN_DELAY_MS] after it goes false (through [rememberDrawingUiHidden], as
+ * MainActivity wires it), and nothing is persisted as a user collapse along the way.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
@@ -34,16 +36,17 @@ class DrawingRailFoldUiTest {
         val persisted = mutableListOf<Boolean>()
         var folded = false
         rule.setContent {
+            val hidden by rememberDrawingUiHidden { gate.strokeActive }
             AzHostActivityLayout(navController = rememberNavController(), initiallyExpanded = false) {
-                isFoldedUp = DrawingRailFold.mainRailFolded(false, gate.strokeActive)
+                isFoldedUp = DrawingRailFold.mainRailFolded(false, hidden)
                 folded = isFoldedUp
                 azRailItem(id = "main", text = "Main") { }
                 azUnattachedHostItem(
                     id = "grp.test", text = "Host", anchor = AzUnattachedAnchor.OPPOSITE,
                     initiallyExpanded = true,
-                    expandWhen = { DrawingRailFold.hostExpandWhen(true, gate.strokeActive) },
+                    expandWhen = { DrawingRailFold.hostExpandWhen(true, hidden) },
                     onExpandedChange = {
-                        if (DrawingRailFold.persistExpansionChange(it, gate.strokeActive)) persisted += it
+                        if (DrawingRailFold.persistExpansionChange(it, hidden)) persisted += it
                     },
                 )
                 azRailSubItem(id = "sub.a", hostId = "grp.test", text = "SubItemA") { }
@@ -58,7 +61,13 @@ class DrawingRailFoldUiTest {
         assertEquals("sub-item hidden while drawing", false, subShown())
         assertTrue("main rail folded while drawing", folded)
 
+        rule.mainClock.autoAdvance = false
         rule.runOnIdle { gate.strokeActive = false }
+        rule.mainClock.advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS - 100)
+        assertEquals("sub-item still hidden during the hold", false, subShown())
+        assertTrue("main rail still folded during the hold", folded)
+        rule.mainClock.advanceTimeBy(500)
+        rule.mainClock.autoAdvance = true
         rule.waitForIdle()
         assertTrue("sub-item restored after the stroke", subShown())
         assertEquals("main rail unfolded after the stroke", false, folded)
