@@ -35,6 +35,7 @@ class ExtensionAssetReader(private val extension: InstalledExtension) {
     companion object {
         /** Per-read ceiling. Larger bundled data belongs in a `remoteUrl` asset, not a host read. */
         const val MAX_ASSET_READ_BYTES: Long = 4L * 1024 * 1024
+        private const val READ_CHUNK_BYTES = 8 * 1024
     }
 
     fun read(path: String): ByteArray? {
@@ -56,7 +57,7 @@ class ExtensionAssetReader(private val extension: InstalledExtension) {
     private fun readBounded(file: File): ByteArray? {
         val initial = file.length().coerceIn(0L, MAX_ASSET_READ_BYTES).toInt()
         val out = ByteArrayOutputStream(initial)
-        val chunk = ByteArray(8 * 1024)
+        val chunk = ByteArray(READ_CHUNK_BYTES)
         var total = 0L
         file.inputStream().use { input ->
             while (true) {
