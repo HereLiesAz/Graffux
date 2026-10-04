@@ -147,10 +147,16 @@ class CarouselSheetStrokeUiTest {
 
         rule.mainClock.autoAdvance = false
         stroke = false
-        rule.mainClock.advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS - 100)
+        // Step frames (reading the tree each one) so the stroke's end reaches the hold before the
+        // clock moves on; a single jump would start the hold only after it.
+        val holdEnd = rule.mainClock.currentTime + DRAWING_UI_RETURN_DELAY_MS - 100
+        while (rule.mainClock.currentTime < holdEnd) { rule.mainClock.advanceTimeByFrame(); rowTop() }
         assertEquals("still shut during the hold", shutTop, rowTop(), 1f)
         // Past the hold plus the quick slide back (REOPEN_MS), with a frame of slack.
-        rule.mainClock.advanceTimeBy(100 + REOPEN_MS + 50L)
+        // Frame by frame, reading the tree each frame, so the slide back actually runs (a single
+        // jump starts the animation at the end of the jump and leaves it at its first frame).
+        val end = rule.mainClock.currentTime + 100 + REOPEN_MS + 50L
+        while (rule.mainClock.currentTime < end) { rule.mainClock.advanceTimeByFrame(); rowTop() }
         assertEquals("reopened where it was", openTop, rowTop(), 1f)
         rule.mainClock.autoAdvance = true
     }
