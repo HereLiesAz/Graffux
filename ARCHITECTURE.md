@@ -164,6 +164,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   are the escape hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
+- **A tap opens a nested rail.** No `azNestedRail` sets `reflectSelectionInParent`: with it,
+  AzNavRail 11.52 turns the parent's tap into "re-run the last-picked child" (or nothing, before a
+  child has been picked), so the rail could only be opened by long press. Without it, a tap toggles
+  the nested rail open and the user picks a tool from it (`NestedRailTapUiTest`).
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
   `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
   `androidx.compose.material3.carousel` sources, copied into `com.hereliesaz.graffux.carousel`

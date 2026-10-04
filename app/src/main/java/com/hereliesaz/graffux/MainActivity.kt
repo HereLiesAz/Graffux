@@ -2287,7 +2287,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
         color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
-        reflectSelectionInParent = true,
+        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
+        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
     ) {
         fun selectionShapeItem(mode: SelectionShape) {
             val id = "selectShape.${mode.name}"
@@ -2426,7 +2427,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.NONE_SQUARE,
-        reflectSelectionInParent = true,
+        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
+        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
 
