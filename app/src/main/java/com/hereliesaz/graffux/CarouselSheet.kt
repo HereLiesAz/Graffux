@@ -50,11 +50,13 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Whether the sheet is actually drawn open: the user's choice, overridden shut while a stroke is
- * down. [userOpen] is never changed by a stroke, so the sheet comes back on its own when the stroke
- * ends — and one the user had shut stays shut.
+ * Whether the sheet is actually drawn open: the user's choice, overridden shut while the UI is
+ * hidden for drawing (a stroke, plus [DRAWING_UI_RETURN_DELAY_MS] after it). [userOpen] is never
+ * changed by a stroke, so the sheet comes back on its own after the hold — and one the user had shut
+ * stays shut.
  */
-internal fun carouselSheetShownOpen(userOpen: Boolean, strokeActive: Boolean): Boolean = userOpen && !strokeActive
+internal fun carouselSheetShownOpen(userOpen: Boolean, hiddenForDrawing: Boolean): Boolean =
+    userOpen && !hiddenForDrawing
 
 /**
  * The scrim behind the carousel: black, fading in from nothing at its top edge to
@@ -77,9 +79,10 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  * pill stays, to pull it back up), drag or fling it up to open it, or tap the pill. It settles open
  * or shut by [carouselSheetSettlesOpen]; [onOpenChange] reports where.
  *
- * [strokeActive] is read, not observed by the caller's composition: while it is true the sheet
- * snaps shut at once (no animation — the stroke must not wait on it), and when it goes false it
- * slides back to [open], quickly. It never calls [onOpenChange], so the user's choice survives.
+ * [hiddenForDrawing] (see [rememberDrawingUiHidden]) is read, not observed by the caller's
+ * composition: while it is true the sheet snaps shut at once (no animation — the stroke must not wait
+ * on it), and when it goes false (the hold after the stroke has run out) it slides back to [open] in
+ * [REOPEN_MS]. It never calls [onOpenChange], so the user's choice survives.
  *
  * The scrim is drawn *behind* the draggable column, as a sibling with no pointer input, so it
  * darkens the full width without taking a single touch: the canvas beside and under the carousel's
@@ -99,7 +102,7 @@ internal fun CarouselSheet(
     open: Boolean,
     onOpenChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    strokeActive: () -> Boolean = { false },
+    hiddenForDrawing: () -> Boolean = { false },
     bottomInset: Dp = 0.dp,
     content: @Composable () -> Unit,
 ) {
@@ -109,9 +112,9 @@ internal fun CarouselSheet(
     // 0 = open; contentHeight = shut (only the grab pill still shows).
     val offset = remember { Animatable(0f) }
     var settledOnce by remember { mutableStateOf(false) }
-    val strokeActiveNow by rememberUpdatedState(strokeActive)
+    val hiddenNow by rememberUpdatedState(hiddenForDrawing)
     // Only this flag's flips recompose the sheet; the content lambda is not re-run by them.
-    val drawing by remember { derivedStateOf { strokeActiveNow() } }
+    val drawing by remember { derivedStateOf { hiddenNow() } }
     val shownOpen = carouselSheetShownOpen(open, drawing)
     LaunchedEffect(shownOpen, contentHeight) {
         if (contentHeight == 0) return@LaunchedEffect
@@ -204,5 +207,5 @@ private val HandleTouchWidth = 96.dp
 private val HandleTouchHeight = 24.dp
 private const val HANDLE_ALPHA = 0.6f
 
-/** How fast the sheet slides back after a stroke: quick, so it is there for the next pick. */
-private const val REOPEN_MS = 160
+/** How fast the sheet slides back once the post-stroke hold is over: quick, for the next pick. */
+internal const val REOPEN_MS = 120

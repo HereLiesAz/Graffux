@@ -186,9 +186,9 @@ class CarouselItemSettingsTest {
 
     @Test
     fun `the sheet shuts for a stroke and reopens only if the user had it open`() {
-        assertTrue(carouselSheetShownOpen(userOpen = true, strokeActive = false))
-        assertFalse(carouselSheetShownOpen(userOpen = true, strokeActive = true))
-        assertFalse(carouselSheetShownOpen(userOpen = false, strokeActive = true))
-        assertFalse(carouselSheetShownOpen(userOpen = false, strokeActive = false))
+        assertTrue(carouselSheetShownOpen(userOpen = true, hiddenForDrawing = false))
+        assertFalse(carouselSheetShownOpen(userOpen = true, hiddenForDrawing = true))
+        assertFalse(carouselSheetShownOpen(userOpen = false, hiddenForDrawing = true))
+        assertFalse(carouselSheetShownOpen(userOpen = false, hiddenForDrawing = false))
     }
 }
