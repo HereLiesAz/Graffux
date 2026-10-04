@@ -53,7 +53,10 @@ val localProperties = Properties().apply {
 // versionCode is one more than the highest Play has ever accepted (or the last recorded one), and
 // versionName raises only its last field. The workflow records the published pair back into
 // version.properties, so local builds reuse the last published pair. Nothing here increments.
-val currentVersionCode = (project.findProperty("versionCode") as String?)?.trim()?.toIntOrNull()
+// The release pipeline passes the Play-derived code as -PversionCodeOverride (see CLAUDE.md), so read
+// that first; without it the build fell through to 1 and Play rejected the upload.
+val currentVersionCode = listOf("versionCodeOverride", "releaseVersionCode", "versionCode")
+    .firstNotNullOfOrNull { (project.findProperty(it) as String?)?.trim()?.toIntOrNull() }
     ?: versionProps.getProperty("versionCode")?.trim()?.toIntOrNull()
     ?: 1
 val currentVersionName = (project.findProperty("versionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
