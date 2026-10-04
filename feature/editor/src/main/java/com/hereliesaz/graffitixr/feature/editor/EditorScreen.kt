@@ -696,7 +696,7 @@ fun EditorScreen(
                     center = center,
                 )
                 drawCircle(
-                    color = Color(0xFFFF4FA3),
+                    color = BrushHudAccent,
                     radius = baseRadius,
                     center = center,
                     style = Stroke(width = 3.dp.toPx()),
@@ -1612,3 +1612,6 @@ private fun polygonPath(cx: Float, cy: Float, w: Float, h: Float, sides: Int): P
 
 /** Tools with their own capture layer (or none), so the raster brush surface isn't composed for them. */
 private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT)
+
+/** Accent ring colour for the brush-size HUD. */
+private val BrushHudAccent = Color(0xFFFF4FA3)
