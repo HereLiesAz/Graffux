@@ -601,6 +601,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
     // nothing, so every control underneath still behaves exactly as before.
     val strokeGate = remember { StrokeGate() }
+    // True during a stroke and for DRAWING_UI_RETURN_DELAY_MS after it (a new stroke cancels the
+    // return). The rails and the carousel sheet hide on this, not on the raw stroke flag.
+    val drawingUiHidden by rememberDrawingUiHidden { strokeGate.strokeActive }
     // The rail's actual on-screen width is `collapsedWidth` (a separate knob from `railItemWidth`
     // below, which only sizes each button, not the strip itself) — read back from AzNavHostScope
     // (11.19) right after azConfig, rather than duplicating a guessed constant here, so
@@ -670,8 +673,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
             // same flag.
             // A live stroke folds it too, and unfolds it again on stroke end or cancel — see
-            // DrawingRailFold. strokeActive is snapshot state the canvas already maintains.
-            isFoldedUp = DrawingRailFold.mainRailFolded(uiState.hideUiForCapture, strokeGate.strokeActive)
+            // DrawingRailFold. drawingUiHidden holds the fold for DRAWING_UI_RETURN_DELAY_MS after.
+            isFoldedUp = DrawingRailFold.mainRailFolded(uiState.hideUiForCapture, drawingUiHidden)
 
             ConfigureRailItems(
                 vm = vm,
@@ -699,7 +702,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
                 onOpenBrushTipsManager = { showBrushTipsManager = true },
-                strokeActive = { strokeGate.strokeActive },
+                drawingUiHidden = { drawingUiHidden },
             )
 
             // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
@@ -930,9 +933,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         CarouselSheet(
                             open = carouselUi.sheetOpen,
                             onOpenChange = { carouselUi = carouselUi.copy(sheetOpen = it) },
-                            // Shut at once while a stroke is down, back when it lifts (read in
-                            // the sheet, so this page does not recompose per stroke).
-                            strokeActive = { strokeGate.strokeActive },
+                            // Shut at once while a stroke is down, back DRAWING_UI_RETURN_DELAY_MS
+                            // after it lifts (read in the sheet, so this page does not recompose).
+                            hiddenForDrawing = { drawingUiHidden },
                             // background() pages are deliberately not inset (guide §1.1), and
                             // LocalAzSafeZones is not provided to them in 11.52, so the sheet
                             // clears the nav bar itself — plus the shortcuts sheet's HIDDEN swipe
@@ -2078,8 +2081,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
     onOpenBrushTipsManager: () -> Unit,
-    /** Read lazily inside `expandWhen` so a stroke does not rebuild this whole DSL. */
-    strokeActive: () -> Boolean,
+    /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */
+    drawingUiHidden: () -> Boolean,
 ) {
     // Computed once, read by every stateful item below for both its classifier and its colour.
     // activeInkUtensil is collected by GraffuxApp and passed in (this builder isn't composable), so
@@ -2284,7 +2287,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
         color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
-        reflectSelectionInParent = true,
+        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
+        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
     ) {
         fun selectionShapeItem(mode: SelectionShape) {
             val id = "selectShape.${mode.name}"
@@ -2423,7 +2427,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     azNestedRail(
         id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
         color = railColor(VECTOR_ID), shape = AzButtonShape.NONE_SQUARE,
-        reflectSelectionInParent = true,
+        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
+        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
     ) {
         nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
 
@@ -2575,10 +2580,10 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
             initiallyExpanded = railExpansion["grp.layers"] ?: false,
-            // Collapses while a stroke is live, re-expands after, only if the user had it open.
-            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: false, strokeActive()) },
+            // Collapses while drawing, re-expands after the hold, only if the user had it open.
+            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: false, drawingUiHidden()) },
             onExpandedChange = {
-                if (DrawingRailFold.persistExpansionChange(it, strokeActive())) {
+                if (DrawingRailFold.persistExpansionChange(it, drawingUiHidden())) {
                     vm.onRailHostExpansionChanged("grp.layers", it)
                 }
             },
@@ -2652,10 +2657,10 @@ private fun AzNavHostScope.ConfigureRailItems(
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
             initiallyExpanded = railExpansion["grp.brushRail"] ?: false,
-            // Collapses while a stroke is live, re-expands after, only if the user had it open.
-            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.brushRail"] ?: false, strokeActive()) },
+            // Collapses while drawing, re-expands after the hold, only if the user had it open.
+            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.brushRail"] ?: false, drawingUiHidden()) },
             onExpandedChange = {
-                if (DrawingRailFold.persistExpansionChange(it, strokeActive())) {
+                if (DrawingRailFold.persistExpansionChange(it, drawingUiHidden())) {
                     vm.onRailHostExpansionChanged("grp.brushRail", it)
                 }
             },
