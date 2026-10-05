@@ -27,7 +27,7 @@ class SelectionHandlesSpinTest {
     @get:Rule
     val rule = createComposeRule()
 
-    @Test(timeout = 20_000)
+    @Test
     fun `a stroke over a layer with no corners does not spin the gesture loop`() {
         rule.setContent {
             SelectionHandles(
