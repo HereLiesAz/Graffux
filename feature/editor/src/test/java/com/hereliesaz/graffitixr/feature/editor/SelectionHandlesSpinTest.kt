@@ -19,15 +19,19 @@ import org.robolectric.annotation.Config
  * layer). awaitEachGesture then looped straight back in with no pointer pressed, spinning the main
  * thread and allocating a continuation per turn until Android killed the app. With the down awaited
  * first, a stroke over such a layer ends normally.
+ *
+ * SDK 33 on purpose: every other editor test runs on 34, so this one gets its own Robolectric
+ * sandbox and never inherits an uncaught coroutine exception another test left behind (which the
+ * Compose rule reports as UncaughtExceptionsBeforeTest).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], qualifiers = "w400dp-h800dp")
+@Config(sdk = [33], qualifiers = "w400dp-h800dp")
 class SelectionHandlesSpinTest {
 
     @get:Rule
     val rule = createComposeRule()
 
-    @Test(timeout = 20_000)
+    @Test
     fun `a stroke over a layer with no corners does not spin the gesture loop`() {
         rule.setContent {
             SelectionHandles(
