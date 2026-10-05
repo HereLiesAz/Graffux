@@ -1047,7 +1047,7 @@ private fun SelectionOverlay(
  * basis (shared with [CanvasHitTest]) are derived, not yet verified on a device.
  */
 @Composable
-private fun SelectionHandles(
+internal fun SelectionHandles(
     activeLayer: Layer,
     viewportOffset: Offset,
     viewportZoom: Float,
@@ -1072,11 +1072,15 @@ private fun SelectionHandles(
     Canvas(
         modifier = modifier.pointerInput(activeLayer.id) {
             awaitEachGesture {
+                // Await the down BEFORE any early return. Returning from this block without having
+                // suspended lets awaitEachGesture loop straight back in when no pointer is pressed
+                // (its awaitAllPointersUp returns at once), a tight main-thread spin: the ANR after
+                // a brush stroke on a layer with no screen corners yet.
+                val down = awaitFirstDown(requireUnconsumed = true)
                 val corners = CanvasHitTest.layerScreenCorners(
                     currentLayer, size.width.toFloat(), size.height.toFloat(),
                     currentVpOffset, currentVpZoom, currentVpRotation,
                 ) ?: return@awaitEachGesture
-                val down = awaitFirstDown(requireUnconsumed = true)
                 val pivot = CanvasHitTest.boxCenter(corners)
                 val resizeHandle = corners[2] // bottom-right
                 val rotateHandle = corners[1] // top-right (adjacent)
