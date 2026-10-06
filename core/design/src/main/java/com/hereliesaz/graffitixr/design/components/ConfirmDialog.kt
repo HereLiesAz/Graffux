@@ -1,6 +1,5 @@
 package com.hereliesaz.graffitixr.design.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -25,7 +24,7 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    GraffuxAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = title) },
         text = { Text(text = message) },
