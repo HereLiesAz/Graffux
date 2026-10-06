@@ -4325,6 +4325,29 @@ class EditorViewModel @Inject constructor(
         layerStore.putBase(layerId, base)
     }
 
+    /**
+     * [layerId]'s pixels, giving a paintable layer that has none a blank canvas-sized bitmap first.
+     *
+     * Every stroke commit (stamp brushes, Ink, Basic) starts with `layer.bitmap ?: return`, and the
+     * live preview is drawn by the overlay without ever touching the layer, so a raster layer whose
+     * bitmap never arrived painted live and then dropped every stroke on finger-up — and the
+     * selection handles, finding no box, spun into an ANR. Null for groups, vector layers, or an
+     * allocation that fails. Main thread.
+     */
+    private fun ensurePaintableBitmap(layerId: String): Bitmap? {
+        val layer = _uiState.value.layers.find { it.id == layerId } ?: return null
+        layer.bitmap?.let { return it }
+        if (!layer.supportsAlphaLock) return null // raster with no shapes: the same "paintable" rule
+        val (width, height) = newLayerSize()
+        val blank = runCatching { createBitmap(width, height) }.getOrNull() ?: return null
+        Breadcrumbs.record("blank bitmap for paint layer with none (${width}x$height)")
+        putLayerBase(layerId, blank)
+        _uiState.update { s ->
+            s.copy(layers = s.layers.map { if (it.id == layerId && it.bitmap == null) it.copy(bitmap = blank) else it })
+        }
+        return _uiState.value.layers.find { it.id == layerId }?.bitmap
+    }
+
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
     private fun emitActiveLayerProps() {
         val id = _uiState.value.activeLayerId ?: return
@@ -4365,8 +4388,8 @@ class EditorViewModel @Inject constructor(
             strokePaintPresented = false
         }
         val layerId = state.activeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
-        val originalBitmap = layer.bitmap ?: return
+        val originalBitmap = ensurePaintableBitmap(layerId) ?: return
+        val layer = _uiState.value.layers.find { it.id == layerId } ?: return
 
         val generation = ++strokeGeneration
         residentTicket = null
@@ -6693,8 +6716,8 @@ class EditorViewModel @Inject constructor(
     ) {
         val state = _uiState.value
         val layerId = state.activeLayerId
-        val layer = state.layers.find { it.id == layerId }
-        val base = layer?.bitmap
+        val base = layerId?.let { ensurePaintableBitmap(it) }
+        val layer = _uiState.value.layers.find { it.id == layerId }
         if (layerId == null || layer == null || base == null) {
             onCommitted()
             return
