@@ -1,0 +1,12 @@
+# Graffux: built and signed by HereLiesAz/workflows (.github/workflows/android-github-release.yml):
+# a GitHub Release with the signed Graffux APK.
+# This file is the trigger contract; the central sync replaces it with a tracker.
+name: Graffux Android GitHub Release
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  hand-off:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Graffux Android GitHub Release runs centrally in HereLiesAz/workflows."
