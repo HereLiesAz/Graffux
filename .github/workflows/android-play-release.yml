@@ -1,0 +1,22 @@
+# Graffux: built, signed and published by HereLiesAz/workflows (.github/workflows/android-play-release.yml):
+# Google Play (com.hereliesaz.graffux) on the shared tracks.
+# This file is the trigger contract; the central sync replaces it with a tracker.
+name: Graffux Android Play Release
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "core/**"
+      - "feature/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "version.properties"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  hand-off:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Graffux Android Play Release runs centrally in HereLiesAz/workflows."

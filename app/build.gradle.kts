@@ -49,18 +49,17 @@ val localProperties = Properties().apply {
     }
 }
 
-// Release versions come from HereLiesAz/workflows android-release as -PversionCode/-PversionName:
-// versionCode is one more than the highest Play has ever accepted (or the last recorded one), and
-// versionName raises only its last field. The workflow records the published pair back into
-// version.properties, so local builds reuse the last published pair. Nothing here increments.
-// The release pipeline passes the Play-derived code as -PversionCodeOverride (see CLAUDE.md), so read
-// that first; without it the build fell through to 1 and Play rejected the upload.
+// Release versions come from HereLiesAz/workflows (android-play-release / android-github-release).
+// Play passes -PversionCodeOverride (one above the highest code Play has ever accepted) and
+// -PversionName; read those first, without them the build fell through to 1 and Play rejected the
+// upload. Both executors also rewrite versionMajor/Minor/Patch/Build in version.properties, so the
+// name falls back to those fields (not the stale stored versionName). Nothing here increments.
 val currentVersionCode = listOf("versionCodeOverride", "releaseVersionCode", "versionCode")
     .firstNotNullOfOrNull { (project.findProperty(it) as String?)?.trim()?.toIntOrNull() }
     ?: versionProps.getProperty("versionCode")?.trim()?.toIntOrNull()
     ?: 1
-val currentVersionName = (project.findProperty("versionName") as String?)?.trim()?.takeIf { it.isNotEmpty() }
-    ?: versionProps.getProperty("versionName")?.trim()
+val currentVersionName = listOf("versionName", "versionNameOverride")
+    .firstNotNullOfOrNull { (project.findProperty(it) as String?)?.trim()?.takeIf { v -> v.isNotEmpty() } }
     ?: listOf("versionMajor", "versionMinor", "versionPatch", "versionBuild")
         .joinToString(".") { versionProps.getProperty(it, "0").trim() }
 
