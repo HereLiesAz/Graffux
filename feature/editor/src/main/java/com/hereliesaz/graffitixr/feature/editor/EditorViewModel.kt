@@ -779,6 +779,11 @@ class EditorViewModel @Inject constructor(
      * and queue its refresh (the stroke's rows plus [changed]) behind the stroke's GPU work.
      * Otherwise the copy stays stale and the next stroke uploads.
      */
+    /** TEMPORARY diagnostics for strokes that never land: `adb logcat -s GraffuxStroke`. */
+    private fun strokeLog(msg: String) {
+        runCatching { android.util.Log.i("GraffuxStroke", msg) }
+    }
+
     private fun refreshResidentAfterCommit(
         ticket: ResidentTicket?,
         layerId: String,
@@ -928,6 +933,8 @@ class EditorViewModel @Inject constructor(
     private fun snapshotStrokePoints(): List<Offset> = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPoints.toList()
     }
+
+    private fun strokePointCountForLog(): Int = synchronized(strokeCollectedPointsLock) { strokeCollectedPoints.size }
 
     private fun snapshotStrokePressures(): List<Float> = synchronized(strokeCollectedPointsLock) {
         strokeCollectedPressures.toList()
@@ -1761,6 +1768,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
+        strokeLog("rebuild requested for $layerId")
         // Every full replay publishes a CPU-rendered bitmap: the GPU-resident copy is stale.
         invalidateResident(layerId)
         val base = layerStore.base(layerId) ?: return
@@ -4335,15 +4343,21 @@ class EditorViewModel @Inject constructor(
      * allocation that fails. Main thread.
      */
     private fun ensurePaintableBitmap(layerId: String): Bitmap? {
-        val layer = _uiState.value.layers.find { it.id == layerId } ?: return null
-        layer.bitmap?.let { return it }
-        if (!layer.supportsAlphaLock) return null // raster with no shapes: the same "paintable" rule
-        val (width, height) = newLayerSize()
-        val blank = runCatching { createBitmap(width, height) }.getOrNull() ?: return null
-        Breadcrumbs.record("blank bitmap for paint layer with none (${width}x$height)")
-        putLayerBase(layerId, blank)
-        _uiState.update { s ->
-            s.copy(layers = s.layers.map { if (it.id == layerId && it.bitmap == null) it.copy(bitmap = blank) else it })
+        val layer = _uiState.value.layers.find { it.id == layerId }
+        // Raster with no shapes: the same "paintable" rule as Alpha Lock.
+        if (layer != null && layer.bitmap == null && layer.supportsAlphaLock) {
+            val (width, height) = newLayerSize()
+            runCatching { createBitmap(width, height) }.getOrNull()?.let { blank ->
+                Breadcrumbs.record("blank bitmap for paint layer with none (${width}x$height)")
+                putLayerBase(layerId, blank)
+                _uiState.update { s ->
+                    s.copy(
+                        layers = s.layers.map {
+                            if (it.id == layerId && it.bitmap == null) it.copy(bitmap = blank) else it
+                        },
+                    )
+                }
+            }
         }
         return _uiState.value.layers.find { it.id == layerId }?.bitmap
     }
@@ -4388,8 +4402,14 @@ class EditorViewModel @Inject constructor(
             strokePaintPresented = false
         }
         val layerId = state.activeLayerId ?: return
-        val originalBitmap = ensurePaintableBitmap(layerId) ?: return
+        strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
+        val originalBitmap = ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         val layer = _uiState.value.layers.find { it.id == layerId } ?: return
+        strokeLog(
+            "start: bitmap=${originalBitmap.width}x${originalBitmap.height} recycled=${originalBitmap.isRecycled} " +
+                "scale=${layer.scale} offset=${layer.offset} rot=${layer.rotationZ} " +
+                "visible=${layer.isVisible} opacity=${layer.opacity}",
+        )
 
         val generation = ++strokeGeneration
         residentTicket = null
@@ -5817,8 +5837,12 @@ class EditorViewModel @Inject constructor(
             predictionLeadMs = (it.total.medianNs / NANOS_PER_MILLI).coerceAtLeast(1L)
         }
         val state = _uiState.value
-        val layerId = strokeLayerId ?: return
-        val layer = state.layers.find { it.id == layerId } ?: return
+        val layerId = strokeLayerId ?: return strokeLog("end: no strokeLayerId")
+        val layer = state.layers.find { it.id == layerId } ?: return strokeLog("end: layer $layerId gone")
+        strokeLog(
+            "end: layer=$layerId tool=${state.activeTool} stamp=${stampBrushForStroke != null} " +
+                "points=${strokePointCountForLog()}",
+        )
         // This stroke's resident GPU binding, if any; its commit refreshes the GPU copy.
         val ticket = residentTicket?.takeIf { it.strokeGeneration == strokeGeneration && it.layerId == layerId }
         val points = snapshotStrokePoints()
@@ -6337,8 +6361,12 @@ class EditorViewModel @Inject constructor(
         // dispatcher and would otherwise find it already null.
         selection: com.hereliesaz.graffitixr.common.model.Selection?,
     ) {
-        val base = layer.bitmap ?: return
-        if (points.isEmpty()) return
+        val base = layer.bitmap ?: return strokeLog("commit: layer has no bitmap")
+        if (points.isEmpty()) return strokeLog("commit: no points")
+        strokeLog(
+            "commit: base=${base.width}x${base.height} canvas=${canvasW}x$canvasH points=${points.size} " +
+                "first=${points.first()} last=${points.last()} scale=$scale offset=$offset rot=$rotationZ",
+        )
         // The stroke's resident GPU binding (wgpu), refreshed once the commit is published. Read
         // here, synchronously: the caller clears it the moment this returns.
         val ticket = residentTicket?.takeIf { it.strokeGeneration == strokeGeneration && it.layerId == layerId }
@@ -6411,11 +6439,16 @@ class EditorViewModel @Inject constructor(
             // preview rendered all of that correctly, then it vanished on finger-up. `command` already
             // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            val target = drawingEngine.applySingleStroke(
-                base, command, otherLayers, heightWorking,
-                wetnessState = wetnessWorking,
-                impastoMaterialState = materialWorking,
-            )
+            val target = try {
+                drawingEngine.applySingleStroke(
+                    base, command, otherLayers, heightWorking,
+                    wetnessState = wetnessWorking,
+                    impastoMaterialState = materialWorking,
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                strokeLog("commit: cancelled before publish")
+                throw e
+            }
             // Item 16's undo fast path: diff `base` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
             // it doesn't need a resolved dab list this call site doesn't otherwise construct, and
@@ -6443,6 +6476,9 @@ class EditorViewModel @Inject constructor(
                 val afterPixels = IntArray(target.width * target.height)
                 target.getPixels(afterPixels, 0, target.width, 0, 0, target.width, target.height)
                 val dirty = DirtyRegion.fromPixelDiff(beforePixels, afterPixels, base.width, base.height)
+                strokeLog(
+                    "commit: rendered ${target.width}x${target.height} sameObject=${target === base} dirty=$dirty",
+                )
                 if (ticket != null && target.width == base.width && target.height == base.height) {
                     residentChanged = dirty?.let { intArrayOf(it.left, it.top, it.width, it.height) }
                         ?: IntArray(RECT_INTS)
@@ -6472,6 +6508,7 @@ class EditorViewModel @Inject constructor(
                         },
                     )
                 }
+                strokeLog("commit: published to $layerId (active=${_uiState.value.activeLayerId})")
                 refreshResidentAfterCommit(ticket, layerId, base, target, residentChanged)
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
                 scheduleDiskSave(layerId, target, layer.uri)
@@ -6718,6 +6755,9 @@ class EditorViewModel @Inject constructor(
         val layerId = state.activeLayerId
         val base = layerId?.let { ensurePaintableBitmap(it) }
         val layer = _uiState.value.layers.find { it.id == layerId }
+        strokeLog(
+            "ink commit: layer=$layerId bitmap=${base?.let { "${it.width}x${it.height}" }} points=${path.size}",
+        )
         if (layerId == null || layer == null || base == null) {
             onCommitted()
             return
