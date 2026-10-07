@@ -1,6 +1,5 @@
 package com.hereliesaz.graffitixr.design.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
@@ -14,7 +13,7 @@ import com.hereliesaz.graffitixr.design.R
 fun DoubleTapHintDialog(
     onDismissRequest: () -> Unit
 ) {
-    AlertDialog(
+    GraffuxAlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(text = stringResource(R.string.pro_tip)) },
         text = {
