@@ -6631,7 +6631,10 @@ class EditorViewModel @Inject constructor(
                 GpuStampCommit.stampOnto(engine, listOf(handoff.leftover), StampPaint.of(command, brush)) &&
                     confinedOnGpu(engine, command, handoff.selection) &&
                     engine.readback(it).also { handoff.paintedRect = paintedRect(engine) }
-            }?.let { SafeBitmap.copy(it) }
+            }
+            // The live work bitmap itself becomes the layer: the stroke is over (its worker joined,
+            // stampLiveBitmap released by clearTransientStrokeState), nothing paints it again, and
+            // the readback above brought it level with the GPU. No whole-layer copy per commit.
         } finally {
             engine.destroy()
         }
