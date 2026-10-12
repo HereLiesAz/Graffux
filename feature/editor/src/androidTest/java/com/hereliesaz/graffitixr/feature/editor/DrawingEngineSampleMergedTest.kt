@@ -14,9 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * [DrawingEngine]'s Tool.SMUDGE branch actually calling [ExportManager.compositeOtherLayersForSampling]
@@ -26,9 +24,7 @@ import org.robolectric.annotation.GraphicsMode
  * (the coordinate remap alone). No physical device involved: the active layer starts fully
  * transparent, so any picked-up colour can only have come from the other layer's composite.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class DrawingEngineSampleMergedTest {
 
     companion object {

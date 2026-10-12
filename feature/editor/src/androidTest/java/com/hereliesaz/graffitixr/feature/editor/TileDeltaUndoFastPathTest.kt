@@ -29,9 +29,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * Item 16's undo fast path: a stamp-brush stroke commit captures a tile delta
@@ -39,14 +37,12 @@ import org.robolectric.annotation.GraphicsMode
  * ([EditHistory.attachTileDeltas]), so [EditorViewModel.onUndoClicked]/[onRedoClicked] can patch
  * the layer's current bitmap directly ([EditorViewModel.applyTileDeltaFastPath]) instead of
  * replaying every stroke since the layer's base. This drives the real [EditorViewModel] with real
- * [Bitmap]/[android.graphics.Canvas] (Robolectric NATIVE graphics) end-to-end: commit, confirm the
+ * [Bitmap]/[android.graphics.Canvas] (on a device, the GPU engine) end-to-end: commit, confirm the
  * fast path actually attached (not just that undo/redo produced correct pixels, which the slow
  * full-replay path would also do), then undo and redo and check the pixels are exactly right both
  * times, including round-tripping back to a *second* stroke's committed state.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class TileDeltaUndoFastPathTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -107,7 +103,7 @@ class TileDeltaUndoFastPathTest {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = org.robolectric.RuntimeEnvironment.getApplication(),
+            context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),

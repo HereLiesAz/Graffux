@@ -29,21 +29,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * Item 12's live-preview follow-up: Impasto shading must be visible while dragging, not just once
  * a stroke commits (see [EditorViewModel.stampLiveHeightMap]'s doc comment for the regional-
  * reshade design this requires to stay cheap). This drives the real [EditorViewModel] with a real
- * [Bitmap]/[android.graphics.Canvas] (Robolectric NATIVE graphics), exercising the actual live
+ * [Bitmap]/[android.graphics.Canvas] (on a device, the GPU engine), exercising the actual live
  * integration — [ImpastoEngineTest] covers the primitive (including [ImpastoEngine.shadeInto]
  * itself), and [DrawingEngineImpastoTest] covers the commit path; neither reaches this.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class LiveStampImpastoTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -114,7 +110,7 @@ class LiveStampImpastoTest {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = org.robolectric.RuntimeEnvironment.getApplication(),
+            context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),

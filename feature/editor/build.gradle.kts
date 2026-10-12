@@ -9,6 +9,13 @@ android {
     namespace = "com.hereliesaz.graffitixr.feature.editor"
     compileSdk = 37
 
+    // Fixtures shared by the JVM tests and the device tests (stroke rendering runs only on the GPU,
+    // so tests that check painted pixels live in androidTest).
+    sourceSets {
+        getByName("test").kotlin.directories.add("src/sharedTest/java")
+        getByName("androidTest").kotlin.directories.add("src/sharedTest/java")
+    }
+
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -93,4 +100,8 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
     androidTestImplementation(libs.androidx.junit)
+    // Stroke rendering tests run on a device: the strokes paint only on the GPU (wgpu), which the
+    // JVM and Robolectric don't have.
+    androidTestImplementation(libs.mockk.android)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }

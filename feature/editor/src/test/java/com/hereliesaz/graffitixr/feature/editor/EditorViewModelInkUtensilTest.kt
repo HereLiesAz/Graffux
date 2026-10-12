@@ -306,7 +306,7 @@ class EditorViewModelInkUtensilTest {
             val bases = mutableListOf<Bitmap>()
             val outputs = mutableListOf<Bitmap>()
             coEvery {
-                anyConstructed<DrawingEngine>().applySingleStroke(any(), any(), any(), any(), any(), any(), any())
+                anyConstructed<DrawingEngine>().applySingleStroke(any(), any(), any(), any(), any(), any())
             } answers {
                 bases += firstArg<Bitmap>()
                 mockk<Bitmap>(relaxed = true).also { outputs += it }

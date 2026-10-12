@@ -17,9 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * [DrawingEngine]'s azphalt stamp-brush commit path (item 13: Airbrush) against real
@@ -28,9 +26,7 @@ import org.robolectric.annotation.GraphicsMode
  * elsewhere. What's new here is that `DrawingEngine` actually calls `heldDabs` and paints its
  * output when a stroke's samples include a held-still run and the brush has airbrush enabled.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class AirbrushWiringTest {
 
     companion object {

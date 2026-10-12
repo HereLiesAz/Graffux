@@ -27,20 +27,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * Blur/Sharpen/Smudge previously had NO live preview at all: buildStrokePaint's RESAMPLING_TOOLS
  * branch built a fully transparent Paint, so nothing rendered while dragging -- the whole effect
  * only appeared once the stroke committed on finger-up. This drives the real [EditorViewModel]
- * with real [Bitmap]/[Canvas] (Robolectric NATIVE graphics) and checks that dragging alone --
+ * with real [Bitmap]/[Canvas] (on a device, the GPU engine) and checks that dragging alone --
  * before onStrokeEnd is ever called -- already changes what [EditorViewModel.liveStroke] shows.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class LiveResampleToolsTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -87,7 +83,7 @@ class LiveResampleToolsTest {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = org.robolectric.RuntimeEnvironment.getApplication(),
+            context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),

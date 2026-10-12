@@ -11,7 +11,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.robolectric.RuntimeEnvironment
+import androidx.test.core.app.ApplicationProvider
 
 /**
  * Builds a real [EditorViewModel] over mocked collaborators.
@@ -63,7 +63,7 @@ internal object EditorViewModelFixture {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = RuntimeEnvironment.getApplication(),
+            context = ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers(d),
             opEmitter = mockk(relaxed = true),

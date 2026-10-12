@@ -28,22 +28,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * Item 13's "risk 1" — the live-preview's incremental repaint bookkeeping never showed airbrush
  * held-run build-up while dragging, only once the stroke committed — is now resolved for the live
  * preview itself (see [EditorViewModel.stampHeldStampedCount]'s doc comment for the incremental
  * design and its one remaining documented residual gap). This drives the real ViewModel with a
- * real [Bitmap]/[android.graphics.Canvas] (Robolectric NATIVE graphics), not [DrawingEngine]
+ * real [Bitmap]/[android.graphics.Canvas] (on a device, the GPU engine), not [DrawingEngine]
  * directly, so it's exercising the actual live-preview integration [AirbrushWiringTest] (commit
  * path) and [AirbrushEngineTest] (the primitive) do not reach.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class LiveStampAirbrushTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -105,7 +101,7 @@ class LiveStampAirbrushTest {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = org.robolectric.RuntimeEnvironment.getApplication(),
+            context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
