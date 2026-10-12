@@ -80,6 +80,7 @@ public:
     bool depositImpastoHeight(const float* dabs, size_t dabCount, float hardness, float thickness) override;
     bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                             float strength) override;
+    bool beginStroke() override;
     bool supportsWet() const override;
     bool wetBegin(const uint32_t* raw, const float* height, const float* wetness, size_t count,
                   const uint32_t* active, size_t tiles, int tileSize, const float* media,

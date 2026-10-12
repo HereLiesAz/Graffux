@@ -62,14 +62,38 @@ internal object GpuStampCommit {
         brushScale: Float,
     ): Bitmap? {
         val target = SafeBitmap.copy(bitmap)
-        val width = bitmap.width
-        val height = bitmap.height
-        val (movementDabs, heldDabs) = StrokeDabs.recorded(stroke, brush, mapped, brushScale, width, height)
-            ?: (StrokeDabs.fromPath(stroke, brush, mapped, brushScale, width, height) to emptyList())
-        val batches = StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
-        val painted = target != null && render(target, batches, StampPaint.of(stroke, brush))
+        val painted = target != null && render(target, batches(stroke, brush, mapped, brushScale, target))
         if (!painted) target?.recycle()
         return target.takeIf { painted }
+    }
+
+    /** [stroke] stamped onto [engine]'s layer (a [width] x [height] layer); doesn't read back. */
+    @Suppress("LongParameterList")
+    fun paintOnto(
+        engine: GpuStampEngine,
+        stroke: StrokeCommand,
+        brush: AzphaltBrush,
+        mapped: List<Offset>,
+        brushScale: Float,
+        layer: Bitmap,
+    ): Boolean {
+        val (batches, paint) = batches(stroke, brush, mapped, brushScale, layer)
+        return stampOnto(engine, batches, paint)
+    }
+
+    /** The stroke's batches and paint for a layer the size of [layer] (StrokeDabs, as the CPU branch). */
+    private fun batches(
+        stroke: StrokeCommand,
+        brush: AzphaltBrush,
+        mapped: List<Offset>,
+        brushScale: Float,
+        layer: Bitmap,
+    ): Pair<List<Pair<List<Dab>, List<Dab>>>, StampPaint> {
+        val width = layer.width
+        val height = layer.height
+        val (movementDabs, heldDabs) = StrokeDabs.recorded(stroke, brush, mapped, brushScale, width, height)
+            ?: (StrokeDabs.fromPath(stroke, brush, mapped, brushScale, width, height) to emptyList())
+        return StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches) to StampPaint.of(stroke, brush)
     }
 
     /** [painted] kept only inside [clip]; [base]'s pixels everywhere else. No clip: [painted]. */
@@ -86,7 +110,8 @@ internal object GpuStampCommit {
      * [batches] stamped onto [target] on a fresh engine, then read back once. False when the GPU is
      * unavailable or a stage fails; [target] is then left partly painted.
      */
-    private fun render(target: Bitmap, batches: List<Pair<List<Dab>, List<Dab>>>, paint: StampPaint): Boolean {
+    private fun render(target: Bitmap, work: Pair<List<Pair<List<Dab>, List<Dab>>>, StampPaint>): Boolean {
+        val (batches, paint) = work
         if (batches.all { (m, h) -> m.isEmpty() && h.isEmpty() }) return true
         // Calibration's engines and the canvas's never coexist (GpuCalibration.stopForCanvas).
         // This runs on a commit worker, never on the touch path, so waiting here delays only the

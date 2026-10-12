@@ -255,6 +255,9 @@ internal const val UNDO_TILE_SIZE = 64
 /** Ints in an {x, y, w, h} rectangle handed to the GPU resident-layer refresh. */
 private const val RECT_INTS = 4
 
+/** Resident-refresh marker: the committed layer is exactly the live GPU layer (retag, no upload). */
+private val GPU_COMMITTED = IntArray(0)
+
 /** Longest edge, in pixels, a time-lapse GIF frame is downsampled to — keeps captures cheap and small. */
 private const val TIME_LAPSE_FRAME_MAX_DIM = 480
 
@@ -800,7 +803,9 @@ class EditorViewModel @Inject constructor(
     ) {
         if (ticket == null || changed == null || ticket.layerId != layerId) return
         val generation = layerResidency.adoptCommit(layerId, ticket.stroke.generation, base, committed) ?: return
-        runCatching { GpuStampEngine.refreshResident(ticket.stroke, generation, committed, changed) }
+        // GPU_COMMITTED: the live GPU layer is the committed layer; retag it, no upload back.
+        val rows = changed.takeIf { it !== GPU_COMMITTED }
+        runCatching { GpuStampEngine.refreshResident(ticket.stroke, generation, committed, rows) }
     }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
@@ -6435,8 +6440,10 @@ class EditorViewModel @Inject constructor(
                     try {
                         // The live GPU layer when the live stroke painted on the GPU; otherwise (or
                         // if finishing it fails) the stroke painted again from its recorded dabs.
-                        val committed = basicHandoff?.let { finishLiveBasic(it, base, command) }
-                            ?: drawingEngine.applySingleStroke(base, command)
+                        val live = basicHandoff?.let { finishLiveBasic(it, base, command) }
+                        val committed = live ?: drawingEngine.applySingleStroke(base, command)
+                        // Unselected, the live GPU layer is exactly what was committed.
+                        val gpuCommitted = live != null && command.selection == null
                         val residentChanged = residentChangedRect(ticket, base, committed)
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
@@ -6444,7 +6451,10 @@ class EditorViewModel @Inject constructor(
                                     layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
                                 )
                             }
-                            refreshResidentAfterCommit(ticket, layerId, base, committed, residentChanged)
+                            refreshResidentAfterCommit(
+                                ticket, layerId, base, committed,
+                                residentChanged?.let { if (gpuCommitted) GPU_COMMITTED else it },
+                            )
                             // Only clear the live-stroke preview if it's still ours -- a newer stroke may
                             // have already started by the time this async rebuild finishes, and clearing
                             // its preview here would flash the wrong (or no) bitmap for that new stroke.
@@ -6623,11 +6633,16 @@ class EditorViewModel @Inject constructor(
             // preview rendered all of that correctly, then it vanished on finger-up. `command` already
             // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
+            // Unselected, a finished live GPU layer is exactly what is committed.
+            var gpuCommitted = false
             val target = try {
                 // The live GPU layer when the live stroke painted on the GPU; otherwise (or if
                 // finishing it fails) the stroke painted again from its recorded dabs.
                 finishLiveStamp(handoff, base, command, brush)
-                    ?.also { live -> materialWorking?.replaceRawColor(bitmapPixels(live)) }
+                    ?.also { live ->
+                        gpuCommitted = command.selection == null
+                        materialWorking?.replaceRawColor(bitmapPixels(live))
+                    }
                     ?: drawingEngine.applySingleStroke(
                         base, command, otherLayers, heightWorking,
                         wetnessState = wetnessWorking,
@@ -6699,7 +6714,10 @@ class EditorViewModel @Inject constructor(
                 strokeLog("commit: published to $layerId (active=${_uiState.value.activeLayerId})")
                 // Direct display showed the stroke; the committed layer carries it now.
                 endOverlayStroke(afterFrames = OVERLAY_HANDOFF_FRAMES)
-                refreshResidentAfterCommit(ticket, layerId, base, target, residentChanged)
+                refreshResidentAfterCommit(
+                    ticket, layerId, base, target,
+                    residentChanged?.let { if (gpuCommitted) GPU_COMMITTED else it },
+                )
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
                 scheduleDiskSave(layerId, target, layer.uri)
                 // Attached only after the bitmap publish above, on this same main-dispatcher

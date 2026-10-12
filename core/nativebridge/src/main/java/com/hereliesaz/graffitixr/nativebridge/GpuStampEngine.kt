@@ -170,16 +170,23 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          * retags the resident copy so the next stroke on this layer binds it without an upload. A
          * no-op when the handle is gone or the copy was rebound or invalidated meanwhile -- the next
          * stroke then misses and uploads, which is always correct. [committed] must not be mutated
-         * afterwards without invalidating the layer.
+         * afterwards without invalidating the layer. A null [changed] means [committed] is exactly
+         * the stroke's GPU result: the resident copy is retagged with no upload at all.
          */
         @JvmStatic
-        fun refreshResident(stroke: ResidentStroke, generation: Long, committed: Bitmap, changed: IntArray) {
-            require(changed.size >= RECT_INTS) { "changed must be {x, y, w, h}" }
+        fun refreshResident(stroke: ResidentStroke, generation: Long, committed: Bitmap, changed: IntArray?) {
+            require(changed == null || changed.size >= RECT_INTS) { "changed must be {x, y, w, h}" }
             GpuRenderThread.post {
                 if (stroke.handle !in liveWgpuHandles) return@post
-                helper().nativeRefreshLayer(
-                    stroke.handle, longArrayOf(stroke.layerKey, stroke.session, generation), committed, changed,
-                )
+                if (changed == null) {
+                    // The committed layer is exactly the stroke's GPU result: retag, no upload. If the
+                    // layer was rebound or evicted meanwhile nothing changes; the next stroke uploads.
+                    helper().nativeCommitLayer(stroke.handle, stroke.layerKey, stroke.session, generation)
+                } else {
+                    helper().nativeRefreshLayer(
+                        stroke.handle, longArrayOf(stroke.layerKey, stroke.session, generation), committed, changed,
+                    )
+                }
             }
         }
 
@@ -457,6 +464,16 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         return onGpu {
             nativeShadeImpastoRelief(nativeHandle, x, y, w, h, lightAzimuthDeg, lightElevationDeg, strength)
         }
+    }
+
+    /**
+     * Starts a new stroke on the layer as it is: stroke-max state restarts from these pixels, as
+     * after [upload], without replacing them. False when the library lacks it (re-upload instead).
+     */
+    @Synchronized
+    fun beginStroke(): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeBeginStroke(nativeHandle) }
     }
 
     /**
@@ -1029,6 +1046,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeShadeImpastoRelief(
         handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
     ): Boolean
+    private external fun nativeBeginStroke(handle: Long): Boolean
     @Suppress("LongParameterList")
     private external fun nativeWetBegin(
         handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray, active: IntArray, tileSize: Int,
@@ -1092,6 +1110,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeUploadLayer(handle: Long, key: Long, generation: Long, inBitmap: Bitmap): Long
     /** [ids] = {key, session, generation}; [rect] = {x, y, w, h}. */
     private external fun nativeRefreshLayer(handle: Long, ids: LongArray, bitmap: Bitmap, rect: IntArray): Boolean
+    private external fun nativeCommitLayer(handle: Long, key: Long, session: Long, generation: Long): Boolean
     private external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
     private external fun nativeInvalidateAllLayers(handle: Long)
     private external fun nativeDestroy(handle: Long)

@@ -79,21 +79,59 @@ internal class DrawingEngine(
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
-        for (stroke in strokes) {
-            val next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
-            else applyTool(
-                current, stroke, replaceExisting = true, otherLayers = otherLayers,
-                heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
-                impastoMaterialState = impastoMaterialState,
-            )
-            if (impastoMaterialState != null && !strokeUsesImpastoV2(stroke)) {
-                impastoMaterialState.replaceRawColor(bitmapPixels(next))
+        // Consecutive plain GPU strokes share one engine (GpuReplaySession). Impasto's per-stroke raw
+        // colour capture reads every result on the CPU, so it gains nothing there.
+        val session = if (impastoMaterialState == null) GpuReplaySession() else null
+        try {
+            for (stroke in strokes) {
+                val replay = session?.takeIf { !it.broken && replaysOnSession(stroke, heightMap, substrate) }
+                if (replay == null) current = synced(session, current, otherLayers, heightMap)
+                var next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
+                else applyTool(
+                    current, stroke, replaceExisting = true, otherLayers = otherLayers,
+                    heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                    impastoMaterialState = impastoMaterialState, replay = replay,
+                )
+                if (replay != null && replay.broken) {
+                    // The GPU failed: repaint what it held, then this stroke, on the CPU path.
+                    current = synced(session, current, otherLayers, heightMap)
+                    next = applyTool(
+                        current, stroke, replaceExisting = true, otherLayers = otherLayers,
+                        heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                    )
+                }
+                if (impastoMaterialState != null && !strokeUsesImpastoV2(stroke)) {
+                    impastoMaterialState.replaceRawColor(bitmapPixels(next))
+                }
+                if (next !== current && current !== base) current.recycle()
+                current = next
             }
-            if (next !== current && current !== base) current.recycle()
-            current = next
+            return synced(session, current, otherLayers, heightMap)
+        } finally {
+            session?.close()
         }
-        return current
     }
+
+    /**
+     * [current] with the GPU replay's pending strokes landed in it: read back, or, when the GPU
+     * failed, repainted on the CPU path over its pixels from before them.
+     */
+    private suspend fun synced(
+        session: GpuReplaySession?,
+        current: Bitmap,
+        otherLayers: () -> List<Layer>,
+        heightMap: FloatArray?,
+    ): Bitmap {
+        if (session == null || session.flush()) return current
+        var out = current
+        for (lost in session.takeLost()) {
+            val next = applyTool(out, lost, replaceExisting = true, otherLayers = otherLayers, heightMap = heightMap)
+            if (next !== out && out !== current) out.recycle()
+            out = next
+        }
+        return out
+    }
+
 
     suspend fun applySingleStroke(
         base: Bitmap,
@@ -122,11 +160,7 @@ internal class DrawingEngine(
                 brush.impastoThicknessRate > 0f && brush.impastoMaterial.sanitized().usesV2
             } == true
 
-    private fun bitmapPixels(bitmap: Bitmap): IntArray =
-        IntArray(bitmap.width * bitmap.height).also { pixels ->
-            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        }
-
+    @Suppress("LongParameterList")
     private suspend fun applyTool(
         bitmap: Bitmap,
         stroke: StrokeCommand,
@@ -136,6 +170,7 @@ internal class DrawingEngine(
         substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
+        replay: GpuReplaySession? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -233,6 +268,11 @@ internal class DrawingEngine(
                     ImpastoV2Layer(heightMap, wetnessState, impastoMaterialState),
                     StrokeSelection(clipPath, featherRadius),
                 )?.let { return it }
+            }
+            if (replay != null) {
+                return replay.paint(bitmap, stroke) {
+                    GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
+                }
             }
             val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
             val gpuPainted = if (gpuEligible) {
@@ -683,6 +723,9 @@ internal class DrawingEngine(
         // Basic Brush paints on the GPU, the same dab runs its live stroke stamped (GpuBasicStroke).
         // Alpha lock reads the layer's existing alpha, which the GPU stamp has no mode for, so an
         // alpha-locked stroke, and a device with no usable GPU, take the CPU renderer below.
+        if (replay != null) {
+            return replay.paint(bitmap, stroke) { GpuBasicStroke.paintOnto(it, stroke, mapped, brushScale, bitmap) }
+        }
         if (stroke.tool == Tool.BRUSH && !stroke.alphaLock) {
             GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale)?.let { painted ->
                 return SelectionMask.feather(
@@ -832,3 +875,21 @@ internal class DrawingEngine(
         return SelectionMask.confine(bitmap, baked, clipPath, featherRadius)
     }
 }
+
+/**
+ * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush or Basic Brush
+ * stroke, no selection, no Impasto, substrate, alpha lock or tool that reads the pixels on the CPU.
+ */
+private fun replaysOnSession(
+    stroke: StrokeCommand,
+    heightMap: FloatArray?,
+    substrate: SubstrateRenderContext?,
+) =
+    stroke.selection == null && stroke.warpHandles == null && !stroke.fillSelection && !stroke.clearAll &&
+        stroke.inkStroke == null && stroke.tool == Tool.BRUSH && substrate == null &&
+        (stroke.stampBrush?.let { !(it.impastoThicknessRate > 0f && heightMap != null) } ?: !stroke.alphaLock)
+
+private fun bitmapPixels(bitmap: Bitmap): IntArray =
+    IntArray(bitmap.width * bitmap.height).also { pixels ->
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+    }

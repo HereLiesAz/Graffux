@@ -326,3 +326,35 @@ fn upload_rows_restores_a_band() {
         assert_eq!(&got[30 * row..], &painted[30 * row..], "{name}");
     }
 }
+
+/// Two stroke-max strokes on one engine with `begin_stroke` between them paint exactly what a
+/// readback and re-upload between them does: the second stroke composites over the first instead
+/// of max-combining with it.
+#[test]
+fn begin_stroke_matches_reupload_between_strokes() {
+    for (name, mut e) in engines() {
+        let mut rng = Rng(77);
+        let base = seed(&mut rng);
+        let first = dabs(&mut rng, 40, true);
+        let second = dabs(&mut rng, 40, true);
+        let stamp = |e: &mut Engine, d: &[GpuDab]| {
+            assert!(e.stamp_dabs(d, 0xFF336699, 0.6, false, SubstrateParams::default(), true));
+        };
+
+        assert!(e.upload(&base));
+        stamp(&mut e, &first);
+        assert!(e.begin_stroke());
+        stamp(&mut e, &second);
+        let continued = e.read_all().unwrap();
+
+        assert!(e.upload(&base));
+        stamp(&mut e, &first);
+        let mid = e.read_all().unwrap();
+        assert!(e.upload(&mid));
+        stamp(&mut e, &second);
+        let reuploaded = e.read_all().unwrap();
+
+        assert_eq!(continued, reuploaded, "[{name}] begin_stroke");
+        assert_ne!(mid, reuploaded, "[{name}] second stroke painted nothing");
+    }
+}

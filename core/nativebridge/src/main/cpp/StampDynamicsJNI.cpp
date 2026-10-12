@@ -375,3 +375,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetReadFlags(
     env->ReleaseIntArrayElements(out, data, ok ? 0 : JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBeginStroke(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->beginStroke() ? JNI_TRUE : JNI_FALSE;
+}

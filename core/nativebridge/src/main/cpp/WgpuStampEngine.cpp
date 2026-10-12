@@ -68,6 +68,8 @@ struct Api {
     bool (*readHeight)(GfxWgpuEngine*, float*, int32_t);
     bool (*depositHeight)(GfxWgpuEngine*, const float*, int32_t, float, float);
     bool (*shadeRelief)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, float, float, float);
+    // Optional: a new stroke on the layer as it is.
+    bool (*beginStroke)(GfxWgpuEngine*);
     // Optional, all or nothing: impasto v2's wet material simulation.
     bool (*wetBegin)(GfxWgpuEngine*, const uint32_t*, const float*, const float*, int32_t,
                      const uint32_t*, int32_t, int32_t, const float*, int32_t);
@@ -146,6 +148,7 @@ void load() {
                              optional(lib, "gfx_wgpu_deposit_height", a.depositHeight) &&
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
+        optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
         const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
                          optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
                          optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
@@ -349,6 +352,10 @@ bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimu
                                          float elevationDeg, float strength) {
     return supportsImpasto() &&
            gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+bool WgpuStampEngine::beginStroke() {
+    return engine_ != nullptr && gApi.beginStroke != nullptr && gApi.beginStroke(engine_);
 }
 
 bool WgpuStampEngine::supportsWet() const {
