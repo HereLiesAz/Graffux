@@ -303,6 +303,10 @@ struct SmudgeUniform {
     distance_delta_px: f32,
     layer_width: i32,
     layer_height: i32,
+    wet_flags: u32,
+    wet_n: u32,
+    wet_tile: i32,
+    wet_cols: i32,
     _pad0: u32,
     _pad1: u32,
 }
@@ -439,6 +443,11 @@ pub struct Engine {
     snapshots: undo::Snapshots,
     /// The round shader's composite ([`Engine::set_stamp_mode`]).
     stamp_mode: u32,
+    /// Color Smudge reads and writes the wet simulation's wetness ([`Engine::set_smudge_wetness`]).
+    smudge_wet: bool,
+    /// Bound in place of the wet buffers (fields, ctl, coverage) when Color Smudge runs dry: one
+    /// buffer each, since one buffer can't be both read-only and writable in a bind group.
+    smudge_wet_placeholder: [wgpu::Buffer; 3],
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
@@ -744,6 +753,14 @@ impl Engine {
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
+        let smudge_wet_placeholder = std::array::from_fn(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("smudge wetness placeholder"),
+                size: 16,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            })
+        });
         let storage_dst = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let uniform_dst = wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST;
         let dab_buffer = GrowBuffer::new(&device, "dabs", storage_dst, 64 * 64);
@@ -841,6 +858,9 @@ impl Engine {
                 storage_entry(1, false),
                 texture_entry(2, true),
                 uniform_entry(3, true),
+                storage_entry(4, false),
+                storage_entry(5, false),
+                storage_entry(6, true),
             ],
         });
         let tile_constant = [("STAMP_TILE", stamp_tile as f64)];
@@ -881,6 +901,8 @@ impl Engine {
             doc_gen: 0,
             snapshots: Default::default(),
             stamp_mode: STAMP_OVER,
+            smudge_wet: false,
+            smudge_wet_placeholder,
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
@@ -1618,6 +1640,16 @@ impl Engine {
         let [paint_r, paint_g, paint_b, paint_a] = argb_to_rgba_f(paint_color_argb);
         let brush_groups = (diameter as u32).div_ceil(SMUDGE_TILE);
         let (width, height) = (self.width, self.height);
+        // Persistent wetness ([`Engine::set_smudge_wetness`]): the wet simulation's field and tiles.
+        let wet = self.smudge_wet.then(|| self.wet_smudge_binding()).flatten();
+        let (wet_flags, wet_n, wet_tile, wet_cols) = wet.as_ref().map_or((0, 0, 1, 1), |w| {
+            (
+                1 | (u32::from(w.use_coverage) << 1) | (u32::from(base_mode == 1) << 2),
+                w.n,
+                w.tile,
+                w.cols,
+            )
+        });
         let make = |phase: i32, d: &ColorSmudgeDab| SmudgeUniform {
             phase,
             center_x: d.x as i32,
@@ -1646,6 +1678,10 @@ impl Engine {
             distance_delta_px: d.distance_delta_px.max(0.0),
             layer_width: width,
             layer_height: height,
+            wet_flags,
+            wet_n,
+            wet_tile,
+            wet_cols,
             _pad0: 0,
             _pad1: 0,
         };
@@ -1662,6 +1698,9 @@ impl Engine {
                     plan.push((make(5, d), 1));
                     plan.push((make(7, d), 1));
                 }
+                if wet.is_some() {
+                    plan.push((make(8, d), 1));
+                }
                 plan.push((make(1, d), brush_groups));
                 if reservoir_enabled {
                     plan.push((make(6, d), 1));
@@ -1671,6 +1710,9 @@ impl Engine {
             for d in &dabs[1..] {
                 if reservoir_enabled {
                     plan.push((make(5, d), 1));
+                }
+                if wet.is_some() {
+                    plan.push((make(8, d), 1));
                 }
                 plan.push((make(2, d), 1));
                 plan.push((make(3, d), brush_groups));
@@ -1715,6 +1757,27 @@ impl Engine {
                         offset: 0,
                         size: wgpu::BufferSize::new(std::mem::size_of::<SmudgeUniform>() as u64),
                     }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wet
+                        .as_ref()
+                        .map_or(&self.smudge_wet_placeholder[0], |w| &w.fields)
+                        .as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wet
+                        .as_ref()
+                        .map_or(&self.smudge_wet_placeholder[1], |w| &w.ctl)
+                        .as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wet
+                        .as_ref()
+                        .map_or(&self.smudge_wet_placeholder[2], |w| &w.coverage)
+                        .as_entire_binding(),
                 },
             ],
         });

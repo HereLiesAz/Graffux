@@ -636,45 +636,59 @@ internal class DrawingEngine(
                 } else null
             } else null
 
-            // Correctness-first GPU (wgpu) path: one upload, all ordered read/modify/write plans stay on
-            // the persistent layer image, one readback. If the GPU is unavailable or any stage fails,
-            // discard the possibly-partial target and recompute from the pristine CPU source below.
-            // Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the exact RYB
-            // material mixer. Stateful reservoir load/pickup now runs inside this same native
-            // Color Smudge pipeline; a failed native stage still falls back to the CPU reference.
-            // Persistent wetness is still CPU-reference-only. Do not let the GPU silently paint the
-            // colour while skipping canonical wetness state; legacy/dry Smudge remains GPU eligible.
-            val gpuPainted = if (persistentWetness != null) false else runCatching {
+            // GPU (wgpu) path: one upload, every ordered read/modify/write plan on the layer image,
+            // one readback. Native modes 0/1 are the historical RGB Smear/Dulling paths; 2/3 select the
+            // exact RYB material mixer; reservoir load/pickup runs in the same pipeline. Persistent
+            // wetness runs on the wet simulation of the same engine (GpuWetSmudge): material advance,
+            // the smudge on the canvas wetness, the selection confined on the GPU, the settle tick.
+            // A failed stage discards the possibly-partial target and recomputes on the CPU below.
+            val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
+            val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
+            fun smudgeOn(engine: GpuStampEngine): Boolean = plans.all { plan ->
+                plan.dabs.size < 2 || engine.colorSmudge(
+                    plan.dabs.map { dab ->
+                        ColorSmudgeDab(
+                            dab.x, dab.y, dab.smudgeRate, dab.colorRate,
+                            dab.opacity, dab.smudgeRadius,
+                            dab.colorRateMultiplier, dab.distanceDeltaPx,
+                        )
+                    },
+                    mode, settings.radiusPx, settings.feathering,
+                    settings.smearAlpha, settings.paintColor, settings.dilution,
+                    baseColorRate = settings.colorRate,
+                    chargeDecayRate = settings.chargeDecayRate,
+                    pickupRate = settings.pickupRate,
+                    sampleSource = sampleSource,
+                    sampleSourceWidth = width, sampleSourceHeight = height,
+                )
+            }
+            val wetSelection = stroke.selection?.takeIf { clipPath != null }?.let { selection ->
+                GpuWetSmudge.Selection { engine ->
+                    GpuStrokeSelection.prepare(
+                        engine, selection, width, height,
+                        stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+                    )
+                }
+            }
+            val gpuPainted = runCatching {
                 com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
                 val engine = GpuStampEngine()
                 try {
-                    if (!engine.init(width, height) || !engine.upload(target)) return@runCatching false
-                    val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
-                    val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
-                    for (plan in plans) {
-                        if (plan.dabs.size < 2) continue
-                        val nativeDabs = plan.dabs.map { dab ->
-                            ColorSmudgeDab(
-                                dab.x, dab.y, dab.smudgeRate, dab.colorRate,
-                                dab.opacity, dab.smudgeRadius,
-                                dab.colorRateMultiplier, dab.distanceDeltaPx,
-                            )
-                        }
-                        if (!engine.colorSmudge(
-                                nativeDabs, mode, settings.radiusPx, settings.feathering,
-                                settings.smearAlpha, settings.paintColor, settings.dilution,
-                                baseColorRate = settings.colorRate,
-                                chargeDecayRate = settings.chargeDecayRate,
-                                pickupRate = settings.pickupRate,
-                                sampleSource = sampleSource,
-                                sampleSourceWidth = width, sampleSourceHeight = height,
-                            )) return@runCatching false
-                    }
-                    engine.readback(target)
+                    engine.init(width, height) && engine.upload(target) && if (persistentWetness != null) {
+                        GpuWetSmudge.run(
+                            engine, target, persistentWetness,
+                            mappedSamples.firstOrNull()?.uptimeMillis, mappedSamples.lastOrNull()?.uptimeMillis,
+                            wetSelection, wetnessCoverage(wetnessRegion, width, height),
+                        ) { smudgeOn(engine) }
+                    } else {
+                        smudgeOn(engine)
+                    } && engine.readback(target)
                 } finally {
                     engine.destroy()
                 }
             }.getOrDefault(false)
+            // The wet path confined to the selection on the GPU, before its settle tick.
+            if (gpuPainted && persistentWetness != null) return target
 
             if (!gpuPainted) {
                 val pixels = IntArray(width * height)
@@ -899,3 +913,7 @@ private fun bitmapPixels(bitmap: Bitmap): IntArray =
     IntArray(bitmap.width * bitmap.height).also { pixels ->
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
     }
+
+/** Where a wet smudge may deposit wetness: 1 inside the selection's [region], 0 outside; null = all. */
+private fun wetnessCoverage(region: android.graphics.Region?, width: Int, height: Int): FloatArray? =
+    region?.let { r -> FloatArray(width * height) { i -> if (r.contains(i % width, i / width)) 1f else 0f } }
