@@ -1687,6 +1687,25 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocCommit(
     return static_cast<jlong>(generation);
 }
 
+// Undo snapshots (StampEngine::docSnapshot); `args` is {a, b, c}. `rect` (int[4]) is read for op 0 and receives the
+// swapped rectangle for op 1; it may be null for op 2.
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuUndoSnapshots_nativeDocSnapshot(
+        JNIEnv* env, jobject, jlong handle, jint op, jlongArray args, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || args == nullptr || env->GetArrayLength(args) < 3) return 0;
+    jlong a[3];
+    env->GetLongArrayRegion(args, 0, 3, a);
+    int32_t r[4] = {0, 0, 0, 0};
+    const bool hasRect = rect != nullptr && env->GetArrayLength(rect) >= 4;
+    if (op != 2 && !hasRect) return 0;
+    if (hasRect) env->GetIntArrayRegion(rect, 0, 4, r);
+    const uint64_t out = engine->docSnapshot(
+        op, static_cast<uint64_t>(a[0]), static_cast<uint64_t>(a[1]), static_cast<uint64_t>(a[2]), r);
+    if (op == 1 && out != 0) env->SetIntArrayRegion(rect, 0, 4, r);
+    return static_cast<jlong>(out);
+}
+
 // Reads `rect` of layer `key` into the same rectangle of the full-layer `bitmap`.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocRead(

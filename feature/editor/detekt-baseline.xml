@@ -820,7 +820,7 @@
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onUpdateTextStyleToActive(styleId: String)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onWarpHandleReleased()</ID>
-    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun applyTileDeltaFastPath( layerId: String, tileDeltas: List&lt;com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot&gt;, canvasWidth: Int, canvasHeight: Int, useAfter: Boolean, emitOp: Boolean, ): Boolean</ID>
+    <ID>TooManyFunctions:EditHistory.kt$EditHistory</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun cloneOffsetFor(state: EditorUiState, points: List&lt;Offset&gt;): Offset?</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun discretePathEdit(transform: (com.hereliesaz.graffitixr.common.model.VectorShape) -&gt; com.hereliesaz.graffitixr.common.model.VectorShape): Boolean</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun enqueueBasicLiveDabs( canvas: Canvas, paint: Paint, dabs: List&lt;BrushDab&gt;, targetBitmap: Bitmap, )</ID>

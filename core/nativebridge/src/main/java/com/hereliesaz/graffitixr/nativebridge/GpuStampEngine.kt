@@ -61,7 +61,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          * [GpuRenderThread], so resident-layer refreshes and invalidations can reach whichever
          * handle holds a layer without racing that handle's own work.
          */
-        private val liveWgpuHandles = LinkedHashSet<Long>()
+        internal val liveWgpuHandles = LinkedHashSet<Long>()
 
         /** Instance used only to reach the instance-bound JNI entry points from the companion. */
         private var jniHelper: GpuStampEngine? = null
