@@ -730,6 +730,16 @@ whose GPU stroke failed because of the loss paints once more on a fresh engine
 (`DrawingEngine.applySingleStroke`), so the recorded stroke never goes missing from the layer.
 `tests/device_lost.rs` destroys a device and checks the report and the failed call.
 
+#### Memory tiers
+
+Resident layers are caches of the CPU layers, budgeted per calibrated tier (`GpuTier.residentBudgetMiB`)
+and scaled by thermal state. `onTrimMemory` scales the budget once more (`MemoryPressureScaler`):
+while running, moderate / low / critical pressure halve, quarter and floor it (32 MiB, the active
+layer always kept); in the background, `BACKGROUND` quarters it and `MODERATE` and above floor it.
+The factor only falls until the app is visible again (`onStart`). Off screen (`UI_HIDDEN` and above)
+the pooled engines go; from `MODERATE` the document engine closes too, and the next stroke reopens it
+and uploads its layer. Shrinking only ever costs re-uploads.
+
 ### 2c. Retired backends: Vulkan and OpenGL ES 3.1
 
 **Decision (2026-09).** wgpu is the only GPU backend. Removed with the two C++ engines:
