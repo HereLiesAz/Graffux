@@ -290,8 +290,7 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   Dab batches reach the GPU in generation order. A commit's refresh is queued behind the stroke's
   own batches, which is the stroke-end flush. An invalidation from undo is queued behind whatever
   was in flight. `destroy()` from the main thread posts instead of blocking. The stroke workers
-  that call in were already off the main thread. Provisional ink and `strokePaintPresented` are
-  untouched. (wgpu's direct display, added later, also runs every call on this thread; §3.)
+  that call in were already off the main thread. (wgpu's direct display, added later, also runs every call on this thread; §3.)
 
 **Measured, host only.** These are software-renderer numbers from Mesa 25.2.8 lavapipe (Vulkan)
 and llvmpipe (GL) with no GPU. Only the before/after ratio means anything, and it says nothing
@@ -1251,12 +1250,19 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
 4. **Front-buffer presentation (§3)** — once GPU stamping is landed and the persistent layer
    texture exists to composite into, this is a presentation-layer change on top of it, not a
    parallel rewrite.
-   **Interim, shipped:** provisional ink. `DrawingCanvas` stamps the brush itself from the raw
-   `ACTION_DOWN` (before touch slop even decides it is a stroke) and follows the real samples
-   until the editor reports the stroke's first real paint presented
-   (`EditorViewModel.strokePaintPresented`), capped at 250 ms. Ink appears on the next composed
-   frame instead of after the engine round trip, finger or stylus. Cleared on hold-to-eyedrop,
-   pinch and lift. It still waits for one Compose frame; front-buffer is what removes that.
+   **Provisional ink: removed.** `DrawingCanvas` used to draw a stand-in stroke (a blurred
+   Compose path) from the raw `ACTION_DOWN` until the first real paint showed, with a 250 ms
+   timeout. It looked nothing like the GPU stroke, it vanished whenever setup took longer than
+   the timeout, and a wall-clock timer contradicts multipass drying's "no deadline" rule. Now the
+   GPU draft is the first thing on screen. The setup that used to delay it is built before the
+   touch instead: `EditorViewModel.PrewarmedStroke` holds the active layer's working copy, its
+   pristine pre-stroke base and an engine already bound to the layer's resident copy. It is
+   rebuilt off the main thread whenever the active layer or its bitmap changes (switch, commit,
+   undo, load), and a stroke takes it only if the bitmap, resident generation, engine tuning
+   (`GpuStampEngine.tuningEpoch`) and multipass settings all still match; otherwise the stroke
+   builds its own, as before. It is skipped while calibration runs. Cost: one checked-out engine
+   and two extra copies of the active layer held between strokes. `DrawingCanvas` also requests
+   unbuffered dispatch on touch-down, so samples arrive as they land, not once per frame.
 5. **Touch prediction (§4)** — the presentation-only tail (`PredictionTournament`) shipped and was
    later taken off screen at the user's call (the translucent run-ahead read as a taper); the
    models still run and are ranked;

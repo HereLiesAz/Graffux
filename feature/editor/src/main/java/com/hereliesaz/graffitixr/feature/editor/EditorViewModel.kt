@@ -80,6 +80,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -1201,13 +1202,6 @@ class EditorViewModel @Inject constructor(
     @Volatile private var feelFirstLatencyId: Long = -1L
 
     /**
-     * True once the current Brush stroke's first real paint is on screen. The canvas draws
-     * provisional ink from touch-down until then (see DrawingCanvas.provisionalInk).
-     */
-    @Volatile var strokePaintPresented: Boolean = false
-        private set
-
-    /**
      * Median touch-to-paint latency of recent stamp-brush samples (input accepted -> preview
      * published), in ms; null until enough samples completed. The prediction tail reaches this far
      * ahead, so it covers the real lag rather than a fixed guess. Refreshed once per stroke (at
@@ -1265,10 +1259,132 @@ class EditorViewModel @Inject constructor(
     /** Whether this project's first canvas engine init was breadcrumbed (only the first is). */
     @Volatile private var canvasEngineLogged = false
 
+    /**
+     * Everything a brush stroke on the active layer needs before its first dab, built ahead of the
+     * touch: the working copy, the pristine pre-stroke base, and a GPU engine already bound to the
+     * layer's resident copy. Without it, all of that ran after touch slop and no paint showed until
+     * it finished. Matches only the exact bitmap, resident generation and engine tuning it was built
+     * from; anything else is discarded and the stroke builds its own, as before.
+     */
+    private class PrewarmedStroke(
+        val layerId: String,
+        val source: Bitmap,
+        val residentGeneration: Long,
+        val work: Bitmap,
+        val preStrokeBase: Bitmap,
+        val engine: GpuStampEngine?,
+        val residentStroke: ResidentStroke?,
+        val tuningEpoch: Int,
+        val multipass: com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings,
+    ) {
+        /** Returns the engine to the pool. The bitmaps are plain copies; the GC takes them. */
+        fun release() {
+            engine?.destroy()
+        }
+    }
+
+    private val prewarmLock = Any()
+    private var prewarmed: PrewarmedStroke? = null
+    private var prewarmJob: Job? = null
+    // The active bitmap changed mid-stroke; build once the stroke's state is cleared.
+    private var prewarmDeferred = false
+
+    /**
+     * Builds [PrewarmedStroke] for the active layer's current bitmap, off the main thread. Called
+     * whenever the active layer or its bitmap changes (switch, commit, undo, load). Skipped mid-
+     * stroke: that stroke's commit publishes a new bitmap and lands here again. Main thread.
+     */
+    private fun schedulePrewarm() {
+        if (strokeLayerId != null) {
+            prewarmDeferred = true
+            return
+        }
+        prewarmDeferred = false
+        val state = _uiState.value
+        val layerId = state.activeLayerId
+        val source = state.layers.find { it.id == layerId }?.bitmap
+        if (layerId == null || source == null || source.isRecycled) {
+            discardPrewarm()
+            return
+        }
+        synchronized(prewarmLock) {
+            val current = prewarmed
+            if (current != null && current.layerId == layerId && current.source === source) return
+        }
+        prewarmJob?.cancel()
+        prewarmJob = viewModelScope.launch(dispatchers.default) {
+            val residentGeneration = layerResidency.generationFor(layerId, source)
+            val work = SafeBitmap.copy(source) ?: return@launch
+            val base = SafeBitmap.copy(work) ?: return@launch
+            if (!isActive) return@launch
+            val epoch = GpuStampEngine.tuningEpoch
+            val multipass = GpuStampEngine.multipass
+            var residentStroke: ResidentStroke? = null
+            // Calibration owns the GPU while it runs; the stroke stops it, as it always did.
+            val engine = if (com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.isCalibrating()) {
+                null
+            } else {
+                createSeededGpuEngine(work.width, work.height, work) { engine ->
+                    residentStroke = engine.beginResidentStroke(
+                        work, GpuLayerResidency.layerKey(layerId), residentGeneration,
+                    )
+                    residentStroke != null
+                }
+            }
+            val built = PrewarmedStroke(
+                layerId, source, residentGeneration, work, base, engine,
+                residentStroke.takeIf { engine != null }, epoch, multipass,
+            )
+            val stale = synchronized(prewarmLock) {
+                if (!isActive) {
+                    built
+                } else {
+                    prewarmed.also { prewarmed = built }
+                }
+            }
+            stale?.release()
+        }
+    }
+
+    /** Drops any pre-warmed stroke and its pending build. */
+    private fun discardPrewarm() {
+        prewarmJob?.cancel()
+        prewarmJob = null
+        val stale = synchronized(prewarmLock) { prewarmed.also { prewarmed = null } }
+        stale?.release()
+    }
+
+    /**
+     * Hands the pre-warmed stroke to a starting stroke if it was built from exactly [source] at
+     * [residentGeneration] under the current engine tuning; otherwise discards it. Main thread.
+     */
+    private fun takePrewarmed(layerId: String, source: Bitmap, residentGeneration: Long): PrewarmedStroke? {
+        prewarmJob?.cancel()
+        prewarmJob = null
+        val taken = synchronized(prewarmLock) { prewarmed.also { prewarmed = null } } ?: return null
+        val usable = taken.layerId == layerId &&
+            taken.source === source &&
+            taken.residentGeneration == residentGeneration &&
+            taken.tuningEpoch == GpuStampEngine.tuningEpoch &&
+            taken.multipass == GpuStampEngine.multipass
+        if (!usable) {
+            taken.release()
+            return null
+        }
+        return taken
+    }
+
     // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
     private val timeLapseRecorder = TimeLapseRecorder()
 
     init {
+        // Keep the next stroke's setup built ahead of the touch (see PrewarmedStroke).
+        viewModelScope.launch(dispatchers.main) {
+            _uiState
+                .map { s -> s.activeLayerId to s.layers.find { it.id == s.activeLayerId }?.bitmap }
+                .distinctUntilChanged { a, b -> a.first == b.first && a.second === b.second }
+                .collect { schedulePrewarm() }
+        }
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
                 dispatch(EditorIntent.SetCanvasBackground(Color(argb.toLong() and 0xFFFFFFFFL)))
@@ -2067,6 +2183,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        discardPrewarm()
         // Resident GPU layer copies live in pooled engines that outlive this editor; free them.
         runCatching { GpuStampEngine.invalidateAllResident() }
         // Discard rather than save — leaving the encoder open would leak the FileOutputStream.
@@ -4399,7 +4516,6 @@ class EditorViewModel @Inject constructor(
             strokeFeelMeter.onStrokeStart()
             gpuTuning?.coordinator?.onUserDrawing()
             feelFirstLatencyId = -1L
-            strokePaintPresented = false
         }
         val layerId = state.activeLayerId ?: return
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
@@ -4416,8 +4532,15 @@ class EditorViewModel @Inject constructor(
         // The content generation this stroke's GPU copy must match (see GpuLayerResidency).
         val residentGeneration = layerResidency.generationFor(layerId, originalBitmap)
         val residentKey = GpuLayerResidency.layerKey(layerId)
+        // Built ahead of the touch when nothing changed since; brush strokes only.
+        val warm = if (state.activeTool == Tool.BRUSH) {
+            takePrewarmed(layerId, originalBitmap, residentGeneration)
+        } else {
+            discardPrewarm()
+            null
+        }
         // Binds the resident copy of this layer, or uploads [seed] as it; records the binding.
-        var residentStroke: ResidentStroke? = null
+        var residentStroke: ResidentStroke? = warm?.residentStroke
         val bindResident: (GpuStampEngine, Bitmap) -> Boolean = { engine, seed ->
             residentStroke = engine.beginResidentStroke(seed, residentKey, residentGeneration)
             residentStroke != null
@@ -4528,7 +4651,7 @@ class EditorViewModel @Inject constructor(
             stampGeneratedHeldDabs.clear()
             stampAirbrushConsumedSampleCount = 0
             viewModelScope.launch(dispatchers.default) {
-                val work = SafeBitmap.copy(originalBitmap) ?: return@launch
+                val work = warm?.work ?: SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
                 // it with the document's current pixels before any dab is stamped. Both native calls
                 // block on GPU work, hence doing this here on Dispatchers.Default alongside the
@@ -4575,8 +4698,12 @@ class EditorViewModel @Inject constructor(
                 // strokeMax stamp mode (see GpuStampEngine.stampResolvedDabs) now holds the max
                 // across the whole stroke.
                 val gpuEngine = if (gpuCompatibleBrush) {
-                    createSeededGpuEngine(work.width, work.height, work) { bindResident(it, work) }
-                } else null
+                    warm?.engine ?: createSeededGpuEngine(work.width, work.height, work) { bindResident(it, work) }
+                } else {
+                    warm?.release()
+                    residentStroke = null
+                    null
+                }
                 val gpuReady = gpuEngine != null
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
@@ -4625,7 +4752,7 @@ class EditorViewModel @Inject constructor(
                 // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
-                val preStrokeBaseSeed = SafeBitmap.copy(work)
+                val preStrokeBaseSeed = warm?.preStrokeBase ?: SafeBitmap.copy(work)
                 // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
                 // two full-layer GPU passes run here, off the main thread, before any dab lands.
                 // Never alongside an Ink utensil: the two must not both draw one stroke. The wgpu
@@ -4764,8 +4891,12 @@ class EditorViewModel @Inject constructor(
             // Skipping the preview beats crashing: the stroke still commits on finger-up through
             // onStrokeEnd's whole-stroke fallback, which is exactly the path a stroke too fast for
             // this copy already takes.
-            val workBitmap = SafeBitmap.copy(originalBitmap) ?: return@launch
+            val workBitmap = warm?.work ?: SafeBitmap.copy(originalBitmap) ?: run {
+                warm?.release()
+                return@launch
+            }
             if (generation != strokeGeneration || strokeLayerId != layerId) {
+                warm?.release()
                 workBitmap.recycle()
                 return@launch
             }
@@ -4809,8 +4940,12 @@ class EditorViewModel @Inject constructor(
             // call sites further down stay engine-object-identity-safe rather than blindly
             // destroying whatever's now in the field.
             val createdGpuEngine = if (strokeDynamics != null) {
-                createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) { bindResident(it, workBitmap) }
+                warm?.engine ?: createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) {
+                    bindResident(it, workBitmap)
+                }
             } else {
+                warm?.release()
+                residentStroke = null
                 null
             }
             val gpuEngine = synchronized(liveCurveLock) {
@@ -5816,7 +5951,6 @@ class EditorViewModel @Inject constructor(
                     latencyIds.forEach { azphaltLatencyTracker.markPresented(it) }
                     val firstId = feelFirstLatencyId
                     if (firstId >= 0L && firstId in latencyIds) {
-                        strokePaintPresented = true
                         azphaltLatencyTracker.presentedLatencyMs(firstId)?.let(strokeFeelMeter::onFirstDabPresented)
                     }
                 }
@@ -8622,6 +8756,7 @@ class EditorViewModel @Inject constructor(
             strokeGpuEngine = null
             strokeGpuActive = false
         }
+        if (prewarmDeferred) schedulePrewarm()
     }
 
     private fun buildStrokePaint(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f): Paint =
