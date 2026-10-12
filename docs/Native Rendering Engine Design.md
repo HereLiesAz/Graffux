@@ -257,8 +257,9 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   buffer per recently painted layer, keyed by a layer key and tagged with a content generation.
   `bind_layer(key, generation)` starts a stroke on the resident copy with no upload and no
   whole-layer first readback; a miss uploads with `upload_layer`. Stamping taints the copy. After
-  the commit, `commit_layer` (the GPU result is the committed layer: desktop) or `refresh_layer`
-  (the CPU committed: Android) retags it. `refresh_layer` re-uploads only the stroke's rows plus
+  the commit, `commit_layer` (the GPU result is the committed layer: desktop, and Android when an
+  unselected live stroke's GPU layer was committed as-is) or `refresh_layer` (a CPU step changed
+  the committed pixels: Android otherwise) retags it. `refresh_layer` re-uploads only the stroke's rows plus
   the rectangle where the CPU commit differs from the pre-stroke layer. A retag from a superseded
   bind session is refused. The budget is 256 MiB per engine, LRU, and the active layer is never
   evicted. `clear()`/`upload()` keep their old meaning on an anonymous scratch layer.
@@ -275,6 +276,12 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   `putBase`, because baking old strokes leaves the pixels unchanged. A commit is adopted, and the
   copy refreshed, only when the generation and the base bitmap are still the ones the stroke
   bound.
+- **Replay on one engine (Android).** `DrawingEngine.composite` (undo/redo rebuilds, stroke
+  baking) paints runs of plain stamp-brush and Basic Brush strokes through one
+  `GpuReplaySession`: one upload before the run, `begin_stroke` between strokes (stroke-max state
+  restarts on the layer as it is), one readback when a CPU step next needs the pixels. Before,
+  each stroke created an engine, uploaded and read back the whole layer. If the GPU fails mid-run,
+  the strokes it held are repainted on the CPU path over the bitmap's pixels from before them.
 - **Desktop.** `GpuStrokeRenderer` binds the resident canvas when a stroke starts from the image
   it last committed. At stroke end it refreshes the stroke's rows from the committed frame,
   re-premultiplied, because straight ARGB does not round-trip at low alpha.

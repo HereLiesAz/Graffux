@@ -168,6 +168,15 @@ pub unsafe extern "C" fn gfx_wgpu_clear(e: *mut Engine) -> bool {
     guard(false, || engine(e).is_some_and(|e| e.clear()))
 }
 
+/// [`Engine::begin_stroke`].
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_begin_stroke(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.begin_stroke()))
+}
+
 /// # Safety
 /// `rgba` must point to `len` readable bytes.
 #[no_mangle]

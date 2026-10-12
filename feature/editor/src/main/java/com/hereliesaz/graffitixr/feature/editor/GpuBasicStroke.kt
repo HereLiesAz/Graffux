@@ -93,6 +93,23 @@ internal object GpuBasicStroke {
             )
         }
 
+    /** A recorded Basic Brush stroke stamped onto [engine]'s layer (the size of [layer]); no readback. */
+    fun paintOnto(
+        engine: GpuStampEngine,
+        stroke: StrokeCommand,
+        mapped: List<Offset>,
+        brushScale: Float,
+        layer: Bitmap,
+    ) =
+        stampRuns(
+            engine,
+            runs(
+                mapped, stroke.brushSize * brushScale, stroke.pressures, stroke.wrapAroundMode,
+                layer.width, layer.height,
+            ),
+            BasicPaint.of(stroke.brushColor, stroke.opacity, stroke.feathering),
+        )
+
     /**
      * A recorded Basic Brush stroke painted onto a copy of [bitmap] on the GPU, unclipped; null
      * when the GPU is unavailable (the caller then takes the CPU renderer).

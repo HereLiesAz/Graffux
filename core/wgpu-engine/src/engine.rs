@@ -1106,6 +1106,17 @@ impl Engine {
         self.ok()
     }
 
+    /// Starts a new stroke on the layer as it is: stroke-max state begins again from these
+    /// pixels, as after [`Engine::upload`], without replacing them. Queued multipass work lands
+    /// first. Lets one engine replay many recorded strokes back to back.
+    pub fn begin_stroke(&mut self) -> bool {
+        self.mp_drain();
+        self.mp_session_ending();
+        self.stroke_state_dirty = true;
+        self.mp_session_started();
+        self.ok()
+    }
+
     /// `StampEngine::upload`: premultiplied RGBA8, row-major, exactly width*height*4 bytes (more
     /// is allowed and ignored). Seeds a new stroke.
     pub fn upload(&mut self, rgba: &[u8]) -> bool {

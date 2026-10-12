@@ -195,6 +195,9 @@ public:
     // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
     // wetBuffer replaces the media (0), selection coverage (1, null = none) or dabs (2); wetOp runs
     // one numbered step.
+    // Starts a new stroke on the layer as it is (stroke-max state restarts, pixels kept), so one
+    // engine can replay many strokes. Optional; false = unsupported (re-upload instead).
+    virtual bool beginStroke() { return false; }
     virtual bool supportsWet() const { return false; }
     virtual bool wetBegin(const uint32_t* /*raw*/, const float* /*height*/, const float* /*wetness*/,
                           size_t /*count*/, const uint32_t* /*active*/, size_t /*tiles*/, int /*tileSize*/,
