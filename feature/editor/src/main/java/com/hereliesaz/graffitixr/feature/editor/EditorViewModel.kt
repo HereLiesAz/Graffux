@@ -881,6 +881,9 @@ class EditorViewModel @Inject constructor(
     // Captured at stroke start so mid-stroke toggles can't desync the live paint from the recorded
     // StrokeCommand (which is what undo/redo replays).
     private var strokeAlphaLock: Boolean = false
+
+    /** The live stroke is the Eraser: it erases on the GPU like the Basic Brush paints. */
+    private var strokeErasing: Boolean = false
     /** Captured at stroke start for the same reason as [strokeAlphaLock] -- previously re-read live
      *  on every draw call and never recorded on [StrokeCommand] at all, so a wrapped stroke's edge
      *  tiling could change mid-drag and always vanished on commit/undo/redo/auto-bake. */
@@ -4620,6 +4623,7 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeWrapAroundMode = state.wrapAroundMode
         strokeAlphaLock = layer.alphaLock
+        strokeErasing = state.activeTool == Tool.ERASER
         strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
@@ -5027,7 +5031,7 @@ class EditorViewModel @Inject constructor(
             // only non-null when this stroke actually won the race to publish, so its two cleanup
             // call sites further down stay engine-object-identity-safe rather than blindly
             // destroying whatever's now in the field.
-            val createdGpuEngine = if (strokeDynamics != null) {
+            val createdGpuEngine = if (strokeDynamics != null || tool == Tool.ERASER) {
                 warm?.engine ?: createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) {
                     bindResident(it, workBitmap)
                 }
@@ -5109,7 +5113,9 @@ class EditorViewModel @Inject constructor(
                 }
             }
 
-            if (mappedAll.size == 1) {
+            if (eraseLive(workCanvas, paint, mappedAll, workBitmap)) {
+                // The Eraser erases on the GPU (eraseLive); nothing to draw here.
+            } else if (mappedAll.size == 1) {
                 val pt = mappedAll[0]
                 if (strokeWrapAroundMode) {
                     for (dx in -1..1) for (dy in -1..1) workCanvas.drawPoint(pt.x + dx * bw, pt.y + dy * bh, paint)
@@ -5421,6 +5427,8 @@ class EditorViewModel @Inject constructor(
             }
             _liveStroke.update { it.copy(version = it.version + 1) }
             return
+        } else if (eraseLive(canvas, paint, listOf(prev, mapped), workBitmap)) {
+            // The Eraser erases on the GPU (eraseLive).
         } else {
             val seg = Path()
             seg.moveTo(prev.x, prev.y)
@@ -6475,7 +6483,9 @@ class EditorViewModel @Inject constructor(
             // Real-time path: the working bitmap already contains the complete stroke.
             val workBitmap = strokeWorkingBitmap!!
             // Basic Brush painting live on the GPU: its commit finishes the stroke on that engine.
-            val basicHandoff = if (state.activeTool == Tool.BRUSH && stampBrushForStroke == null && !strokeAlphaLock) {
+            val basicHandoff = if (
+                state.activeTool == Tool.BRUSH && stampBrushForStroke == null || state.activeTool == Tool.ERASER
+            ) {
                 handOffLiveBasic(workBitmap)
             } else {
                 null
@@ -7079,9 +7089,11 @@ class EditorViewModel @Inject constructor(
             strokeGpuEngine?.takeIf { strokeGpuActive }?.let { engine ->
                 strokeGpuEngine = null
                 strokeGpuActive = false
+                // The Eraser's commit stamps every run again (idempotent under stroke-max), so its
+                // live runs, placed per point as they arrived, never need lining up with them.
                 LiveBasicHandoff(
-                    engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second }, liveCurveFinalizedCount,
-                    strokeGpuSelection,
+                    engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second },
+                    if (strokeErasing) 0 else liveCurveFinalizedCount, strokeGpuSelection,
                 )
             }
         }
@@ -7106,12 +7118,9 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 canvasW, canvasH, base.width, base.height, command.layerScale,
             )
-            val runs = GpuBasicStroke.runs(
-                mapped, command.brushSize * brushScale, command.pressures, command.wrapAroundMode,
-                base.width, base.height,
-            )
+            val runs = GpuBasicStroke.runsFor(command, mapped, brushScale, base.width, base.height)
             val missing = handoff.leftover + runs.drop(handoff.generatedRuns)
-            val paint = BasicPaint.of(command.brushColor, command.opacity, command.feathering)
+            val paint = BasicPaint.of(command)
             work?.takeIf {
                 GpuBasicStroke.stampRuns(handoff.engine, missing, paint) &&
                     confinedOnGpu(handoff.engine, command, handoff.selection) &&
@@ -8992,8 +9001,13 @@ class EditorViewModel @Inject constructor(
             // paint's alpha already carries the colour's alpha times the stroke's opacity.
             val gpuPaint = BasicPaint(
                 colorArgb = paintSnapshot.color,
-                flow = paintSnapshot.alpha / ALPHA_MAX_F,
+                flow = if (strokeErasing) 1f else paintSnapshot.alpha / ALPHA_MAX_F,
                 hardness = (1f - _uiState.value.brushFeathering).coerceIn(0f, 1f),
+                mode = when {
+                    strokeErasing -> GpuStampEngine.STAMP_ERASE
+                    strokeAlphaLock -> GpuStampEngine.STAMP_ATOP
+                    else -> GpuStampEngine.STAMP_OVER
+                },
             )
             basicGpuJob = viewModelScope.launch(dispatchers.default) {
                 while (true) {
@@ -9095,6 +9109,19 @@ class EditorViewModel @Inject constructor(
         enqueueBasicLiveDabs(canvas, paint, dabs, targetBitmap)
     }
 
+    /**
+     * The live Eraser over [points] (layer-bitmap space): the commit's constant-width dabs
+     * (GpuBasicStroke.eraserRuns), queued for the GPU like the Basic Brush's. False for any other
+     * tool, which draws as before.
+     */
+    private fun eraseLive(canvas: Canvas, paint: Paint, points: List<Offset>, target: Bitmap): Boolean {
+        if (!strokeErasing) return false
+        val dabs = GpuBasicStroke.eraserRuns(points, paint.strokeWidth, strokeWrapAroundMode, target.width, target.height)
+            .flatten()
+        enqueueBasicLiveDabs(canvas, paint, dabs, target)
+        return true
+    }
+
     private fun feedLiveCurvePoint(
         canvas: Canvas,
         paint: Paint,
@@ -9136,6 +9163,7 @@ class EditorViewModel @Inject constructor(
         strokePrevBitmapPoint = null
         strokeDynamics = null
         strokeAlphaLock = false
+        strokeErasing = false
         strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
