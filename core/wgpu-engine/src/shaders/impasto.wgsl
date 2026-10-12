@@ -27,7 +27,8 @@ struct Params {
     light_y: f32,
     light_z: f32,
     strength: f32,
-    _pad0: f32,
+    // 1: shade writes into `display_px` (the layer stays the raw paint); 0: in place.
+    to_display: u32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -36,6 +37,7 @@ struct Params {
 @group(0) @binding(1) var<storage, read_write> heights: array<f32>;
 @group(0) @binding(2) var<storage, read_write> layer_px: array<u32>;
 @group(0) @binding(3) var<uniform> p: Params;
+@group(0) @binding(4) var<storage, read_write> display_px: array<u32>;
 
 // BrushStamps.stampCoverage.
 fn coverage(r_norm: f32, hardness: f32) -> f32 {
@@ -97,6 +99,10 @@ fn shade(@builtin(global_invocation_id) gid: vec3<u32>) {
     let y = xy.y;
     let dhdx = (height_at(x + 1, y) - height_at(x - 1, y)) / 2.0;
     let dhdy = (height_at(x, y + 1) - height_at(x, y - 1)) / 2.0;
+    let idx = u32(y * p.width + x);
+    // Into the display buffer every pixel of the region is written (unchanged ones as the raw
+    // paint); in place, an unchanged pixel is simply left alone.
+    if (p.to_display != 0u) { display_px[idx] = layer_px[idx]; }
     if (dhdx == 0.0 && dhdy == 0.0) { return; }
     let nx = -dhdx;
     let ny = -dhdy;
@@ -104,7 +110,6 @@ fn shade(@builtin(global_invocation_id) gid: vec3<u32>) {
     let diffuse = nx * inv_len * p.light_x + ny * inv_len * p.light_y + inv_len * p.light_z;
     let m = clamp(1.0 + p.strength * (diffuse - p.light_z), 0.0, 3.0);
     if (m == 1.0) { return; }
-    let idx = u32(y * p.width + x);
     // The layer is premultiplied; the CPU scales straight RGB (truncating, as scaleRgb does).
     let c = unpack4x8unorm(layer_px[idx]) * 255.0;
     let a = round(c.a);
@@ -112,5 +117,10 @@ fn shade(@builtin(global_invocation_id) gid: vec3<u32>) {
     let straight = min(round(c.rgb * 255.0 / a), vec3<f32>(255.0));
     let scaled = clamp(floor(straight * m), vec3<f32>(0.0), vec3<f32>(255.0));
     let pre = round(scaled * a / 255.0);
-    layer_px[idx] = pack4x8unorm(vec4<f32>(pre / 255.0, a / 255.0));
+    let shaded = pack4x8unorm(vec4<f32>(pre / 255.0, a / 255.0));
+    if (p.to_display != 0u) {
+        display_px[idx] = shaded;
+    } else {
+        layer_px[idx] = shaded;
+    }
 }

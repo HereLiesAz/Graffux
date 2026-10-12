@@ -635,6 +635,54 @@ pub unsafe extern "C" fn gfx_wgpu_wet_read_flags(
     })
 }
 
+/// [`Engine::shade_relief_to_display`].
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_shade_relief_display(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    light_azimuth_deg: f32,
+    light_elevation_deg: f32,
+    strength: f32,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            e.shade_relief_to_display(x, y, w, h, light_azimuth_deg, light_elevation_deg, strength)
+        })
+    })
+}
+
+/// [`Engine::read_display`] of `[x, x + w) x [y, y + h)` into `out` (`w*h*4` bytes).
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_read_display(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    out: *mut u8,
+    len: usize,
+) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        // SAFETY: the caller passes `len` writable bytes.
+        let out = unsafe { std::slice::from_raw_parts_mut(out, len) };
+        engine(e).is_some_and(|e| e.read_display(x, y, w, h, out))
+    })
+}
+
 /// # Safety
 /// `dabs` must point to `count` 64-byte `GpuDab` records; `substrate` may be null.
 #[no_mangle]

@@ -38,7 +38,8 @@ struct Params {
     light_y: f32,
     light_z: f32,
     strength: f32,
-    _pad: [f32; 3],
+    to_display: u32,
+    _pad: [f32; 2],
 }
 
 /// The impasto pipelines and buffers, created on first use.
@@ -50,6 +51,8 @@ pub(super) struct ImpastoGpu {
     dabs: wgpu::Buffer,
     dab_capacity: u64,
     heights: wgpu::Buffer,
+    /// The shaded presentation for a live stroke ([`Engine::shade_relief_to_display`]).
+    display: wgpu::Buffer,
 }
 
 const WORKGROUP: u32 = 8;
@@ -72,6 +75,7 @@ impl ImpastoGpu {
                 storage(0, true),
                 storage(1, false),
                 storage(2, false),
+                storage(4, false),
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -121,7 +125,14 @@ impl ImpastoGpu {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let display = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("impasto display"),
+            size: layer_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
         ImpastoGpu {
+            display,
             layout,
             deposit,
             shade,
@@ -218,8 +229,71 @@ impl Engine {
         light_elevation_deg: f32,
         strength: f32,
     ) -> bool {
+        self.shade_relief_into(
+            x,
+            y,
+            w,
+            h,
+            light_azimuth_deg,
+            light_elevation_deg,
+            strength,
+            false,
+        )
+    }
+
+    /// [`Engine::shade_relief`] into the display buffer instead of the layer: the layer stays the
+    /// raw paint, so a live stroke can shade the same region again as the height keeps changing.
+    /// Every pixel of the region is written. Read it with [`Engine::read_display`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn shade_relief_to_display(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        light_azimuth_deg: f32,
+        light_elevation_deg: f32,
+        strength: f32,
+    ) -> bool {
+        self.shade_relief_into(
+            x,
+            y,
+            w,
+            h,
+            light_azimuth_deg,
+            light_elevation_deg,
+            strength,
+            true,
+        )
+    }
+
+    /// Copies `[x, x + w) x [y, y + h)` of the display buffer into `out` (`w*4` bytes per row).
+    pub fn read_display(&mut self, x: i32, y: i32, w: i32, h: i32, out: &mut [u8]) -> bool {
+        let r = Rect::new(x, y, w, h);
+        if r.is_empty() || r != r.clamp(self.width, self.height) || out.len() < (w * h * 4) as usize
+        {
+            return false;
+        }
+        let gpu = self.take_impasto();
+        let display = gpu.display.clone();
+        self.impasto = Some(gpu);
+        self.read_region_into(&display, r, out, w as usize * 4, 0) && self.ok()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn shade_relief_into(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        light_azimuth_deg: f32,
+        light_elevation_deg: f32,
+        strength: f32,
+        to_display: bool,
+    ) -> bool {
         let region = Rect::new(x, y, w, h).clamp(self.width, self.height);
-        if region.is_empty() || strength <= 0.0 {
+        if region.is_empty() || (strength <= 0.0 && !to_display) {
             return self.ok();
         }
         // Reads and writes the layer itself: queued multipass work lands first.
@@ -232,11 +306,14 @@ impl Engine {
             light_y: azimuth.sin() * elevation.cos(),
             light_z: elevation.sin(),
             strength,
+            to_display: u32::from(to_display),
             ..self.params(region)
         };
         self.dispatch(&gpu, &gpu.shade, params, region);
         self.impasto = Some(gpu);
-        self.note_write(region);
+        if !to_display {
+            self.note_write(region);
+        }
         self.ok()
     }
 
@@ -255,7 +332,8 @@ impl Engine {
             light_y: 0.0,
             light_z: 0.0,
             strength: 0.0,
-            _pad: [0.0; 3],
+            to_display: 0,
+            _pad: [0.0; 2],
         }
     }
 
@@ -287,6 +365,10 @@ impl Engine {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: gpu.uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: gpu.display.as_entire_binding(),
                 },
             ],
         });

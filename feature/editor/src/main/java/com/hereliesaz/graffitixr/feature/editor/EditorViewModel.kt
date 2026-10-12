@@ -1048,6 +1048,12 @@ class EditorViewModel @Inject constructor(
     private var stampLiveMaterialState: ImpastoMaterialReplayState? = null
     private var stampLiveMaterialSelection: android.graphics.Region? = null
     private var stampLiveShadedBitmap: Bitmap? = null
+    /**
+     * Live Impasto v1 runs on the stroke's GPU engine: the height was uploaded at the stroke's start
+     * and each batch deposits and shades there (GpuImpastoDisplay), so the CPU height map above is
+     * not touched. False when the stroke isn't v1 Impasto on the GPU.
+     */
+    private var stampGpuImpastoHeight = false
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
@@ -4631,6 +4637,7 @@ class EditorViewModel @Inject constructor(
             stampLiveMaterialState = null
             stampLiveMaterialSelection = null
             stampLiveShadedBitmap = null
+            stampGpuImpastoHeight = false
             stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
@@ -4776,6 +4783,10 @@ class EditorViewModel @Inject constructor(
                     null
                 }
                 val shadedBitmapSeed = heightMapSeed?.let { SafeBitmap.copy(work) }
+                // Live Impasto v1 deposits and shades on the GPU: the stroke's starting height goes to
+                // its engine once, here.
+                val gpuImpastoHeight = gpuReady && heightMapSeed != null && !usesImpastoV2 &&
+                    gpuEngine?.uploadImpastoHeight(heightMapSeed) == true
                 // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
@@ -4823,6 +4834,7 @@ class EditorViewModel @Inject constructor(
                         synchronized(stampLiveLock) {
                             stampGpuEngine = if (gpuReady) gpuEngine else null
                             stampGpuSelection = gpuSelection
+                            stampGpuImpastoHeight = gpuImpastoHeight
                             stampGpuActive = gpuReady
                             stampGpuDirect = wgpuDirectStarted
                         }
@@ -5589,6 +5601,7 @@ class EditorViewModel @Inject constructor(
                             val secondaryMaskAlpha8: ByteArray?
                             val secondaryMaskSize: Int
                             val usesDirect: Boolean
+                            val gpuHeight: Boolean
                             synchronized(stampLiveLock) {
                                 if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
                                     return@launch
@@ -5614,6 +5627,7 @@ class EditorViewModel @Inject constructor(
                                 secondaryMaskAlpha8 = stampGpuSecondaryMaskAlpha8
                                 secondaryMaskSize = stampGpuSecondaryMaskSize
                                 usesDirect = stampGpuDirect
+                                gpuHeight = stampGpuImpastoHeight
                             }
                             val latencyIds = stampPendingLatencyIds.drain()
                             latencyIds.forEach { azphaltLatencyTracker.markSubmitted(it) }
@@ -5874,8 +5888,18 @@ class EditorViewModel @Inject constructor(
                 // does not run time/settling simulation per display batch -- batching depends on
                 // device cadence and would make canonical results hardware-dependent. Commit is
                 // authoritative for wet leveling; live shows contact height + wet gloss immediately.
-                if (brush.impastoThicknessRate > 0f && heightMap != null && shadedBitmap != null) {
-                    val impastoDabs = newDabs + newHeldDabs
+                val gpuImpastoDabs = newDabs + newHeldDabs
+                val cpuImpasto = !gpuHeight && brush.impastoThicknessRate > 0f
+                if (gpuHeight && shadedBitmap != null && gpuImpastoDabs.isNotEmpty()) {
+                    // Impasto v1 on the GPU: this batch's height lands on the engine and the touched
+                    // region is shaded into its display buffer, the layer staying the raw paint. A
+                    // failure leaves the colour painting and the preview's shading where it was;
+                    // the commit renders the stroke's relief in full either way.
+                    val shown = engine != null && gpuActive &&
+                        liveImpastoOnGpu(engine, brush, gpuImpastoDabs, shadedBitmap)
+                    if (!shown) synchronized(stampLiveLock) { stampGpuImpastoHeight = false }
+                } else if (cpuImpasto && heightMap != null && shadedBitmap != null) {
+                    val impastoDabs = gpuImpastoDabs
                     if (impastoDabs.isNotEmpty()) {
                         val config = brush.impastoMaterial.sanitized()
                         val incomingMedium = config.toMedium()
@@ -6824,6 +6848,30 @@ class EditorViewModel @Inject constructor(
         } finally {
             engine.destroy()
         }
+    }
+
+    /**
+     * Live Impasto v1 on [engine]: deposits [dabs]' height, shades their region (grown by one pixel,
+     * the normal's neighbours) into the display buffer and reads it into [shaded]. False on failure.
+     */
+    private fun liveImpastoOnGpu(
+        engine: GpuStampEngine,
+        brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+        dabs: List<Dab>,
+        shaded: Bitmap,
+    ): Boolean {
+        val touched = DirtyRegion.fromDabs(dabs)
+        val region = touched?.let { DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1) }
+            ?.clampTo(shaded.width, shaded.height)
+        val rect = region?.takeIf { !it.isEmpty }?.let { intArrayOf(it.left, it.top, it.width, it.height) }
+        val display = com.hereliesaz.graffitixr.nativebridge.GpuImpastoDisplay(engine)
+        return engine.depositImpastoHeight(
+            GpuImpastoStroke.flatHeightDabs(dabs), brush.hardness, brush.impastoThicknessRate,
+        ) && (
+            rect == null || display.shade(
+                rect, IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
+            ) && display.read(shaded, rect)
+            )
     }
 
     /** The rectangle [engine]'s stroke painted, null when the engine can't say. */
